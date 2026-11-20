@@ -312,10 +312,12 @@ recorded it ([internal/oracle](../internal/oracle/README.md)).
 ### resource store
 
 Where a runtime keeps the resources that steps write through the job API,
-such as the state of the stock client's `setState`. Every read finds them
+such as the [state](#state) of the stock client's `setState`. Every read finds them
 after the host's and the bundle's resources. A Go host sets it with `wl`'s
 `Options.ResourceStore`; the default keeps them in memory, a
-[deviation](#deviation) ([wl](../wl/README.md#the-resource-store)).
+[deviation](#deviation) ([wl](../wl/README.md#the-resource-store)), and
+the Redis store keeps them in Redis
+([Choosing a resource store](resource-stores.md)).
 
 ### root
 
@@ -391,6 +393,15 @@ The module that each bundler resolves imports of a
 the module, by name, from the process-wide registry that the [host](#host)
 or the [harness](#harness) fills, so every script shares one instance
 ([packaging ADR](design/0010-packaging.md#host-provided-modules)).
+
+### state
+
+A resource of type `state` that a step keeps between runs through the job
+API, as the stock client's `setState` and `getState` do. A runtime keeps it
+in its [resource store](#resource-store)
+([Choosing a resource store](resource-stores.md)).
+
+**Not:** module state, flow user state.
 
 ### step
 

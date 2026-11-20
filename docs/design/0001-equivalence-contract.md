@@ -1,7 +1,20 @@
-# 0001 · Equivalence contract
+# Equivalence contract
 
-**Status:** proposed · **Topic:** what windmill-lite promises to match, what it
+**Status:** Accepted · **Topic:** what windmill-lite promises to match, what it
 leaves out, and how unsettled findings are handled.
+
+windmill-lite promises to match every `core` [finding](../glossary.md#finding)
+under one reference configuration: a flow deployed successfully on Windmill
+CE `v1.862.0`, started by path as a root job, run with enough workers, and
+compared on a fixed set of observables. A known difference is an
+out-of-scope feature, a named [deviation](../glossary.md#deviation) or a
+restriction, any other difference is a bug, and a contested finding keeps a
+stated default until the [oracle](../glossary.md#oracle) records it or the
+pinned source settles it.
+
+**Not built yet:** running chosen steps or subflows on a real Windmill
+([Delegated](#4-delegated)), and the `later` findings that windmill-lite does not implement
+yet, such as steps in languages other than TypeScript for Bun.
 
 ## Context
 
@@ -62,16 +75,16 @@ needs (`oracle: {workers: n}`). Concretely:
   `DISABLE_FLOW_SCRIPT` can force, so neither half of the
   [CF-8](../semantics/control-flow.md#cf-8) dispute reaches it;
 - the reference Bun is `1.4.3`, the one windmill-lite pins for its builds,
-  harnesses and hosts ([0010](0010-packaging.md)). The CE `v1.862.0` image
+  harnesses and hosts ([packaging](0010-packaging.md)). The CE `v1.862.0` image
   runs Bun `1.4.4` ([WR-3](../semantics/languages.md#wr-3)), and the oracle
   records that image unmodified
-  ([0011](0011-differential-testing.md)); deviation D23 names the
+  ([differential testing](0011-differential-testing.md)); deviation D23 names the
   difference.
 
 ### 2. What is matched exactly
 
-Every `core` finding in the first release, and each `later` finding once the
-milestone that covers it lands ([0012](0012-layout-and-milestones.md)). The
+Every `core` finding in the first release, and each `later` finding once
+windmill-lite implements it. The
 table groups findings by area; the ranges include `later` findings, and the
 reference gives each finding's scope.
 
@@ -102,7 +115,8 @@ reference gives each finding's scope.
 **Normalised before comparison** ([OR-14](../semantics/oracle.md#or-14),
 [OR-V5](../semantics/oracle.md#or-v5)):
 
-- job ids, replaced by the typed site path of [0011](0011-differential-testing.md);
+- job ids, replaced by the typed site path of the
+  [differential testing](0011-differential-testing.md) record;
 - `stack` strings, only with runtime-error provenance;
 - the Rust location suffix ` @<file>.rs:<line>:<col>`, **only** in messages
   that Windmill itself generates, which windmill-lite cannot reproduce
@@ -130,17 +144,17 @@ those keys as a set.
 
 | Feature | What windmill-lite does | Findings |
 |---|---|---|
-| Durable `suspend`, approvals, resume | rejects the flow at load, unless every path to it passes through a mandatory host-provided call site ([0008](0008-host-hooks.md)) | FX-39 |
+| Durable `suspend`, approvals, resume | rejects the flow at load, unless every path to it passes through a mandatory host-provided call site ([host hooks](0008-host-hooks.md)) | FX-39 |
 | Workflow-as-code scripts | rejects at load | WA-33, WR-32 |
 | `aiagent` modules | rejects at load; an `ai` input transform on an ordinary step is left out of the arguments, as Windmill does | OF-9, FX-7, JE-47 |
 | Queues, worker tags, `priority`, concurrency limits, debouncing, `dedicated_worker` | decoded and ignored | FX-41, OF-16 |
-| The identity a flow runs as (`on_behalf_of_email`, and `on_behalf_of`, which the v1.862.0 schema adds) and the job token scopes of a step or an AI-agent tool (`job_token_scopes`, v1.862.0) | decoded and ignored: a step's job token is limited only to its workspace ([0007](0007-platform-interface.md)) | OF-16 |
+| The identity a flow runs as (`on_behalf_of_email`, and `on_behalf_of`, which the v1.862.0 schema adds) and the job token scopes of a step or an AI-agent tool (`job_token_scopes`, v1.862.0) | decoded and ignored: a step's job token is limited only to its workspace ([platform interface](0007-platform-interface.md)) | OF-16 |
 | A container (`forloopflow`, `whileloopflow`, `branchone`, `branchall`) as the failure module | the engine refuses the flow when it opens it, with `ErrUnsupported` (`a <kind> as the failure module (CF-31): not supported by the engine yet`). Windmill accepts it, but advances it with bookkeeping written for list positions: most such slots run their first child only, a parallel one hangs until the server's monitor cancels the flow, and some bodies never complete | [CF-31](../semantics/control-flow.md#cf-31) |
 | Job rows, logs as a contract, the UI | not provided; logs are captured for error tails only | WR-20 |
 | `delete_after_use`, `delete_after_secs` | no effect, as in CE's asynchronous flow worker, the one CE route windmill-lite reproduces; CE's synchronous script routes, which windmill-lite does not serve, blank a job at once for `delete_after_secs` 0 and only schedule a positive delay ([OR-21](../semantics/oracle.md#or-21)/c–d) | OR-21 |
 | Schedules, triggers, apps | recognised by the loader and skipped | SY-12 |
-| JSON-mode sync folders (`json: true`); and, until a later milestone, multi-file (`__mod`) scripts and file and fileset resources | rejected when the loader reads the item | SY-2, SY-10, SY-13 |
-| EE behaviour (codebase bundles server-side, dedicated workers, OIDC) | out unless observable on CE; see [0002](0002-ir-and-loader.md) for codebase scripts | WR-30, WR-36 |
+| JSON-mode sync folders (`json: true`); and, until windmill-lite supports them, multi-file (`__mod`) scripts and file and fileset resources | rejected when the loader reads the item | SY-2, SY-10, SY-13 |
+| EE behaviour (codebase bundles server-side, dedicated workers, OIDC) | out unless observable on CE; see [IR, loader and validation](0002-ir-and-loader.md) for codebase scripts | WR-30, WR-36 |
 
 A load rejection is an error of kind `unsupported_feature` naming the
 feature (`suspend`, `workflow_as_code`, `aiagent`), with the message
@@ -150,7 +164,7 @@ WA-33/c.
 ### 4. Delegated
 
 Steps or subflows a host chooses to run on a real Windmill
-([0007](0007-platform-interface.md)) follow Windmill's own behaviour; the
+([platform interface](0007-platform-interface.md)) follow Windmill's own behaviour; the
 contract covers how their outcome enters the local run, not what happens
 remotely.
 
@@ -214,7 +228,7 @@ them, and when the pin moves.
 - **`AsyncLocalStorage` and `WebSocket`:** on 1.4.3 a `WebSocket`'s event
   listeners do not run in the async context of the `new WebSocket()` call.
   In `warm` mode the harness attributes a step's work through that context
-  (D9; [0004](0004-harness-protocol.md)), so such a listener's environment
+  (D9; [harness protocol](0004-harness-protocol.md)), so such a listener's environment
   view and platform calls can lack their invocation.
 - **The `ws` module and the `WebSocket` client:** 1.4.4 rewrites `ws` as a
   port of `ws` 8.22.0, with a new closing handshake, close codes 1005 and
@@ -273,7 +287,14 @@ a runtime with its own store sees none of them. `TestRunCommand`
 (cmd/windmill-lite) shows a state that one `windmill-lite run` writes
 missing from the next.
 
-**D5, the native boundary mode** (milestone C3n). A native invocation runs
+The Redis store (`wl/redisstore`, `-resource-store redis`, the host SDK's
+`resourceStore: { kind: "redis", url }`) adds no deviation beyond
+durability, which Redis's configuration sets. Its entries outlive the
+runtime, and every runtime on the same Redis and key prefix sees them, so
+its runs do not list D24. `TestRunCommand` shows a state that one
+`windmill-lite run` writes on Redis read by the next, another process.
+
+**D5, the native boundary mode.** A native invocation runs
 in a `node:vm` context of the harness process, made for it and released
 when it settles, so its module state and globals never survive it, in any
 mode ([WR-41](../semantics/languages.md#wr-41)): D1 does not apply to it.
@@ -325,12 +346,13 @@ than missed.
   or a harness function. It is handed over as it is and counted on the
   invocation, and the count reaches the engine as a `native_untracked`
   warning ahead of the frame that settles it
-  ([0004](0004-harness-protocol.md)). One handed out in no invocation's
+  ([harness protocol](0004-harness-protocol.md)). One handed out in no invocation's
   context, or after its invocation settled, cannot be counted on it: it is
   a `native_untracked` warning to every invocation in flight, or a
   diagnostic line. A promise internal to a web API that is never handed
   over belongs to no invocation: a rejection of it nobody handles is an
-  unattributed error (0004's failure model, item 3).
+  unattributed error
+  ([failure model](0004-harness-protocol.md#the-shared-process-failure-model), item 3).
 
 The realm cannot keep:
 
@@ -390,7 +412,7 @@ The realm cannot keep:
 - result streaming ([WR-46](../semantics/languages.md#wr-46), `later`),
   which is not implemented.
 
-`fresh` mode ([0006](0006-module-state.md)) removes D1, D2, D9, D10, D11
+`fresh` mode ([module state](0006-module-state.md)) removes D1, D2, D9, D10, D11
 and D18: it runs one process per invocation, from the script's per-script
 bundle, in its own working directory, and kills it at the end, on timeout
 and on cancellation; the watchdog does not apply to it.
@@ -405,17 +427,17 @@ sees only the error its client library raises, and nothing is recorded.
 
 | Restriction | Error | Record |
 |---|---|---|
-| In a warm or host-mode harness, step code reaches the platform only through `fetch`; other transports (`node:http`, raw sockets) find no listener | the step's client gets "connection refused"; nothing is recorded, because the refusal carries no invocation | [0007](0007-platform-interface.md) |
-| A by-path target of a local dispatch (`runScript*`, `runFlow*`) must be a root of the bundle | the dispatching step fails with `UnsupportedPlatformCall`, `dispatch target not in bundle: <path>` | [0007](0007-platform-interface.md) |
-| A host-provided module must be an ES module that does not export a binding it reassigns (`export let` that changes); a CommonJS module, whose names are known only when it runs, is refused | build error `host_module_live_binding`, or `host_module_commonjs` | [0010](0010-packaging.md) |
-| A Bun script that Windmill's bundled mode cannot build, and so fails at every run: an import that resolves to no script of the folder, including one a `.ts` rewrite collision corrupted ([WR-28](../semantics/languages.md#wr-28), [WR-38](../semantics/languages.md#wr-38)). And scripts Windmill runs that the build refuses: an `//npm` script, which installs with npm; a bundle that emits a file besides its module (an asset through Bun's file loader); a source the build's TypeScript parser rejects (the deprecated `import … assert {}` form) | build error `bundle_failed`, `unsupported_feature` for `//npm`, or `parse_failed` | [0010](0010-packaging.md) |
-| Two codebase scripts may not extract different assets to the same relative path, or to paths that would not form one tree | build error `asset_collision` | [0002](0002-ir-and-loader.md) |
-| A codebase asset whose `to` is not a clean relative path (one that leaves the working directory), or whose source does not read; a codebase bundle with several output files (a `file` loader's output, a native add-on), whose upload layout is `later` ([WR-49](../semantics/languages.md#wr-49)); a codebase entry whose `format` is neither `cjs` nor `esm` | build error `invalid_asset`, `unsupported_feature`, or `bundle_failed` | [0002](0002-ir-and-loader.md), [0010](0010-packaging.md) |
-| A hook selector that names a module id occurring more than once in one module list must give the occurrence; a mandatory provided-site selector must match exactly one site | load error `ambiguous_selector` | [0008](0008-host-hooks.md) |
-| A codebase entry whose `customBundler` is set, since windmill-lite does not run its shell command as the bundler ([WR-48](../semantics/languages.md#wr-48)/a, `later`; a JavaScript-falsy value counts as unset); and a script with a `schema_validation` annotation, until the reference covers it | load error `unsupported_feature` | [0002](0002-ir-and-loader.md), [0009](0009-host-adapters.md) |
-| Sync folders the CLI pushes but the loader does not read as the CLI does ([SY-1](../semantics/openflow.md#sy-1), [SY-7](../semantics/openflow.md#sy-7), [SY-13](../semantics/openflow.md#sy-13)): a script file with a dot before its script extension (`f/my.dir/x.ts`), which the CLI renames by cutting its path there; an `!inline` or script-lock reference that leaves the sync root, and an absolute script-lock reference; a script, inline or lock file that is not UTF-8; a `wmill.yaml` glob outside the syntax that minimatch 9 and 10 read alike (extglobs, POSIX classes, `.` and `..` segments, some escapes, braces that do not expand, sequences that JavaScript would round); a `wmill.yaml` value of the wrong type; a file whose name is not UTF-8, which is skipped with a warning | load error `dotted_path`, `path_escape`, `invalid_text`, `unsupported_glob` or `invalid_config` | [0002](0002-ir-and-loader.md) |
-| YAML that the CLI's parser accepts but yamlx cannot read as the CLI does ([SY-9](../semantics/openflow.md#sy-9)): JavaScript-specific values (the tags `!!binary`, `!!timestamp`, `!!set`, `!!omap`, `!!pairs` and `!!merge`, collection keys), directives other than `%YAML 1.2`, a carriage return without a line feed (a line break only to a YAML 1.1 parser), anchor names that YAML 1.2 reads further, a `?` or `:` in a flow collection that the two parsers read as different indicators (`[?v]`, `[v:]`), aliases beyond an expansion bound, and some YAML 1.2 syntax the YAML 1.1 parser rejects (the `\/` escape) | load error `unsupported_yaml`, or the parser's `yaml_syntax` for its own rejections | [0002](0002-ir-and-loader.md) |
-| An update or a delete through the job API (`updateResourceValue`, `deleteResource`) of a resource that the host or the bundle provides: windmill-lite writes only the entries of its resource store, of type `state` | the call answers 501, `Not implemented in windmill-lite: POST /w/{ws}/resources/update_value/{path}: the resource is provided by the host or the bundle, which windmill-lite does not write` (`DELETE /w/{ws}/resources/delete/{path}` for a delete), which the 501 policy turns into the step's `UnsupportedPlatformCall` | [0007](0007-platform-interface.md) |
+| In a warm or host-mode harness, step code reaches the platform only through `fetch`; other transports (`node:http`, raw sockets) find no listener | the step's client gets "connection refused"; nothing is recorded, because the refusal carries no invocation | [Platform interface](0007-platform-interface.md) |
+| A by-path target of a local dispatch (`runScript*`, `runFlow*`) must be a root of the bundle | the dispatching step fails with `UnsupportedPlatformCall`, `dispatch target not in bundle: <path>` | [Platform interface](0007-platform-interface.md) |
+| A host-provided module must be an ES module that does not export a binding it reassigns (`export let` that changes); a CommonJS module, whose names are known only when it runs, is refused | build error `host_module_live_binding`, or `host_module_commonjs` | [Packaging](0010-packaging.md) |
+| A Bun script that Windmill's bundled mode cannot build, and so fails at every run: an import that resolves to no script of the folder, including one a `.ts` rewrite collision corrupted ([WR-28](../semantics/languages.md#wr-28), [WR-38](../semantics/languages.md#wr-38)). And scripts Windmill runs that the build refuses: an `//npm` script, which installs with npm; a bundle that emits a file besides its module (an asset through Bun's file loader); a source the build's TypeScript parser rejects (the deprecated `import … assert {}` form) | build error `bundle_failed`, `unsupported_feature` for `//npm`, or `parse_failed` | [Packaging](0010-packaging.md) |
+| Two codebase scripts may not extract different assets to the same relative path, or to paths that would not form one tree | build error `asset_collision` | [IR, loader and validation](0002-ir-and-loader.md) |
+| A codebase asset whose `to` is not a clean relative path (one that leaves the working directory), or whose source does not read; a codebase bundle with several output files (a `file` loader's output, a native add-on), whose upload layout is `later` ([WR-49](../semantics/languages.md#wr-49)); a codebase entry whose `format` is neither `cjs` nor `esm` | build error `invalid_asset`, `unsupported_feature`, or `bundle_failed` | [IR, loader and validation](0002-ir-and-loader.md), [Packaging](0010-packaging.md) |
+| A hook selector that names a module id occurring more than once in one module list must give the occurrence; a mandatory provided-site selector must match exactly one site | load error `ambiguous_selector` | [Host hooks](0008-host-hooks.md) |
+| A codebase entry whose `customBundler` is set, since windmill-lite does not run its shell command as the bundler ([WR-48](../semantics/languages.md#wr-48)/a, `later`; a JavaScript-falsy value counts as unset); and a script with a `schema_validation` annotation, until the reference covers it | load error `unsupported_feature` | [IR, loader and validation](0002-ir-and-loader.md), [Host adapters](0009-host-adapters.md) |
+| Sync folders the CLI pushes but the loader does not read as the CLI does ([SY-1](../semantics/openflow.md#sy-1), [SY-7](../semantics/openflow.md#sy-7), [SY-13](../semantics/openflow.md#sy-13)): a script file with a dot before its script extension (`f/my.dir/x.ts`), which the CLI renames by cutting its path there; an `!inline` or script-lock reference that leaves the sync root, and an absolute script-lock reference; a script, inline or lock file that is not UTF-8; a `wmill.yaml` glob outside the syntax that minimatch 9 and 10 read alike (extglobs, POSIX classes, `.` and `..` segments, some escapes, braces that do not expand, sequences that JavaScript would round); a `wmill.yaml` value of the wrong type; a file whose name is not UTF-8, which is skipped with a warning | load error `dotted_path`, `path_escape`, `invalid_text`, `unsupported_glob` or `invalid_config` | [IR, loader and validation](0002-ir-and-loader.md) |
+| YAML that the CLI's parser accepts but yamlx cannot read as the CLI does ([SY-9](../semantics/openflow.md#sy-9)): JavaScript-specific values (the tags `!!binary`, `!!timestamp`, `!!set`, `!!omap`, `!!pairs` and `!!merge`, collection keys), directives other than `%YAML 1.2`, a carriage return without a line feed (a line break only to a YAML 1.1 parser), anchor names that YAML 1.2 reads further, a `?` or `:` in a flow collection that the two parsers read as different indicators (`[?v]`, `[v:]`), aliases beyond an expansion bound, and some YAML 1.2 syntax the YAML 1.1 parser rejects (the `\/` escape) | load error `unsupported_yaml`, or the parser's `yaml_syntax` for its own rejections | [IR, loader and validation](0002-ir-and-loader.md) |
+| An update or a delete through the job API (`updateResourceValue`, `deleteResource`) of a resource that the host or the bundle provides: windmill-lite writes only the entries of its resource store, of type `state` | the call answers 501, `Not implemented in windmill-lite: POST /w/{ws}/resources/update_value/{path}: the resource is provided by the host or the bundle, which windmill-lite does not write` (`DELETE /w/{ws}/resources/delete/{path}` for a delete), which the 501 policy turns into the step's `UnsupportedPlatformCall` | [Platform interface](0007-platform-interface.md) |
 
 Anything not in this table and not out of scope is a bug when it differs.
 
@@ -424,8 +446,8 @@ Anything not in this table and not out of scope is a bug when it differs.
 Every contested finding in this table can be recorded on the CE oracle,
 which public CI may run, so none of them gets a permanent switch. Instead:
 
-1. Recordings are made in **batches, one per consumer** (milestones E3a to
-   E3f in [0012](0012-layout-and-milestones.md)): each contested rule's
+1. Recordings are made in **batches, one per consumer** (the recording
+   batches of [layout and milestones](0012-layout-and-milestones.md)): each contested rule's
    discriminating cases are recorded in the batch that gates the milestone
    implementing that rule, as the last column says.
 2. Until a case is recorded, the implementation follows the default below,
@@ -440,21 +462,21 @@ switch through a change to this record, naming the reason.
 
 | Finding | Readings | Default until recorded, and why | Settled by | Recorded in, gating |
 |---|---|---|---|---|
-| [FX-10](../semantics/execution.md#fx-10) / [FX-V6](../semantics/execution.md#fx-v6) | engine reads the preceding result from memory when (a) a literal preceding-id spelling appears, or (b) any binding trigger applies (`previous_result`, a spelling, or `error`) | **recorded: (b)**, the default, which agrees with the confirmed binding rule [JE-10](../semantics/expressions.md#je-10). In FX-V6/a's handler `results[flow_input.target]` read the stored `3` and `previous_result && results[flow_input.target]` the in-memory `EarlyStopError` (fixture `conformance/flows/execution/fx-v6`, oracle run 40685766017). Without a failure module, `previous_result && Object.keys(await results[k])` and `typeof error && …` read the preceding result from memory and a bare computed read reads storage (run `memory_or_storage` of [`execution/fx-10`](../../conformance/flows/execution/fx-10), oracle run 40685013818) | Q-FX-15, case FX-V6/a | E3c in a failure handler (recorded), gating N1b; E3b without one (recorded), gating N1a |
-| [CF-19](../semantics/control-flow.md#cf-19) / [CF-V6](../semantics/control-flow.md#cf-v6) / FX-10 route 2 | direct `results` lookup when (a) the whole expression matches, or (b) the first qualifying line matches | **Recorded: (b).** CF-V6/a (`results.a`, a newline, `+ 100`, with `a` returning 7) gives 7 on the oracle, and its single-line control CF-V6/b gives 107; JE-9/g to JE-9/i agree. The default was (b), so nothing changes | Q-CF-16, cases CF-V6/a,b (oracle run 40687124625) | E3a, gating B2a and B2b |
-| [FX-33](../semantics/execution.md#fx-33) | failure-module recovery from (a) an object only, or (b) an object or a one-element positional array | **recorded: (b)**, the default. A successful handler returning `[true]` made the flow succeed with result `[true]`; `[false]`, `[null]`, `[]`, `[true,false]` and `{"recover":"true"}` left it failed, and `{"recover":true,…}` recovered (fixture `conformance/flows/execution/fx-33`, oracle run 40685766017) | Q-FX-19, cases FX-33/c–g | E3c (recorded), gating N1b |
+| [FX-10](../semantics/execution.md#fx-10) / [FX-V6](../semantics/execution.md#fx-v6) | engine reads the preceding result from memory when (a) a literal preceding-id spelling appears, or (b) any binding trigger applies (`previous_result`, a spelling, or `error`) | **recorded: (b)**, the default, which agrees with the confirmed binding rule [JE-10](../semantics/expressions.md#je-10). In FX-V6/a's handler `results[flow_input.target]` read the stored `3` and `previous_result && results[flow_input.target]` the in-memory `EarlyStopError` (fixture `conformance/flows/execution/fx-v6`, oracle run 40685766017). Without a failure module, `previous_result && Object.keys(await results[k])` and `typeof error && …` read the preceding result from memory and a bare computed read reads storage (run `memory_or_storage` of [`execution/fx-10`](../../conformance/flows/execution/fx-10), oracle run 40685013818) | Q-FX-15, case FX-V6/a | the FX errors batch in a failure handler (recorded), gating the engine's error handling; the FX core batch without one (recorded), gating the sequential engine core |
+| [CF-19](../semantics/control-flow.md#cf-19) / [CF-V6](../semantics/control-flow.md#cf-v6) / FX-10 route 2 | direct `results` lookup when (a) the whole expression matches, or (b) the first qualifying line matches | **Recorded: (b).** CF-V6/a (`results.a`, a newline, `+ 100`, with `a` returning 7) gives 7 on the oracle, and its single-line control CF-V6/b gives 107; JE-9/g to JE-9/i agree. The default was (b), so nothing changes | Q-CF-16, cases CF-V6/a,b (oracle run 40687124625) | the JE batch, gating the textual expression pipeline and the expression pipeline on the real engine |
+| [FX-33](../semantics/execution.md#fx-33) | failure-module recovery from (a) an object only, or (b) an object or a one-element positional array | **recorded: (b)**, the default. A successful handler returning `[true]` made the flow succeed with result `[true]`; `[false]`, `[null]`, `[]`, `[true,false]` and `{"recover":"true"}` left it failed, and `{"recover":true,…}` recovered (fixture `conformance/flows/execution/fx-33`, oracle run 40685766017) | Q-FX-19, cases FX-33/c–g | the FX errors batch (recorded), gating the engine's error handling |
 | [FX-34](../semantics/execution.md#fx-34) / [FX-32](../semantics/execution.md#fx-32) | a failure module copied into an inline body has (a) its id suffixed with the parent cursor and the iteration or branch, in its status and in `WM_FLOW_STEP_ID`, or (b) its own id | **recorded: (b)** for a deployed flow: the deploy stores each body as a flow node with a copy of the failure module under its own id. In a loop at cursor 1 whose two iterations fail, both copies reported `WM_FLOW_STEP_ID` `failure` (fixture `conformance/flows/execution/fx-34`, run `step_id`, oracle run 40689442792). Only a body built at run time from raw modules gets the suffix of (a), and windmill-lite runs no raw submissions (§1) | run `fx-34/step_id` | recorded |
-| [CF-12](../semantics/control-flow.md#cf-12) | after a sequential loop breaks on an unhandled error stop with `skip_failures: false`, the flow (a) continues, or (b) fails without running the next step | **recorded: (b).** The loop fails with the array ending in the `EarlyStopError`, the flow fails with that array, and the next step does not run; with `skip_failures: true` the loop succeeds and the flow continues | Q-CF-14, cases CF-12/c and CF-12/f | E3d (`conformance/flows/control-flow/cf-12`, runs `c-fail` and `f`), gating N3a and N3b |
-| [FX-42](../semantics/execution.md#fx-42) | `$jsonvar:` output keeps (a) its text, or (b) its insertion order with numbers re-serialised | (b). The readings differ only in number spelling, which a JavaScript consumer cannot see; the difference matters for Python (`later`). **Recorded (b)**, first in oracle run 40685013818 and committed from run 40686049913: the arguments file keeps the variable's key order and writes values re-serialised (`1e3` as `1000.0`, `1e21` as `1e+21`, an integer that fits in an unsigned 64-bit integer exact, escapes decoded, no spaces) (run `args_file` of [`execution/fx-42`](../../conformance/flows/execution/fx-42)) | Q-FX-16, case FX-42/h | E3b (recorded), gating PF2, which passes both runs: its resolver writes that spelling into the arguments file (`platform.ResolveArgs`, `args.json`) |
+| [CF-12](../semantics/control-flow.md#cf-12) | after a sequential loop breaks on an unhandled error stop with `skip_failures: false`, the flow (a) continues, or (b) fails without running the next step | **recorded: (b).** The loop fails with the array ending in the `EarlyStopError`, the flow fails with that array, and the next step does not run; with `skip_failures: true` the loop succeeds and the flow continues | Q-CF-14, cases CF-12/c and CF-12/f | the CF batch (`conformance/flows/control-flow/cf-12`, runs `c-fail` and `f`), gating for loops, while loops and branches |
+| [FX-42](../semantics/execution.md#fx-42) | `$jsonvar:` output keeps (a) its text, or (b) its insertion order with numbers re-serialised | (b). The readings differ only in number spelling, which a JavaScript consumer cannot see; the difference matters for Python (`later`). **Recorded (b)**, first in oracle run 40685013818 and committed from run 40686049913: the arguments file keeps the variable's key order and writes values re-serialised (`1e3` as `1000.0`, `1e21` as `1e+21`, an integer that fits in an unsigned 64-bit integer exact, escapes decoded, no spaces) (run `args_file` of [`execution/fx-42`](../../conformance/flows/execution/fx-42)) | Q-FX-16, case FX-42/h | the FX core batch (recorded), gating resources, variables and the interpolation walker, which pass both runs: the resolver writes that spelling into the arguments file (`platform.ResolveArgs`, `args.json`) |
 | [OF-3](../semantics/openflow.md#of-3) / [OF-V5](../semantics/openflow.md#of-v5) | one or two form selections | not applicable: both readings agree on the successful lite deployment, which is the reference configuration | Q-OF-11 | none needed |
-| [CF-8](../semantics/control-flow.md#cf-8) | how far the raw-submission no-collapse rule reaches, and whether the stored form actually selected (lite or full) decides nested collapse | not applicable: windmill-lite never runs raw submissions and always reads the lite form (§1). The by-path halves of CF-8/a–c, which both readings agree on, are recorded (E3d), with the nested body's job kind `flownode` | Q-CF-15 | none needed |
-| [FX-49](../semantics/execution.md#fx-49) (`later`) | a cursor-0 `skip_expr` that turns true mid-run (a) is left open, or (b) emits a stop | **recorded: (b)**, the default. A sequential loop at module 0 whose first iteration flips the expression to true stops after that iteration, and the flow completes normally with `[1]`, with a collapsed and with a two-step body; an expression that throws at the second start phase fails the flow with a chaining `InternalError`, the loop left canceled with its module in progress (fixture `conformance/flows/execution/fx-49`, oracle run 40794872025) | Q-FX-11, case FX-49/a | E3e (recorded), gating the `later` milestone (L1) that implements `skip_expr` |
-| [FX-40](../semantics/execution.md#fx-40) | collapsed iterations (a) never, or (b) can share cache entries | **recorded: (b).** Two collapsed iterations with identical arguments share an entry for an inline rawscript body (with or without an explicit `path`) under the loop's `cache_ttl`, and for an unhashed by-path script with its own `cache_ttl`. The inline body runs as `flowscript` jobs whose paths end in `/loop-<index>` but which carry one script hash, so the key does not follow the path; the correction expected a rawscript without a path not to share. A body pinned by hash shares under the loop's `cache_ttl`, and a pinned script's own `cache_ttl` is dropped | Q-FX-17, case FX-40/d | E3d (`conformance/flows/execution/fx-40`, runs `d-raw`, `d-raw-path` and `d-script`; `conformance/flows/execution/fx-40-hash`, runs `d-hash` and `d-hash-script-ttl`), gating N4 |
-| [JE-11](../semantics/expressions.md#je-11) (`later`), text that is not ASCII | the call rewrite counts its parenthesis's position in characters and applies it as a byte offset; where that offset falls inside a character Windmill's evaluator panics, and the job then (a) fails with some error, or (b) is lost or retried with the worker | **settled from the source (a), 2026-10-29:** the count starts at the call, and the runtime catches the panic, so the evaluation fails at once with the runtime's report, `task <n> panicked with message "assertion failed: self.is_char_boundary(idx)"`, routed like any evaluation error of its site. windmill-lite reproduces the early parenthesis and that text, its own task number in place of `<n>` (`expr.ErrRewritePanic`, milestone FU6; FU3 had failed it with its own text and counted from the start of the text) | Q-JE-13 (the source answers it; JE-11/b–e await a recording) | E3e did not record it, gating no milestone |
-| [FX-36](../semantics/execution.md#fx-36) (HTTP part `later`) | array results decoded positionally as response metadata, or not | **recorded: not decoded.** On CE v1.862.0 run-and-wait answers `[201, null, null, null, 7]` with HTTP 200 and the whole array as the JSON body: only an object is read as metadata (run `array`, oracle run 42299716256). CE v1.767.0 decoded it positionally, HTTP 201 with the body `7` (oracle run 40798097155). FX-36/a–g hold as written, the bodies in jsonb's text output, so FX-36/b's members come in jsonb order (fixture `conformance/flows/execution/fx-36-http`, oracle runs 40794872025 and 40798097155) | Q-FX-12 | E3e (recorded), gating F7b |
-| [WR-16](../semantics/languages.md#wr-16), [WR-28](../semantics/languages.md#wr-28) (`later` parts) | stream classification; dynamic-import rewrite reach | **recorded: the corrected readings.** A custom `replace` value goes through string `+` (WR-16/f gives `"7"`) and every printed line is classified on its own (WR-16/g gives `"ab"`); a static import's rewrite also rewrites a different dynamic specifier that contains it, which is then fetched from the workspace (WR-28/e). A script whose only import of a relative path is dynamic cannot be deployed: the dependency job takes the specifier for an npm package (WR-28/d, deferred). Fixtures `conformance/flows/languages/wr-16`, `wr-28` | Q-WR-15, Q-WR-16 | E3e (recorded), gating the `later` milestones (L1) for them |
-| [OR-11](../semantics/oracle.md#or-11), [OR-14](../semantics/oracle.md#or-14), [OR-V3](../semantics/oracle.md#or-v3), [OR-V8](../semantics/oracle.md#or-v8) | identity encoding for compared steps | **recorded: the typed site paths** of [0011](0011-differential-testing.md): `m:<id>` for a module, with `~<k>` when an id repeats in one list, `s:failure` and `s:preprocessor` for the special slots, and `%`, `/`, `:` and `~` in a value percent-escaped. On the oracle (`oracle/colliding-ids`, runs 41000318656 and 41007241030), each colliding pair stayed two records and two placeholders: a step `failure` beside a failure module (`m:failure`, `s:failure`), a step `preprocessor` beside a preprocessor, and the ids `a/b` and `a%2Fb` (`m:a%2Fb`, `m:a%252Fb`) | Q-OR-17 | recorded; the site-path tests of `internal/conformance` (`sitepath_test.go`) |
-| [OR-15](../semantics/oracle.md#or-15), [OR-V9](../semantics/oracle.md#or-v9) | whether the probe catalogue fills the fixture format | **recorded:** the catalogue is rebuilt as executable fixtures (`conformance/flows/oracle/`) and reproduces the recorded results with its bindings written out: `loop_seq_multi` gives `["a12","b12"]` with `flow_input.iter.value`, and its literal bare `iter.value` fails with `iter is not defined` (OR-V9/a, OR-V9/b); `branchone` and `loop_par` reproduce theirs with `flow_input.n` and `flow_input.iter.value` (OR-V9/c, OR-V9/d). Its recordings and raw captures retain the tree and the observations | Q-OR-16 | E3e (recorded) |
+| [CF-8](../semantics/control-flow.md#cf-8) | how far the raw-submission no-collapse rule reaches, and whether the stored form actually selected (lite or full) decides nested collapse | not applicable: windmill-lite never runs raw submissions and always reads the lite form (§1). The by-path halves of CF-8/a–c, which both readings agree on, are recorded (the CF batch), with the nested body's job kind `flownode` | Q-CF-15 | none needed |
+| [FX-49](../semantics/execution.md#fx-49) (`later`) | a cursor-0 `skip_expr` that turns true mid-run (a) is left open, or (b) emits a stop | **recorded: (b)**, the default. A sequential loop at module 0 whose first iteration flips the expression to true stops after that iteration, and the flow completes normally with `[1]`, with a collapsed and with a two-step body; an expression that throws at the second start phase fails the flow with a chaining `InternalError`, the loop left canceled with its module in progress (fixture `conformance/flows/execution/fx-49`, oracle run 40794872025) | Q-FX-11, case FX-49/a | the batch of the remaining recordings (recorded), gating the `later` milestone that implements `skip_expr` |
+| [FX-40](../semantics/execution.md#fx-40) | collapsed iterations (a) never, or (b) can share cache entries | **recorded: (b).** Two collapsed iterations with identical arguments share an entry for an inline rawscript body (with or without an explicit `path`) under the loop's `cache_ttl`, and for an unhashed by-path script with its own `cache_ttl`. The inline body runs as `flowscript` jobs whose paths end in `/loop-<index>` but which carry one script hash, so the key does not follow the path; the correction expected a rawscript without a path not to share. A body pinned by hash shares under the loop's `cache_ttl`, and a pinned script's own `cache_ttl` is dropped | Q-FX-17, case FX-40/d | the CF batch (`conformance/flows/execution/fx-40`, runs `d-raw`, `d-raw-path` and `d-script`; `conformance/flows/execution/fx-40-hash`, runs `d-hash` and `d-hash-script-ttl`), gating the `cache_ttl` result cache |
+| [JE-11](../semantics/expressions.md#je-11) (`later`), text that is not ASCII | the call rewrite counts its parenthesis's position in characters and applies it as a byte offset; where that offset falls inside a character Windmill's evaluator panics, and the job then (a) fails with some error, or (b) is lost or retried with the worker | **settled from the source (a), 2026-10-29:** the count starts at the call, and the runtime catches the panic, so the evaluation fails at once with the runtime's report, `task <n> panicked with message "assertion failed: self.is_char_boundary(idx)"`, routed like any evaluation error of its site. windmill-lite reproduces the early parenthesis and that text, its own task number in place of `<n>` (`expr.ErrRewritePanic`; an earlier version had failed it with its own text and counted from the start of the text) | Q-JE-13 (the source answers it; JE-11/b–e await a recording) | the batch of the remaining recordings did not record it, gating no milestone |
+| [FX-36](../semantics/execution.md#fx-36) (HTTP part `later`) | array results decoded positionally as response metadata, or not | **recorded: not decoded.** On CE v1.862.0 run-and-wait answers `[201, null, null, null, 7]` with HTTP 200 and the whole array as the JSON body: only an object is read as metadata (run `array`, oracle run 42299716256). CE v1.767.0 decoded it positionally, HTTP 201 with the body `7` (oracle run 40798097155). FX-36/a–g hold as written, the bodies in jsonb's text output, so FX-36/b's members come in jsonb order (fixture `conformance/flows/execution/fx-36-http`, oracle runs 40794872025 and 40798097155) | Q-FX-12 | the batch of the remaining recordings (recorded), gating the HTTP adapter |
+| [WR-16](../semantics/languages.md#wr-16), [WR-28](../semantics/languages.md#wr-28) (`later` parts) | stream classification; dynamic-import rewrite reach | **recorded: the corrected readings.** A custom `replace` value goes through string `+` (WR-16/f gives `"7"`) and every printed line is classified on its own (WR-16/g gives `"ab"`); a static import's rewrite also rewrites a different dynamic specifier that contains it, which is then fetched from the workspace (WR-28/e). A script whose only import of a relative path is dynamic cannot be deployed: the dependency job takes the specifier for an npm package (WR-28/d, deferred). Fixtures `conformance/flows/languages/wr-16`, `wr-28` | Q-WR-15, Q-WR-16 | the batch of the remaining recordings (recorded), gating the `later` milestones for them |
+| [OR-11](../semantics/oracle.md#or-11), [OR-14](../semantics/oracle.md#or-14), [OR-V3](../semantics/oracle.md#or-v3), [OR-V8](../semantics/oracle.md#or-v8) | identity encoding for compared steps | **recorded: the typed site paths** of the [differential testing](0011-differential-testing.md) record: `m:<id>` for a module, with `~<k>` when an id repeats in one list, `s:failure` and `s:preprocessor` for the special slots, and `%`, `/`, `:` and `~` in a value percent-escaped. On the oracle (`oracle/colliding-ids`, runs 41000318656 and 41007241030), each colliding pair stayed two records and two placeholders: a step `failure` beside a failure module (`m:failure`, `s:failure`), a step `preprocessor` beside a preprocessor, and the ids `a/b` and `a%2Fb` (`m:a%2Fb`, `m:a%252Fb`) | Q-OR-17 | recorded; the site-path tests of `internal/conformance` (`sitepath_test.go`) |
+| [OR-15](../semantics/oracle.md#or-15), [OR-V9](../semantics/oracle.md#or-v9) | whether the probe catalogue fills the fixture format | **recorded:** the catalogue is rebuilt as executable fixtures (`conformance/flows/oracle/`) and reproduces the recorded results with its bindings written out: `loop_seq_multi` gives `["a12","b12"]` with `flow_input.iter.value`, and its literal bare `iter.value` fails with `iter is not defined` (OR-V9/a, OR-V9/b); `branchone` and `loop_par` reproduce theirs with `flow_input.n` and `flow_input.iter.value` (OR-V9/c, OR-V9/d). Its recordings and raw captures retain the tree and the observations | Q-OR-16 | the batch of the remaining recordings (recorded) |
 
 ### 7. Policy questions the reference left to the design
 
@@ -463,11 +485,11 @@ switch through a change to this record, naming the reason.
 | [Q-CF-12](../semantics/control-flow.md#q-cf-12): a subflow can read its caller's `results.<id>` | Match it. The contract is exact semantics, and flows may rely on the leak without knowing. |
 | [Q-CF-13](../semantics/control-flow.md#q-cf-13): absent container fields | Apply the deployed defaults. A `strict` build option rejects absent skip flags instead, for authors who want the folder to say what runs. |
 | [Q-WR-17](../semantics/languages.md#q-wr-17): `.ts` rewrite collisions | Reproduce them: the rewrite is textual and cheap to copy, and a script that fails to build on Windmill must fail here too. |
-| [Q-WR-18](../semantics/languages.md#q-wr-18): layer-specific jsonb order at the step boundary | Emulate it ([0005](0005-json-step-boundaries.md)). |
-| [Q-WR-19](../semantics/languages.md#q-wr-19): module state | [0006](0006-module-state.md). |
+| [Q-WR-18](../semantics/languages.md#q-wr-18): layer-specific jsonb order at the step boundary | Emulate it ([JSON at step boundaries](0005-json-step-boundaries.md)). |
+| [Q-WR-19](../semantics/languages.md#q-wr-19): module state | [Module state](0006-module-state.md). |
 | [Q-FX-13](../semantics/execution.md#q-fx-13): how much error text to match | All of it, except the Rust location suffix and stacks. |
 | [Q-WA-9](../semantics/client-api.md#q-wa-9): secret masking in logs | Not in the first release: windmill-lite keeps no log store, and logs are not part of the contract. Hosts that forward logs own their masking. |
-| [Q-WA-11](../semantics/client-api.md#q-wa-11): unsupported platform calls | Fail by default with `UnsupportedPlatformCall`; an `observe` mode keeps stock client behaviour for oracle comparison ([0007](0007-platform-interface.md)). |
+| [Q-WA-11](../semantics/client-api.md#q-wa-11): unsupported platform calls | Fail by default with `UnsupportedPlatformCall`; an `observe` mode keeps stock client behaviour for oracle comparison ([platform interface](0007-platform-interface.md)). |
 | [JE-2](../semantics/expressions.md#je-2) (`later`): runaway expressions | Keep the message, the 20 s limit and the three attempts with 5 s pauses; interrupting an attempt at the limit is deviation D8. Reproduce the zombie-flow monitor: a started flow (its first module no longer waits), or a same-worker one, whose transition spends `FLOW_ZOMBIE_TRANSITION_TIMEOUT` (60 s, the engine's `TransitionTimeout`) evaluating expressions is canceled by `monitor`. Any other flow is requeued, which does not stop the evaluation, so its attempts end in the timeout error. Hooks and waits do not count: Windmill has no hooks and schedules waits as jobs. |
 | [FX-26](../semantics/execution.md#fx-26): retry arithmetic | Emulate the unsigned 16-bit wrap, saturate and cap steps exactly; the random source is injectable so tests can fix jitter. |
 
@@ -482,119 +504,129 @@ switch through a change to this record, naming the reason.
   it is running, and `fresh` mode turns five of them off (D1, D2, D9 to D11).
 - Contested rules are settled by recording, early, so the engine is built
   against observed behaviour rather than kept with two readings.
-- Milestone K1 corrected the §5a preamble. It had said every restriction
-  fails "with a named error", but the `fetch`-only restriction raises no
-  windmill-lite error at all, and two restrictions fail at build rather than
-  at load. The preamble now says so; the table is unchanged.
-- §5a gained the YAML restriction when milestone A2 implemented the dialect
-  of [0002](0002-ir-and-loader.md): a few YAML constructs the CLI accepts
-  cannot be read as the CLI reads them over a YAML 1.1 parser, so they fail
-  at load instead of parsing differently.
-- §5a gained the sync-folder restriction, and §3 the JSON-mode and `later`
-  sync-folder rows, when milestone A4 implemented the loader of
-  [0002](0002-ir-and-loader.md).
-- §5a gained the bundling restriction when milestone C2a implemented the Bun
-  build of [0010](0010-packaging.md): windmill-lite bundles before any run,
-  so a script whose bundle Windmill's worker would fail to build (and fail
-  the job with `exit code for "bun build"`) fails the build instead; an
-  `//npm` script, a bundle with an extra output file and a source the
-  build's parser rejects are refused there.
-- Recording batch E3c recorded the two contested rules of §6 that it gates,
-  Q-FX-15 (FX-10/FX-V6) and Q-FX-19 (FX-33). Both recordings agree with the
-  stated default (b), so that default is now recorded behaviour. No engine
-  function changes, because none exists yet: N1b implements both rules
-  against these recordings. E3c's recordings also contradict one confirmed
-  finding: a failure module copied into an inline body keeps its own id,
-  in its status and in `WM_FLOW_STEP_ID`, where FX-34 and FX-32 say it is
-  suffixed. §6 now lists it with the recorded behaviour, which the engine
-  implements (N1b runs a top-level failure module with its own id; its
-  copy inside a body comes with bodies, in N3c); the correction is asked
-  of the semantics team
-  ([README](README.md), request 5).
-- Recording batch E3b settled Q-FX-16 and recorded the handler-free half of
-  Q-FX-15 on the oracle. Both recordings agreed with the defaults in §6, so
-  no default changed, and no implementation of either rule existed yet to
-  change. The case tags in the reference stay with the semantics team,
-  which the batch's pull request asks to mark the recorded cases
-  `oracle-observed`.
-- Recording batch E3d recorded CF-2 to CF-15 and FX-40 on the CE oracle
-  (`conformance/flows/control-flow`, `conformance/flows/execution/fx-40`).
-  It settled two rows of §6 on reading (b), the defaults they already had,
-  so no engine function changes: CF-12 (Q-CF-14) and FX-40 (Q-FX-17, where
-  the oracle also showed sharing for a rawscript without a path). The
-  catalogue's provenance tags and the tracking questions are the semantics
-  team's to update. The recordings confirm §1's deployed defaults from both
-  sides. CF-6/a and CF-15/a are pushed through the API with the fields
-  absent (`conformance/flows/control-flow/cf-6`, `cf-15`); the API answers
-  with them filled once the dependency job has succeeded, and the flows run
-  with the defaults. The published CLI's `generate-metadata` writes the same
-  defaults (`skip_failures`, `parallel`, a branch's `skip_failure`,
-  `parallel` and `expr`) into `flow.yaml`, so a folder that has been
-  through it carries them explicitly. Each such recording's provenance
-  holds the three values.
-- Milestone C3b narrowed D9 with the settle-time fence (the anchor's
-  decision of 2026-10-28). Before it, a warm process let every timer and
-  request of a settled invocation run on. Now the harness revokes what it
-  can attribute to the invocation (timers, `fetch`-view requests, log
-  writes, platform calls) when the invocation settles. It reports what it
-  revoked in a `left_behind` warning, so the conformance and differential
-  suites flag a script that leaves work behind. The fence never touches
-  sockets or shared objects: a pooled client makes its connections and
-  maintenance timers in the process scope it captured, and a step
-  module's top-level code is module state (D1), so neither is fenced
-  ([0004](0004-harness-protocol.md), failure model item 4 and loading).
-  Cases `D9/error-after-result` and `D11/exit-after-result` now expect, in
-  `warm` too, that the timer never fires.
-- Recording batch E3a settled the CF-19 / CF-V6 row of §6 on the oracle:
-  the direct lookup is line-anchored, which confirms the default. Its cases are
-  `conformance/flows/cf/cf-19` and the expression cases of
-  `conformance/exprs`. The batch also recorded behaviour that differs from
-  the reference's source-derived expectations without touching a contested
-  rule (the JE-48 stack bracket, the final `sleep` of JE-28/c, the JE-35/b
-  envelope, the JE-2/a timeout); those cases now expect what the oracle did,
-  and the differences are asked of the semantics team ([README](README.md),
-  request 7).
+- The preamble of §5a says where each restriction fails: at build, at load
+  or at the call. The `fetch`-only restriction raises no windmill-lite error
+  at all, so the step sees only the error its client library raises.
+- §5a holds the YAML restriction of the dialect of
+  [IR, loader and validation](0002-ir-and-loader.md). A few YAML constructs
+  that the CLI accepts cannot be read as the CLI reads them over a YAML 1.1
+  parser, so they fail at load instead of parsing differently.
+- §5a holds the sync-folder restriction, and §3 the JSON-mode and `later`
+  sync-folder rows, of the loader of
+  [IR, loader and validation](0002-ir-and-loader.md).
+- §5a holds the bundling restriction of the Bun build of
+  [packaging](0010-packaging.md). windmill-lite bundles before any run, so a
+  script whose bundle Windmill's worker would fail to build (and fail the job
+  with `exit code for "bun build"`) fails the build instead. An `//npm`
+  script, a bundle with an extra output file and a source that the build's
+  parser rejects are refused there.
+- The oracle's recordings agree with the stated defaults of two contested
+  rules, and the engine implements both. In a failure handler, the engine
+  reads the preceding result from memory when any binding trigger applies
+  ([Q-FX-15](../semantics/execution.md#q-fx-15), for [FX-10](../semantics/execution.md#fx-10) and [FX-V6](../semantics/execution.md#fx-v6)).
+- A failure module that succeeds recovers the flow when it returns an object
+  whose `recover` is the boolean `true`, or the positional `[true]`;
+  `[false]` and `{"recover":"true"}` leave the flow failed
+  ([Q-FX-19](../semantics/execution.md#q-fx-19), for [FX-33](../semantics/execution.md#fx-33)).
+- The same recordings show that a failure module copied into an inline body
+  of a deployed flow keeps its own id, in its status and in
+  `WM_FLOW_STEP_ID`, as [FX-34](../semantics/execution.md#fx-34) and [FX-32](../semantics/execution.md#fx-32) state. Only a body built at run time
+  from raw modules gets the suffix (§6).
+- The oracle's recordings of [Q-FX-16](../semantics/execution.md#q-fx-16), and of the half of [Q-FX-15](../semantics/execution.md#q-fx-15) without a
+  failure handler, agree with the defaults in §6, so no default changed. The
+  half without a handler is run `memory_or_storage` of `execution/fx-10`
+  (oracle run 40685013818), and the catalogue marks the recorded cases
+  `oracle-observed` ([FX-42/h](../semantics/conformance.md#fx-42), [FX-42/c](../semantics/conformance.md#fx-42)).
+- The oracle's recordings of [CF-2](../semantics/control-flow.md#cf-2) to [CF-15](../semantics/control-flow.md#cf-15) and [FX-40](../semantics/execution.md#fx-40)
+  (`conformance/flows/control-flow`, `conformance/flows/execution/fx-40`)
+  settle two rows of §6 on their defaults. After a sequential loop breaks
+  on an unhandled error stop with `skip_failures: false`, the flow fails
+  without running the next step ([CF-12](../semantics/control-flow.md#cf-12), [Q-CF-14](../semantics/control-flow.md#q-cf-14)). Collapsed iterations
+  can share cache entries, a rawscript without a path included
+  ([FX-40](../semantics/execution.md#fx-40), [Q-FX-17](../semantics/execution.md#q-fx-17)).
+- The catalogue marks those cases `oracle-observed`, and both questions are
+  closed ([README](README.md), request 6).
+- The same recordings confirm §1's deployed defaults from both sides. [CF-6/a](../semantics/conformance.md#cf-6)
+  and [CF-15/a](../semantics/conformance.md#cf-15) are pushed through the API with the fields absent
+  (`conformance/flows/control-flow/cf-6`, `cf-15`). The API answers with them
+  filled once the dependency job has succeeded, and the flows run with the
+  defaults.
+- The published CLI's `generate-metadata` writes the same defaults
+  (`skip_failures`, `parallel`, a branch's `skip_failure`, `parallel` and
+  `expr`) into `flow.yaml`, so a folder that has been through it carries
+  them explicitly. Each such recording's provenance holds the three values.
+- The settle-time fence narrows D9. When an invocation settles, the harness
+  revokes what it can attribute to it: timers, `fetch`-view requests, log
+  writes and platform calls. It reports what it revoked in a `left_behind`
+  warning, so the conformance and differential suites flag a script that
+  leaves work behind. Cases `D9/error-after-result` and
+  `D11/exit-after-result` expect, in `warm` too, that the timer never fires.
+- The fence never touches sockets or shared objects. A pooled client makes
+  its connections and maintenance timers in the process scope it captured,
+  and a step module's top-level code is module state (D1), so neither is
+  fenced ([harness protocol](0004-harness-protocol.md), failure model item 4
+  and loading).
+- The oracle's recordings settle the [CF-19](../semantics/control-flow.md#cf-19) / [CF-V6](../semantics/control-flow.md#cf-v6) row of §6: the direct
+  lookup is line-anchored, which confirms the default
+  (`conformance/flows/cf/cf-19` and the expression cases of
+  `conformance/exprs`).
+- The same recordings fix three behaviours that the reference states and the
+  cases expect:
+  - the stack depth that fits ([JE-48/a](../semantics/conformance.md#je-48), as [JE-48](../semantics/expressions.md#je-48) records it);
+  - an invalid final `sleep` fails the flow, because the deployed flow ends
+    in the `-v` identity ([JE-28/c](../semantics/conformance.md#je-28); [OF-17](../semantics/openflow.md#of-17));
+  - at the first pickup of a root flow, a predicate error is
+    `Error: Error: QuickJS evaluation error: …` with two location suffixes
+    ([JE-35/b](../semantics/conformance.md#je-35)).
+- A root flow's first transform that never ends behaves differently in the
+  two releases ([JE-2/a](../semantics/conformance.md#je-2); the outcome depends on timing). On CE
+  `v1.862.0` the monitor of flows hanging between two steps puts the flow
+  back in the queue at about 60 s. After the third attempt, about 70 s in,
+  the step fails with the timeout error (oracle run 42299716256). On CE
+  `v1.767.0` the monitor canceled the flow after about 60 s instead (oracle
+  run 40688787344).
 - D16 and D17 of §5 show where the recorded expression cases, run on
   windmill-lite's engine, differ from the oracle. Neither comes from a
   rule: QuickJS-ng takes transcendental `Math` results from the C
   library's libm, and the depth a recursion reaches follows the stack
   limit, which windmill-lite scales to its build's frames
-  ([0003](0003-semantics-placement.md)). Every other recorded expression
+  ([where semantics live](0003-semantics-placement.md)). Every other recorded expression
   case gives the oracle's value or text, error texts byte for byte with
   their stacks. Every bundle lists both deviations.
-- Milestone PF1 gave the `fetch`-only restriction of §5a its cases: a warm
-  step's `node:http` call to the facade gets "connection refused" and is
-  recorded nowhere, while a fresh step's is answered over TCP
-  (`conformance/steps/bun/wa-31.yaml`, whose `by_mode` names the
-  restriction `5a`, and `TestAttribution` in
-  [internal/platform/facade](../../internal/platform/facade/README.md)).
-  The engine's port is held by a loopback connection, not a bound socket,
+- The `fetch`-only restriction of §5a has its cases:
+  `conformance/steps/bun/wa-31.yaml`, whose `by_mode` names the restriction
+  `5a`, and `TestAttribution` in
+  [internal/platform/facade](../../internal/platform/facade/README.md). A
+  warm step's `node:http` call to the facade gets "connection refused" and
+  is recorded nowhere, while a fresh step's is answered over TCP.
+- The engine's port is held by a loopback connection, not a bound socket,
   because macOS drops connections to a bound socket that does not listen
-  instead of refusing them ([0007](0007-platform-interface.md)).
-- Milestone PF3 gave the dispatch-target restriction of §5a its cases: a
-  step case's bundle has no root a step can dispatch, so a dispatch by
-  path, by hash or of a flow, awaited or not, fails the step with
-  `UnsupportedPlatformCall`, `dispatch target not in bundle: <path>`
-  (`conformance/steps/bun/wa-15.yaml`, and `TestDispatchRefusedOnTheClient`
+  instead of refusing them ([platform interface](0007-platform-interface.md)).
+- The dispatch-target restriction of §5a has its cases:
+  `conformance/steps/bun/wa-15.yaml`, and `TestDispatchRefusedOnTheClient`
   on the stock client in
-  [internal/platform/facade](../../internal/platform/facade/README.md)).
-  The facade answers the dispatch with a 501 whose body is that text, and
-  the 501 policy's error quotes it ([0007](0007-platform-interface.md)).
-- Recording batch E3e recorded the contested `later` rows of §6 above, all
-  on their defaults: FX-49 on reading (b), FX-36's array result decoded
-  positionally (an HTTP adapter's concern, F7b), and the corrected
-  readings of WR-16 and WR-28; no implementation of those rules exists yet
-  to change. It rebuilt the probe catalogue (Q-OR-16). It also recorded
-  what the build milestones asked: a flow input read from storage answers
-  the JE-7 shortcut with jsonb's spaced text (`{"a": 2, "b": 1}`), the
-  previous step after a loop answers JE-8 with compact text in jsonb key
-  order, and a step's input transforms are evaluated in an order that
-  varies from one evaluation to the next, whatever order the flow writes
-  them in. The `v1.767.0` image ran CommonJS codebase bundles on Node
-  v20.20.2, which deviation D13 replaces with Bun; the runs that report the runtime
-  record Node. The catalogue's tags and tracking questions stay the
-  semantics team's to update ([README](README.md), request 11, answered by
-  the reference's revision of 2026-10-29).
+  [internal/platform/facade](../../internal/platform/facade/README.md). A
+  step case's bundle has no root a step can dispatch, so a dispatch by path,
+  by hash or of a flow, awaited or not, fails the step with
+  `UnsupportedPlatformCall`, `dispatch target not in bundle: <path>`.
+- The facade answers such a dispatch with a 501 whose body is that text, and
+  the 501 policy's error quotes it
+  ([platform interface](0007-platform-interface.md)).
+- The oracle's recordings of the contested `later` rows of §6, made on CE
+  `v1.767.0`, match their defaults. They give [FX-49](../semantics/execution.md#fx-49) on reading (b), [FX-36](../semantics/execution.md#fx-36)'s
+  array result decoded positionally (an HTTP adapter's concern; §6 gives what CE
+  `v1.862.0` does), and the corrected readings of [WR-16](../semantics/languages.md#wr-16) and [WR-28](../semantics/languages.md#wr-28). The probe
+  catalogue is rebuilt from the same session ([Q-OR-16](../semantics/oracle.md#q-or-16)).
+- The same recordings show three behaviours that windmill-lite's build
+  needs. A flow input read from storage answers the [JE-7](../semantics/expressions.md#je-7) shortcut with
+  jsonb's spaced text (`{"a": 2, "b": 1}`). The previous step after a loop
+  answers [JE-8](../semantics/expressions.md#je-8) with compact text in jsonb key order. A step's input
+  transforms are evaluated in an order that varies from one evaluation to
+  the next, whatever order the flow writes them in.
+- The `v1.767.0` image ran CommonJS codebase bundles on Node v20.20.2, which
+  deviation D13 replaces with Bun; the runs that report the runtime record
+  Node. The reference confirms [FX-36](../semantics/execution.md#fx-36), [FX-49](../semantics/execution.md#fx-49), [WR-16](../semantics/languages.md#wr-16), [WR-28](../semantics/languages.md#wr-28), [OR-15](../semantics/oracle.md#or-15) and
+  [OR-V9](../semantics/oracle.md#or-v9) from these recordings ([README](README.md), request 11).
 - The oracle's recordings of native steps come from a worker that serves
   the `nativets` tag, the configuration that D5's native boundary mode
   stands in for. A CommonJS codebase script under `//native` fails at its
@@ -614,13 +646,19 @@ switch through a change to this record, naming the reason.
   became a run of its own, `bun_version`, which the flow suite does not
   require, as it does not require D16's and D17's cases; the probe's `WM_`
   variables stay required. Every bundle lists D23.
-- Milestone N2 settled §7's JE-2 row: windmill-lite reproduces the
-  zombie-flow monitor's cancel, which recording batch E3a found ends a
-  runaway expression's flow at 60 s, before the third attempt's timeout
-  text could surface. FX-26's arithmetic is emulated exactly, with the
-  jitter source injectable as §7 asks (H10), and no deviation is added:
-  a run on H10's recording clock, a host's choice, records `H10` among
-  its trace's deviations, as H7 does.
+- windmill-lite reproduces the cancel of §7's [JE-2](../semantics/expressions.md#je-2) row: the engine cancels a
+  started or same-worker flow whose transition spends
+  `FLOW_ZOMBIE_TRANSITION_TIMEOUT` evaluating expressions. Windmill puts any
+  other flow back in the queue, which does not stop the evaluation; the
+  engine leaves such a flow alone and does not model a worker picking it up
+  again.
+- So a transform at a flow's first module that never ends runs its three
+  attempts and fails with the timeout error after about 70 s, as CE
+  `v1.862.0` records for [JE-2/a](../semantics/conformance.md#je-2); a slow but finite one can succeed.
+- [FX-26](../semantics/execution.md#fx-26)'s arithmetic is emulated exactly, with the jitter source injectable
+  as §7 asks (H10), and no deviation is added: a run on H10's recording
+  clock, a host's choice, records `H10` among its trace's deviations, as H7
+  does.
 - The resource store added D24 to §5 and a restriction to §5a. Steps
   write resources of type `state` through the job API, as the stock
   client's `setState` does, into the runtime's resource store. Every read

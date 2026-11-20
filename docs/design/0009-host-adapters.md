@@ -1,9 +1,18 @@
-# 0009 · Host adapters and typed methods
+# Host adapters and typed methods
 
-**Status:** proposed · **Topic:** how a host drives windmill-lite
+**Status:** Accepted · **Topic:** how a host drives windmill-lite
 (hashicorp/go-plugin first, then plain gRPC, HTTP, a CLI, an embedded Go
 library, and a host written in Bun), and how each flow and script becomes a
 typed method.
+
+The Go library `wl` is the only engine API, and every adapter is a thin
+transport over it: go-plugin, the [Bun host SDK](../glossary.md#bun-host-sdk)
+for hosts written in Bun, plain gRPC, HTTP and a CLI. Typed client methods,
+which are planned, are to be generated from each flow's or script's schema,
+to help callers without changing what a run does.
+
+**Not built yet:** the go-plugin adapter (`runner.proto`, `wl/plugin`), the
+plain gRPC and HTTP adapters, and typed methods (`windmill-lite gen`).
 
 ## Context
 
@@ -11,7 +20,7 @@ Hosts differ in language and in how much of windmill-lite they want to own.
 A Go service may want the engine in its own process; another may want it as a
 separate, pinned plugin binary; a host written in TypeScript may need its run
 scopes and plugins to live in the same process as the steps
-([0008](0008-host-hooks.md) H11). The engine API must be one thing, with
+([host hooks](0008-host-hooks.md#the-hooks), H11). The engine API must be one thing, with
 adapters as thin transports over it.
 
 Windmill does not validate inputs against a flow's `schema`: the schema has
@@ -28,15 +37,16 @@ Package `wl` (import path `github.com/invakid404/windmill-lite/wl`) is the
 only engine API. In outline:
 
 1. `wl.Open(bundle, options)` loads a bundle, verifies its manifest
-   ([0010](0010-packaging.md)), and starts harness pools lazily.
+   ([packaging](0010-packaging.md)), and starts harness pools lazily.
 2. `runtime.Run(ctx, target, args, runOptions)` runs a flow or script by path
    and returns its status, final result, `mayHaveMutated` flag, trace and
-   warnings. `runOptions` carries hooks ([0008](0008-host-hooks.md)),
-   per-run platform providers ([0007](0007-platform-interface.md)), deadlines,
-   the clock, run data, and a module-state override. (F1 takes the
-   module-state mode in `options`, once per runtime, since one harness pool
-   and one engine hold it; see [0012](0012-layout-and-milestones.md)'s
-   Consequences.)
+   warnings. `runOptions` carries the run's kind, job id, seed, hooks
+   ([host hooks](0008-host-hooks.md)), per-run platform providers
+   ([platform interface](0007-platform-interface.md)), pre-write deadline,
+   clock and jitter source; the hard deadline is the context's.
+   - Run data and a per-run module-state override are planned. Until then
+     `wl.Options.ModuleState` sets the override once per runtime, since one
+     harness pool and one engine hold one mode.
 3. `runtime.BuildInfo()` reports the bundle digest, engine and harness
    versions, the Bun version, the host contract and the deviations in effect.
 4. `runtime.Close()` drains the pools.
@@ -60,7 +70,7 @@ Every adapter below is a transport over these calls.
    (`windmill-lite host`, which opens the bundle with `wl` in host mode,
    `wl.Options.Host`), with the bundle digest from the bundle's manifest,
    registers host plugins as in-process functions, and submits runs (`run`
-   frames, [0004](0004-harness-protocol.md)).
+   frames, [harness protocol](0004-harness-protocol.md#host-mode)).
    The steps of those runs execute in the host process, inside the scopes
    captured at submission (H11). This is the adapter for a host whose
    per-run state lives in `AsyncLocalStorage`.
@@ -68,13 +78,13 @@ Every adapter below is a transport over these calls.
      `Runner` messages, so the go-plugin service and host mode share one
      schema.
    - It registers the host's instances of the host-provided modules
-     ([0010](0010-packaging.md)) before any step loads.
+     ([packaging](0010-packaging.md#host-provided-modules)) before any step loads.
    - `health()` reports in-flight, abandoned and unattributed-error counts;
      `drain(timeout)` stops new runs and lets the host exit; `onRunSettled`
      complements `onRunEnd` (a run's `onSettled`); and the connect options
      set the engine's watchdog (`watchdog.killAfter`, default 30 s), which
      kills the host when its event loop stops answering
-     ([0004](0004-harness-protocol.md), host mode), and recycle triggers that
+     ([harness protocol](0004-harness-protocol.md#host-mode)), and recycle triggers that
      `health()` reports. The host's supervisor only has to restart the host
      when it exits.
    - The host passes a writable working directory, which must already be its
@@ -150,7 +160,7 @@ A host's own process-level code runs in the process where its steps run:
 its pooled database and cache clients, their timers, and the work it
 starts outside every step. The settle-time fence decides what of that code
 a step's settlement clears, and the process scope decides what it keeps
-([0004](0004-harness-protocol.md), the shared-process failure model). A
+([harness protocol](0004-harness-protocol.md#the-shared-process-failure-model)). A
 host tests that code against the fence, without an engine or a bundle.
 
 The subpath `windmill-lite/bun/testing` is the Bun host SDK's test entry,
@@ -290,17 +300,18 @@ a new protocol.
   in Go.
 - go-plugin hosts get the same pinning and build-identity checks they use for
   any plugin.
-- Milestone F3a made host mode a runtime of `wl` (`Options.Host`), so the
-  Bun host SDK and any other host that speaks the protocol share one engine
-  path. The engine binary's path is the host's to give, not the bundle
-  manifest's: a manifest that recorded an engine digest would make the
-  bundle digest differ per platform. What pairs the pieces is that the
-  engine opens only a bundle its own version built (refusing the host with
-  `engine_refused` otherwise), and the handshake checks the protocol
-  version, the harness kind, the pinned Bun and the bundle digest. The
-  SDK's own version was not compared with the engine's then: that needed the
-  release to stamp it. A host that pins the engine binary by digest
-  does so itself (as `pack --single --host bun` will, F6).
+- **Host mode is a runtime of `wl`** (`Options.Host`), so the Bun host
+  SDK and any other host that speaks the protocol share one engine path.
+  - The engine binary's path is the host's to give, not the bundle
+    manifest's: a manifest that recorded an engine digest would make the
+    bundle digest differ per platform.
+  - What pairs the pieces is that the engine opens only a bundle its own
+    version built (refusing the host with `engine_refused` otherwise), and
+    the handshake checks the protocol version, the harness kind, the
+    pinned Bun and the bundle digest.
+  - A host that pins the engine binary by digest does so itself, as
+    `pack --single --host bun` is planned to do
+    ([packaging](0010-packaging.md#single-executable)).
 - The SDK and the engine of a release pair only with each other. The
   SDK's version is the harness version its hello names
   (`harnesses/bun/runtime/version.ts`), which a release stamps with
@@ -316,4 +327,4 @@ a new protocol.
 
 ## Spec IDs relied on
 
-OF-18, PA-3, WA-60, and the hooks of [0008](0008-host-hooks.md).
+OF-18, PA-3, WA-60, and the [host hooks](0008-host-hooks.md#the-hooks).

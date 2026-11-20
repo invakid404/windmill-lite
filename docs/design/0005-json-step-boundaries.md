@@ -1,8 +1,14 @@
-# 0005 · JSON at step boundaries
+# JSON at step boundaries
 
-**Status:** proposed · **Topic:** reproducing Windmill's serialise, store and
+**Status:** Accepted · **Topic:** reproducing Windmill's serialise, store and
 hydrate behaviour exactly while keeping the cost to what the semantics
 require; why the normalising walk was dropped; and the benchmark plan.
+
+Go holds each value as the producer's text plus a stored jsonb text,
+computed only when a storage route reads it, and a routing table says which
+consumer reads which text. One streaming canonicaliser, checked against
+PostgreSQL, makes the stored text; the normalising walk was dropped because
+it was not equivalent to a JSON round trip.
 
 ## Context
 
@@ -12,8 +18,8 @@ In Windmill a value changes form as it moves:
   `null` replacer and a `BigInt` patch ([WR-13](../semantics/languages.md#wr-13),
   [WR-14](../semantics/languages.md#wr-14)); a native step's is
   `JSON.stringify(v ?? null)` with no replacer, so `undefined` fields are
-  left out ([WR-42](../semantics/languages.md#wr-42),
-  [0001](0001-equivalence-contract.md) D5);
+  left out ([WR-42](../semantics/languages.md#wr-42); the native boundary
+  mode, [D5](0001-equivalence-contract.md#5-named-deviations));
 - that **producer text** is kept in memory as `previous_result` and as
   `stop_after_if`'s `result`, and is also **stored** in PostgreSQL `jsonb`,
   which orders keys (shorter first, then bytewise), keeps the last duplicate,
@@ -39,7 +45,7 @@ question is where windmill-lite keeps which form, and how cheaply.
    normalising walk** that equals a JSON round trip without building the
    string. It would be the cheap path if steps were chained inside the
    harness. With
-   the interpreter in Go ([0003](0003-semantics-placement.md)), Go must hold
+   the interpreter in Go ([where semantics live](0003-semantics-placement.md)), Go must hold
    the text anyway: the producer text for memory routes, the stored text for
    storage routes, and text to feed QuickJS-ng.
 2. **Hold every value in Go as JSON text, in two forms, and never decode what
@@ -65,7 +71,7 @@ equivalent**. On Bun 1.3.10 and 1.4.2 alike:
 and a differential mode that ran both evaluated getters and `toJSON` twice,
 so a stateful `toJSON` changed the value between the two runs. Across the
 process boundary, a 3 KB step round trip costs 18.4 µs and a 100 KB one about
-250 µs ([0003](0003-semantics-placement.md)).
+250 µs ([where semantics live](0003-semantics-placement.md)).
 
 ### Baseline
 
@@ -404,7 +410,7 @@ Which form each consumer gets:
 | Consumer | Form | Findings |
 |---|---|---|
 | `previous_result` after an ordinary step whose job completed in the same transition; `stop_after_if`'s `result`; `results.<preceding id>` in its four exact spellings | producer | FX-42 item 3, JE-8 |
-| an engine read of the preceding id when `previous_result` is bound | producer, under the default reading | FX-V6, [0001](0001-equivalence-contract.md) §6 |
+| an engine read of the preceding id when `previous_result` is bound | producer, under the default reading | FX-V6, [§6 of the equivalence contract](0001-equivalence-contract.md#6-findings-that-are-not-settled) |
 | simple `results` paths (the direct lookup) | stored, the path applied, answered in jsonb's printed form (a space after each `:` and `,`) | JE-9, JE-44 |
 | other ids read through the engine | stored | FX-42, JE-18 |
 | `previous_result` after a loop or `branchall` | re-printed: the children's stored results decoded and the array written out again compactly, object keys in jsonb order, an integer that fits 64 bits exact and any other number the nearest double, in the backend JSON library's notation (FX-42 rule 2: a stored `1.50` reads `1.5`) | FX-6, JE-44 |
@@ -427,7 +433,8 @@ the precision of numbers that are not 64-bit integers.
    shortcut's verbatim text, or QuickJS-ng's `JSON.stringify(x ?? null)`
    output ([JE-15](../semantics/expressions.md#je-15)).
 2. The engine assembles the argument object with its top-level keys in an
-   order shuffled by the run's seed ([0001](0001-equivalence-contract.md) §2).
+   order shuffled by the run's seed
+   ([§2 of the equivalence contract](0001-equivalence-contract.md#2-what-is-matched-exactly)).
 3. **Storage boundary:** each argument becomes its stored text, every NUL
    escape removed first ([FX-48](../semantics/execution.md#fx-48) case 2,
    since Windmill 1.826.0). A text jsonb still refuses (an unpaired
@@ -442,7 +449,8 @@ the precision of numbers that are not 64-bit integers.
    array rules of [WA-12](../semantics/client-api.md#wa-12) and
    [WA-V3](../semantics/client-api.md#wa-v3). Substituted values enter in
    their source order and are not normalised again; `$jsonvar:` follows the
-   default reading of [0001](0001-equivalence-contract.md) §6.
+   default reading of
+   [§6 of the equivalence contract](0001-equivalence-contract.md#6-findings-that-are-not-settled).
 5. The **recorded** arguments (after step 3) and the **resolved** arguments
    (after step 4) are both kept in the run trace: they are distinct
    observation points ([JE-V3](../semantics/expressions.md#je-v3)).
@@ -494,7 +502,7 @@ reference expects from the wrapper's result write
 [Q-WR-12](../semantics/languages.md#q-wr-12) is recorded; until then that
 case compares the name only.
 
-**Host-plugin results** ([0008](0008-host-hooks.md)) that stand in for a
+**Host-plugin results** ([host hooks](0008-host-hooks.md)) that stand in for a
 module's result are serialised the same way, with the module's boundary mode,
 by the same function. A plugin result is therefore indistinguishable from a
 step result by construction, not by a second implementation.
@@ -506,12 +514,12 @@ only remaining uses were host-plugin results (above) and a speculative
 "value residency" optimisation, and it was not equivalent to the round trip
 it was meant to replace. Keeping it would also have meant a second jsonb
 canonicaliser in TypeScript beside `jsonval`, against the single-source rule.
-If benchmark G1 shows that large values crossing the boundary dominate a
+If the benchmarks show that large values crossing the boundary dominate a
 real workload, residency gets its own decision record, with a shared fixture
 set run by both canonicalisers and an equivalence contract written for the
 walk's result and errors.
 
-### Benchmark plan (milestone G1)
+### Benchmark plan
 
 1. Go: the canonicaliser versus decode, sort and encode, and against
    PostgreSQL in oracle CI for correctness only.
@@ -519,8 +527,8 @@ walk's result and errors.
    payloads from 26 B to 4 MiB, sequential and with 8 concurrent
    invocations, split into transport, harness parse and serialise, and Go
    handling.
-3. The share of a run's time spent at boundaries, from the run spans of
-   [0011](0011-differential-testing.md), on the conformance flows and on any
+3. The share of a run's time spent at boundaries, from the run spans of the
+   [differential testing](0011-differential-testing.md) record, on the conformance flows and on any
    host workload a host provides.
 
 Results are recorded with the runtime versions, the hardware and the
@@ -578,13 +586,15 @@ local one above.
   ([Q-WR-4](../semantics/languages.md#q-wr-4), [Q-OR-11](../semantics/oracle.md#q-or-11),
   [Q-OR-12](../semantics/oracle.md#q-or-12)) is encoded as cases; a recording
   that disagrees changes one routing table entry.
-- Milestone A1 changed two points. The PostgreSQL check runs in the ordinary
-  CI workflow rather than only in oracle CI, because it needs PostgreSQL but
-  no Windmill. And the canonicaliser rejects two texts besides NUL that
-  PostgreSQL's `jsonb` input rejects, an unpaired surrogate escape and a
-  number outside `numeric`'s range. The reference covers only NUL, so
-  whether Windmill fails a step on them as it does on NUL is request 4 of the
-  [README](README.md); until then the eager flag covers NUL alone.
+- The PostgreSQL check runs in the ordinary CI workflow rather than only in
+  oracle CI, because it needs PostgreSQL but no Windmill.
+- The canonicaliser rejects two texts besides NUL that PostgreSQL's `jsonb`
+  input rejects: an unpaired surrogate escape and a number outside
+  `numeric`'s range. On Windmill an unpaired surrogate in a step's result
+  fails the job when its completion is stored, with `invalid input syntax
+  for type json`, and no JavaScript producer can emit such a number;
+  [FX-51](../semantics/execution.md#fx-51) gives the other routes. The eager flag covers
+  NUL alone, which Windmill removes before it stores (next item).
 - The retarget to Windmill 1.862.0 changed the NUL. Windmill removes every
   NUL escape before it stores a result (1.768.0) or a job's arguments
   (1.826.0), so a NUL fails nothing there
@@ -598,38 +608,42 @@ local one above.
   removes it too is a question for the reference. An unpaired surrogate and
   an out-of-range number fail as before
   ([FX-51](../semantics/execution.md#fx-51)).
-- Milestone B2a found that the spaces of jsonb's text output can show.
-  The [JE-9](../semantics/expressions.md#je-9) shortcut answers the
-  database's text unparsed, and the `timeout` site's parse error quotes it:
-  recording batch E3a recorded `Value was: {"a": 2, "b": 1}` for a
-  `results.p` read through the database, against `Value was: {"b":1,"a":2}`
-  for the same read of the previous step from memory
-  (`conformance/flows/je/shortcuts`, runs `je8-order-timeout-db` and
-  `je8-order-timeout`). The expression pipeline therefore applies the path
-  to the stored text and answers in jsonb's text output, a space after each
-  `:` and `,` outside strings; the stored text stays compact. The other
-  shortcuts answer the texts they are given as they are: JE-6 and JE-8
-  `previous_result`, JE-7 a member of the flow input. Some of those values
-  are read from the database too
+- The spaces of jsonb's text output can show. The
+  [JE-9](../semantics/expressions.md#je-9) shortcut answers the database's
+  text unparsed, and the `timeout` site's parse error quotes it. The oracle
+  recorded `Value was: {"a": 2, "b": 1}` for a `results.p` read through the
+  database, against `Value was: {"b":1,"a":2}` for the same read of the
+  previous step from memory (`conformance/flows/je/shortcuts`, runs
+  `je8-order-timeout-db` and `je8-order-timeout`).
+- The expression pipeline therefore applies the path to the stored text and
+  answers in jsonb's text output, a space after each `:` and `,` outside
+  strings; the stored text stays compact.
+- The other shortcuts answer the texts they are given as they are: [JE-6](../semantics/expressions.md#je-6) and
+  [JE-8](../semantics/expressions.md#je-8) `previous_result`, [JE-7](../semantics/expressions.md#je-7) a member of the flow input. Some of those
+  values are read from the database too
   ([JE-44](../semantics/expressions.md#je-44)): the flow input's members,
   and `previous_result` after a loop or `branchall` or a re-fetch. Whether
   Windmill's text there is jsonb's spaced output was request 8 of the
   [README](README.md).
-- The semantics team answered request 8 from the source, and milestone FU3
-  changed the routing table to the answer: a flow input's member and a
-  `previous_result` read back from storage are in jsonb's printed form, the
-  flow input's top level and the first module's `previous_result` are
-  compact, and `previous_result` after a loop or `branchall` is compact with
-  its numbers re-printed. `expr.Scope` gives the engine these texts, which
-  the shortcuts answer verbatim. They are not recorded yet
-  ([Q-JE-13](../semantics/expressions.md#q-je-13)). The re-printed form
-  needs the backend library's number notation, which FX-42 gives by
-  example (`1000.0`, `1e+21`, `1.2345678901234568e+29`); where it changes
-  from decimal to exponent notation was asked of the semantics team
-  (request 10), and FX-42 rule 9 now gives it: plain decimal for a
-  leading-digit exponent from −5 to 15, the shortest digits, `-0` as
-  `-0.0`. Since milestone FU6 the engine writes a loop's result with the
-  platform's writer of that rule (`platform.Reprint`), the one the
+- The routing table follows the semantics team's answer to request 8,
+  read from the source. A flow input's member and a `previous_result` read
+  back from storage are in jsonb's printed form, and the flow input's top
+  level and the first module's `previous_result` are compact. A
+  `previous_result` after a loop or `branchall` is compact with its numbers
+  re-printed.
+- `expr.Scope` gives the engine these texts, which the shortcuts answer
+  verbatim. The oracle recorded them ([Q-JE-13](../semantics/expressions.md#q-je-13), closed):
+  - a stored flow input's object member is quoted spaced and in `jsonb`
+    order, at the first module and after a step
+    (`conformance/flows/je/shortcut-texts`, runs `fi_first` and `fi_later`);
+  - the loop's aggregate right after the loop is compact and in `jsonb`
+    order (run `loop_prev`), and an iteration's `1.50` is re-printed as
+    `1.5` (`conformance/flows/execution/fx-42-notation`, run `aggregate`).
+- The re-printed form is the backend library's number notation, which
+  [FX-42](../semantics/execution.md#fx-42) rule 9 gives: plain decimal for a leading-digit exponent from −5 to
+  15, the shortest digits, `-0` as `-0.0` ([FX-42](../semantics/execution.md#fx-42)'s examples: `1000.0`,
+  `1e+21`, `1.2345678901234568e+29`). The engine writes a loop's result with
+  the platform's writer of that rule (`platform.Reprint`), the one the
   argument resolution uses.
 
 - The benchmark plan is in the repository, with its baseline in

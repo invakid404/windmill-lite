@@ -1,9 +1,24 @@
-# 0003 · Where semantics live, and the conformance-suite format
+# Where semantics live, and the conformance-suite format
 
-**Status:** proposed · **Topic:** which process interprets flows and
+**Status:** Accepted · **Topic:** which process interprets flows and
 evaluates expressions, how semantics stay single-sourced between Go and the
 language harnesses, how the expression engine is run, and the format of the
 shared conformance suite.
+
+One flow interpreter and one [expression](../glossary.md#expression)
+pipeline run in Go, the language [harnesses](../glossary.md#harness) only
+run steps, and one suite of
+[conformance cases](../glossary.md#conformance-case) holds every
+implementation to the reference. At each evaluation the pipeline answers in
+Go what it can answer exactly, and otherwise runs the expression on the
+JavaScript engine QuickJS-ng `be664ca1`, embedded natively, with a fresh
+runtime from a bounded pool.
+
+**Not built yet:** deciding at build which expression texts Go can answer.
+The pipeline parses a text for a Go evaluator the first time an
+evaluation of that text reaches the evaluator's parser, after the
+shortcuts, and keeps the parse. The compiled
+[program](../glossary.md#program) records no such decision.
 
 ## Context
 
@@ -36,8 +51,8 @@ Two facts from the reference constrain every option:
 
 ## Measurements
 
-Throwaway prototypes, kept outside this repository; milestone G1 re-creates
-them as in-repository benchmarks. Apple M4 (10 cores), macOS, Go 1.27.3,
+Throwaway prototypes, kept outside this repository; the in-repository
+benchmarks re-create them. Apple M4 (10 cores), macOS, Go 1.27.3,
 Bun 1.4.2 unless a row says 1.3.10. The QuickJS-ng builds used are not
 revision `be664ca1`; the numbers describe the engine and its hosting, not the
 pinned revision. The expression measured is an invented synthetic transform,
@@ -136,7 +151,7 @@ harness, which is (a) with its duplication.
    [JE-11](../semantics/expressions.md#je-11), the static results reads
    that [JE-12](../semantics/expressions.md#je-12) prefetches,
    statement-mode detection and binding analysis.
-   - **Member paths are answered in Go (PS1).** A text that only reads a
+   - **Member paths are answered in Go.** A text that only reads a
      member path of a JSON value, such as `previous_result.items[0]?.id`,
      gets the program's own answer without the engine. That is
      `JSON.parse`, JavaScript's property reads and optional chaining, then
@@ -239,7 +254,7 @@ harness, which is (a) with its duplication.
      targets against musl, so the Linux engine is one static binary that
      runs on an empty base image; macOS builds use the system clang.
    - **CI.** Both CI runners build the C, including under `-race`.
-   - **Exit checks.** B1a checks that the Linux binaries are static, and F4
+   - **Exit checks.** CI checks that the Linux binaries are static, and
      that they start on an empty base.
    - **Stack.** The configured stack size is QuickJS-ng's built-in default
      of 1 MiB, recorded in the manifest, because stack-overflow depth is
@@ -331,8 +346,8 @@ harness, which is (a) with its duplication.
 7. **Harnesses are step runners.** Given a script, arguments and a
    per-invocation environment, a harness binds arguments, hydrates, calls the
    entrypoint, serialises the result or error with its language's rules, and
-   routes platform calls back to Go ([0004](0004-harness-protocol.md),
-   [0007](0007-platform-interface.md)). Language rules that only make sense
+   routes platform calls back to Go ([harness protocol](0004-harness-protocol.md),
+   [platform interface](0007-platform-interface.md)). Language rules that only make sense
    in one language live in that harness and only there: TypeScript signature
    parsing, `Date` hydration, `JSON.stringify` replacers, error extraction
    ([WR-6](../semantics/languages.md#wr-6) to
@@ -341,7 +356,7 @@ harness, which is (a) with its duplication.
    chained in one process) were weighed. With the interpreter in Go nothing
    would execute them: placement is per leaf, by the pool key, and host
    scopes are per run. The IR and the protocol therefore carry no segment
-   concept ([0002](0002-ir-and-loader.md)). Adding a harness-side executor
+   concept ([IR, loader and validation](0002-ir-and-loader.md)). Adding a harness-side executor
    later would need a new record and a measured reason.
 
 ### What the numbers do and do not show
@@ -358,7 +373,7 @@ of a real run.
 - Any per-run figure built from these rows is a **hypothesis** until the
   end-to-end budget below holds on the pinned versions.
 
-**Budget gate (milestone B2b exit criterion).** An engine-evaluated predicate
+**Budget gate (the expression pipeline's exit criterion).** An engine-evaluated predicate
 over a `results` value of 4 KB, 64 KB and 256 KB, on the default (native)
 backend with the default pool, on the benchmark machine. The load is eight
 concurrent runs, each issuing its next evaluation 0.5 ms after the previous
@@ -366,9 +381,10 @@ one returns, which is the shape of runs that interleave evaluations with
 step I/O (the paced row of the pool table above). Back-to-back load is
 measured and reported beside it but not gated: it saturates the CPU by
 design, and the wazero numbers above show it at about four times the paced
-latency. B1a measured the native pool under these loads (the table after
-the gate, below); B2b may not merge on the wazero figures, nor on B1a's,
-which bind values without the pipeline's wrapper:
+latency. `internal/expr/quickjs` measured the native pool under these
+loads (the table after the gate, below); the pipeline may not merge on the
+wazero figures, nor on the native pool's, which bind values without the
+pipeline's wrapper:
 
 | Bound value | p95 | p99 |
 |---|---|---|
@@ -376,13 +392,13 @@ which bind values without the pipeline's wrapper:
 | 64 KB | ≤ 2 ms | ≤ 6 ms |
 | 256 KB | ≤ 6 ms | ≤ 20 ms |
 
-Latency includes the wait for a prepared slot. If the gate fails, B2b does
-not merge. The remedies, in order: pool size,
+Latency includes the wait for a prepared slot. If the gate fails, the
+pipeline does not merge. The remedies, in order: pool size,
 memory recycling thresholds, and binding only the paths an expression reads
 when a static check proves the expression cannot observe the rest. That last
 remedy needs its own record.
 
-**The native pool under load (milestone B1a).** `TestPoolUnderLoad` in
+**The native pool under load.** `TestPoolUnderLoad` in
 `internal/expr/quickjs` evaluates a stand-in predicate: it binds an invented
 order object of the row's size as one results value and a small flow input,
 both as host strings; parses both; and serialises
@@ -414,7 +430,7 @@ counts from when the burst is issued.
 | burst of 64 at once | 256 KB | 7.89 ms | 13.6 ms | 15.1 ms | 1.68 ms |
 
 The paced rows sit inside the gate's bounds at every size, but they are not
-the gate: B2b measures through the pipeline. On a busier machine the tails
+the gate, which measures through the pipeline. On a busier machine the tails
 grew several times over. A run at a load average of about 20 before it
 started gave a paced 4 KB p99 of 1.98 ms and a paced 256 KB p99 of 59.5 ms,
 so the gate needs a quiet machine. The unloaded rows are not a lower bound:
@@ -423,7 +439,7 @@ same table on each run from its shared Linux and macOS runners, where the
 default pool follows the runner's CPU count (3 to 5 slots so far); those
 figures show the trend, not the gate.
 
-**The budget gate, met (milestone B2b).** `TestBudgetGate` in
+**The budget gate, met.** `TestBudgetGate` in
 `internal/expr` evaluates the predicate
 `results.fetch_order.archived ? null : flow_input.order.ref` at a `skip_if`
 site through the whole pipeline: the shortcut check, the depth check, the
@@ -447,8 +463,8 @@ With `fetch_order` as the previous step, the text also binds the value as
 `previous_result` and `result` (JE-10), so it is parsed three times; that
 paced row gives a p95 of 221 µs, 1.24 ms and 5.19 ms at the three sizes,
 inside the gate too. CI reports the same table on each run, from its
-shared runners and from the static musl engine on `amd64` and `arm64`
-(review item cl R3-2); those figures show the trend, not the gate.
+shared runners and from the static musl engine on `amd64` and `arm64`;
+those figures show the trend, not the gate.
 
 ### The conformance-suite format
 
@@ -465,13 +481,13 @@ golden payloads the Go run writes), one build level and one hooks level:
 | step | `conformance/steps/<lang>/<case>.yaml` | one script, its arguments, environment and boundary mode, the expected **stored** result or error (Windmill-observable terms), and the expected platform calls | Go `wltest check`, driving the real harness through the protocol; the oracle via a generated one-step flow |
 | expr | `conformance/exprs/<case>.yaml` | a **context-free** expression: an input transform or predicate of a flow's first step, with `flow_input` and `flow_env` as its only bound values (producer text; the stored form is derived with `jsonval`), expected JSON value or error | Go `expr` tests; the oracle via a generated one-step flow |
 | decode | `conformance/openflow/<finding>.json` | an OpenFlow flow value as JSON and the effective decoder's decision: the rejection's message substrings, or parts of the accepted value's decoded form ([OF-2](../semantics/openflow.md#of-2)) | Go `internal/openflow` tests; on the oracle, a create-flow request once [Q-OF-2](../semantics/openflow.md#q-of-2) is recorded |
-| jsonb | `conformance/jsonb/<finding>.yaml` | a producer text and its stored text or the rejection jsonb gives it ([FX-42](../semantics/execution.md#fx-42), [JE-44](../semantics/expressions.md#je-44), [FX-48](../semantics/execution.md#fx-48)); for a catalogue case, also the form its consumer reads and the top-level key order expected there | Go `internal/jsonval` tests; PostgreSQL in the oracle's pinned image ([0005](0005-json-step-boundaries.md)) |
+| jsonb | `conformance/jsonb/<finding>.yaml` | a producer text and its stored text or the rejection jsonb gives it ([FX-42](../semantics/execution.md#fx-42), [JE-44](../semantics/expressions.md#je-44), [FX-48](../semantics/execution.md#fx-48)); for a catalogue case, also the form its consumer reads and the top-level key order expected there | Go `internal/jsonval` tests; PostgreSQL in the oracle's pinned image ([JSON at step boundaries](0005-json-step-boundaries.md)) |
 | load | `conformance/syncfolder/<finding>.json` | a sync folder as a map of files and what the loader makes of it: whether it opens, the items it lists or filters out, and parts of the records it reads or their errors ([SY-1](../semantics/openflow.md#sy-1) to [SY-15](../semantics/openflow.md#sy-15)) | Go `internal/syncfolder` tests |
-| compile | `conformance/ir/<finding>.json` | a sync folder, a host contract and build options, and what the compiler makes of them ([0002](0002-ir-and-loader.md)): its errors, or parts of the program, addressed by flow, by a step's site and by inventory id; for a flow case, the part a deploy decides (defaults, the native switch, virtual steps, collapse) | Go `internal/ir` tests |
-| protocol | `conformance/protocol/frames.json`, `conformance/protocol/exchanges/<case>.json` | the harness protocol of [0004](0004-harness-protocol.md), which is windmill-lite's own (provenance `policy`): golden frames of the codec (a message and its canonical payload, a part split, a byte stream and the protocol error it raises), and exchange transcripts (the frames the engine sends and those the harness must answer with) over a synthetic fixture bundle | Go `internal/harness` tests, the exchanges against the real harness on the pinned runtime; each harness's own developer tests run the codec cases |
-| plugins | `conformance/plugins/hooks.yaml` | host-plugin cases (milestone F2c, provenance `policy`): a synthetic flow, a declarative host plugin that answers its hooks and provided sites, and the run's expected status, result, latched error and the plugin's log | Go `wl` tests, through a TypeScript plugin over `host_call` in `warm` and through Go callbacks; Go `cmd/windmill-lite` tests, through the host SDK's plugin in host mode |
+| compile | `conformance/ir/<finding>.json` | a sync folder, a host contract and build options, and what the compiler makes of them ([IR, loader and validation](0002-ir-and-loader.md)): its errors, or parts of the program, addressed by flow, by a step's site and by inventory id; for a flow case, the part a deploy decides (defaults, the native switch, virtual steps, collapse) | Go `internal/ir` tests |
+| protocol | `conformance/protocol/frames.json`, `conformance/protocol/exchanges/<case>.json` | the [harness protocol](0004-harness-protocol.md), which is windmill-lite's own (provenance `policy`): golden frames of the codec (a message and its canonical payload, a part split, a byte stream and the protocol error it raises), and exchange transcripts (the frames the engine sends and those the harness must answer with) over a synthetic fixture bundle | Go `internal/harness` tests, the exchanges against the real harness on the pinned runtime; each harness's own developer tests run the codec cases |
+| plugins | `conformance/plugins/hooks.yaml` | host-plugin cases (provenance `policy`): a synthetic flow, a declarative host plugin that answers its hooks and provided sites, and the run's expected status, result, latched error and the plugin's log | Go `wl` tests, through a TypeScript plugin over `host_call` in `warm` and through Go callbacks; Go `cmd/windmill-lite` tests, through the host SDK's plugin in host mode |
 | build | `conformance/build/<finding>.json` | a sync folder and Bun scripts, and what the Bun build records for each (the signature of every export, annotations, the bundler target, workflow-as-code markers, the workspace scripts inlined) or refuses; optionally a run of the built modules' exports, with `process.env` replaced and host-provided modules registered ([WR-6](../semantics/languages.md#wr-6) to [WR-8](../semantics/languages.md#wr-8), [WR-26](../semantics/languages.md#wr-26) to [WR-32](../semantics/languages.md#wr-32), [WR-38](../semantics/languages.md#wr-38), [WR-39](../semantics/languages.md#wr-39), [WA-31](../semantics/client-api.md#wa-31), D12) | Go `internal/bundle` tests, running the Bun build helper and the modules on the pinned Bun; the helper's own developer tests run its scans |
-| hooks | `conformance/hooks/<topic>.yaml` | a synthetic flow, the host's signals of [0008](0008-host-hooks.md) (H1 outcomes, latches and cancellations at a module's start or end, fatal error names, halts, the clock, a pre-write deadline), and what the run must show: its status, its latch, the sites that ran or did not, its result and its deviations; windmill-lite's own rules (provenance `policy`) | Go `wl` tests, through the public API |
+| hooks | `conformance/hooks/<topic>.yaml` | a synthetic flow, the host's signals of [host hooks](0008-host-hooks.md) (H1 outcomes, latches and cancellations at a module's start or end, fatal error names, halts, the clock, a pre-write deadline), and what the run must show: its status, its latch, the sites that ran or did not, its result and its deviations; windmill-lite's own rules (provenance `policy`) | Go `wl` tests, through the public API |
 
 **Contextual expression cases are flow fixtures.** A one-step flow cannot
 reproduce an expression whose meaning depends on what ran before it: a
@@ -506,20 +522,22 @@ error, with the database route (a step in between) as its control.
   mapping, placeholders and normalisation exist only in Go.
 - **Configurations.** Flow cases run in three: `fresh`, `warm`, and **host
   mode** through a small public Bun test host built on the host SDK
-  ([0009](0009-host-adapters.md)). Cases that demonstrate a deviation
-  ([0001](0001-equivalence-contract.md) §5) carry the expected value per
-  configuration; every other case must pass in all three. Passing the flow
-  suite in `warm` and in host mode is an exit criterion of milestone F3b.
+  ([host adapters](0009-host-adapters.md)). Cases that demonstrate a deviation
+  ([§5 of the equivalence contract](0001-equivalence-contract.md#5-named-deviations))
+  carry the expected value per configuration; every other case must pass in
+  all three. Passing the flow suite in `warm` and in host mode is an exit
+  criterion of the host-mode integration gate.
 - **Provenance.** Every case names the catalogue case it encodes
   (`spec: JE-9/c`), its scope, and its provenance: `source-derived` until
   recorded, then `oracle-observed`; `disputed` while its finding is not
   settled; or `policy`. Contested cases follow
-  [0001](0001-equivalence-contract.md) §6: they are recorded early, and the
+  [§6 of the equivalence contract](0001-equivalence-contract.md#6-findings-that-are-not-settled):
+  they are recorded early, and the
   engine is built against the recording, so no case is ever checked against
   two readings.
 - **Notation.** Expected values use the catalogue's notation (`<stack>`,
-  `<any>`, `<job:PATH>`) with the identity encoding of
-  [0011](0011-differential-testing.md).
+  `<any>`, `<job:PATH>`) with the identity encoding of the
+  [differential testing](0011-differential-testing.md) record.
 
 ## Consequences
 
@@ -527,10 +545,11 @@ error, with the database route (a step in between) as its control.
   exist once, in Go.
 - A Python, Deno or Go harness later needs only step-runner logic; it gets
   every flow feature for free.
-- Each step costs a round trip; [0005](0005-json-step-boundaries.md) keeps the
+- Each step costs a round trip; the
+  [JSON at step boundaries](0005-json-step-boundaries.md) record keeps the
   JSON work to what the semantics require.
 - Expression cost scales with what an expression binds. The design measures
-  it, gates it in B2b, and uses the faster backend; it does not
+  it, gates it with the budget gate above, and uses the faster backend; it does not
   claim a per-run figure before that gate.
 - Every build needs a C toolchain (`zig cc` for Linux releases); builds
   with `CGO_ENABLED=0` are not supported in the first edition.
@@ -542,138 +561,156 @@ error, with the database route (a step in between) as its control.
   GCC 13 and 29 426 with GCC 15
   ([measurements](README.md#measurements-behind-the-decisions)).
 - Host code that must run in the harness (interceptors that call step code,
-  scoped context) reaches it through host plugins ([0008](0008-host-hooks.md)),
+  scoped context) reaches it through host plugins ([host hooks](0008-host-hooks.md)),
   not through a harness-side interpreter.
-- Milestone B1a measured the native pool under load and recorded it under
-  the budget gate, and moved evaluations onto threads the engine creates,
-  because the stack limit of JE-48 needs more stack than musl gives the Go
+- The native pool's measurement under load is recorded under the budget
+  gate. Evaluations run on threads that the expression engine creates,
+  because the stack limit of [JE-48](../semantics/expressions.md#je-48) needs more stack than musl gives the Go
   runtime's threads.
-- Milestone F4 measured the pool in the static musl engine: musl's `malloc`
-  makes the slot threads wait on one lock, and with 8 concurrent callers an
-  evaluation cost 3 to 10 times the CPU it costs with glibc. The engine's
-  heap therefore allocates with mimalloc (MIT, vendored with its notice
-  beside QuickJS-ng), which makes the static musl engine as fast as a glibc
-  build under load; the C library's `malloc` is untouched elsewhere
-  (`internal/expr/quickjs` README, Allocator). F4 also runs the expression
-  suite from the static binaries and starts the static engine on an empty
-  base ([0010](0010-packaging.md)).
-- The decode level was added with milestone A3. A flow value's accept or
-  reject decision has no run to observe, so it fits none of the three run
-  levels, and the decoder is Go only, so no harness reads these cases.
-- The jsonb level was added with milestone A1, for the same reasons: a
-  value's stored text is observed without a run, and the canonicaliser is Go
-  only. Its catalogue cases are flow cases whose texts it checks; each names
-  the milestone that checks its route.
-- The load level was added with milestone A4, for the same reasons: reading
-  a sync folder has no run to observe, and the loader is Go only. A load
-  case may also cite only its finding, for a case that extends the
-  catalogue.
-- The compile level was added with milestone A5, for the same reasons:
+- In the static musl engine, musl's `malloc` makes the slot threads wait on
+  one lock: with 8 concurrent callers an evaluation cost 3 to 10 times the
+  CPU it costs with glibc. The expression engine's heap therefore allocates
+  with mimalloc (MIT, vendored with its notice beside QuickJS-ng), which
+  makes the static musl engine as fast as a glibc build under load. The C
+  library's `malloc` is untouched elsewhere (`internal/expr/quickjs` README,
+  Allocator).
+- CI runs the expression suite from the static binaries and starts the
+  static engine on an empty base ([packaging](0010-packaging.md)).
+- The decode level holds the cases of `internal/openflow`. A flow value's
+  accept or reject decision has no run to observe, so it fits none of the
+  three run levels, and the decoder is Go only, so no harness reads these
+  cases.
+- The jsonb level holds the cases of `internal/jsonval`, for the same
+  reasons: a value's stored text is observed without a run, and the
+  canonicaliser is Go only. Its catalogue cases are flow cases whose texts
+  it checks; each names the milestone that checks its route.
+- The load level holds the cases of `internal/syncfolder`, for the same
+  reasons: reading a sync folder has no run to observe, and the loader is Go
+  only. A load case may also cite only its finding, for a case that extends
+  the catalogue.
+- The compile level holds the cases of `internal/ir`, for the same reasons:
   compiling a folder has no run to observe, and the compiler is Go only.
   Most of its catalogue cases are flow cases whose expectation depends on
   what a deploy applies; a compile case checks that part and names the
   milestone that checks the run, as a stored-form case does.
-- The expression level took its format with recording batch E3a: one
-  `conformance/exprs/<finding>.yaml` per finding, each case's expected value
-  at the recorded argument (point O2 of the catalogue's notation), with the
-  evaluator's own text (O1) where it matters, and its recordings under
-  `conformance/exprs/recorded/`. Flow fixtures restate their expressions as
-  unit cases with their recorded context, for B2a and B2b, and the JE-8
-  example has the oracle discriminator above (review item cx R16).
-- Milestone B2a implemented the textual pipeline (`expr.Compile`) and the
-  evaluator's dispatch (`expr.Pipeline`), and drew its line with B2b in the
-  engine source. An expression's `Source` is its rewritten text in a
-  single-line async function that its mode selects, called at once; B2b
-  writes the program around it, which turns the bound host strings into
-  values, gives the user's code `results`, `error` and the helpers, and
-  serialises the value (JE-15). The evaluator binds a host string per
-  context value the text names, and the results lookup and the helpers as
-  host functions that answer JSON text; JE-18's previous-step read is
-  answered from memory, by the results prelude since FU6 (below). Its cases are a pipeline level inside the
-  package, `internal/expr/testdata/pipeline/<finding>.json`: each restates
-  an E3a case, whose context it rebuilds from the recording's case, or
-  gives its own, and says what `Compile` makes of the text and which route
-  answers on a fake engine. B2b runs the same restatements on the real
+- The expression level has one `conformance/exprs/<finding>.yaml` per
+  finding, each case's expected value at the recorded argument (point O2 of
+  the catalogue's notation), with the evaluator's own text (O1) where it
+  matters, and its recordings under `conformance/exprs/recorded/`.
+- Flow fixtures restate their expressions as unit cases with their recorded
+  context, for the textual pipeline and the pipeline on the real engine, and
+  the [JE-8](../semantics/expressions.md#je-8) example has the oracle discriminator above.
+- The textual pipeline (`expr.Compile`) ends at an expression's `Source`:
+  its rewritten text in a single-line async function that its mode selects,
+  called at once. The evaluator's dispatch is `expr.Pipeline`.
+- The program around the `Source`, which the expression engine runs, turns
+  the bound host strings into values, gives the user's code `results`,
+  `error` and the helpers, and serialises the value ([JE-15](../semantics/expressions.md#je-15)).
+- The evaluator binds a host string per context value the text names, and
+  the results lookup and the helpers as host functions that answer JSON
+  text. [JE-18](../semantics/expressions.md#je-18)'s previous-step read is answered from memory, by the results
+  prelude (below).
+- The pipeline's cases are a level inside the package,
+  `internal/expr/testdata/pipeline/<finding>.json`. Each restates a recorded
+  expression case, whose context it rebuilds from the recording's case, or
+  gives its own. It says what `Compile` makes of the text and which route
+  answers on a fake engine, and the same restatements run on the real
   engine.
-- Milestone B2b wrote the program around an expression's source and runs
-  the pipeline on the native engine. An evaluation runs global scripts
-  before the program, the engine's preludes (`Input.Preludes`): one parses
-  the bound host strings in place and defines the helpers, one declares
-  the lexical `results` and one the lexical `error`, which only a script
-  of their own can declare (JE-10). The program is the source followed by
-  the serialisation of JE-15. Their text is observable in the stack frames
-  that error messages carry (JE-21), and E3a's recordings fix it: the
-  wrapper is `(async function() { …` (B2a's provisional reading, an async
-  function, with its exact opening), and the helpers and the results
-  lookup throw from the positions the oracle shows. Every expression E3a
-  recorded gives the oracle's value or text at unit level, its error texts
-  byte for byte, except where the engine's build differs: the last digit
-  of some transcendental `Math` results on a C library other than the
-  image's glibc,
-  and the recursion depth that fits the 1 MiB stack, deviations D16 and
-  D17 of [0001](0001-equivalence-contract.md). The budget gate above is
-  met.
-- Milestone FU3 followed the semantics team's answers to B2a's and B2b's
-  readings (requests 8 and 9 of the [README](README.md)). Two changed the
-  engine contract: every script is a strict-mode global script (JE-50),
-  and the engine runs every queued job before it reads the completion
-  value and drops a job that throws (JE-51), as rquickjs's poll does. The
-  rest are in the program and the pipeline: an Error's message and stack
-  are read as rquickjs reads them, and another thrown value shows
-  rquickjs's debug form, from the kind and payload the engine reports
-  (JE-21, JE-52); a replaced `JSON.stringify`'s string is the result text
-  unchecked, so the evaluator's output need not be JSON (JE-15); context
-  values are rebuilt by assignment (JE-16); `error` is a `let` binding
-  (JE-10) with falsy fallbacks (JE-17); the depth check follows JE-49's
-  order and positions; and the call rewrite places its parenthesis at a
-  character count applied as a byte offset (JE-11), failing the evaluation
-  where Windmill's evaluator panics. The texts the engine supplies for
-  values read from storage follow [0005](0005-json-step-boundaries.md)'s
-  corrected routing table.
-- Milestone FU6 followed the answers to FU3's open readings (request 10 of
-  the [README](README.md)), all in the program and the pipeline: JE-11's
-  count starts at each call, each helper's pass cutting the text at its
-  call text, and a panicked rewrite fails with the runtime's report of the
-  panicked task; the previous step's `results` read is the rebuilt
-  `previous_result` itself, which the results prelude returns from memory
-  when the evaluator names the previous id in a host string, while a
-  fetched read and the `resource` and `flow_user_state` helpers parse
-  with `JSON.parse` as it is when they run (JE-16, JE-18). The positions
-  E3a's stacks show are kept.
-- The protocol level was added with milestone C1. The frame codec is a rule
-  that Go and every harness implement, so [AGENTS.md](../../AGENTS.md) asks
-  for one shared case set that both sides run rather than two codecs that
-  happen to agree; it is not Windmill behaviour, so it fits none of the
-  other levels. The golden frames are the ones "the Go run writes" (above):
+- `internal/expr` writes the program around an expression's source and runs
+  the pipeline on the native engine. An evaluation runs the engine's
+  preludes (`Input.Preludes`), global scripts, before the program. One
+  parses the bound host strings in place and defines the helpers, one
+  declares the lexical `results`, and one the lexical `error`, which only a
+  script of their own can declare ([JE-10](../semantics/expressions.md#je-10)).
+- The program is the source followed by the serialisation of [JE-15](../semantics/expressions.md#je-15). The
+  text of the preludes and the program is observable in the stack frames
+  that error messages carry ([JE-21](../semantics/expressions.md#je-21)), and the oracle's expression recordings
+  fix it. The wrapper is `(async function() { …`, an async function with
+  that exact opening, and the helpers and the results lookup throw from the
+  positions the oracle shows.
+- The recorded context-free cases of `conformance/exprs` and the unit cases
+  of the flow fixtures run on the real engine with the context of their
+  recordings. Each gives the oracle's value or text, its error texts byte
+  for byte, except where the engine's build differs.
+  - The build differences are the last digit of some transcendental `Math`
+    results on a C library other than the image's glibc, and the recursion
+    depth that fits the 1 MiB stack:
+    [D16](0001-equivalence-contract.md#5-named-deviations) and
+    [D17](0001-equivalence-contract.md#5-named-deviations).
+  - Two cases are checked otherwise: the three 20 s attempts of [JE-2/a](../semantics/conformance.md#je-2) run
+    with a short limit in a test of their own, and the panic report of
+    [JE-11/e](../semantics/conformance.md#je-11), whose task number varies, is checked by its pipeline case.
+- The budget gate above is met.
+- `internal/expr` follows the semantics team's answers to the readings of
+  the textual pipeline and of the program (requests 8 and 9 of the
+  [README](README.md)). Two of the answers set the engine contract: every
+  script is a strict-mode global script ([JE-50](../semantics/expressions.md#je-50)), and the engine runs every
+  queued job before it reads the completion value and drops a job that
+  throws ([JE-51](../semantics/expressions.md#je-51)), as rquickjs's poll does.
+- The other answers are in the program and the pipeline:
+  - an Error's message and stack are read as rquickjs reads them, and
+    another thrown value shows rquickjs's debug form, from the kind and
+    payload the engine reports ([JE-21](../semantics/expressions.md#je-21), [JE-52](../semantics/expressions.md#je-52));
+  - a replaced `JSON.stringify`'s string is the result text unchecked, so
+    the evaluator's output need not be JSON ([JE-15](../semantics/expressions.md#je-15));
+  - context values are rebuilt by assignment ([JE-16](../semantics/expressions.md#je-16)), and `error` is a
+    `let` binding ([JE-10](../semantics/expressions.md#je-10)) with falsy fallbacks ([JE-17](../semantics/expressions.md#je-17));
+  - the depth check follows [JE-49](../semantics/expressions.md#je-49)'s order and positions;
+  - the call rewrite places its parenthesis at a character count applied as
+    a byte offset ([JE-11](../semantics/expressions.md#je-11)), failing the evaluation where Windmill's
+    evaluator panics.
+- The texts the engine supplies for values read from storage follow the
+  corrected routing table of
+  [JSON at step boundaries](0005-json-step-boundaries.md).
+- `internal/expr` also follows the answers to the readings that requests 8
+  and 9 left open (request 10 of the [README](README.md)), all in the
+  program and the pipeline:
+  - [JE-11](../semantics/expressions.md#je-11)'s count starts at each call, each helper's pass cutting the text
+    at its call text, and a panicked rewrite fails with the runtime's
+    report of the panicked task;
+  - the previous step's `results` read is the rebuilt `previous_result`
+    itself, which the results prelude returns from memory when the
+    evaluator names the previous id in a host string;
+  - a fetched read and the `resource` and `flow_user_state` helpers parse
+    with `JSON.parse` as it is when they run ([JE-16](../semantics/expressions.md#je-16), [JE-18](../semantics/expressions.md#je-18));
+  - the positions that the recorded stacks show are kept.
+- The protocol level holds the cases of the frame codec, a rule that Go and
+  every harness implement. So [AGENTS.md](../../AGENTS.md) asks for one
+  shared case set that both sides run, rather than two codecs that happen to
+  agree. It is not Windmill behaviour, so it fits none of the other levels.
+- The golden frames are the ones "the Go run writes" (above):
   `go test ./internal/harness -run TestFrameCases -args -update` rewrites
   them, and the Bun harness's `bun test` checks its codec against them.
-- The build level was added with milestone C2a. The signature parse,
-  annotations, workflow-as-code detection and import rewrites are rules of
-  the build, which runs before any step; the catalogue cases that cover them
-  are step cases, so each build case checks a case's build half and names
-  where its run is checked (the step suite, C3a), and a case can run the
-  built modules directly to show that the transforms behave as Windmill's.
-  The parse lives in the Bun build helper, but Go is the one comparator.
-- The hooks level was added with milestone F2b. The precedence of host
-  signals (the latch, cancellation and deadlines, fatal error names, halts)
-  against Windmill's continue decision is windmill-lite's own rule
-  ([0008](0008-host-hooks.md)), with no oracle to record, so it fits none of
-  the run levels; its cases run through `wl`'s public hooks, as a host
-  would give them, on flows of identity modules whose jobs H1 answers, so
-  no harness runs. What needs a real job (H3's first write) is checked by
-  `wl`'s tests on the Bun harness instead.
-- The step level took its format with milestone C3a: one
-  `conformance/steps/<lang>/<finding>.yaml` per finding (or per deviation
-  without one, such as `d11.yaml`), as the expression level has, each case
-  one script and the runs one harness process serves in order, so module
-  state across runs is observable. A run's check (the stored value as an
-  observation, claims, late reports, settlement, warnings) holds in every
-  configuration; a case of a deviation gives one check per configuration
-  instead (`by_mode`, `warm` and `fresh`). `deferred.yaml` lists the
-  catalogue cases of those findings that are not step cases. `wltest
-  check` builds each file's scripts with the Bun build helper, maps every
-  outcome to Windmill's stored value with the engine's mapping, and
-  compares in Go. Expected platform calls arrive with the facade (PF1).
+- The build level holds the cases of the build's rules, which run before
+  any step: the signature parse, annotations, workflow-as-code detection and
+  import rewrites. The catalogue cases that cover them are step cases, so
+  each build case checks a case's build half and names where its run is
+  checked (the step suite).
+- A build case can run the built modules directly to show that the
+  transforms behave as Windmill's. The parse lives in the Bun build helper
+  (`harnesses/bun/build`), but Go is the one comparator.
+- The hooks level holds the precedence of host signals (the latch,
+  cancellation and deadlines, fatal error names, halts) against Windmill's
+  continue decision. That is windmill-lite's own rule
+  ([host hooks](0008-host-hooks.md)), with no oracle to record, so it fits
+  none of the run levels.
+- The hooks cases run through `wl`'s public hooks, as a host would give
+  them, on flows of identity modules whose jobs H1 answers, so no harness
+  runs. What needs a real job (H3's first write) is checked by `wl`'s tests
+  on the Bun harness instead.
+- The step level has one `conformance/steps/<lang>/<finding>.yaml` per
+  finding (or per deviation without one, such as `d11.yaml`), as the
+  expression level has. Each case is one script and the runs that one
+  harness process serves in order, so module state across runs is
+  observable.
+- A run's check (the stored value as an observation, claims, late reports,
+  settlement, warnings, and the platform calls the facade recorded) holds in
+  every configuration; a case of a deviation gives one check per
+  configuration instead (`by_mode`, `warm` and `fresh`). `deferred.yaml`
+  lists the catalogue cases of those findings that are not step cases.
+- `wltest check` builds each file's scripts with the Bun build helper, maps
+  every outcome to Windmill's stored value with the engine's mapping, and
+  compares in Go.
 
 ## Spec IDs relied on
 

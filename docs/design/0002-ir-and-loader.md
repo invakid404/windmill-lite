@@ -1,8 +1,20 @@
-# 0002 · IR, loader and validation
+# IR, loader and validation
 
-**Status:** proposed · **Topic:** how a `wmill sync` folder becomes an
+**Status:** Accepted · **Topic:** how a `wmill sync` folder becomes an
 executable program, a script inventory and dependency information, and how
 each step's language is recorded.
+
+windmill-lite reads a [sync folder](../glossary.md#sync-folder) in the
+CLI's YAML dialect, refusing what it cannot read as the CLI does, decodes
+flows with Windmill's effective decoder rules, and compiles them once into
+a typed intermediate representation (IR), the [program](../glossary.md#program).
+The IR holds every default, collapse decision and harness class that a run
+needs, and a [host contract](../glossary.md#host-contract) lists the
+bundle's roots and its mandatory
+[host-provided call sites](../glossary.md#provided-site).
+
+**Not built yet:** a host resolver for `hub/` paths: a step whose target is
+a `hub/` path fails at load unless a mandatory provided site replaces it.
 
 ## Context
 
@@ -85,7 +97,8 @@ flowchart LR
      differs from the CLI's.
      Some YAML 1.2 syntax that the library rejects, such as the `\/`
      escape, fails with the library's `yaml_syntax` error. Both are
-     restrictions of [0001](0001-equivalence-contract.md) §5a; the package
+     restrictions of the
+     [equivalence contract](0001-equivalence-contract.md#5a-restrictions); the package
      README of `internal/yamlx` lists them. Input that the CLI rejects may
      still parse: the CLI cannot push such a file, so there is no Windmill
      behaviour for it to match.
@@ -108,7 +121,8 @@ flowchart LR
 ### Normalising to the reference configuration
 
 `ir.Compile` applies, once, everything a successful deploy would have
-applied ([0001](0001-equivalence-contract.md) §1):
+applied
+([§1 of the equivalence contract](0001-equivalence-contract.md#1-the-reference-configuration)):
 
 - container defaults ([OF-6](../semantics/openflow.md#of-6),
   [OF-7](../semantics/openflow.md#of-7)); with the `strict` option an absent
@@ -143,7 +157,8 @@ for golden tests:
   ([OF-16](../semantics/openflow.md#of-16)).
 - **`Module`**: id, its occurrence number when the id repeats within its
   module list (ids are not unique in Windmill, [OF-2](../semantics/openflow.md#of-2);
-  [0011](0011-differential-testing.md) uses the occurrence in identities),
+  the [differential testing](0011-differential-testing.md) record uses the
+  occurrence in identities),
   kind and the envelope, each field already decoded. Kinds:
   `Script` (by path), `RawScript` (inline), `Identity`, `Subflow` (by path),
   `ForLoop`, `WhileLoop`, `BranchOne`, `BranchAll`, and `Provided` for a
@@ -154,7 +169,8 @@ for golden tests:
   never re-derives it.
 - **`Transform`**: `Static` (the raw JSON text, verbatim,
   [JE-40](../semantics/expressions.md#je-40)) or `Expr`.
-- **`Expr`**: a compiled expression ([0003](0003-semantics-placement.md)):
+- **`Expr`**: a compiled expression
+  ([where semantics live](0003-semantics-placement.md)):
   its site kind, the text as written, the trimmed text, the shortcut that
   can answer it (computed where it depends only on the text, deferred where
   it depends on the preceding id), the rewritten engine source, the mode, and
@@ -179,10 +195,11 @@ switch. The IR maps languages to harness classes:
 | anything else | none | load error `unsupported_language: <lang>` naming the step |
 
 The harness class per leaf is all the engine needs: placement is decided per
-leaf by the pool key ([0004](0004-harness-protocol.md)), and host scopes are
-entered per run ([0008](0008-host-hooks.md)). The charter's *segments* (runs
-of same-language steps chained in one process) were weighed and are not
-recorded in the IR; [0003](0003-semantics-placement.md) explains why.
+leaf by the pool key ([harness protocol](0004-harness-protocol.md)), and
+host scopes are entered per run ([host hooks](0008-host-hooks.md)). The
+charter's *segments* (runs of same-language steps chained in one process)
+were weighed and are not recorded in the IR; the record
+[Where semantics live](0003-semantics-placement.md) explains why.
 
 ### Script inventory and dependency information
 
@@ -198,14 +215,14 @@ schema; and a **dependency set id**: the digest of the lock for a
 `//nobundling` script, a fixed id for bundled scripts (their dependencies are
 inlined), the codebase's id for codebase scripts. Harness pools are keyed by
 harness class, runtime pin and dependency set
-([0004](0004-harness-protocol.md)).
+([harness protocol](0004-harness-protocol.md)).
 
 `ir.Compile` records what the folder gives: everything above but the
 relative-import closure. An inline step's inventory id is derived from its
 flow path and its site, since module ids may repeat. The relative-import
 closure, the export signatures (below) and the workflow-as-code flag come
-from the Bun build helper's scans and are added by the build (milestones
-C2a and F4).
+from the Bun build helper's scans and are added by the build
+(`harnesses/bun/build` and `internal/bundle`).
 
 Signatures are parsed by the Bun build helper, not by Go, because that parse
 is TypeScript-specific and the harness must agree with it
@@ -216,15 +233,16 @@ any export at run time, from a flow input
 ([WR-12](../semantics/languages.md#wr-12)), and every other top-level
 function declaration, since Windmill's parser reads a declaration whether
 it is exported or not ([WR-7](../semantics/languages.md#wr-7)): a job whose
-entrypoint names one whose parameters do not parse fails before it runs
-(milestone C3a). For each exported function
+entrypoint names one whose parameters do not parse fails before it runs.
+For each exported function
 declaration the manifest records the parameter names and which parameters
 hydrate to `Date`; an export the signature parser does not recognise (an
 arrow function, a `const` holding a function) is recorded with an empty
 parameter list, which is how Windmill's parser sees it (the
-[WR-V1](../semantics/languages.md#wr-v1) fallback) ([0010](0010-packaging.md)).
-Whether an export exists and is a function is checked by the harness after
-loading, not at build ([0004](0004-harness-protocol.md)).
+[WR-V1](../semantics/languages.md#wr-v1) fallback)
+([packaging](0010-packaging.md)). Whether an export exists and is a function
+is checked by the harness after loading, not at build
+([harness protocol](0004-harness-protocol.md)).
 
 ### Host contract and mandatory host-provided call sites
 
@@ -234,7 +252,7 @@ the loader would reject the flow before any hook ran. So the build takes a
 **host contract** as a second input, next to the sync folder: a file that
 lists the bundle's **roots** (the flows and scripts the host will run, and
 every by-path target that steps dispatch locally with `runScript*` or
-`runFlow*`, since no static path reaches those) and its **provided sites**, each a selector ([0008](0008-host-hooks.md)) with
+`runFlow*`, since no static path reaches those) and its **provided sites**, each a selector ([host hooks](0008-host-hooks.md)) with
 the form of its provider (a static value, or a named provider the host
 registers at run time) and `mandatory: true`. A provided site must be a
 call site (a `script`, `flow` or `rawscript` step; a provided rawscript's
@@ -242,7 +260,7 @@ call site (a `script`, `flow` or `rawscript` step; a provided rawscript's
 narrow it to some `iterations` or `branches`, because its target is replaced
 everywhere. A `{script: <path>}` selector names a `script` step by its path
 and an inline step by `<flow path>/<module id>`. The contract also lists the
-host-provided modules ([0010](0010-packaging.md)).
+host-provided modules ([packaging](0010-packaging.md)).
 
 1. The loader walks the dependency closure from the roots only. At a
    provided site it stops: the site's target (a by-path subflow or script)
@@ -259,15 +277,15 @@ host-provided modules ([0010](0010-packaging.md)).
 5. A mandatory provider cannot decline. If it returns *decline* anyway, the
    run latches `provider_declined` (H5) and fails closed.
 
-Policy case, in two parts, because they need different milestones:
+Policy case, in two parts, one for each stage:
 
-- **Compile time** (A5's gate): a synthetic root calls a by-path subflow
+- **Compile time**: a synthetic root calls a by-path subflow
   that contains `suspend`. Without the contract entry, load fails with
   `unsupported_feature`/`suspend` naming the path. With it, the subflow is
   not loaded, the IR holds a `Provided` module with the site's original
   envelope, and a mandatory selector that matches two sites fails with
   `ambiguous_selector`.
-- **Run time** (F2a's gate, after `wl.Open` exists): with the provider
+- **Run time** (through `wl.Open`): with the provider
   registered, the run succeeds with the provider's value and the root's
   `stop_after_if` applies to it; with no registered provider, `wl.Open` fails
   with `missing_provider`; a provider that declines fails the run with
@@ -275,14 +293,15 @@ Policy case, in two parts, because they need different milestones:
 
 A dispatch at run time to a path that is not a root fails the dispatching
 step with `UnsupportedPlatformCall`, `dispatch target not in bundle: <path>`
-([0007](0007-platform-interface.md)).
+([platform interface](0007-platform-interface.md)).
 
 ### Validation
 
 Load fails, naming the step and the rule, when:
 
 1. Windmill itself would reject the value (OF-2 messages);
-2. the flow uses an out-of-scope feature ([0001](0001-equivalence-contract.md) §3);
+2. the flow uses an out-of-scope feature
+   ([§3 of the equivalence contract](0001-equivalence-contract.md#3-out-of-scope));
 3. a by-path script or flow is not in the folder, is filtered out, or is a
    `hub/` path with no host resolver ([SY-15](../semantics/openflow.md#sy-15));
 4. a step's language has no harness class;
@@ -324,12 +343,12 @@ Decisions:
    refused at load (`unsupported_feature`); a falsy one counts as unset.
    The windmill-lite-specific transforms (the host-provided-module shims
    and the env rewrite) are the same single implementation the Bun path
-   uses ([0010](0010-packaging.md)).
+   uses ([packaging](0010-packaging.md)).
 2. **Runtime.** CJS and ESM codebase bundles run in the Bun harness;
    running CJS on Bun's CommonJS loader instead of Node is deviation D13. A
    Node harness class was weighed and rejected: host mode needs steps in the
    host's Bun process, and CE cannot record codebase behaviour either way.
-   Cases for D13 (milestone C2b, which needs the Bun harness runtime) run the
+   Cases for D13 (which need the Bun harness runtime) run the
    same esbuild CJS bundle under Node and under the Bun harness and compare
    results, error objects and module-load failures
    (`__dirname`, `require` of JSON and of the bundle's own files, `module.exports`
@@ -338,13 +357,13 @@ Decisions:
    into its working directory (D10) before any invocation. Two scripts whose
    assets map different content to the same relative path fail the build
    with `asset_collision`.
-4. **Parity with the CLI.** Milestone C2b checks the bundles: the pinned
+4. **Parity with the CLI.** windmill-lite checks the bundles: the pinned
    `wmill` CLI, run as a black box against a recording HTTP stub, produces
    the codebase bundles it would upload, and windmill-lite's esbuild output
    for the same fixture must match them after normalising paths. If the CLI
    needs more of a server than a stub can answer, the check compares the
    esbuild settings and the semantics request's answer instead, and says so
-   in the case. Milestone C2b found that a stub suffices: `wmill script
+   in the case. The check found that a stub suffices: `wmill script
    push` asks for the user, the deployed script (a 404 makes it new) and one
    multipart `create_snapshot`; the uploaded bundles equal windmill-lite's,
    with no path to normalise, once a text upload's CRLF line breaks (the
@@ -369,7 +388,7 @@ reference refusal also refuses folders the CLI accepts, since the CLI reads
 any path. The others change nothing about how an accepted folder runs. Text
 files that are not UTF-8 and `wmill.yaml` globs outside the syntax that
 minimatch 9 and 10 read alike are refused too; with the first two, they are
-the sync-folder restriction of [0001](0001-equivalence-contract.md) §5a. The YAML refusals of the dialect (Pipeline,
+the sync-folder restriction of the [equivalence contract](0001-equivalence-contract.md#5a-restrictions). The YAML refusals of the dialect (Pipeline,
 step 2) also refuse files the CLI accepts; none of them is a construct the
 CLI's writer emits for a value a Windmill server returns, so they reach
 only hand-written files.
@@ -378,11 +397,11 @@ only hand-written files.
 
 - The engine receives a fully decided program: no defaults, collapse flags or
   languages are computed during a run.
-- Milestone A3 placed the D6 id in the decoder rather than in `ir.Compile`:
-  Windmill names a module in its decode errors, and the derived id is the same
-  wherever it is assigned.
+- The decoder (`internal/openflow`) assigns the [D6](0001-equivalence-contract.md#5-named-deviations) id, not `ir.Compile`:
+  Windmill names a module in its decode errors, and the derived id is the
+  same wherever it is assigned.
 - Bundle identity covers the IR, so a changed `stop_after_if` changes the
-  digest ([0010](0010-packaging.md)).
+  digest ([packaging](0010-packaging.md)).
 - windmill-ts (Unlicense) is prior art for the folder walk and the schema
   clean-ups ([PA-1](../semantics/openflow.md#pa-1) to
   [PA-3](../semantics/openflow.md#pa-3), [WA-60](../semantics/client-api.md#wa-60));
@@ -392,43 +411,43 @@ only hand-written files.
   `windmill-utils-internal`) are not used until the open licence question is
   answered ([Q-OF-7](../semantics/openflow.md#q-of-7)); the loader is written
   from the `SY-` findings either way.
-- Milestone A4 implemented `syncfolder`. It reads items on demand (Pipeline,
-  step 1), narrowed the dotted-path divergence to script files, the only
-  paths the CLI cuts at a dot, and added the refusals of references that
-  leave the root, of text that is not UTF-8 and of globs minimatch versions
-  read differently.
-- The YAML dialect's mapping rules and refusals (Pipeline, step 2) were added
-  when milestone A2 implemented it. Pinning the dialect against the CLI's
-  YAML library showed that a mapping's keys and order follow the JavaScript
-  object the CLI builds, and that a YAML 1.1 parser cannot read a few YAML
-  1.2 constructs as the CLI does. Matching those would need another parser
-  or JavaScript-specific values; none of them comes from the CLI's writer
-  for a server value, so they are refused, as a restriction of
-  [0001](0001-equivalence-contract.md) §5a.
+- `internal/syncfolder` reads items on demand (Pipeline, step 1). It limits
+  the dotted-path divergence to script files, the only paths the CLI cuts at
+  a dot, and refuses references that leave the root, text that is not UTF-8
+  and globs that minimatch versions read differently.
+- The YAML dialect's mapping rules and refusals (Pipeline, step 2) follow
+  the CLI's YAML library. A mapping's keys and order follow the JavaScript
+  object the CLI builds, and a YAML 1.1 parser cannot read a few YAML 1.2
+  constructs as the CLI does. The CLI's writer never emits those constructs
+  for a server value, so they are refused, a restriction of the
+  [equivalence contract](0001-equivalence-contract.md#5a-restrictions).
 
-- Milestone A5 implemented `ir.Compile` in `internal/ir`. It made the native
-  switch two-way, as OF-15 and WR-40 describe a deploy relabelling either
-  way; assigned the rules that need the Bun helper's scans (the bare-import
-  lock rule, workflow-as-code) and the relative-import closure to the build;
-  refused every hash pin, since rule 6 cannot be decided from a folder; and
-  fixed the host contract's provided sites to mandatory call sites that
-  match one module everywhere. Its expressions hold their site and text;
-  the textual pipeline of milestone B2a fills in the rest. Milestone N1a
-  made the compiler call it: every `Expr` of a program is compiled
-  (`ir.Version` 2), and the engine compiles each one's bytecode when it
-  opens the program.
-- Milestone C3n exported the deploy's relabelling of a Bun-family rawscript
+- `ir.Compile` (`internal/ir`) makes the native switch two-way, as [OF-15](../semantics/openflow.md#of-15)
+  and [WR-40](../semantics/languages.md#wr-40) describe a deploy relabelling either way. It holds the host
+  contract's provided sites to mandatory call sites that match one module
+  everywhere.
+- The compiler refuses every hash pin of a script that it must resolve from
+  the folder, since rule 6 cannot be decided from a folder. A mandatory
+  provided site can replace a pinned step, which then compiles to that
+  provided site.
+- The rules that need the Bun helper's scans (the bare-import lock rule,
+  workflow-as-code) and the relative-import closure are the build's, not
+  the compiler's.
+- The compiler compiles every `Expr` of a program with the textual pipeline
+  of `internal/expr` (`ir.Version` 2), and the engine compiles each one's
+  bytecode when it opens the program.
+- `internal/ir` exports the deploy's relabelling of a Bun-family rawscript
   (`ir.DeployedLanguage`) and the boundary of a language (`ir.BoundaryOf`),
   so that the step-case runner and the walking skeleton's loader apply the
-  compiler's rule rather than one of their own. The header decides only
-  for `bun` and `bunnative`: a `nativets` step is native with or without a
-  `//native` line, and is always transpiled, never bundled
-  ([WR-40](../semantics/languages.md#wr-40)'s note, from SC1).
-- Milestone F4's build applies rule 5 (`missing_lock`, for a script whose
+  compiler's rule rather than one of their own.
+- The header decides only for `bun` and `bunnative`: a `nativets` step is
+  native with or without a `//native` line, and is always transpiled, never
+  bundled ([WR-40](../semantics/languages.md#wr-40)'s note).
+- The build (`internal/bundle`) applies rule 5 (`missing_lock`, for a script whose
   own source imports a package and that has no lock or a blank one) and the
   workflow-as-code refusal, from the Bun helper's scans; the relative-import
   closure and the export signatures are in each script's metadata in the
-  bundle ([0010](0010-packaging.md)).
+  bundle ([packaging](0010-packaging.md)).
 
 ## Spec IDs relied on
 

@@ -60,7 +60,20 @@ func check(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	verbose := fs.Bool("v", false, "print the harness diagnostics of every failed case or run")
 	shared := fs.Bool("shared-code", false, "build every bundle with shared code (ADR 0013): warm and host-mode runs run the scripts' shared-layout modules; a step file can ask for it itself (shared_code)")
 	quickJSOnly := fs.Bool("quickjs-only", false, "evaluate every expression the shortcuts and member paths do not answer in QuickJS, without the Go evaluator (ADR 0003)")
+	store := fs.String("resource-store", "memory", "the resource store of each flow fixture's runtime: memory, or redis on the Redis that $WL_REDIS_URL names, under a new key prefix per fixture")
 	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	var redisURL string
+	switch *store {
+	case "memory":
+	case "redis":
+		if redisURL = os.Getenv("WL_REDIS_URL"); redisURL == "" {
+			fmt.Fprintln(stderr, "wltest check: -resource-store redis: WL_REDIS_URL is not set")
+			return 2
+		}
+	default:
+		fmt.Fprintf(stderr, "wltest check: -resource-store %q is not memory or redis\n", *store)
 		return 2
 	}
 	if fs.NArg() == 0 {
@@ -141,7 +154,7 @@ func check(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		defer js.Close()
-		fc := &flowChecker{bun: *bun, repo: root, mode: *mode, sharedCode: *shared, js: js, quickJSOnly: *quickJSOnly}
+		fc := &flowChecker{bun: *bun, repo: root, mode: *mode, sharedCode: *shared, js: js, quickJSOnly: *quickJSOnly, redisURL: redisURL}
 		for _, fr := range fc.runFixtures(ctx, dirs) {
 			if fr.err != nil {
 				fmt.Fprintln(stdout, "invalid", fr.dir, fr.err)

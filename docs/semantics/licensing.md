@@ -18,11 +18,18 @@ proprietary files.
 
 **Pinned version:** Windmill `v1.767.0` (commit `6de4ec0f665ad856002495c4d86269105ec28ad7`).
 Source pointers are `path:line @ v1.767.0` relative to the Windmill repository
-root. Status, scope and confidence tags are defined in the [index](README.md#legend).
+root. This file is still at the previous pin: it has not moved to `v1.862.0`
+yet ([index](README.md#pinned-version)). Status, scope and confidence tags
+are defined in the [index](README.md#legend).
 
 **ID prefixes in this file:** `LIC-` licence map and clean-room boundary. This
-area has no findings added during validation. `OR-` findings cited here are in
-[oracle.md](oracle.md).
+area has no `V` findings from the independent check of the draft. `OR-`
+findings cited here are in [oracle.md](oracle.md).
+
+**Cases:** the three cases of this area, in
+[conformance.md](conformance.md#licensing), check windmill-lite's own
+repository against these findings. They are source-derived, and no oracle
+recording applies to them.
 
 ## Summary for the design
 

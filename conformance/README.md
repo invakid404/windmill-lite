@@ -1,225 +1,425 @@
 # conformance
 
-**Current state:** ten levels of the shared conformance suite exist: the
-OpenFlow decode cases in `openflow/`, the stored-form cases in `jsonb/`, the
-sync-folder load cases in `syncfolder/`, the compile cases in `ir/`, the
-harness protocol cases in `protocol/`, the Bun build cases in `build/`, the
-flow fixtures in `flows/`, the Bun step cases in `steps/`, the
-context-free expression cases in `exprs/`, and the host-hook cases in
-`hooks/` (milestone F2b). `wltest record` records the flow fixtures and the expression cases
-on the Windmill CE oracle: the oracle smoke fixture, the fixtures of
-recording batches E3c (flow execution errors), E3b (flow execution core)
-and E3d (loops, branches and the result cache), the stub-mode acceptance
-cases, those of recording batch E3a (the expression cases of the JE
-catalogue, and CF-19 and CF-V6), and those of recording batch E3e (FX-36's
-HTTP responses, the contested `later` cases, codebase scripts, and the
-probe catalogue rebuilt as fixtures), and those of recording batch E3f
-(native steps, on a worker that serves `nativets`, and the recordings that
-semantics revisions SC3 and SC4 requested). This README covers `conformance/`.
-`wltest check` runs the flow fixtures on windmill-lite, through the `wl`
-library in `warm` and `fresh` (milestone F1), on the engine core
-(milestones E1, N1a, N1b, N3a and N3b), which runs flows of
-Bun steps, their failure modules, loops and branches; it also runs the
-expression cases end to end, as the generated one-step flows `wltest
-record` lifts them into. The runs it cannot run yet
-are reported as unsupported, and the runs it must pass are listed in
-`cmd/wltest/testdata/flowsuite.json`
-([cmd/wltest](../cmd/wltest/README.md#tests)). The tests of the expression
-pipeline ([internal/expr](../internal/expr/README.md)) run the expression
-cases and the flow fixtures' unit cases at unit level: through its
-shortcuts and textual stages on a fake engine (milestone B2a), and on
-QuickJS-ng against what the oracle recorded, apart from the cases they list
-as skipped or as deviations (B2b). The step cases in `steps/` run on
-windmill-lite's Bun harness through `wltest check` (milestone C3a), in
-`warm` and, since milestone C3b, in `fresh` mode; those of a CommonJS
-codebase script also run on Node, where Windmill runs them (milestone C2b,
-deviation D13); `steps/bun/wr-40.yaml` to `wr-45.yaml` and `d5.yaml` are
-the native cases of milestone C3n, and `build/d5.json` their build.
+**Current state:** working. The suite has eleven levels, from
+[OpenFlow](../docs/semantics/openflow.md) decode cases to whole flow
+fixtures, and each runs in CI. The [oracle](../docs/glossary.md#oracle), an
+unmodified Windmill Community Edition `v1.862.0`, records the flow fixtures
+and the expression cases, but not a fixture with
+[provided sites](../docs/glossary.md#provided-site), which only
+windmill-lite runs. The cases of the other levels are written from the
+[semantics reference](../docs/semantics/README.md), or from windmill-lite's
+own design where a level tests its own rules.
 
-The suite pins each implementation to the
-[semantics reference](../docs/semantics/README.md). Every case cites the
-catalogue case it encodes (`docs/semantics/conformance.md`), or the finding
-whose rule it encodes, and fixtures are synthetic: invented for this
-repository to exercise one behaviour each.
+This README covers `conformance/`.
+
+A [conformance case](../docs/glossary.md#conformance-case) states inputs and
+the outputs that windmill-lite must produce. The suite pins each
+implementation, the Go packages and the
+[Bun harness](../harnesses/bun/README.md), to the semantics reference:
+
+- Every case cites what it encodes: the catalogue case
+  ([docs/semantics/conformance.md](../docs/semantics/conformance.md)), the
+  [finding](../docs/glossary.md#finding) whose rule it encodes, or, for
+  windmill-lite's own rules, the design section or named deviation.
+- Every fixture is synthetic: invented for this repository to exercise one
+  behaviour.
+- A case's provenance says where its expectation comes from. It is
+  `oracle-observed` when the catalogue's expectation was observed on the
+  oracle; a case that checks only one half of it, such as a compile case,
+  still carries the tag. It is `source-derived` when the semantics
+  reference states it, and `policy` for windmill-lite's own rule. A
+  `disputed` case's rule is not settled, and its `note` says which reading
+  it encodes.
+- A case's scope is the catalogue's: `core`, `later` (windmill-lite does not
+  have to pass it yet, even when the oracle has recorded it), `out` (out of
+  scope), or `EE` (enterprise only).
+
+The ADR [Where semantics live, and the conformance-suite format](../docs/design/0003-semantics-placement.md)
+defines the levels, and the ADR
+[Differential testing and performance measurement](../docs/design/0011-differential-testing.md)
+defines the oracle's recordings and stub mode.
 
 ## Levels
 
-| Level | Directory | Status |
+| Level | Directory | Format | What runs it | Recorded by the oracle |
+|---|---|---|---|---|
+| decode | `openflow/<finding>.json` | [OpenFlow decode cases](#openflow-decode-cases) | `go test ./internal/openflow` | no |
+| jsonb | `jsonb/<finding>.yaml` | [Stored-form cases](#stored-form-cases) | `go test ./internal/jsonval`, and against PostgreSQL by CI's `jsonb (PostgreSQL)` job | no |
+| load | `syncfolder/<finding>.json` | [Sync-folder load cases](#sync-folder-load-cases) | `go test ./internal/syncfolder` | no |
+| compile | `ir/<finding>.json` | [Compile cases](#compile-cases) | `go test ./internal/ir` | no |
+| protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json` with the bundle in `protocol/bundle/`, `protocol/host/workdir.json`, `protocol/host/versions.json` | [Protocol cases](#protocol-cases) | `go test ./internal/harness` (the exchanges on the [pinned](../docs/glossary.md#pinned-version) Bun, 1.4.3), and for the codec and host cases `bun test` in `harnesses/bun` | no |
+| plugins | `plugins/hooks.yaml` | [internal/conformance](../internal/conformance/README.md#host-plugin-cases) | `go test ./wl` and `go test ./cmd/windmill-lite`, on the pinned Bun | no: windmill-lite's rules |
+| build | `build/<finding>.json`, and `build/annotations.json` | [Build cases](#build-cases) | `go test ./internal/bundle`, through the Bun build helper on the pinned Bun; `bun test` in `harnesses/bun` for `annotations.json` | no |
+| hooks | `hooks/<topic>.yaml` | [Hook cases](#hook-cases) | `go test ./wl` (`TestHookCases`) | no: windmill-lite's rules |
+| flow | `flows/<area>/<case>/` | [internal/conformance](../internal/conformance/README.md#fixtures) | `wltest record` on the oracle; `go test ./internal/oracle` against the recordings; `wltest check` and `go test ./cmd/wltest` on windmill-lite; `go test ./internal/expr` for the runs' unit cases | yes, except a fixture with `provided` sites |
+| step | `steps/<lang>/<finding>.yaml` | [internal/conformance](../internal/conformance/README.md#step-cases) | `wltest check` and `go test ./cmd/wltest`, on the pinned Bun, in `warm` and `fresh` | no |
+| expr | `exprs/<finding>.yaml`, recordings in `exprs/recorded/<finding>/<case>.json` | [internal/conformance](../internal/conformance/README.md#expression-cases) | `wltest record` on the oracle; `go test ./internal/oracle`; `go test ./internal/expr` at unit level; `wltest check` and `go test ./cmd/wltest` end to end | yes |
+
+The decode, jsonb, load, compile, build, step and expr levels have a
+deferred file. It lists the catalogue cases of their findings that are not
+cases at that level, each with the reason and where it is checked:
+[openflow](openflow/deferred.json), [jsonb](jsonb/deferred.yaml),
+[syncfolder](syncfolder/deferred.json), [ir](ir/deferred.json),
+[build](build/deferred.json), [steps](steps/bun/deferred.yaml) and
+[exprs](exprs/deferred.yaml).
+
+The jsonb, compile, build and step tests fail unless every catalogue case of a
+finding with a file there is a case or is deferred. The decode, load and
+expr tests require it of every catalogue case of their findings: the OpenFlow
+findings; the sync-folder and path findings; and the expression findings with
+the `results` lookups across containers. The flow fixtures defer through the recording
+manifests ([Recording batches](#recording-batches)).
+
+`go test ./internal/conformance` also loads every flow fixture, step file
+and the plugin file, so a case that breaks its format fails there.
+
+## Run the tests
+
+1. For a level that runs on Bun, export `WL_BUN`, the path of Bun 1.4.3,
+   and install the build helper's dependencies once:
+   `(cd harnesses/bun/build && "$WL_BUN" install --frozen-lockfile)`.
+   Export the other variables of the table below that the level needs.
+2. For `wltest check`, build `wltest`
+   ([cmd/wltest](../cmd/wltest/README.md#build-wltest)).
+3. From the repository root, run the level's command from the table above,
+   such as `go test ./internal/ir`. To run one test, add `-run`, such as
+   `go test -run '^TestConformanceIR$' ./internal/ir`.
+
+| Level | Test that runs the cases, and its file | Its catalogue check |
 |---|---|---|
-| decode | `openflow/<finding>.json` | in use; run by `go test ./internal/openflow` |
-| jsonb | `jsonb/<finding>.yaml` | in use; run by `go test ./internal/jsonval`, and against PostgreSQL by CI's `jsonb (PostgreSQL)` job |
-| load | `syncfolder/<finding>.json` | in use; run by `go test ./internal/syncfolder` |
-| compile | `ir/<finding>.json` | in use; run by `go test ./internal/ir` |
-| protocol | `protocol/frames.json`, `protocol/exchanges/<case>.json`, `protocol/host/workdir.json`, `protocol/host/versions.json` | in use; run by `go test ./internal/harness` (the exchanges need the pinned Bun) and, for the codec and host cases, by `bun test` in `harnesses/bun` |
-| plugins | `plugins/hooks.yaml` | in use (milestone F2c); run by `go test ./wl` (a TypeScript plugin in `warm` processes, and Go callbacks) and `go test ./cmd/windmill-lite` (the host SDK's plugin in host mode), on the pinned Bun |
-| build | `build/<finding>.json` | in use; run by `go test ./internal/bundle` through the Bun build helper on the pinned Bun, a whole folder through the bundle build |
-| hooks | `hooks/<topic>.yaml` | in use (milestone F2b): `hooks/latch-precedence.yaml`, the latch-precedence cases of [ADR 0008](../docs/design/0008-host-hooks.md): the latch (H5), cancellation and deadlines (H4), fatal error names (H7), halts (H8) and the clock (H10) against retry, `continue_on_error`, `skip_failures` and the failure module, each case a synthetic flow of identity modules, the host's signals and what the run must show; windmill-lite's rules (provenance `policy`), never recorded; run by `go test ./wl` (`TestHookCases`) through the public hooks |
-| flow | `flows/<area>/<case>/` | in use: `flows/oracle/smoke`, `flows/execution/fx-*` (E3c, E3b, E3d, N2, E3f), `flows/control-flow/cf-*` (E3d, N3c, NI, E3f) and `flows/control-flow/waits` (NI), the stub-mode cases under `flows/stub/` (E4a, E4b, N5, E4c), `flows/je/*` and `flows/cf/cf-19` (E3a, E3f), `flows/languages/*` and `flows/client-api/*` (E1, PF1, PF2, E3f), the other `flows/oracle/*` and `flows/openflow/*` fixtures (E3e, E3f), and the windmill-lite policy cases under `flows/host/` (F2a), which hold expects only; recorded on the oracle by `wltest record`; their recordings are held to their expectations and claims by `go test ./internal/oracle`; run on windmill-lite by `wltest check` and `go test ./cmd/wltest`, through `wl` in `warm` and `fresh` (F1), on the engine core (E1, N1a, N1b, N2, N3a, N3b, N3c, NI, N4, N5), with the platform providers (PF2), the effect sink and stub mode (E4b) |
-| step | `steps/<lang>/<finding>.yaml` | in use; run by `wltest check` and `go test ./cmd/wltest` on the pinned Bun, in `warm` and `fresh` |
-| expr | `exprs/<finding>.yaml`, `exprs/recorded/<finding>/<case>.json` (the finding in lower case) | in use; lifted into generated one-step flows and recorded on the oracle by `wltest record`; held to their recordings by `go test ./internal/oracle`; run at unit level by `go test ./internal/expr` (B2a, B2b), and end to end on windmill-lite as the same generated flows by `wltest check` and `go test ./cmd/wltest` (N1a, N1b) |
+| decode | `TestConformanceOpenFlow`, `internal/openflow/conformance_test.go` | `TestConformanceOpenFlowCatalogue`, the same file |
+| jsonb | `TestConformanceStored`, `internal/jsonval/conformance_test.go`; `TestStoredMatchesPostgreSQL` against PostgreSQL, `internal/jsonval/postgres_test.go` | `TestConformanceStoredCatalogue`, `conformance_test.go` |
+| load | `TestConformanceSyncFolder`, `internal/syncfolder/conformance_test.go` | `TestConformanceSyncFolderCatalogue`, the same file |
+| compile | `TestConformanceIR`, `internal/ir/conformance_test.go` | `TestConformanceIRCatalogue`, the same file |
+| protocol | `TestFrameCases`, `internal/harness/frames_test.go`; `TestExchanges`, `exchange_test.go`; the host-mode tests, `hostmode_test.go`; `bun test` in `harnesses/bun` | — |
+| plugins | `TestPluginCases`, `wl/plugincases_test.go`; `TestHostPluginCases`, `cmd/windmill-lite/host_test.go`; `TestPluginFileLoads`, `internal/conformance/plugins_test.go`, loads them | — |
+| build | `TestConformanceBuild`, `internal/bundle/conformance_test.go`; `TestAnnotationCases`, `annotations_test.go` | `TestConformanceBuildCatalogue`, `conformance_test.go` |
+| hooks | `TestHookCases`, `wl/hookcases_test.go` | — |
+| flow | `TestFlowSuite` and others, `cmd/wltest/flows_test.go`; `TestRecordingBatches`, `internal/oracle/batch_test.go`; `TestRecordingsSatisfyClaims`, `TestUnitCasesMatchRecordings`, `internal/oracle/recordings_test.go` | `TestBatchCoverage`, `recordings_test.go` |
+| step | `TestStepSuite`, `cmd/wltest/check_test.go` | `TestStepCatalogue`, the same file |
+| expr | `TestFlowSuite`, `cmd/wltest/flows_test.go`; `TestExprCasesAgreeWithRecordings`, `internal/oracle/recordings_test.go`; `TestRecordedCasesThroughPipeline`, `internal/expr/conformance_test.go` | `TestBatchCoverage`, `recordings_test.go` |
+
+| Variable | Value | What needs it | When it is not set |
+|---|---|---|---|
+| `WL_BUN` | The path of Bun 1.4.3 | The protocol exchanges, plugins, build, step, flow and expr levels on windmill-lite | The tests skip, unless `WL_REQUIRE_BUN` is set: then they fail. `wltest check` uses `bun` on `PATH` |
+| `WL_REQUIRE_BUN` | Any non-empty value | CI, so that a missing Bun fails | A missing Bun skips |
+| `WL_NODE` | The path of Node; CI uses 24.22.1, the Node of Windmill's image | The Node side of a CommonJS codebase step case, such as `d13.yaml`'s | That side is skipped; with `WL_REQUIRE_NODE` set, as CI sets it, the tests that need Node fail ([cmd/wltest](../cmd/wltest/README.md#tests)) |
+| `WL_JSONB_PSQL` | A `psql` command for a PostgreSQL | `TestStoredMatchesPostgreSQL`, which CI's `jsonb (PostgreSQL)` job runs | The test skips |
+
+| What fails | Why | Where it is explained |
+|---|---|---|
+| A catalogue test: a catalogue case is neither a case nor deferred | A finding has a file at this level, and one of its catalogue cases has no case and no entry in the level's deferred file | The level's section below |
+| `contextual_case_needs_flow_fixture` | An expression case names a predecessor, a handler or a container | [Expression cases](#expression-cases) |
+| `TestFrameCases` on the file's layout | `frames.json` is not in the layout that `-update` writes | [frames.json](#framesjson) |
+| `workdir_not_writable`, `workdir_mismatch` | A host mode working-directory case's expected refusal | [host](#host) |
+| `invalid <fixture> <error>` from `wltest check` | The fixture, run or step file does not load | [internal/conformance](../internal/conformance/README.md#fixtures) |
+| A `fail` line from `wltest check` | A difference from the expectation, a build or run error, a replay check, a claim or a delay that fails | [Diagnose a failed fixture](#diagnose-a-failed-fixture) |
 
 ## Flow fixtures
 
-A flow fixture is a directory in the format of
-[OR-15](../docs/semantics/oracle.md#or-15): `fixture.yaml`, a `windmill/`
-sync tree, an optional `setup.yaml`, one `runs/<name>.yaml` per run with its
-`expect`, and `recorded/<name>.json` once the oracle has run it. The format
-is described in [internal/conformance](../internal/conformance/README.md#fixtures),
-and recording in [internal/oracle](../internal/oracle/README.md).
+A flow [fixture](../docs/glossary.md#fixture) is a directory: `fixture.yaml`,
+a `windmill/` sync tree, an optional `setup.yaml`, one `runs/<name>.yaml` per
+run, and `recorded/<name>.json` once the oracle has run it
+([OR-15](../docs/semantics/oracle.md#or-15)). A run gives its `expect`, its
+`claims`, both, or neither, when windmill-lite is compared with its
+recording alone, as `client-api/job-reads-ended`'s run `ended` is.
 
-| Fixture | Encodes |
-|---|---|
-| `flows/oracle/smoke` | [OR-20](../docs/semantics/oracle.md#or-20): a path script doubles `x`, an inline Bun step formats it and throws above 100. Runs `ok` (`{"x":3}`, OR-11/a) and `fail` (`{"x":60}`, OR-12/a). |
-| `flows/execution/fx-6` | [FX-6](../docs/semantics/execution.md#fx-6): step 0 sees the flow input; the step after a tolerated failure sees the wrapped error; a retry re-derives `previous_result` as the string `"{}"`. |
-| `flows/execution/fx-7` | [FX-7](../docs/semantics/execution.md#fx-7): JavaScript and static transforms, `params`, `undefined`, an unbound `result`. |
-| `flows/execution/fx-8` | [FX-8](../docs/semantics/execution.md#fx-8): `result` and `previous_result` in `stop_after_if`; no `results` in `sleep`. |
-| `flows/execution/fx-9` | [FX-9](../docs/semantics/execution.md#fx-9): one `skip_if` per value the rule lists. |
-| `flows/execution/fx-10` | [FX-10](../docs/semantics/execution.md#fx-10): a failure module reads an error-stopped step three ways; unknown and not-yet-run ids; which engine reads of the preceding id use memory, without a failure module ([Q-FX-15](../docs/semantics/execution.md#q-fx-15)). |
-| `flows/execution/fx-16` | [FX-16](../docs/semantics/execution.md#fx-16): identity with direct input, and as a passthrough. |
-| `flows/execution/fx-17` | [FX-17](../docs/semantics/execution.md#fx-17): a skipped step's passthrough; a step skipped only on its retry (FX-17/b, F1's: its step writes a variable through the job API); no `stop_after_if` on a skipped step. |
-| `flows/execution/fx-18` | [FX-18](../docs/semantics/execution.md#fx-18) (`later`): a mocked step; `stop_after_if` on the mock value; a false `skip_if` beside a mock. |
-| `flows/execution/fx-19` | [FX-19](../docs/semantics/execution.md#fx-19): the clean stops, the error-stop's value, and its matrix of retry, `continue_on_error` and the failure module. |
-| `flows/execution/fx-20` | [FX-20](../docs/semantics/execution.md#fx-20): a clean stop and an error-stop in a `branchone` body. |
-| `flows/execution/fx-21` | [FX-21](../docs/semantics/execution.md#fx-21): a throwing `stop_after_if`, with and without a failure module. |
-| `flows/execution/fx-42` | [FX-42](../docs/semantics/execution.md#fx-42)/h ([Q-FX-16](../docs/semantics/execution.md#q-fx-16)): the arguments file after `$jsonvar:` resolution, and what a JavaScript consumer sees of it. |
-| `flows/execution/fx-12` … `fx-38`, `fx-v6` | Recording batch E3c (ADR 0012): the catalogue cases of [FX-12](../docs/semantics/execution.md#fx-12) to [FX-15](../docs/semantics/execution.md#fx-15) and [FX-30](../docs/semantics/execution.md#fx-30) to [FX-38](../docs/semantics/execution.md#fx-38) (FX-36's executor part), FX-V6/a and FX-10/a. Covered: error values, chaining errors, `continue_on_error`, the failure module (what it sees, its retry, `recover`, inside loop bodies), the preprocessor, final-result selection, `early_return` and cancellation. One fixture per finding; the Deno case FX-12/c is deferred, since CE 1.862.0 ships no Deno. Each run's `expect` states the catalogue's expectation. It holds the recorded value instead where the catalogue asserts only a prefix of a text, says nothing about a field, or is contradicted by the oracle: one case, FX-34/a's handler id, listed in the batch manifest and in [0001](../docs/design/0001-equivalence-contract.md) §6. The batch's coverage, deferrals and prefix checks are in `internal/oracle/testdata/batches/e3c.json` ([internal/oracle](../internal/oracle/README.md)). |
-| `flows/control-flow/cf-2` to `cf-15` | Batch E3d: the catalogue cases of [CF-2](../docs/semantics/control-flow.md#cf-2) to [CF-15](../docs/semantics/control-flow.md#cf-15), one fixture per finding, including the contested CF-12 cases ([Q-CF-14](../docs/semantics/control-flow.md#q-cf-14), recorded as reading (b)). The for-loop runs (cf-2 to cf-8, cf-9 run `a`, cf-11, cf-13 and the loop runs of cf-12) gate N3a; the while and branch runs (cf-10, cf-9 run `b`, cf-14, cf-15 and the branch runs `d` and `e-*` of cf-12) gate N3b. |
-| `flows/execution/fx-23` … `fx-29` | Milestone N2 (ADR 0012): the catalogue cases of [FX-23](../docs/semantics/execution.md#fx-23) to [FX-29](../docs/semantics/execution.md#fx-29), recorded on the oracle, with further runs for JE-28's and JE-29's texts. Covered: `sleep` (a javascript sleep of the module's own result, a fraction, after a skip and a tolerated failure, a final module's in the virtual step, string and null values, text that is not JSON, a sleep a cancellation cuts short); the step timeout (static and javascript process timeouts, zero and negative ones at the root's pickup and later, values that are not an i32, a float with an exponent, text that is not JSON, an untimed identity job, a flow's metadata timeout that nothing enforces); a timeout tolerated and retried; the retry schedule's constant and exponential phases, with `delays` read from the recordings' job times; argument reuse; `retry_if`; the flow-wide retry counter and list. FX-24/d–e (a loop's `timeout`) are NI's, recorded in `flows/control-flow/cf-27`, FX-24/g is `later`, and FX-26/c–e's hours-long delays are checked at unit level ([internal/engine](../internal/engine/README.md)); FX-29/c is recorded by N5's `flows/control-flow/subflow-retry`. The manifest is `internal/oracle/testdata/batches/n2.json`. |
-| `flows/control-flow/cf-16` … `cf-18`, `cf-20`, `cf-29`, `cf-v1` … `cf-v5` | Milestone N3c (ADR 0012): the catalogue cases of [CF-16](../docs/semantics/control-flow.md#cf-16) to [CF-18](../docs/semantics/control-flow.md#cf-18), [CF-20](../docs/semantics/control-flow.md#cf-20), [CF-29](../docs/semantics/control-flow.md#cf-29) and [CF-V1](../docs/semantics/control-flow.md#cf-v1) to [CF-V5](../docs/semantics/control-flow.md#cf-v5), one fixture per finding, deployed with `oracle.deploy api`. Covered: the copied failure module in a loop body, once per failed iteration, and no second run of the flow's own; a subflow by path with its own input and results scope; a skipped loop passing `previous_result` through; branches mutating independent copies; an empty container's own error stop; recovery counted as failed by sequential containers and as succeeded by parallel ones; empty containers that skip `stop_after_all_iters_if` but stop the flow with `stop_after_if`; a subflow's pickup error bypassing its failure module, and the same flow run directly; the stored-node handler id; a collapsed loop by path. CF-V4/b and CF-V5/b need an inline or raw-preview submission, which windmill-lite never runs. CF-17/b–i are recorded by N5's `flows/control-flow/subflow-retry`, and CF-16/e–f and CF-17/j, added by the reference's revision SC4, were requested from batch E3f, which recorded them (`cf-16-tolerated`, `cf-17-recursive`). The manifest, `internal/oracle/testdata/batches/n3c.json`, defers them with the reason. |
-| `flows/control-flow/cf-21` … `cf-28`, `waits` | Milestone NI (ADR 0012): the catalogue cases of [CF-21](../docs/semantics/control-flow.md#cf-21) to [CF-28](../docs/semantics/control-flow.md#cf-28), with FX-24/d and /e in `cf-27`, recorded on the oracle, one fixture per finding; `waits` holds N2's waits and retries inside containers. Covered: a loop's `skip_if` evaluated once ([Q-CF-6](../docs/semantics/control-flow.md#q-cf-6)); the sleep before a container, with `delays`; a container's timeout per child and its scope; a container's retry, its failed attempt and the `iter_parent` artefact ([Q-CF-7](../docs/semantics/control-flow.md#q-cf-7)); the iterator errors of CF-23 with a failure module, and, added by milestone FU8 (`cf-23`'s `carry_*` runs), route 3 inside a `branchone`: the parent carries the branch's last carried value, to a later step, a failure module and a `retry_if`, also in a loop, while storage holds the `InternalError` (CF-23/d to f); job paths in bodies; `squash` on CE, where six squashed loops complete with their unsquashed results (CF-25/d); the virtual identity of a body; timed collapsed jobs and untimed child flows; a cancellation reaching held iterations, compared as a subset; retries, sleeps and timeouts in child flows. Runs predicted from the reference and corrected after recording carry a `note`. The reference's revision SC4 made cases of these recordings (CF-21/b–e, CF-22/b–e), which the runs cite; CF-22/f–g are recorded by N5's `flows/control-flow/subflow-retry`, CF-21/f and CF-22/h were requested from batch E3f, which recorded them (`cf-21-throwing`, `cf-22-retried`), and CF-25/e, which the reference's revision SC5 added, is recorded by E3f's `cf-25-runtime`. The manifest is `internal/oracle/testdata/batches/ni.json`. |
-| `flows/control-flow/subflow-retry` | Milestone N5 (ADR 0012): a retry on a flow step that runs a flow by path ([CF-17](../docs/semantics/control-flow.md#cf-17)), recorded on the oracle without an expectation first, so that the recordings decide. The runs: a subflow that fails once; one that runs out of retries, plain, under `continue_on_error` and with a failure module; a 2 s delay, with `delays`; the step in a sequential and in a parallel loop; above a child that retries its own step ([FX-27](../docs/semantics/execution.md#fx-27)); and a step whose input transform throws, whose subflow job still launches with nothing run ([FX-14](../docs/semantics/execution.md#fx-14)), and whose retry runs the subflow with an empty input. Each failed attempt's subflow job is at the step's `r:<k>` with its modules below it, and a failure module, or the step after a tolerated failure, lists the attempts again (FX-29). The fixture also records a retry on a while loop and on a branchone ([CF-22](../docs/semantics/control-flow.md#cf-22)). A script counts its attempts in a file named by the outer run, which every attempt shares. The reference's revision SC4 made catalogue cases of these recordings (CF-17/b–i, CF-22/f–g, FX-14/c and FX-29/c); N5 has no recording-batch manifest, so the manifests of those findings' batches (`n3c.json`, `ni.json`, `e3c.json`, `n2.json`) defer each to N5 with its run. |
-| `flows/execution/fx-40`, `fx-40-hash` | Batch E3d: [FX-40](../docs/semantics/execution.md#fx-40), `cache_ttl` on steps, flows and collapsed loops, including the contested FX-40/d ([Q-FX-17](../docs/semantics/execution.md#q-fx-17), recorded as reading (b)); `fx-40-hash` pins the body's script by the hash its deployment assigns. Each cached call takes a per-run nonce (`WM_ROOT_JOB_ID`) and returns its own `WM_JOB_ID`, so a cache hit shows as a result that names another job's site. Gates N4, whose engine passes `fx-40`'s seven runs in `fresh` and `warm`; `fx-40-hash`'s runs stay unsupported, since a folder cannot supply the version a hash pins. |
-| `flows/stub/retry_loop` | Stub mode: a retry inside a loop. The body step has two retries; run `ok` fails iteration 1 once and iteration 2 twice before they succeed, run `exhausted` fails iteration 1 on all three attempts, so the loop and the flow fail ([FX-26](../docs/semantics/execution.md#fx-26), [CF-5](../docs/semantics/control-flow.md#cf-5)). |
-| `flows/stub/collapsed` | Stub mode: a collapsed body ([CF-8](../docs/semantics/control-flow.md#cf-8)), each iteration at `i:<n>/m:book`, then a path script. The body takes a `Date` through a local alias, which the stub keeps ([WR-V3](../docs/semantics/languages.md#wr-v3)). |
-| `flows/stub/nested` | Stub mode: nested loops whose bodies do not collapse, the inner one reading the outer iteration as `iter_parent` ([CF-3](../docs/semantics/control-flow.md#cf-3)). |
-| `flows/stub/scopes` | Stub mode: a named subflow and a parallel loop under one outer run (run `alone`), and two concurrent outer runs (`r` and `t`, group `rt`), with every call's `WM_ROOT_JOB_ID`, `WM_ROOT_FLOW_JOB_ID`, `WM_FLOW_JOB_ID` and `WM_JOB_ID` ([OR-V6](../docs/semantics/oracle.md#or-v6)/a, [Q-OR-10](../docs/semantics/oracle.md#q-or-10)). |
-| `flows/stub/codebase` | Stub mode on codebase scripts ([SY-8](../docs/semantics/openflow.md#sy-8)): a retry inside a loop on a CommonJS codebase script, then an esm one ([WR-47](../docs/semantics/languages.md#wr-47), [WR-50](../docs/semantics/languages.md#wr-50)); the stubs stay codebase scripts, bundled with esbuild by the CLI and by windmill-lite (milestone E4b). |
-| `flows/stub/subflow_retry` | Stub mode on a retried flow step (milestone N5): the subflow's second step fails on the first attempt, so the step's retry runs the subflow again. The table gives each subflow step one outcome per job, counted across the attempts, and each call resolves at the step's site without the attempt ([CF-17](../docs/semantics/control-flow.md#cf-17), [FX-27](../docs/semantics/execution.md#fx-27)). Run `skipped`: a subflow step skipped on the first attempt and run on the second, whose identity job takes no place in the count ([FX-17](../docs/semantics/execution.md#fx-17)). |
-| `flows/stub/outside` | Stub mode on a codebase entry that reaches outside the sync tree ([SY-8](../docs/semantics/openflow.md#sy-8)): its `relative_path` is `../shared`, its asset comes from `../shared/lib/assets/child.mjs`, and the original script imports from `../shared/lib`; the stubbed copy carries `shared/` beside the stubbed tree, so the unchanged `wmill.yaml` reaches the same files ([WR-47](../docs/semantics/languages.md#wr-47), [WR-49](../docs/semantics/languages.md#wr-49); milestone E4c). |
-| `flows/je/shortcuts` | The shortcut and read-route cases that name a predecessor: JE-8/a–b, JE-9/a–d and g–l, JE-12, JE-16/d–f, JE-17/b, JE-18/d, JE-44/a–b, JE-V6, and the key-order example of [0003](../docs/design/0003-semantics-placement.md) for JE-8 with its oracle discriminator (below). |
-| `flows/je/sites` | Sequential expression sites: JE-22/c, JE-23/c, JE-25/a, JE-26/a, and the `later` JE-33, JE-49 and JE-V4 cases. |
-| `flows/je/errors` | Failure-module transforms and error routes: JE-17/a, JE-26/b–c, JE-35/a–d. JE-26/b–c configure a `retry` and gate NI, JE-35/d's subflow by path gates N3c, and the others gate N1b. |
-| `flows/je/waits` | `sleep`, `timeout` and `retry_if` sites and retried arguments: JE-22/a–b, JE-28, JE-29/a, JE-32, JE-V2 (JE-V2/a and /b are F1's: their steps write a variable through the job API). |
-| `flows/je/loops` | For-loop cases: JE-9/e–f, JE-19/a and c, JE-26/d, JE-27 on loops, JE-30, JE-36/a–c and e, JE-37/a, JE-38/c, JE-39/a, JE-40, JE-V1. |
-| `flows/je/branches` | `branchone`, `branchall` and while-loop cases: JE-24/a, JE-27 on `branchall`, JE-31, JE-36/d and f. |
-| `flows/je/scopes` | Cross-scope cases: JE-19/b and d, JE-38/d. |
-| `flows/je/providers` | Variable helpers, `flow_env` resolution and `$var:` resolution: JE-20, JE-38/a–b, JE-41, JE-42, JE-V3/a. |
-| `flows/je/je-38-env-refs` | What a step's input transforms store from `flow_env` (JE-38/e–i): an exact read keeps the entry as written, and a computed read of a secret entry is stored encrypted. A subflow called by path receives only secret entries as references, and a `$res:` entry is never secret. A kept reference is resolved at the leaf, terminally. Deployed through the API. |
-| `flows/cf/cf-19` | `results` lookups across containers, CF-19/a–c, and the contested CF-V6/a–b of [Q-CF-16](../docs/semantics/control-flow.md#q-cf-16). |
-| `flows/languages/bun-results` | Milestone E1: a Bun step's outcome in a sequential flow. Run `serialise`: [WR-13](../docs/semantics/languages.md#wr-13)/a's value as stored, what the next step sees of a key that held `undefined` ([WR-14](../docs/semantics/languages.md#wr-14)), and WR-13/b's `null` as the flow's result. Run `thrown_string`: [FX-47](../docs/semantics/execution.md#fx-47)/a. Run `timeout`: [WR-37](../docs/semantics/languages.md#wr-37)/a and [FX-24](../docs/semantics/execution.md#fx-24)/a. After each failure the next module is `not_run` ([OR-11](../docs/semantics/oracle.md#or-11)). |
-| `flows/languages/codebase` | Milestone E1's codebase-script fixture: a flow of two path steps that are codebase scripts ([SY-8](../docs/semantics/openflow.md#sy-8)), one in an `esm` entry and one in an entry with no `format`, CommonJS ([WR-47](../docs/semantics/languages.md#wr-47), [WR-50](../docs/semantics/languages.md#wr-50)). The CLI bundles them with esbuild on the oracle, and `wltest check` with esbuild too, as milestone C2b builds codebase scripts (`bundle.BuildCodebase`); the CommonJS one runs on Bun's CommonJS loader (D13). The scripts are self-contained. |
-| `flows/client-api/job-env` | Milestone E1: the contextual variables of inline and path steps ([WA-4](../docs/semantics/client-api.md#wa-4)/a, [FX-45](../docs/semantics/execution.md#fx-45)/a, [WR-22](../docs/semantics/languages.md#wr-22)), with each step's job ids normalised to placeholders ([OR-14](../docs/semantics/oracle.md#or-14)): its own job, and the root flow as the parent, the innermost flow scope and the effective root of a step directly in the flow ([WA-V1](../docs/semantics/client-api.md#wa-v1)). |
-| `flows/client-api/identity` | Milestone PF1: the job identity of an inline step and a path script in a flow: the state path ([WA-5](../docs/semantics/client-api.md#wa-5)/a), the base URL variables ([WA-2](../docs/semantics/client-api.md#wa-2)/a), the token, and the root that a lookup with the step's own token answers by fetch at `BASE_URL` (the call `getRootJobId` makes, [WA-14](../docs/semantics/client-api.md#wa-14), WA-V1), which on windmill-lite the platform facade answers. |
-| `flows/client-api/providers` | Milestone PF2: the platform services a step reads, one fixture on the oracle and on windmill-lite ([WA-40](../docs/semantics/client-api.md#wa-40)/b), from its `setup.yaml` (a resource type, variables with a secret, resources): arguments the worker resolved, a `$res:` with a nested `$res:` and a secret `$var:`, `$WM_ROOT_JOB_ID` read with the job's id (`""`, [WA-V3](../docs/semantics/client-api.md#wa-v3)/a) and beside a marker (the flow), and a plain argument ([WR-5](../docs/semantics/languages.md#wr-5)/a, /c); the reads the stock client makes, by fetch at `BASE_URL` with the step's token (WA-10/a, WA-11/a, WA-12, WA-42/b, /c, WA-V3/b); and the failures of a missing resource and an invalid path at argument resolution (WR-5/e, /b). A body that carries a Rust location on Windmill is returned as whether it starts as the reference says (D14). |
-| `flows/client-api/whole-value` | Resources whose whole value is one reference string, from its `setup.yaml`. The worker resolves each shape and fails on a missing variable behind one ([WR-5](../docs/semantics/languages.md#wr-5)/f, /g). Two `resource()` reads ([JE-20](../docs/semantics/expressions.md#je-20)/e) and the REST reads by fetch ([WA-12](../docs/semantics/client-api.md#wa-12)/i) cover the other readers. Deployed through the API. |
-| `flows/client-api/user-state` | Milestone PF3: flow user state ([WA-14](../docs/semantics/client-api.md#wa-14)/a), by the calls the stock helpers make, by fetch at `BASE_URL` with the step's token: the root lookup, then the state routes at the root; a write's answer, the read, a missing key, the routes at a script job (404 and null); the iterations of a parallel loop sharing the root's map although each starts its own innermost scope ([WA-V1](../docs/semantics/client-api.md#wa-v1)); and a key read through the expression helper `flow_user_state()` ([JE-20](../docs/semantics/expressions.md#je-20)). Run `order` records the text a value comes back as: jsonb's key order, numbers as Windmill's JSON library writes them. The reference's revision SC4 states both runs' observations as [WA-14](../docs/semantics/client-api.md#wa-14)/e. |
-| `flows/client-api/state` | State and the resource routes behind it ([WA-13](../docs/semantics/client-api.md#wa-13)/c–k, /p): each answer of create, `update_value`, delete, `exists` and the reads at a path of type `state`. Also a counter across loop iterations and across runs, an explicit path, values jsonb refuses, the stored form, interpolation on read, which paths a create accepts, two racing creates, and values up to 32 MiB. Each step makes the stock client's calls by fetch with its own token. Deployed through the API. |
-| `flows/client-api/state-client` | What a step sees through the stock `windmill-client` 1.862.0's state helpers, and two racing `setState` calls ([WA-13](../docs/semantics/client-api.md#wa-13)/l, /m). The steps import the client at its version, which only the oracle installs. Deployed through the API. |
-| `flows/client-api/state-parallel` | Parallel writers and readers of one state on two workers ([OR-5](../docs/semantics/oracle.md#or-5)): every read is one whole written value, and the last completed write stays ([WA-13](../docs/semantics/client-api.md#wa-13)/o). Recorded by the oracle workflow's two-worker session. Deployed through the API. |
-| `flows/client-api/resource-writes` | The resource writes beside state on Windmill: types other than `state`, an unknown type, update and delete of another type's entry, the create options the stock client never sends, the type an entry keeps, and the Python client's probe ([WA-13](../docs/semantics/client-api.md#wa-13)/n). Deployed through the API. |
-| `flows/host/provided` | Milestone F2a's policy case, windmill-lite only: the run-time half of the provided-site policy case of [ADR 0002](../docs/design/0002-ir-and-loader.md). Each flow's step calls a semaphore subflow that suspends ([FX-39](../docs/semantics/execution.md#fx-39)), which the fixture's `provided` sites replace with the host's providers (`providers`): a provider's value that the next step reads through `results` ([FX-10](../docs/semantics/execution.md#fx-10)), a static value the site's own `stop_after_if` stops on ([FX-19](../docs/semantics/execution.md#fx-19)), a provider that declines, which latches the run (`provider_declined`), and a provider's error, which fails the flow as a failed job's would ([FX-12](../docs/semantics/execution.md#fx-12)). The oracle would run the real semaphore, so the runs hold expects written from the ADRs. |
-| `flows/client-api/dispatch` | Milestone PF3, on two workers ([OR-5](../docs/semantics/oracle.md#or-5)): the runs a step dispatches, as `runScriptByPath`, `runFlow` and `runFlowAsync` request them, polled as `waitJob` polls. Run `wait`: a script's result, a failed script's error ([WA-15](../docs/semantics/client-api.md#wa-15)/a), a flow's result, and a UUID that names no job ([WA-V2](../docs/semantics/client-api.md#wa-v2)/a, /b). Run `identity`: the job identity of a dispatched script and flow, tracked in their parent or not, and the keys of a dispatched failure, which the reference left out until its revision SC4 stated them from this recording ([WA-V1](../docs/semantics/client-api.md#wa-v1)/b, and WA-15/a's key set). `fixture.yaml`'s `roots` lists the dispatched targets, which `wltest check` compiles as the default dispatcher's program. |
-| `flows/client-api/flow-path` | Milestone PF3: the runnable paths a body step sees ([WA-6](../docs/semantics/client-api.md#wa-6)/a–d, with [WA-5](../docs/semantics/client-api.md#wa-5) and [FX-46](../docs/semantics/execution.md#fx-46)): a simple sequential body under the flow, a body made non-simple by a retry (NI, which runs retries inside containers), a parallel body, and a `branchone`'s numbering, on N3b's branches. The catalogue's `WM_FLOW_PATH` is in each run's claims. |
-| `flows/client-api/job-reads` | The job reads of a live run ([WA-19](../docs/semantics/client-api.md#wa-19)/e to /h, /j to /n), on the oracle and on windmill-lite. A step reads its own job, its ancestors and the jobs their statuses name, each reduced to the fields windmill-lite serves; `extra` lists any other field, each call collecting its own, since a warm windmill-lite process runs several jobs. The runs cover subflows, the cache, failure modules, loops, branches, skips and retries, the error answers, `no_logs`, `no_code`, `get_args` and a walk up the parent chain; the attempts of a retried subflow and of a retried loop, a subflow that failed before its steps, skipped and mocked subflow steps, empty containers, failed container starts and an early stop. |
-| `flows/client-api/job-reads-parallel` | Parallel loops and parallel branchalls read while their children run and once they completed (WA-19/n), and flows whose steps, sub-flows and containers wait for a sleep or a retry's delay, skipped, mocked, identity, cached and failing ones included, read by a sibling and once completed (WA-19/p), on two workers ([OR-5](../docs/semantics/oracle.md#or-5)): two children that overlap and complete out of order, loops whose parallelism holds children, and branchalls with one branch completed. The children wait for each other through flow user state. Of a running parallel container whose children were released together, the readers check that its `job` is one of its `flow_jobs` before writing it as `<one of flow_jobs>`, since which one varied between runs at CE 1.767.0; at CE 1.862.0 the `job` is the flow job the container runs in, which they write as it is. |
-| `flows/client-api/job-reads-large` | Large results and arguments read (WA-19/o): strings that compress or not, below and above the 90000 bytes from which Windmill replaces them and stored in 89,999 and 90,000 bytes, a block repeated beyond pglz's 4 KiB window, an array of objects, and a walk up from under a sub-flow whose input is large. windmill-lite answers each as Windmill does, from PostgreSQL's stored size it computes (`jsonval.ToastedSize`). |
-| `flows/client-api/job-reads-ended` | A job of a run that has ended (WA-19/i), on two workers ([OR-5](../docs/semantics/oracle.md#or-5)). A step dispatches a script as a run of its own, waits for it, and reads its job and its arguments. The recording holds Windmill's completed job. windmill-lite answers 501 (deviation D22 of [ADR 0001](../docs/design/0001-equivalence-contract.md)), which `TestEndedRunJobRead` checks; the flow suite does not require the run. |
-| `flows/execution/fx-36-http` | Batch E3e: [FX-36](../docs/semantics/execution.md#fx-36)'s HTTP part (`later`), every run submitted through run-and-wait (`submit: run_wait_result`), so its observation holds the HTTP response beside the walk: FX-36/a–g, an array result ([Q-FX-12](../docs/semantics/execution.md#q-fx-12), no metadata), a content type with and without a parameter, base64 transfer encoding to text and to bytes that are not UTF-8, a redirect status, FX-12/a over HTTP, FX-V3/a's skipped flow, and FX-37/a's early response. Gates F7b. |
-| `flows/execution/fx-49` | Batch E3e: [FX-49](../docs/semantics/execution.md#fx-49) ([Q-FX-11](../docs/semantics/execution.md#q-fx-11), `later`): a flow-level `skip_expr` that the loop at module 0 flips from false to true, with a collapsed and a two-step body, and to a throw. `setup.yaml` resets the variable before every run (`oracle.setup: each_run`). |
-| `flows/execution/fx-10-c` | Batch E3e: FX-10/c, `results[""]` inside a step's own `stop_after_if`, which the reference added after E3b. |
-| `flows/languages/wr-16` | Batch E3e: [WR-16](../docs/semantics/languages.md#wr-16) ([Q-WR-15](../docs/semantics/languages.md#q-wr-15), `later`): result streaming, WR-16/a–g, each one inline step. |
-| `flows/languages/wr-28` | Batch E3e: [WR-28](../docs/semantics/languages.md#wr-28) ([Q-WR-16](../docs/semantics/languages.md#q-wr-16)): static and dynamic imports of workspace scripts, WR-28/a–c, each a flow running the importing script by path. WR-28/d's script, whose only import is a dynamic extensionless path, cannot be deployed, so the batch defers it, and WR-28/f–g (source-derived) have no run. WR-28/e's script cannot be deployed on CE v1.862.0 either, so `flows/languages/wr-28-lock` records it. Created through the API in path order (`oracle: {deploy: api}`), so each imported script exists before the script that imports it. |
-| `flows/languages/wr-28-lock` | [WR-28](../docs/semantics/languages.md#wr-28)/e on CE v1.862.0, whose deploy fails at lock time. A step creates the script through the oracle's API with its own token, beside a helper and a control with WR-28/c's shape. It returns what each dependency job and deployment status say, and it waits for those jobs, so it needs two workers ([OR-5](../docs/semantics/oracle.md#or-5)). windmill-lite has no such API, so the step fails at once there. |
-| `flows/languages/codebase-cases` | Batch E3e: codebase scripts in the shape of `flows/languages/codebase`, one `wmill.yaml` entry per case: CommonJS on Node and ESM on Bun ([WR-47](../docs/semantics/languages.md#wr-47)/a–b), esbuild's `define`, `inject`, `loader` and `banner` (WR-47/c–f), assets and a multi-file output ([WR-49](../docs/semantics/languages.md#wr-49)/a–b), the runtime `//native` and `//nodejs` select and the Node version ([WR-50](../docs/semantics/languages.md#wr-50)/b–e), in both formats a relative import and the step's environment. A throwing module shows the esbuild version (WR-47/g). The runs that report Node are deviation D13 on windmill-lite. |
-| `flows/languages/codebase-outside` | A codebase entry that reaches outside the sync tree: its `relative_path` is `../shared`, its script imports from `../shared/lib` and its asset comes from `../shared/lib/assets/note.txt` ([WR-47](../docs/semantics/languages.md#wr-47), [WR-49](../docs/semantics/languages.md#wr-49)/a). `wltest record` pushes a copy that carries `shared/` beside the copied tree (milestone E4c); `wltest check` builds the original. |
-| `flows/oracle/probes` | Batch E3e: the [probe catalogue](../docs/semantics/oracle.md#probe-catalogue) rebuilt as executable fixtures with every binding written out ([Q-OR-16](../docs/semantics/oracle.md#q-or-16), [OR-V9](../docs/semantics/oracle.md#or-v9)/a–d), and its OR cases (key order, loops, branches, retries, failure modules, stops, `skip_if`, `$var:`, effects, `delete_after_use`, a subflow's `delete_after_use`, `sleep`, response metadata asynchronously and through run-and-wait, the environment). |
-| `flows/oracle/big-payload`, `nul`, `seeded`, `key-order` | Batch E3e: the probes `big_payload` ([OR-V1](../docs/semantics/oracle.md#or-v1)) and `nul` with the other NUL positions of [Q-OR-6](../docs/semantics/oracle.md#q-or-6) ([OR-27](../docs/semantics/oracle.md#or-27)); a variable seeded before the push, which removes it ([OR-31](../docs/semantics/oracle.md#or-31)/a, OR-12/d; `oracle.setup: before_push`); the key-order cases of [OR-24](../docs/semantics/oracle.md#or-24) that E3a left (OR-24/b, OR-24/c) and OR-24/f, an object a flow's preprocessor built. |
-| `flows/oracle/workers2` | Batch E3e: the two-worker profile ([OR-5](../docs/semantics/oracle.md#or-5)/b): a step that waits for a script it starts, and parallel bodies whose index 0 is slow ([Q-OR-7](../docs/semantics/oracle.md#q-or-7), [Q-OR-15](../docs/semantics/oracle.md#q-or-15)). Recorded by the oracle workflow's two-worker session. |
-| `flows/control-flow/pull` | Batch E3e: CF-6/b and SY-6/c, a flow created through the API as written and read back with the CLI's `sync pull` (`oracle: {deploy: api, pull: true}`); the pulled value is in each recording's provenance. |
-| `flows/je/shortcut-texts` | Batch E3e: B2a's request 8, the text the JE-7 and JE-8 shortcuts answer for a value read from storage, quoted by a `timeout`'s parse error. Its unit cases (FU5) restate them: a stored `flow_input` member in jsonb's spaced text, and the compact array after a loop. |
-| `flows/je/transform-order`, `transform-order-api` | Batch E3e: the evaluation order of a step's input transforms ([JE-23](../docs/semantics/expressions.md#je-23)), with the transforms in the CLI's name order and, created through the API, as written. |
-| `flows/languages/native`, `native-codebase`, `native-timeout`, `wr-40` … `wr-46`, `wr-43-stack`, `wr-45-useragent`, `flows/openflow/of-3-native` | Batch E3f, the `native` session (`oracle: {session: native}`, a worker with `WORKER_TAGS=nativets`, [Q-WR-21](../docs/semantics/languages.md#q-wr-21)): `//native` (`bunnative`) and `nativets` steps returning JSON values, throwing, and fetching the loopback sink; two codebase scripts under `//native`, the CommonJS one failing at its first use of `module` ([WR-50](../docs/semantics/languages.md#wr-50)/f) and the ESM one with a `createRequire` banner loading; the WR-40 to WR-46 cases (WR-43/c's stack prefix also as a value, which the stack masking does not reach), FX-24/g's in-process timeout and OF-3/c's native switch. Each runs in windmill-lite's native mode too. |
-| `flows/execution/fx-13-identity`, `fx-18-rest`, `fx-47-null`, `fx-30-due`, `fx-38-pickup`, `fx-40-cases`, `fx-42-decode`, `fx-42-notation`, `fx-48-jsonb`; `flows/control-flow/cf-1-30`, `cf-7-ai`, `cf-7-parallel`, `cf-16-tolerated`, `cf-17-recursive`, `cf-21-throwing`, `cf-22-retried`, `cf-23-branchone`, `cf-23-retry`, `cf-25-squash`, `cf-25-runtime`, `cf-27-flow-timeouts`, `cf-31-slot` | Batch E3f, the reference session: the execution and control-flow cases SC3 and SC4 requested ([docs/design/README.md](../docs/design/README.md), Recording requests for batch E3f), among them Q-FX-18's and Q-CF-17's remaining cases. |
-| `flows/execution/fx-52-flow-timeout` | [FX-52](../docs/semantics/execution.md#fx-52): a flow's own wall-clock `timeout`, created through the API (`oracle: {deploy: api}`). The flow ends canceled: a running step is killed, a sleeping one canceled, the failure module runs, and 0 or less is unset. A subflow's timeout fails its caller's step, which may tolerate it or replace the limit with its own. Also [OF-16](../docs/semantics/openflow.md#of-16)/e, a `concurrent_limit` of 0. |
-| `flows/je/je-11-rewrite`, `je-15-stringify`, `je-20-providers`, `je-21-object`, `je-49-deep`, `je-open`; `flows/languages/import-base`, `import-base-inline`, `wr-22-envs`, `wr-54-validation`, `wr-55-processes`, `wr-v2`; `flows/oracle/preprocessor`, `colliding-ids`; `flows/openflow/of-deployed`; `flows/client-api/facade-answers`, `raw-requests`, `object-storage` | Batch E3f, the reference session: expression, language, OpenFlow ([Q-OF-1](../docs/semantics/openflow.md#q-of-1), the deployed values checked in the manifest against each recording's deployment evidence) and client-API cases; a Bun step that calls the API with its own token records what only the API shows. |
-| `flows/execution/fx-37-branches` | [FX-37](../docs/semantics/execution.md#fx-37)'s early return on a step inside a branch, recorded on CE v1.862.0 (`later`). Every run goes through run-and-wait: a script step and a loop inside the chosen branch, a step in a branch that does not run, and an empty loop inside a branch. |
-| `flows/execution/fx-42-monitor`, `fx-26-delays`, `fx-40-raw`; `flows/je/je-51-chain`; `flows/control-flow/cf-31-parallel`; `flows/client-api/driven`; `flows/control-flow/cf-7-release`; `flows/openflow/of-drivers`; `flows/oracle/result-size`; `flows/openflow/flow-script-off` | Batch E3f, the other sessions: `long` for runs that wait on the server's monitors (their timestamped messages masked), two workers for steps that wait for the jobs they start (previews, a restart, released iterations, retry delays, FX-40/i's runs with literal JSON bodies), `result_size` (`MAX_RESULT_SIZE_MB=3`) and `flow_script_off` (`DISABLE_FLOW_SCRIPT=true`). |
+The format, field by field,
+is in [internal/conformance](../internal/conformance/README.md#fixtures):
+the `oracle` options such as `oracle.setup`, the `compare` masks (`stack`,
+`mask`, `unordered`), and a run's `submit: run_wait_result`, `claims` and
+`delays`. Recording is in
+[internal/oracle](../internal/oracle/README.md#a-session).
 
-A fixture that needs the oracle in another configuration names it in
-`oracle.session` (`native`, `long`, `result_size`, `flow_script_off`); the
-oracle workflow records it in the session of that configuration, and every
-other session skips it ([internal/oracle](../internal/oracle/README.md#a-session)).
+### Add a flow fixture
 
-`internal/oracle/testdata/batches/<batch>.json` names each batch's
-findings, fixtures and the cases it defers, and `TestRecordingBatches`
-holds every run of those fixtures to its recording and its recording to its
-`expect`.
+1. Pick the area directory under `flows/`, and create the fixture's
+   directory, named after its finding or its topic, such as
+   `flows/execution/fx-6` or `flows/client-api/state`.
+2. Write the sync tree under `windmill/`: `wmill.yaml`, the flows and the
+   scripts that the runs need, invented for this one behaviour.
+3. Write `fixture.yaml`: its `id`, `spec`, `scope`, `provenance` and
+   `languages`, and its `oracle` and `compare` options.
+4. Write one `runs/<name>.yaml` per run: the `target`, the `args`, the
+   `spec` it records, and the `expect` that the reference predicts, or
+   `claims` where only part of the observation is known. A fixture that a
+   recording manifest lists needs an `expect` on every run
+   ([Recording batches](#recording-batches)).
+5. Check it on windmill-lite, from the repository root:
+   `bin/wltest check conformance/flows/<area>/<case>`. This needs `wltest`
+   built, the build helper's dependencies, and Bun 1.4.3, through `WL_BUN`,
+   `--bun` or as `bun` on `PATH`
+   ([cmd/wltest](../cmd/wltest/README.md#check-a-flow-fixture-locally)).
+6. If the fixture needs two workers (`oracle.workers: 2`), add it to the
+   argument list of the session that has its configuration and two
+   workers, in
+   [`.github/workflows/oracle.yml`](../.github/workflows/oracle.yml):
+   `workers2` for the reference
+   configuration, `long2` for `long`. The `native`, `result_size` and
+   `flow_script_off` sessions have one worker, so a two-worker fixture of
+   those configurations needs a new session.
+7. Open a pull request. The Oracle workflow records the fixture on the
+   oracle, because the pull request changes `conformance/`.
+8. Download the artifact of each `Oracle record (<session>)` job. In it,
+   `recorded/` holds the new and changed recordings at their repository
+   paths, `mismatched/` the observations that did not match an `expect`,
+   `tree/` and `tree.diff` any sync-tree metadata the drift gate found
+   changed, and `report.json` every run's outcome.
+9. Copy the fixture's recordings from `recorded/` into the fixture, and its
+   metadata from `tree/` if the drift gate reported a change, and commit
+   them.
 
-The runs of batch E3a say what the catalogue expects of them in `claims`,
-`delays` and `unit` (see [Claims and unit cases](#claims-and-unit-cases))
-and leave the whole observation to the recording, because most expectations
-are partial: an error message's prefix, one argument. The fixtures of
-recording batch E3a are `oracle-observed`; where a recording differs from
-the catalogue's source-derived expectation, the run's comment says so.
+A fixture with `provided` sites ends at step 5: the oracle skips every run
+of it, so its runs hold expectations written from the ADRs, and it gets no
+recording.
 
-The sync tree holds what `wmill folder add-missing` and `generate-metadata`
-write, generated against the oracle and committed as written
-([OR-8](../docs/semantics/oracle.md#or-8)); the oracle workflow regenerates
-it on every recording and fails on any change. `generate-metadata` writes a
-container's defaults into `flow.yaml` (`skip_failures` and `parallel` on a
-loop, `parallel` on a `branchall`, and `skip_failure`, `parallel` and `expr`
-on each branch), so a field left out of such a tree never reaches the
-oracle absent. A fixture with `oracle: {deploy: api}` (`cf-6`, `cf-15`,
-`fx-40-hash`, `pull`, `wr-28`, `wr-28-lock`, `transform-order-api`) is instead created through the REST API exactly as written
-and never regenerated, so its tree holds no generated metadata; each of its
-recordings' provenance holds the target flow's submitted value, the value
-the API answers after the dependency job, and what `generate-metadata`
-writes for the same source ([internal/oracle](../internal/oracle/README.md#api-deployment)).
-Either way the recordings show deployed flows, the reference configuration
-of [ADR 0001](../docs/design/0001-equivalence-contract.md) §1.
+### Diagnose a failed fixture
 
-A stub fixture (`stub: true`) commits its original tree; each run's
-`replay` table gives the stubs' outcomes. The scripts call hosts under
-`.invalid`, which nothing resolves, so a script that kept its body would
-fail. The stubbed tree is written and its metadata regenerated in a
-temporary copy on every recording ([internal/oracle](../internal/oracle/README.md#stub-mode)).
-`wltest check` runs the same stubbed copy on windmill-lite, with the same
-replay service (milestone E4b, [cmd/wltest](../cmd/wltest/README.md#flow-fixtures)).
+1. Find the failing job. An `Oracle record (<session>)` job ran the oracle;
+   a `Go` job or `TestFlowSuite` ran windmill-lite.
+2. On the oracle, read the run's line in the job's log: `expect_mismatch`
+   means the oracle did not do what the `expect` says. Under `--check`,
+   `new` means the run has no committed recording, and `changed` that the
+   observation differs from the recording's; a change of the file's
+   formatting or provenance alone is not one. A failed
+   drift gate means the sync tree's metadata changed. The steps to act on
+   each are in
+   [cmd/wltest](../cmd/wltest/README.md#mismatched-observations).
+3. On windmill-lite, run the fixture alone:
+   `bin/wltest check conformance/flows/<area>/<case>`, with the job's
+   `--mode`.
+4. Read each difference: a JSON Pointer into the observation, then
+   windmill-lite's value before the expected one
+   ([cmd/wltest](../cmd/wltest/README.md#read-a-failure)).
 
-Each E3b run's `expect` was written from the reference before the oracle
-first ran it. Where the oracle disagreed, the run's `note` says what was
-predicted, what was recorded, and in which oracle runs. The engine
-milestones added the `carried` value of a module that an error stop or a
-throwing `stop_after_if` fails (N1a, N1b, and N3b in FX-20's error-stop
-run), which the oracle exposes no recording of: the recorder compares an
-`expect` without it.
+### What a fixture commits
 
-The runs whose subflow its own timeout ends state the flow step's
-`carried` value the same way: the timeout error, or the subflow's failure
-module's result, while the step's job keeps the canceled value
-([FX-52](../docs/semantics/execution.md#fx-52)). They are the runs
-`subflow_own`, `subflow_step_zero`, `subflow_tolerated` and
-`subflow_failure_module` of `fx-52-flow-timeout`, and
-`cf-27-flow-timeouts/subflow`.
+- **The sync tree as the CLI writes it.** The tree holds what
+  `wmill folder add-missing` and `generate-metadata` write, generated against
+  the oracle and committed as written
+  ([OR-8](../docs/semantics/oracle.md#or-8)). For a fixture deployed through
+  the CLI, the Oracle workflow regenerates it in place on every recording
+  (`--regenerate-metadata`, beside `--check`), and its drift gate fails on
+  any change.
+- **Container defaults.** `generate-metadata` writes a container's defaults into `flow.yaml`
+  (`skip_failures` and `parallel` on a loop, `parallel` on a `branchall`,
+  and `skip_failure`, `parallel` and `expr` on each branch). So a field left
+  out of such a tree never reaches the oracle absent.
+- **A tree deployed through the API.** A fixture with
+  `oracle: {deploy: api}` is created through the REST API exactly as written,
+  and never regenerated, so its tree holds no generated metadata. A flow
+  run, not a script job's, keeps deployment evidence in its recording's
+  provenance: the flow's submitted value, the value that the API
+  answers after the dependency job, and what `generate-metadata` writes for
+  the same source
+  ([internal/oracle](../internal/oracle/README.md#api-deployment)).
+- **A stub fixture's original tree.** A fixture with `stub: true` commits its
+  original tree, and each run's `replay` table gives the stubs' outcomes. Its
+  scripts that call a service call hosts under `.invalid`, which nothing
+  resolves, so a script that kept its body would fail.
+- **The stubbed tree** of a stub fixture is written, and its
+  metadata regenerated, in a temporary copy on every recording
+  ([internal/oracle](../internal/oracle/README.md#stub-mode)). `wltest check`
+  runs the same stubbed copy on windmill-lite
+  ([cmd/wltest](../cmd/wltest/README.md#flow-fixtures)).
+
+Either way, the runs execute what was deployed, as the reference
+configuration of the
+[equivalence contract](../docs/design/0001-equivalence-contract.md#1-the-reference-configuration)
+requires.
+
+### How a run's expectation is written
+
+- **Written first, then recorded.** A run's `expect` is written from the
+  reference before the oracle first runs it, except where a fixture is
+  recorded first so that the recordings decide, as `subflow-retry` was. Where the oracle disagreed, the
+  run's `note` says what was predicted and what was recorded.
+- **Partial expectations.** Runs whose expectation is partial, such as an
+  error message's prefix or one argument, say what the catalogue expects in
+  `claims`, `delays` and `unit`, and leave the whole observation to the
+  recording ([Claims and unit cases](#claims-and-unit-cases)).
+- **What only windmill-lite shows.** A module's `carried` value is not in
+  Windmill's stored fields, so the oracle records none, and the recorder
+  compares an `expect` without it. A run states it where an error stop or a throwing
+  `stop_after_if` fails the module. It states it too where a subflow's own
+  timeout ends it: the timeout error, or the subflow's failure module's
+  result, while the step's job keeps the canceled value
+  ([FX-52](../docs/semantics/execution.md#fx-52)).
+- **Another configuration.** A fixture that needs the oracle in another
+  configuration names it in `oracle.session` (`native`, `long`,
+  `result_size`, `flow_script_off`). The Oracle workflow records it in the
+  session of that configuration, and every other session skips it
+  ([internal/oracle](../internal/oracle/README.md#oracle-configurations)).
 
 ### Recording batches
 
-The E3b rows above are recording batch E3b of
-[0012](../docs/design/0012-layout-and-milestones.md), the flow-execution
-core. Its manifest, with each run's gate, is
-`internal/oracle/testdata/batches/e3b.json`, described in
+The recording manifests are the files of
+[internal/oracle/testdata/batches](../internal/oracle/testdata/batches):
+each names a group of findings, the fixtures that record them, and the cases
+that it defers. `TestRecordingBatches` holds every run of those fixtures to
+its recording, and its recording to its `expect`, so every run of such a
+fixture needs both. Their format is in
 [internal/oracle](../internal/oracle/README.md#recording-batches).
+
+[cmd/wltest/testdata/flowsuite.json](../cmd/wltest/testdata/flowsuite.json) lists the runs that windmill-lite must
+pass, with the runs that a manifest gates on one of its work items ([cmd/wltest](../cmd/wltest/README.md#the-flow-suite)).
+
+### The fixtures
+
+Each table lists the fixtures of one area, with what each encodes. The
+findings are linked; the fixture's `spec` and each run's name the cases.
+
+#### flows/oracle
+
+| Fixture | What it encodes |
+|---|---|
+| `smoke` | The oracle's smoke fixture ([OR-20](../docs/semantics/oracle.md#or-20)): a path script doubles `x`, and an inline Bun step formats it and throws above 100. Runs `ok` (`{"x":3}`) and `fail` (`{"x":60}`) |
+| `probes` | The [probe catalogue](../docs/semantics/oracle.md#probe-catalogue) rebuilt as executable fixtures with every binding written out ([Q-OR-16](../docs/semantics/oracle.md#q-or-16), [OR-V9](../docs/semantics/oracle.md#or-v9)): key order, loops, branches, retries, failure modules, stops, `skip_if`, `$var:`, effects, `delete_after_use`, `sleep`, response metadata, and the environment |
+| `big-payload`, `nul` | A big payload whole in a result and the next step's arguments ([OR-V1](../docs/semantics/oracle.md#or-v1)); NUL in an object key, a nested value and a Python result, the other positions of [Q-OR-6](../docs/semantics/oracle.md#q-or-6) ([OR-27](../docs/semantics/oracle.md#or-27)) |
+| `seeded` | A variable seeded before the push, which removes it ([OR-31](../docs/semantics/oracle.md#or-31); `oracle.setup: before_push`) |
+| `key-order` | Key-order cases of [OR-24](../docs/semantics/oracle.md#or-24): integer keys, a predecessor read again on a retry, and an object that a flow's preprocessor built |
+| `workers2` | Two workers ([OR-5](../docs/semantics/oracle.md#or-5)): a step that waits for a script that it starts, and parallel bodies whose index 0 is slow ([Q-OR-7](../docs/semantics/oracle.md#q-or-7), [Q-OR-15](../docs/semantics/oracle.md#q-or-15)) |
+| `preprocessor` | A script's own preprocessor run as a script job through the run API, and a flow step by path with `apply_preprocessor`, unpinned and pinned to the deployed hash ([WR-11](../docs/semantics/languages.md#wr-11)); deployed through the API |
+| `colliding-ids` | Step ids that collide in records and placeholders ([Q-OR-17](../docs/semantics/oracle.md#q-or-17)): a step `failure` beside a failure module, a step `preprocessor` beside a preprocessor, and ids `a/b` and `a%2Fb`; deployed through the API |
+| `result-size` | A result over the size limit, about 4.5 MiB against `MAX_RESULT_SIZE_MB=3`, fails with `ResultTooLarge`, also when it carries `wm_failure` ([OR-7](../docs/semantics/oracle.md#or-7)); in the `result_size` configuration |
+
+#### flows/execution
+
+| Fixture | What it encodes |
+|---|---|
+| `fx-6` | [FX-6](../docs/semantics/execution.md#fx-6): step 0 sees the flow input; the step after a tolerated failure sees the wrapped error; a retry derives `previous_result` again as the string `"{}"` |
+| `fx-7` | [FX-7](../docs/semantics/execution.md#fx-7): JavaScript and static transforms, `params`, `undefined`, an unbound `result` |
+| `fx-8` | [FX-8](../docs/semantics/execution.md#fx-8): `result` and `previous_result` in `stop_after_if`; no `results` in `sleep` |
+| `fx-9` | [FX-9](../docs/semantics/execution.md#fx-9): `skip_if` uses JavaScript truthiness. The string `'false'`, an empty array and an empty object skip a step; `0`, `''`, `null`, `undefined`, `NaN` and `false` do not |
+| `fx-10`, `fx-10-c` | [FX-10](../docs/semantics/execution.md#fx-10): a failure module reads an error-stopped step three ways; unknown and not-yet-run ids; which reads of the preceding id use memory ([Q-FX-15](../docs/semantics/execution.md#q-fx-15)); `results[""]` inside a step's own `stop_after_if` |
+| `fx-12`, `fx-13` | [FX-12](../docs/semantics/execution.md#fx-12): the failure values of Bun script jobs, and a failed flow whose result is its failure module's, unwrapped. [FX-13](../docs/semantics/execution.md#fx-13): a result with a string `wm_failure` becomes a failure with a `ManualFailure` error |
+| `fx-14`, `fx-15` | [FX-14](../docs/semantics/execution.md#fx-14): a throwing input transform fails its step before the script runs, with empty args; a retry re-launches it with them. [FX-15](../docs/semantics/execution.md#fx-15): chaining errors at a later transition, at the root's pickup and at a child flow's pickup |
+| `fx-30` | [FX-30](../docs/semantics/execution.md#fx-30): a tolerated failure of the last module ends the flow successfully with its wrapped error, and no failure module runs; in the middle, the next module gets the wrapped error as `previous_result` |
+| `fx-31` | [FX-31](../docs/semantics/execution.md#fx-31): an untolerated failure runs the failure module, and the module after the failure never runs |
+| `fx-32` | [FX-32](../docs/semantics/execution.md#fx-32): in the failure module, `previous_result` and the failed step's `results` entry are the wrapped error, `error` is its inner object, and its own step id is `failure`. Its retry reuses its failed arguments |
+| `fx-33` | [FX-33](../docs/semantics/execution.md#fx-33): the flow's final result is the failure module's. The flow succeeds only when that result recovers: `{"recover": true}` or `[true]`. A child flow that recovered still reports failure to its parent |
+| `fx-34` | [FX-34](../docs/semantics/execution.md#fx-34): in a loop body the copied failure module runs once per failing iteration, in the iteration's child flow; with `skip_failures` its result is that iteration's entry, and the flow's own failure module does not run |
+| `fx-35` | [FX-35](../docs/semantics/execution.md#fx-35): a deployed flow started through the run API without `skip_preprocessor=true` runs its preprocessor first. Its result `5` becomes the flow input `{"value": 5}`; by the rule, an object is the input as it is, and `null` becomes `{}` |
+| `fx-36` | [FX-36](../docs/semantics/execution.md#fx-36): an empty flow returns its input, and normal completion the last module's result. A clean stop returns the stopping module's result, an error stop without a failure module the `EarlyStopError`, and a failed `branchall` its branches' array |
+| `fx-37` | [FX-37](../docs/semantics/execution.md#fx-37): `early_return` affects only the run-and-wait answer; the flow keeps running, and its own result is unchanged |
+| `fx-38` | [FX-38](../docs/semantics/execution.md#fx-38): canceling a flow while its step runs kills the step, and ends the flow as canceled with the `Canceled` error, without running the failure module |
+| `fx-v6` | [FX-V6](../docs/semantics/execution.md#fx-v6): a failure module after an error stop reads the stopped module by computed index from storage without a `previous_result` binding, and from memory with one. A failed Deno step is deferred: the CE image ships no Deno |
+| `fx-16`, `fx-17`, `fx-18` | [FX-16](../docs/semantics/execution.md#fx-16): identity with direct input and as a passthrough. [FX-17](../docs/semantics/execution.md#fx-17): a skipped step's passthrough, a step skipped only on its retry, and a skipped step, whose `stop_after_if` does not run. [FX-18](../docs/semantics/execution.md#fx-18): a mocked step, `stop_after_if` on the mock value, a false `skip_if` beside a mock |
+| `fx-19`, `fx-20`, `fx-21` | [FX-19](../docs/semantics/execution.md#fx-19): the clean stops, the error stop's value and its matrix of retry, `continue_on_error` and the failure module. [FX-20](../docs/semantics/execution.md#fx-20): stops in a `branchone` body. [FX-21](../docs/semantics/execution.md#fx-21): a throwing `stop_after_if` |
+| `fx-23` to `fx-29`, `fx-26-delays` | [FX-23](../docs/semantics/execution.md#fx-23) to [FX-29](../docs/semantics/execution.md#fx-29): `sleep`, the step timeout, a timeout tolerated and retried, the retry schedule's phases with `delays` read from the job times, argument reuse, `retry_if`, and the flow-wide retry counter. Retry delays of hours are checked at engine unit level instead ([internal/engine](../internal/engine/README.md)) |
+| `fx-36-http`, `fx-37-branches` | [FX-36](../docs/semantics/execution.md#fx-36)'s HTTP response, every run submitted through run and wait (`submit: run_wait_result`); [FX-37](../docs/semantics/execution.md#fx-37)'s early return inside branches |
+| `fx-40`, `fx-40-hash`, `fx-40-cases`, `fx-40-raw` | [FX-40](../docs/semantics/execution.md#fx-40), `cache_ttl` on steps, flows and collapsed loops ([Q-FX-17](../docs/semantics/execution.md#q-fx-17)). Each cached call returns its own `WM_JOB_ID`, so a cache hit shows as a result that names another job's site. `fx-40-hash` pins the body's script by its deployed hash, which windmill-lite cannot supply, so its runs stay unsupported |
+| `fx-42`, `fx-42-decode`, `fx-42-notation`, `fx-42-monitor` | [FX-42](../docs/semantics/execution.md#fx-42): the arguments file after `$jsonvar:` resolution ([Q-FX-16](../docs/semantics/execution.md#q-fx-16)), decoding, number notation, and child results that the backend cannot decode, which leave the flow waiting for the server's monitor (the `long` configuration) |
+| `fx-49` | [FX-49](../docs/semantics/execution.md#fx-49) ([Q-FX-11](../docs/semantics/execution.md#q-fx-11)): a flow-level `skip_expr` that the loop at module 0 flips, with a collapsed and a two-step body, and to a throw. `oracle.setup: each_run` resets its variable |
+| `fx-52-flow-timeout` | [FX-52](../docs/semantics/execution.md#fx-52): a flow's own `timeout`; a subflow's timeout fails its caller's step. Also a `concurrent_limit` of 0 ([OF-16](../docs/semantics/openflow.md#of-16)) |
+| `fx-13-identity` | [FX-13](../docs/semantics/execution.md#fx-13): a mocked value that carries `wm_failure`, and a tolerated marker that the next identity job receives, fail the identity job, and the flow stops there |
+| `fx-18-rest` | The remaining single cases of [Q-FX-18](../docs/semantics/execution.md#q-fx-18), one run each, listed in the rows below |
+| `fx-18-rest`: `fx1a`, `fx4a`, `fx4_ids` | Two steps end with the last one's result ([FX-1](../docs/semantics/execution.md#fx-1)). A sleep on the last step keeps the earlier result, and a run's first status lists the generated `-v` step ([FX-4](../docs/semantics/execution.md#fx-4)) |
+| `fx-18-rest`: `fx5a`, `fx5_root`, `fx11a`, `fx11b` | A subflow by path skips its preprocessor, which the run API runs ([FX-5](../docs/semantics/execution.md#fx-5)). `flow_env` reaches a transform, in a loop body too, and a missing `$var:` in it fails ([FX-11](../docs/semantics/execution.md#fx-11)) |
+| `fx-18-rest`: `fxv1a`, `fxv1b`, `fxv2a` | A throwing `stop_after_all_iters_if` fails with an `EarlyStopError` ([FX-V1](../docs/semantics/execution.md#fx-v1)). A stop's handler sees its error, while `results.a.x` reads the stored success ([FX-V2](../docs/semantics/execution.md#fx-v2)) |
+| `fx-30-due` | [FX-30](../docs/semantics/execution.md#fx-30): a retry that is due at the last module runs before `continue_on_error` tolerates the failure |
+| `fx-38-pickup` | [FX-38](../docs/semantics/execution.md#fx-38): a subflow step, a Bun step and a retried subflow step, each canceled while it waits to start, behind a sleep or a retry delay |
+| `fx-47-null` | [FX-47](../docs/semantics/execution.md#fx-47): a thrown `null`. The message quotes a path under the worker's directory, which differs between oracle sessions, so the fixture masks it |
+| `fx-48-jsonb` | [FX-48](../docs/semantics/execution.md#fx-48), [FX-50](../docs/semantics/execution.md#fx-50), [FX-51](../docs/semantics/execution.md#fx-51): push failures at the jsonb boundary. A NUL and an unpaired surrogate generated in arguments, at the root's pickup and at a later transition; a result whose surrogate the completion insert refuses after its retries; `$jsonvar:` texts that the decoder refuses |
+
+#### flows/control-flow and flows/cf
+
+| Fixture | What it encodes |
+|---|---|
+| `cf-2` to `cf-15` | One fixture per finding of [CF-2](../docs/semantics/control-flow.md#cf-2), [CF-3](../docs/semantics/control-flow.md#cf-3), [CF-4](../docs/semantics/control-flow.md#cf-4), [CF-5](../docs/semantics/control-flow.md#cf-5), [CF-6](../docs/semantics/control-flow.md#cf-6), [CF-7](../docs/semantics/control-flow.md#cf-7), [CF-8](../docs/semantics/control-flow.md#cf-8), [CF-9](../docs/semantics/control-flow.md#cf-9), [CF-10](../docs/semantics/control-flow.md#cf-10), [CF-11](../docs/semantics/control-flow.md#cf-11), [CF-12](../docs/semantics/control-flow.md#cf-12), [CF-13](../docs/semantics/control-flow.md#cf-13), [CF-14](../docs/semantics/control-flow.md#cf-14), [CF-15](../docs/semantics/control-flow.md#cf-15): for loops, while loops and branches. The contested [CF-12](../docs/semantics/control-flow.md#cf-12) cases of [Q-CF-14](../docs/semantics/control-flow.md#q-cf-14) are recorded as the reference settled them: a sequential loop that breaks on a body error stop, with no handler and `skip_failures: false`, fails, and the enclosing flow fails without running its next step |
+| `cf-16` to `cf-18`, `cf-20`, `cf-29`, `cf-v1` to `cf-v5` | [CF-16](../docs/semantics/control-flow.md#cf-16) to [CF-18](../docs/semantics/control-flow.md#cf-18), [CF-20](../docs/semantics/control-flow.md#cf-20), [CF-29](../docs/semantics/control-flow.md#cf-29), [CF-V1](../docs/semantics/control-flow.md#cf-v1) to [CF-V5](../docs/semantics/control-flow.md#cf-v5), deployed through the API. They show the copied failure module in a loop body, subflows by path, a skipped loop's passthrough, independent branch copies, and a subflow's pickup error. An empty container skips its `stop_after_all_iters_if`, while its own `stop_after_if` still stops the flow. They also show recovery counted as failed by sequential containers and as succeeded by parallel ones, stored child nodes' handler ids, and the fast path's eligibility |
+| `cf-21` to `cf-28`, `waits` | [CF-21](../docs/semantics/control-flow.md#cf-21) to [CF-28](../docs/semantics/control-flow.md#cf-28): a loop's `skip_if` evaluated once ([Q-CF-6](../docs/semantics/control-flow.md#q-cf-6)), sleeps, timeouts and retries of containers ([Q-CF-7](../docs/semantics/control-flow.md#q-cf-7)), iterator errors, job paths in bodies, `squash`, the virtual identity of a body. Also cancellation inside containers; `waits` holds waits and retries inside containers |
+| `subflow-retry` | A retry on a flow step that runs a flow by path ([CF-17](../docs/semantics/control-flow.md#cf-17)), recorded without an expectation first so that the recordings decide; also a retry on a while loop and on a `branchone` ([CF-22](../docs/semantics/control-flow.md#cf-22)). Each failed attempt's subflow job is at the step's `r:<k>` |
+| `pull` | A flow created through the API as written and read back with the CLI's `sync pull` (`oracle: {deploy: api, pull: true}`) |
+| `cf-1-30` | [CF-1](../docs/semantics/control-flow.md#cf-1)'s deployed half and [CF-30](../docs/semantics/control-flow.md#cf-30), each run by path, so that the run API applies the preprocessor; a run request that the API refuses |
+| `cf-7-ai`, `cf-7-parallel`, `cf-7-release` | [CF-7](../docs/semantics/control-flow.md#cf-7): an `ai` parallelism that holds every iteration until the run is canceled. A failed parallel loop under `continue_on_error`, whose message embeds start times and is masked. On two workers, parallelism 2 over four iterations of different lengths, whose start and end times a last step reads |
+| `cf-16-tolerated` | A loop's own `continue_on_error` and retry around a body whose failure its copy of the flow's handler handles, and a forwarded error stop that ignores the loop's `continue_on_error` ([CF-16](../docs/semantics/control-flow.md#cf-16), [CF-12](../docs/semantics/control-flow.md#cf-12)) |
+| `cf-17-recursive` | [CF-17](../docs/semantics/control-flow.md#cf-17): a flow that calls itself by path through a `branchone` until `n` reaches 0 |
+| `cf-21-throwing` | [CF-21](../docs/semantics/control-flow.md#cf-21): a container's throwing timeout and parallelism, and a container timeout that reads an `iter` that the enclosing flow's input has |
+| `cf-22-retried` | [CF-22](../docs/semantics/control-flow.md#cf-22): a retried parallel loop with parallelism 1, whose iteration 0 fails first and whose iteration 1 completes last |
+| `cf-23-branchone`, `cf-23-retry` | [CF-23](../docs/semantics/control-flow.md#cf-23): a `branchone` aborted at a later transition, where storage holds the iterator's error while the parent sees the branch's carried value; and one aborted while chaining, retried by a retry object whose `retry_if` sees the carried value |
+| `cf-25-squash`, `cf-25-runtime` | [CF-25](../docs/semantics/control-flow.md#cf-25): `squash` on a loop with a sleep and on a parallel loop; `ai` parallelism and `squash` on the CE image ([Q-CF-19](../docs/semantics/control-flow.md#q-cf-19)), with one-step, two-step and Bash bodies, beside the same loops without `squash` |
+| `cf-27-flow-timeouts` | [CF-27](../docs/semantics/control-flow.md#cf-27): a 1 s timeout on a `branchone`, a parallel `branchall` and a subflow step, whose bodies sleep 3 s |
+| `cf-31-slot`, `cf-31-parallel` | [CF-31](../docs/semantics/control-flow.md#cf-31): containers as the failure module: sequential loops, a one-item loop and a `branchone`; and a parallel loop, whose flow only the server's monitor ends (the `long` configuration) |
+| `flows/cf/cf-19` | `results` lookups across containers ([CF-19](../docs/semantics/control-flow.md#cf-19)), and the contested cases of [Q-CF-16](../docs/semantics/control-flow.md#q-cf-16) |
+
+#### flows/je
+
+| Fixture | What it encodes |
+|---|---|
+| `shortcuts` | The shortcut and read-route cases that name a predecessor ([JE-8](../docs/semantics/expressions.md#je-8), [JE-9](../docs/semantics/expressions.md#je-9) and others), and the key-order discriminator ([The key-order discriminator](#the-key-order-discriminator)) |
+| `sites`, `errors`, `waits` | Sequential expression sites; failure-module transforms and error routes ([JE-35](../docs/semantics/expressions.md#je-35)); `sleep`, `timeout` and `retry_if` sites and retried arguments |
+| `loops`, `branches`, `scopes` | For-loop cases; `branchone`, `branchall` and while-loop cases; cases across scopes |
+| `providers`, `je-38-env-refs` | Variable helpers and `flow_env` and `$var:` resolution; what a step's input transforms store from `flow_env` ([JE-38](../docs/semantics/expressions.md#je-38)), deployed through the API |
+| `shortcut-texts` | The text that the shortcuts answer for a value read from storage, quoted by a `timeout`'s parse error, with unit cases that restate them |
+| `transform-order`, `transform-order-api` | The evaluation order of a step's input transforms ([JE-23](../docs/semantics/expressions.md#je-23)), in the CLI's name order and, created through the API, as written |
+| `je-11-rewrite` | [JE-11](../docs/semantics/expressions.md#je-11): the `variable()` call rewrite on non-ASCII text, and an insertion inside a multi-byte character, which fails |
+| `je-15-stringify` | [JE-15](../docs/semantics/expressions.md#je-15): a replaced `JSON.stringify` supplies a transform's result text; a text that is not JSON fails the step's push at jsonb |
+| `je-20-providers` | [JE-20](../docs/semantics/expressions.md#je-20), [JE-42](../docs/semantics/expressions.md#je-42): `resource()` and the provider texts, with the resources and variables of `setup.yaml` |
+| `je-21-object`, `je-open` | [JE-21](../docs/semantics/expressions.md#je-21): a thrown object, whose address in the message is masked; the thrown primitives, the `typeof` list of [JE-1](../docs/semantics/expressions.md#je-1), and [JE-50](../docs/semantics/expressions.md#je-50) to [JE-52](../docs/semantics/expressions.md#je-52) end to end |
+| `je-49-deep` | [JE-49](../docs/semantics/expressions.md#je-49): a flow input nested 127 levels deep, read by a transform |
+| `je-51-chain` | [JE-51](../docs/semantics/expressions.md#je-51): a job chain that never ends, at a module-0 transform, for about 70 s (the `long` configuration) |
+
+#### flows/languages
+
+| Fixture | What it encodes |
+|---|---|
+| `bun-results` | A Bun step's outcome in a sequential flow: a value as stored ([WR-13](../docs/semantics/languages.md#wr-13)), a key that held `undefined` ([WR-14](../docs/semantics/languages.md#wr-14)), a thrown string ([FX-47](../docs/semantics/execution.md#fx-47)), and a timeout ([WR-37](../docs/semantics/languages.md#wr-37)) |
+| `codebase`, `codebase-cases`, `codebase-outside` | Codebase scripts ([SY-8](../docs/semantics/openflow.md#sy-8)) in ESM and CommonJS entries ([WR-47](../docs/semantics/languages.md#wr-47), [WR-50](../docs/semantics/languages.md#wr-50)): esbuild's options, assets ([WR-49](../docs/semantics/languages.md#wr-49)), the runtime select and the Node version, and an entry that reaches outside the sync tree |
+| `wr-16` | Result streaming ([WR-16](../docs/semantics/languages.md#wr-16), [Q-WR-15](../docs/semantics/languages.md#q-wr-15)): a Bun step whose result is an async iterable streams it as `WM_STREAM:` log lines, which the worker joins into the result; a line that a step prints itself is merged into an object result |
+| `wr-28`, `wr-28-lock` | Static and dynamic imports of workspace scripts ([WR-28](../docs/semantics/languages.md#wr-28)), created through the API in path order; a script whose deploy fails at lock time on CE `v1.862.0` |
+| `native`, `native-codebase`, `native-timeout`, `wr-40` to `wr-46`, `wr-43-stack`, `wr-45-useragent` | Native steps (`//native` and `nativets`) in the `native` configuration ([Q-WR-21](../docs/semantics/languages.md#q-wr-21)): values, throws, fetches of the sink, codebase scripts under `//native`, and the in-process timeout |
+| `import-base-inline` | The import base of inline scripts ([WR-29](../docs/semantics/languages.md#wr-29)) |
+| `import-base`, `wr-22-envs` | [WR-22](../docs/semantics/languages.md#wr-22): a CommonJS codebase script's environment, and a single-file codebase script whose `main.js` keeps the CRLF line ends of the CLI's upload ([WR-49](../docs/semantics/languages.md#wr-49)); script `envs` and the Bun cache directory |
+| `wr-54-validation` | [WR-54](../docs/semantics/languages.md#wr-54): handler errors and `// schema_validation`: wrong types, `null` for a required and an optional parameter, a string outside a literal union, and a missing or `null` element or property |
+| `wr-55-processes` | [WR-55](../docs/semantics/languages.md#wr-55): leftover processes and process reuse, read back through the jobs API; the pids are masked |
+| `wr-v2` | [WR-V2](../docs/semantics/languages.md#wr-v2): the empty-result `InternalErr` of a script that exits 0 without writing a result, as a plain job and as a flow step |
+
+#### flows/client-api
+
+| Fixture | What it encodes |
+|---|---|
+| `job-env`, `identity` | The job variables of inline and path steps ([WA-4](../docs/semantics/client-api.md#wa-4)); the job identity: the state path ([WA-5](../docs/semantics/client-api.md#wa-5)), the base URL variables ([WA-2](../docs/semantics/client-api.md#wa-2)), the token, and the root lookup by fetch ([WA-14](../docs/semantics/client-api.md#wa-14)) |
+| `providers`, `whole-value` | The platform services that a step reads, from `setup.yaml` ([WA-40](../docs/semantics/client-api.md#wa-40)): arguments the worker resolved, the stock client's reads by fetch, and resolution failures; resources whose whole value is one reference string ([WR-5](../docs/semantics/languages.md#wr-5)) |
+| `user-state` | Flow user state by the stock helpers' calls ([WA-14](../docs/semantics/client-api.md#wa-14)): the root lookup, the state routes at the root, a script job's 404 and `null`, a parallel loop sharing the root's map, and the text that a value comes back as |
+| `state`, `state-client` | State and the resource routes behind it ([WA-13](../docs/semantics/client-api.md#wa-13)): each answer of create, `update_value`, delete, `exists` and the reads. A counter across iterations and across runs; values jsonb refuses; the paths a create accepts; two creates racing; values up to 32 MiB. Then the stock client's state helpers |
+| `state-parallel` | Parallel writers and readers of one state on two workers: every read is one whole written value, and the last completed write stays |
+| `resource-writes` | The resource writes beside state: other types, an unknown type, another type's entry, and the create options the stock client never sends |
+| `dispatch` | The runs that a step dispatches, polled as `waitJob` polls ([WA-15](../docs/semantics/client-api.md#wa-15), [WA-V2](../docs/semantics/client-api.md#wa-v2)), on two workers. Its `roots` list the dispatched targets |
+| `flow-path` | The runnable paths that a body step sees ([WA-6](../docs/semantics/client-api.md#wa-6)) |
+| `job-reads`, `job-reads-parallel` | The job reads of a live run ([WA-19](../docs/semantics/client-api.md#wa-19)): a step reads its own job, its ancestors and the jobs their statuses name, the error answers, and what `no_logs` and `no_code` change; parallel containers read while their children run |
+| `job-reads-large` | Large results and arguments, stored at 89,999 and 90,000 bytes after PostgreSQL's compression, either side of where Windmill replaces them |
+| `job-reads-ended` | `jobs_u/get` and `jobs_u/get_args` on a job of a run that has ended, which windmill-lite answers 501, a [named deviation](../docs/design/0001-equivalence-contract.md#5-named-deviations). `TestEndedRunJobRead` checks it, and the flow suite does not require the run |
+| `facade-answers` | The facade's error answers ([WA-14](../docs/semantics/client-api.md#wa-14), [WA-19](../docs/semantics/client-api.md#wa-19), [WA-V2](../docs/semantics/client-api.md#wa-v2)), secrets and `job_id` on the variable and resource routes ([WA-11](../docs/semantics/client-api.md#wa-11), [WA-12](../docs/semantics/client-api.md#wa-12)), and the answers to variable writes |
+| `raw-requests` | Input as stored ([FX-48](../docs/semantics/execution.md#fx-48), [FX-51](../docs/semantics/execution.md#fx-51), [Q-FX-7](../docs/semantics/execution.md#q-fx-7)), from run requests that a step sends with bodies the harness's arguments cannot carry |
+| `object-storage` | [WA-16](../docs/semantics/client-api.md#wa-16): the stock client's `writeS3File` with no workspace storage configured |
+| `driven` | What only the API shows of runs that a step starts and waits for, on two workers: oracle, OpenFlow and language cases, and a restart, which windmill-lite answers as the Community Edition does |
+
+#### flows/openflow, flows/stub and flows/host
+
+| Fixture | What it encodes |
+|---|---|
+| `openflow/of-3-native`, `openflow/of-deployed` | The native switch ([OF-3](../docs/semantics/openflow.md#of-3)); deployed values ([Q-OF-1](../docs/semantics/openflow.md#q-of-1)), checked in a recording manifest against each recording's deployment evidence |
+| `openflow/of-drivers`, `openflow/flow-script-off` | Steps that run flows through the API (previews), and a flow whose first lock fails, on two workers; flows with flow scripts turned off, in the `flow_script_off` configuration |
+| `stub/retry_loop` | A retry inside a loop: iterations fail and succeed by their `replay` tables, and a run exhausts its retries ([FX-26](../docs/semantics/execution.md#fx-26), [CF-5](../docs/semantics/control-flow.md#cf-5)) |
+| `stub/collapsed` | A collapsed body ([CF-8](../docs/semantics/control-flow.md#cf-8)), each iteration at `i:<n>/m:book`, whose stub keeps a `Date` parameter through a local alias ([WR-V3](../docs/semantics/languages.md#wr-v3)) |
+| `stub/nested` | Nested loops whose bodies do not collapse, the inner one reading the outer iteration as `iter_parent` ([CF-3](../docs/semantics/control-flow.md#cf-3)) |
+| `stub/scopes` | A named subflow and a parallel loop under one outer run, and two concurrent outer runs (`r` and `t`, group `rt`), with every call's job variables ([OR-V6](../docs/semantics/oracle.md#or-v6), [Q-OR-10](../docs/semantics/oracle.md#q-or-10)) |
+| `stub/codebase`, `stub/outside` | Stub mode on codebase scripts, which stay codebase scripts; and on an entry that reaches outside the sync tree, whose stubbed copy carries `shared/` |
+| `stub/subflow_retry` | A retried flow step: each subflow step has one outcome per job, counted across the attempts, and a skipped step's identity job takes no place in the count ([CF-17](../docs/semantics/control-flow.md#cf-17), [FX-17](../docs/semantics/execution.md#fx-17)) |
+| `host/provided` | windmill-lite only: provided sites that the host's providers replace, the run-time half of the provided-site policy case of the ADR [IR, loader and validation](../docs/design/0002-ir-and-loader.md). The oracle would run the real semaphore subflow, so the runs hold expectations written from the ADRs. In `granted` the provider's value stands in, and the next step reads it; in `refused` the site's `stop_after_if` stops on a static value. In `declined` the run ends latched with `provider_declined`; in `failed` the provider's error fails the site |
 
 ## Expression cases
 
-An expression case ([0003](../docs/design/0003-semantics-placement.md)) is
-context-free: an input transform or the `skip_if` predicate of a flow's
-first step, whose only bound values are `flow_input` and `flow_env`. At
-module 0, `previous_result` is the flow input
-([JE-36](../docs/semantics/expressions.md#je-36)) and the previous id is
-`""` ([JE-8](../docs/semantics/expressions.md#je-8)), so a case may use them
-too. Each `exprs/<finding>.yaml` holds the cases of one finding, and is
-named after it in lower case (`je-7.yaml`), as its recordings are:
+An expression case is context-free: an input transform or the `skip_if`
+predicate of a flow's first step. A case supplies only `flow_input` and
+`flow_env`. At the first step `previous_result` is the flow input and the
+previous id is empty, and an expression may read them, as
+[exprs/je-6.yaml](exprs/je-6.yaml) does.
+
+Each `exprs/<finding>.yaml` holds the cases of one finding, and is named
+after it in lower case, as its recordings are. The fields are
+in [internal/conformance](../internal/conformance/README.md#expression-cases).
 
 ```yaml
 finding: JE-7
@@ -233,131 +433,116 @@ cases:
     expect: {value: '12345678901234567890'}
 ```
 
-File fields: `finding`, `scope`, the defaults `flow_input` and `flow_env`
-(JSON object texts), `slow` (the recorder records slow files last), `mask`
-(JSON Pointers into every case's observation whose values are replaced by
-`<masked>`, for text with times or host names), `note`, `cases`. Case
-fields:
+A case that supplies a predecessor, a handler or a container as one of its
+fields is refused (`contextual_case_needs_flow_fixture`): it belongs in a flow fixture, such as
+those under `flows/je`.
 
-| Field | Meaning |
-|---|---|
-| `spec`, `variant` | the catalogue case, or the finding with a `variant` for a case beyond the catalogue |
-| `title`, `note` | what the case shows (required), and why it reads as it does |
-| `provenance`, `scope` | as for the other levels; a recorded case is `oracle-observed` |
-| `site` | `transform` (the default, a `javascript` input transform `x`), `static` (a `static` transform) or `skip_if` |
-| `expr`, `static` | the expression text, or the static value's JSON text |
-| `flow_input`, `flow_env` | the run's arguments and the flow's `flow_env`, as JSON object texts |
-| `expect.value` | argument `x` as the job API records it (point O2 of the [notation](../docs/semantics/conformance.md#je-notation): jsonb, before `$var:` resolution), as JSON text; `key_order: strict` compares member order |
-| `expect.text` | the evaluator's exact output (point O1), which the oracle cannot observe; its stored form must be `expect.value` |
-| `expect.error` | the step's error object, when the expression fails the step: `name`, and `message` exactly or `prefix` with `contains` and `not_contains` |
-| `expect.flow_error` | the run's error object, when a predicate fails the flow at its first pickup ([JE-35](../docs/semantics/expressions.md#je-35) route (b)) |
-| `expect.skipped` | whether `skip_if` skipped the step |
-| `expect.status` | the run's status where it is not the one the expectation implies (`success` for a value or a skip, `failure` for an error), for example `canceled` |
+### Add an expression case
 
-A `skip_if` case expects `skipped` or `flow_error`; a transform or static
-case expects `value` or `error`, or `flow_error` with `status: canceled`
-when the oracle cancels the run before the step exists.
+1. Add the case to `exprs/<finding>.yaml`, or create the file with its
+   `finding` and `scope`.
+2. Give it a `spec`: the catalogue case, or the finding with a `variant`
+   that tells the case apart. Give it a `title`, a `provenance`, and a
+   `site` when it is not an input transform: `static` for a literal JSON
+   value, `skip_if` for the predicate. Then the `expr` or `static`, its
+   `flow_input` or `flow_env` if they differ from the file's, and the
+   `expect` that the reference predicts.
+3. Check it on windmill-lite, from the repository root:
+   `bin/wltest check conformance/exprs/<finding>.yaml`, with `wltest` built,
+   the build helper's dependencies, and Bun 1.4.3. `check` lifts the file as
+   `record` does, and checks a case with no recording against its claims.
+4. Open a pull request. The Oracle workflow records the cases, and writes
+   the recordings into its artifact, not into your checkout: take
+   `recorded/conformance/exprs/recorded/<finding>/` from the artifact of the
+   `Oracle record (workers1)` job, copy it to
+   `conformance/exprs/recorded/<finding>/` from the repository root, and
+   commit it.
 
-A case that names a predecessor, a handler or a container (a key such as
-`previous_result`, `results` or `failure_module`, or another site) is
-refused with `contextual_case_needs_flow_fixture`: it is a flow fixture.
+`wltest record` lifts each file into generated one-step flows, one per case,
+whose module `b` runs a sink script with an input `x`. That is the
+expression for a transform case, and the literal value for a `static` case.
+A `skip_if` case's expression becomes `b`'s `skip_if`, and `x` is `null`.
+The generated tree is never committed
+([internal/conformance](../internal/conformance/README.md#lifting)).
 
-**Lifting.** `wltest record` lifts each file into a generated fixture
-([0011](../docs/design/0011-differential-testing.md)): one flow
-`f/wl_expr/<case>` per case, whose one module, `b`, runs the sink script
-`f/wl_expr/sink` with the expression as its input `x` (or as its `skip_if`,
-with `x` static `null`), and one run with the case's flow input. The sink
-returns `null`, so the observation shows what the expression produced, not
-what Bun made of it. The generated tree is never committed; the recorder
-writes its metadata with the CLI before each push. The recordings are
-`exprs/recorded/<finding>/<case>.json`, with the finding in lower case.
+### What is checked where
 
-`exprs/deferred.yaml` lists the JE, CF-19 and CF-V6 catalogue cases that
-no expression case here and no flow fixture encodes, and those recorded
-only in part, each with the reason and where it is checked.
-The cases the semantics reference added on 2026-10-28 are checked at
-evaluator level in the meantime, by the pipeline cases of
-[internal/expr](../internal/expr/README.md) that run on the engine; those
-it added on 2026-10-29 are checked there too (JE-11/b–e, JE-16/h), or at
-engine level in [internal/engine](../internal/engine/README.md) (JE-18/e,
-and JE-11/e as an input transform's failure), since milestone FU6. Batch
-E3f recorded JE-11/c and /e, JE-15/j and /k, JE-20/c and /d, JE-21/b,
-JE-42/i and /j, JE-49/d, JE-50/a to JE-52/a and JE-2/b end to end in the
-flow fixtures under `flows/je`; JE-49/e crashed the
-oracle's server and stays deferred, JE-44/f is not encoded yet, JE-42/k
-is checked by the `$jsonvar:` resolution cases of
-[internal/platform](../internal/platform/README.md) and waits for the next
-run of batch E3f end to end, and JE-19/e and /f need a restarted run, which is outside the
-contract and which the CE image cannot make (SC5 re-scoped both to `EE`).
+- `exprs/deferred.yaml` lists the catalogue cases of the expression
+  findings, of [CF-19](../docs/semantics/control-flow.md#cf-19) and of
+  [CF-V6](../docs/semantics/control-flow.md#cf-v6) that no expression case and no flow fixture encodes, and those
+  recorded only in part, each with the reason and where it is checked.
+  `TestBatchCoverage` ([internal/oracle](../internal/oracle/README.md#tests))
+  requires every catalogue case of those findings to be an expression case, a
+  fixture's run or deferred.
+- The pipeline cases of [internal/expr](../internal/expr/README.md) restate
+  recorded cases and give cases of their own at evaluator level, which its
+  tests run on the engine; [internal/engine](../internal/engine/README.md) checks a few at engine
+  level.
+- Cases whose run would restart a flow are enterprise-only (`EE`), because
+  the Community Edition has no restart.
+
+### The key-order discriminator
+
+The key-order example of
+[Where semantics live](../docs/design/0003-semantics-placement.md) for
+[JE-8](../docs/semantics/expressions.md#je-8) cannot be seen in a recorded
+argument, because the job API stores arguments as jsonb, which reorders
+keys. `flows/je/shortcuts` keeps it as a unit case (`je8-order-transform`: the
+evaluator returns the producer text `{"b":1,"a":2}`, whose stored form is the
+recorded `{"a":2,"b":1}`). It observes it on the oracle at the `timeout`
+site, whose parse error quotes the evaluated text (`je8-order-timeout`, with
+the database route as its control in `je8-order-timeout-db`).
 
 ## Claims and unit cases
 
 Runs of flow fixtures, and the runs lifted from expression cases, carry
-three kinds of assertion beyond `expect`, and two comparison hints. `go test ./internal/oracle` checks
-them against the committed recordings; the recorder does not, so a
-contradicted claim still leaves its recording to inspect. `wltest check`
-checks the claims on windmill-lite's own observation too, so a claim
-states only what both sides write: a Rust location suffix, which
-windmill-lite never writes (D14), stays in the recording (JE-35/b).
+assertions beyond `expect`. They are `claims` (partial assertions at a JSON
+Pointer), `delays` (lower bounds on the time between two jobs) and `unit`
+(the run's expressions restated at unit level). Two more fields,
+`not_found_locs` and `copies`, are hints for the comparison with
+windmill-lite. Their fields are in
+[internal/conformance](../internal/conformance/README.md#claims-and-unit-cases).
 
-- **`claims`**: a JSON Pointer `at` into the observation, in its canonical
-  encoding (a step field left to its canonical absence is absent), and one
-  of `equals` (a JSON value, with `key_order: strict` if member order
-  counts), a string match (`prefix`, `contains`, `not_contains`), `length`
-  (of an array) or `absent`.
-- **`delays`**: `from` and `to` sites and `at_least_ms`, a lower bound on the
-  time from one job's completion to the next one's start, read from the
-  recording's provenance, since timings are never compared
-  ([JE-28](../docs/semantics/expressions.md#je-28)).
-- **`unit`**: the run's expressions restated at unit level for the
-  expression milestones: the `site` and `input` (an input transform's name,
-  or `skip_if`, `stop_after_if`, `timeout`, `sleep`), the `expr`, the
-  `context` the evaluation sees (`previous_id`, `previous_result` as the
-  worker holds it, which after an ordinary step is the producer's text and
-  elsewhere follows [JE-44](../docs/semantics/expressions.md#je-44)'s
-  table, `flow_input` as submitted, and `results`, the stored texts a
-  database read returns), and the expected `text` or `error`. A
-  test ties each one to its flow and recording: the expression is the one
-  at the site, the previous id is the module before it, the stored forms of
-  the context's texts are the recorded results, at an input transform
-  the stored form of the expected text is the recorded argument, and at a
-  `timeout` site the expected text is exactly the value the recorded i32
-  parse error quotes ([JE-29](../docs/semantics/expressions.md#je-29)),
-  spacing and key order included.
-- **`not_found_locs`**: JSON Pointers to the values whose error message
-  quotes the lookup helper's not-found text with a parenthesised location
-  ` (<file>.rs:<line>)` that Windmill generated: where the case's expected
-  text writes `<loc>` for it ([FX-50](../docs/semantics/execution.md#fx-50)
-  rule 3; `cf/cf-19` run `cf19-c`, milestone N3c). Only `wltest check`
-  reads it, to strip that location from the reference where windmill-lite
-  generated the value; the recording keeps it.
-- **`copies`**: the values the case's flow copies, through user code,
-  from an error windmill-lite generates at another site, each `at` (a
-  JSON Pointer into the observation) and `of` (that site's path): a
-  failure module or a later step that passes a pickup error on
-  (`execution/fx-15` run `root_pickup`, `je/errors` run `je35-d`,
-  milestone N3c). Only `wltest check` reads it: the value at `at` counts
-  as generated when it equals that site's generated error, its error
-  member or its message, so the location rule of
-  [0011](../docs/design/0011-differential-testing.md) reaches it.
+| Field | On the oracle's side | On windmill-lite's side |
+|---|---|---|
+| `claims` | `go test ./internal/oracle` checks them against the committed recordings (`TestRecordingsSatisfyClaims`) | `wltest check` checks them on its own observation |
+| `delays` | The same test, on the recordings' job times | `wltest check`, on the trace's job times |
+| `unit` | `TestUnitCasesMatchRecordings` ties each case's inputs to the recording | `go test ./internal/expr` runs the cases on the evaluator |
+| `copies`, `not_found_locs` | Not used | `wltest check` uses `copies` when it observes a run, and `not_found_locs` when it compares |
 
-**The JE-8 discriminator.** The key-order example of
-[0003](../docs/design/0003-semantics-placement.md) cannot be told apart in a
-recorded argument, because the job API stores arguments as jsonb, which
-reorders keys (review item cx R16). `flows/je/shortcuts` keeps it as a unit
-case (`je8-order-transform`: the evaluator returns the producer text
-`{"b":1,"a":2}`, whose stored form is the recorded `{"a":2,"b":1}`), and
-observes it on the oracle at the `timeout` site, whose parse error quotes the
-evaluated text (`je8-order-timeout`, with the database route as its control
-in `je8-order-timeout-db`).
+The recorder checks none of them, so a contradicted claim still leaves its
+recording to inspect. A claim holds on both sides, so it states only what
+both write: a location suffix, which windmill-lite never writes, stays in
+the recording.
+
+## Add a case at a file level
+
+The decode, jsonb, load, compile and build levels take the same steps:
+
+1. Open the finding's file, such as `ir/cf-8.json`, or create it with its
+   `finding` and `cases`.
+2. Add the case: its `spec`, `provenance` and `title`, its `given` input
+   and its `expect`, by the level's field table below.
+3. If a catalogue case of the finding gets no case at this level, list it
+   in the level's deferred file, with the reason and where it is checked.
+   Otherwise the level's catalogue test fails.
+4. Run the level's tests ([Run the tests](#run-the-tests)), such as
+   `go test -run '^TestConformanceIR' ./internal/ir`. The build level needs
+   Bun; the jsonb level compares with PostgreSQL only with
+   `WL_JSONB_PSQL`.
+
+The other levels have steps of their own:
+[protocol](#add-a-protocol-case), [plugins](#plugin-cases),
+[hooks](#hook-cases), [flow](#add-a-flow-fixture),
+[expr](#add-an-expression-case) and [step](#add-a-step-case).
+
 ## OpenFlow decode cases
 
-A decode case gives a flow `value` as JSON and the decision of Windmill's
+A decode case gives a flow `value` as JSON, and the decision of Windmill's
 effective decoder ([OF-2](../docs/semantics/openflow.md#of-2)): a rejection,
 or an accepted value and parts of its decoded form. The decoded form is
-described in [internal/openflow](../internal/openflow/README.md).
-
-Each `of-<n>.json` file holds the cases of one finding:
+described in [internal/openflow](../internal/openflow/README.md). Each
+`openflow/of-<n>.json` file holds the cases of one finding:
 
 ```json
 {
@@ -374,37 +559,35 @@ Each `of-<n>.json` file holds the cases of one finding:
 }
 ```
 
-Case fields:
-
-| Field | Meaning |
+| Field | What it holds |
 |---|---|
-| `spec` | the catalogue case id |
-| `provenance` | the catalogue's provenance tag, which the runner checks |
-| `variant` | distinguishes several inputs of one catalogue case |
-| `scope` | set only where it differs from the finding's (also allowed at file level) |
+| `spec` | The catalogue case id |
+| `title`, `note` | What the case shows, and why it reads as it does (`finding` is the file's) |
+| `provenance` | The catalogue's provenance tag, which the runner checks |
+| `variant` | Tells several inputs of one catalogue case apart |
+| `scope` | Set only where it differs from the finding's; also allowed at file level |
 | `part` | `decode` when the catalogue case has a run-time or deploy half that is checked elsewhere; `note` says which |
-| `deviation` | the named deviation of [0001](../docs/design/0001-equivalence-contract.md) whose behaviour the expectation shows |
-| `given` | the flow value, as JSON |
-| `expect.reject` | `kind` (`flow_value`, `module`, `retry_base`, `step_path`, …), `contains` and `not_contains` (message substrings, compared as the reference compares them), `not_prefix` |
-| `expect.accept` | `at` (JSON Pointer to expected JSON in the decoded form), `matches` (JSON Pointer to a regular expression for a string), `absent` (JSON Pointers that must not resolve) |
+| `deviation` | The [named deviation](../docs/design/0001-equivalence-contract.md#5-named-deviations) whose behaviour the expectation shows |
+| `given` | The flow value, as JSON |
+| `expect.reject` | `kind` (`flow_value`, `module`, `retry_base`, `step_path`, …), `contains` and `not_contains` (substrings of the message), and `not_prefix` |
+| `expect.accept` | `at` (a JSON Pointer to expected JSON in the decoded form), `matches` (a JSON Pointer to a regular expression for a string), and `absent` (JSON Pointers that must not resolve) |
 
-`deferred.json` lists the catalogue's OF cases that are not decode cases,
-each with the reason and where it is expected to be checked. A test fails
-unless every OF case of the catalogue is a decode case here or is deferred.
+`openflow/deferred.json` lists the catalogue's OF cases that are not decode
+cases.
 
 ## Stored-form cases
 
-A stored-form case gives a value's *producer text*, as a step, QuickJS-ng or
-a static transform writes it, and expects its *stored text*, the text
+A stored-form case gives a value's producer text, as a step, QuickJS-ng or a
+static transform writes it. It expects the value's stored text: the text that
 PostgreSQL `jsonb` gives back without its output spaces, or the rejection
 that leaves it with no stored form. Both texts are described in
 [internal/jsonval](../internal/jsonval/README.md). The catalogue cases are
 flow cases; a stored-form case checks only the texts, and names where the
 rest of the case is checked.
 
-Each `<finding>.yaml` file holds the cases of one finding. Texts are YAML
-single-quoted strings, in which a backslash is literal and only a quote is
-doubled, so the JSON text stays byte for byte as written:
+Each `jsonb/<finding>.yaml` file holds the cases of one finding. Texts are
+YAML single-quoted strings, in which a backslash is literal and only a quote
+is doubled, so the JSON text stays byte for byte as written:
 
 ```yaml
 finding: JE-44
@@ -417,42 +600,43 @@ cases:
     expect:
       keys: [a, cc, bbb]
       stored: '{"a":2,"cc":3,"bbb":1}'
-    rest_in: N1a, which serves results.a past a step in between from the stored text (JE-18)
 ```
 
-Case fields:
+This is an excerpt of [jsonb/je-44.yaml](jsonb/je-44.yaml). The complete case
+also has `rest_in`, which names where the route half, the engine's read of
+the older step, is checked.
 
-| Field | Meaning |
+| Field | What it holds |
 |---|---|
-| `spec` | the catalogue case id, or the finding id for a case that encodes the finding's rule beyond its catalogue cases |
-| `variant` | names a case that has only a finding id |
-| `provenance` | for a catalogue case, the catalogue's tag, which the runner checks; for a rule case, the finding's, or `policy` where the case pins bytes the rule leaves open or PostgreSQL behaviour the reference does not state |
-| `scope` | the catalogue's scope tag, where it gives one |
-| `read` | `producer` or `stored`: the text the catalogue case's consumer reads, by the routing table of [0005](../docs/design/0005-json-step-boundaries.md) |
-| `given` | the producer text |
-| `expect.stored` | the exact stored text |
-| `expect.keys` | the top-level keys of the `read` text, in order, as the catalogue expects them |
-| `expect.reject` | `kind` (`nul`, `surrogate`, `numeric`, `syntax`) and optionally `database`, PostgreSQL's message |
-| `rest_in` | for a catalogue case, the milestone that checks the rest of it |
-| `note` | why the case reads as it does |
+| `spec` | The catalogue case id, or the finding id for a case that encodes the finding's rule beyond its catalogue cases |
+| `variant` | Names a case that has only a finding id |
+| `title`, `note` | What the case shows, and why it reads as it does; the file can carry a `note` too |
+| `provenance` | For a catalogue case, the catalogue's tag, which the runner checks; for a rule case, the finding's, or `policy` where the case pins bytes that the rule leaves open or PostgreSQL behaviour that the reference does not state |
+| `scope` | The catalogue's scope tag, where it gives one |
+| `read` | `producer` or `stored`: the text that the catalogue case's consumer reads, by the routing table of the ADR [JSON at step boundaries](../docs/design/0005-json-step-boundaries.md) |
+| `given` | The producer text |
+| `expect.stored` | The exact stored text |
+| `expect.keys` | The top-level keys of the `read` text, in order, as the catalogue expects them |
+| `expect.reject` | `kind` (`nul`, `surrogate`, `numeric`, `syntax`) and, optionally, `database`: PostgreSQL's message |
+| `rest_in` | For a catalogue case, where the rest of it is checked |
+| `note` | Why the case reads as it does |
 
-`deferred.yaml` lists the catalogue cases of these findings that are not
-stored-form cases, each with the reason and where it is expected to be
-checked. A test fails unless every catalogue case of a finding with a file
-here is a case or is deferred.
+`jsonb/deferred.yaml` lists the catalogue cases of these findings that are
+not stored-form cases. CI's `jsonb (PostgreSQL)` job also compares the
+stored texts with a real PostgreSQL ([docs/ci.md](../docs/ci.md#the-ci-workflow)).
 
 ## Sync-folder load cases
 
-A load case gives a sync folder as a map of files and what the loader of
-[internal/syncfolder](../internal/syncfolder/README.md) makes of it: whether
-the folder opens, which items it lists or filters out, and for named items
-parts of the record read or the error
+A load case gives a [sync folder](../docs/glossary.md#sync-folder) as a map
+of files, and what the loader of
+[internal/syncfolder](../internal/syncfolder/README.md) makes of it. That is
+whether the folder opens, which items it lists or filters out, and, for named
+items, parts of the record read or the error. Each `syncfolder/sy-<n>.json` or
+`pa-<n>.json` file holds the cases of one finding
 ([SY-1](../docs/semantics/openflow.md#sy-1) to
 [SY-20](../docs/semantics/openflow.md#sy-20),
 [SY-V1](../docs/semantics/openflow.md#sy-v1) to
-[SY-V4](../docs/semantics/openflow.md#sy-v4), PA-1, PA-2).
-
-Each `sy-<n>.json` or `pa-<n>.json` file holds the cases of one finding:
+[SY-V4](../docs/semantics/openflow.md#sy-v4), and the PA findings):
 
 ```json
 {
@@ -469,42 +653,44 @@ Each `sy-<n>.json` or `pa-<n>.json` file holds the cases of one finding:
 }
 ```
 
-Case fields beyond those of the decode cases:
+Load cases keep the decode cases' `spec`, `variant`, `provenance`, `scope`, `part`, `title` and
+`note`, without `deviation` or `expect.accept` and `expect.reject`. Their own fields:
 
-| Field | Meaning |
+| Field | What it holds |
 |---|---|
-| `spec` | the catalogue case id, or the finding id alone for a case that extends the catalogue |
-| `policy` | the windmill-lite policy of [0001](../docs/design/0001-equivalence-contract.md) or [0002](../docs/design/0002-ir-and-loader.md) whose behaviour the expectation shows, where it differs from the CLI's |
-| `given.files`, `given.hex_files` | the folder: file paths and their text, or their bytes in hex for text that is not UTF-8 |
-| `given.start` | the working directory the folder is opened from, relative to the case; default the case root |
-| `given.step` | a flow path and module id whose by-path target `expect.target` describes |
-| `expect.load` | the error `kind` and message substrings (`contains`) when the folder does not open |
-| `expect.root` | the sync root, relative to the case |
-| `expect.paths`, `expect.filtered` | per item kind, the exact sorted paths listed, or filtered out |
-| `expect.items` | per item kind and path: `at` (JSON Pointer into the item's JSON form) and `absent`, or `error` (`kind`, `contains`) |
-| `expect.target` | the same, for `given.step`'s target |
-| `expect.warnings`, `expect.not_warnings` | substrings that some warning holds, or that no warning holds |
-| `expect.skipped` | files listed as recognised and not loaded, with their kind |
+| `spec` | The catalogue case id, or the finding id alone for a case that extends the catalogue |
+| `policy` | The windmill-lite policy of the [equivalence contract](../docs/design/0001-equivalence-contract.md) or of [IR, loader and validation](../docs/design/0002-ir-and-loader.md) whose behaviour the expectation shows, where it differs from the CLI's |
+| `given.files`, `given.hex_files` | The folder: file paths and their text, or their bytes in hex for text that is not UTF-8 |
+| `given.start` | The working directory that the folder is opened from, relative to the case; by default the case's root |
+| `given.step` | A flow path and a module id, whose by-path target `expect.target` describes |
+| `expect.load` | The error's `kind` and message substrings (`contains`), when the folder does not open |
+| `expect.root` | The sync root, relative to the case |
+| `expect.paths`, `expect.filtered` | Per item kind, the exact sorted paths listed, or filtered out |
+| `expect.items` | Per item kind and path: `at` (a JSON Pointer into the item's JSON form) and `absent`, or `error` (`kind`, `contains`) |
+| `expect.target` | The same, for `given.step`'s target |
+| `expect.warnings`, `expect.not_warnings` | Substrings that some warning holds, or that no warning holds |
+| `expect.skipped` | Files listed as recognised and not loaded, with their kind |
 | `expect.check_ok`, `expect.check_error` | `Check` succeeds, or fails with an error of that kind |
 
 The runner writes each case to a temporary directory, with a `.git`
-directory at its root so that the upward search for `wmill.yaml` stays in the
-case; a case without `wmill.yaml` thus has its start directory as the root
-([SY-13](../docs/semantics/openflow.md#sy-13)). `deferred.json` lists the
-catalogue's SY and PA cases that are not load cases here, each with the
-reason and where it is expected to be checked; the SY-9 cases are the YAML dialect's, in
+directory at its root, so that the upward search for `wmill.yaml` stays in
+the case. A case without `wmill.yaml` thus has its start directory as the
+root ([SY-13](../docs/semantics/openflow.md#sy-13)).
+`syncfolder/deferred.json` lists the catalogue's SY and PA cases that are not
+load cases here. There is no `sy-9.json`: the cases of the YAML dialect are in
 [internal/yamlx](../internal/yamlx/README.md).
 
 ## Compile cases
 
 A compile case gives a sync folder, as a load case does, and optionally a
-host contract and build options, and what the compiler of
-[internal/ir](../internal/ir/README.md) makes of it: the errors, or parts of
-the compiled program ([0002](../docs/design/0002-ir-and-loader.md)). Most
-catalogue cases they encode are flow cases whose expectation depends on
-what a deploy applies (container defaults, the native switch, virtual
-steps, collapse); a compile case checks that part (`part: compile`), and
-its `note` says which milestone checks the run.
+host contract and build options. It expects what the compiler of
+[internal/ir](../internal/ir/README.md) makes of them: the errors, or parts
+of the compiled program ([IR, loader and validation](../docs/design/0002-ir-and-loader.md)).
+
+Most catalogue cases that they encode are flow cases whose expectation
+depends on what a deploy applies: container defaults, the native switch,
+virtual steps, collapse. A compile case checks that part (`part: compile`),
+and its `note` says where the run is checked.
 
 ```json
 {
@@ -514,173 +700,204 @@ its `note` says which milestone checks the run.
       "spec": "CF-8/c",
       "provenance": "oracle-observed",
       "part": "compile",
-      "note": "The catalogue records the case as oracle-observed and CF-8 as settled. The run half, every iteration getting the flow input, is N3a's.",
+      "note": "…",
       "title": "a loop at step 0 collapses",
-      "given": {"files": {"wmill.yaml": "defaultTs: bun\n", "f/x/main.flow/flow.yaml": "..."}},
+      "given": {"files": {"wmill.yaml": "defaultTs: bun\n", "f/x/main.flow/flow.yaml": "value:\n  modules:\n    - id: l\n      value:\n        type: forloopflow\n        iterator: {type: static, value: [1, 2, 3]}\n        modules:\n          - id: x\n            value:\n              type: rawscript\n              language: bun\n              content: \"export async function main(x: number) { return x }\"\n              input_transforms: {}\n"}},
       "expect": {"steps": {"f/x/main m:l": {"at": {"/forloop/collapse": true}}}}
     }
   ]
 }
 ```
 
-Case fields beyond those of the load cases:
+This is an excerpt of [ir/cf-8.json](ir/cf-8.json). The loader requires a
+`note` on a case with `part: compile`, saying where its run half is checked;
+the complete case gives it.
 
-| Field | Meaning |
-|---|---|
-| `provenance` | as the catalogue tags the case, `disputed` included: a disputed case's `note` says which reading it encodes and why the design fixes it ([0001](../docs/design/0001-equivalence-contract.md) §6) |
-| `part` | `compile` when the catalogue case's run half is checked elsewhere |
-| `given.contract` | the host contract, as the YAML text of its file; without one every flow and script is a root |
-| `given.options` | build options (`{"strict": true}`) |
-| `expect.errors` | errors that must all be among those the compile reports: `kind` and message substrings (`contains`) |
-| `expect.at`, `expect.absent` | JSON Pointers into the program's JSON form |
-| `expect.flows`, `expect.no_flows` | per flow path, pointers into that flow; flows that must not be in the program (opaque or unreached) |
-| `expect.steps` | per `"<flow path> <site>"`, pointers into that module, and `script` for its inventory entry; the site is a site path with iteration segments left out (`m:l/m:x`, `m:o/b:default/m:c`, `s:failure`) |
-| `expect.lists` | per `"<flow path>"` or `"<flow path> <site>"` (a loop, or a branch), the site segments of that module list in order, occurrences and virtual steps included |
-| `expect.scripts` | per inventory id, pointers into that entry |
-
-`deferred.json` lists the catalogue cases of these findings that are
-neither compile cases nor accounted for at the decode or load level (a case
-there, or an entry in its `deferred.json`), each with the reason and where
-it is expected to be checked. A test fails unless every catalogue case of a
-finding with a file here is accounted for, and unless every case that
-`openflow/deferred.json` or `syncfolder/deferred.json` defers to
-`conformance/ir` is a compile case.
-
-## Protocol cases
-
-The harness protocol ([0004](../docs/design/0004-harness-protocol.md)) is
-windmill-lite's own, so these cases carry provenance `policy`. They pin the
-Go side ([internal/harness](../internal/harness/README.md)) and each harness
-([harnesses/bun](../harnesses/bun/README.md)) to one set of frames. Each
-file names the design section it encodes (`design`) and the findings it
-relies on (`relies_on`); a case that also encodes a catalogue case says so
-in `spec` (the version check, `WR-3/a`).
-
-**`frames.json`** holds the codec's golden frames. `go test ./internal/harness
--run TestFrameCases -args -update` writes `payload` and `frames` from Go's
-encoder; both codecs then check every case unless `sides` limits it. The
-file is laid out as `-update` writes it, and the Go test fails when it is
-not: write a new case by hand in that layout, or run `-update` after it.
-
-| Kind | Fields | Check |
-|---|---|---|
-| encode | `message` (JSON) or `message_text` (a payload in any key order), `payload` | the message decodes and encodes to `payload`, which re-encodes to itself; `raw` names values whose bytes must survive exactly |
-| split | an encode case plus `split` (`stream`, `chunk_bytes`) and `frames` | the payload splits into exactly those part frames, which reassemble to it |
-| sequence | `frames`, `messages` | the frames, read in order, decode and reassemble to the messages |
-| reject | `bytes_hex` or `frames`, optional `max_frame` and `max_message`, `error` | reading raises the protocol error code `error` |
-
-**`exchanges/<case>.json`** are transcripts that the Go tests play against
-the real harness, on the synthetic bundle in `protocol/bundle/` (a
-`manifest.json` whose SHA-256 is the bundle digest, and per script under
-`scripts/bun/` a module written by hand, which takes named parameters, and
-the `.meta.json` signature the build helper would record for it, by which
-the harness binds its arguments). Each step does one thing:
-
-| Step | Meaning |
-|---|---|
-| `send` | encode a message canonically and send it, as part frames when it is larger than a frame; `fill` stands in for a long string, `split` sends it as small parts with one whole frame between them |
-| `send_text` | send one frame with this exact payload |
-| `expect` | the next message from the harness matches, keys in order; `parts` is how many part frames carried it; messages whose type `ignore` lists are dropped while it waits (`heartbeat`: a ping may still come before the harness handles the drain) |
-| `quiet_ms` | no message arrives for that long |
-| `exit` | the process exits with this code and sends nothing more |
-| `stdout_contains` | the process's stdout contains the text |
-| `release` | create the file of this name in the harness's working directory, which ends a `gate` step waiting for it |
-
-Expected values may use placeholders: `<any>`, `<string>`, `<int>`, `<pid>`
-(the harness's pid), `<bundle>` (the fixture bundle's digest) and `<c*N>`
-(a string of `N` copies of `c`).
-
-A transcript never relies on a step outlasting the frames that follow it.
-A call that must still run when a later frame arrives is a `gate` step
-(`scripts/bun/gate.mjs`), which runs until a `release` step creates its
-file; its paths are relative to the harness's working directory.
-`cancel-late` and `cancel-error-late` cancel such a call, check the pong,
-and only then release it; `concurrent` releases its calls in the order in
-which it expects their results.
-
-What a step writes through `console`, `process.stdout` or `process.stderr`
-arrives as `log` frames ahead of the frame that reports its outcome
-(milestone C3b), so a transcript expects them, with `<any>` for the text of
-a stack. `left-behind` and `platform-left-behind` expect the `left_behind`
-warning ahead of the result; `welcome-fresh`, `fresh-one-invocation` and
-`fresh-exit` run a harness in `fresh` mode, which serves one invocation and
-exits with it.
-
-**`host/versions.json`** (milestone F3b) holds the cases of the SDK–engine
-version pairing ([ADR 0009](../docs/design/0009-host-adapters.md)): a host
-SDK's version, its hello's harness version, against an engine's, and
-whether they pair (an unstamped `dev` or `(devel)` pairs with anything; two
-stamped releases pair when equal). Both sides run them: the engine's
-`harness.VersionsPair`, which refuses a host with `version_mismatch` in the
-handshake (`go test ./internal/harness`), and the SDK's `versionsPair`,
-which refuses such an engine's welcome (`bun test`).
-
-**`host/workdir.json`** (milestone F3a) holds host mode's working-directory
-cases ([ADR 0004](../docs/design/0004-harness-protocol.md), the
-shared-process failure model, item 5, and host mode item 7), which both
-sides check: the host SDK before it starts the engine (`checkWorkdir` in
-`harnesses/bun/host`, run by `bun test`), and the engine in the handshake
-(`harness.CheckWorkdir`, through `AttachHost` too, run by
-`go test ./internal/harness`). Each case lays out a fresh directory with
-`cwd/` (the host's working directory), `other/`, `link` (to `cwd/`) and
-`file`, sets the modes it names (skipped as root), and passes `workdir`;
-`expect` is the refusal's code (`workdir_not_writable`,
-`workdir_mismatch`) or null.
-
-## Plugin cases
-
-`plugins/hooks.yaml` holds the host-plugin cases of
-[ADR 0008](../docs/design/0008-host-hooks.md). Provenance `policy`: these
-are windmill-lite's rules for its hosts, not Windmill's. The cases cover:
-
-- every hook that a plugin answers over `host_call` (H1, H2, H6, H8, H9,
-  H12, H13), a mandatory provided site, and an `around` wrapper around a
-  step;
-- the errors, declines and timeouts that latch a run;
-- H3 and H7 answered by the plugin, and a run's own hooks and budgets as
-  the run carries them;
-- step code's `wl.latch` and `wl.signal`.
-
-The file's `scripts` and each case's `flow` (at `f/plugins/<id>`) make one
-sync folder. Its host contract has every flow as a root, and the cases'
-`provided` sites.
+Compile cases take the load cases' `given.files`, `given.hex_files`, `policy` and case fields, but not
+`given.start`, `given.step` or the load level's `expect` fields, and add `deviation`. Their own fields:
 
 | Field | What it holds |
 |---|---|
-| `plugin` | The case's declarative plugin: intercept, rewrite_args, halt_before and halt_after, write_capable, first_write, fatal_error_names, around, observe, env, variables, fail_variables, fail_resources, slow_start_ms, providers, warnings |
-| `run` | The run's own hooks and budgets, which a Go host gives in `RunOptions` and a TypeScript host in its run frame: write_capable, halt_before, halt_after, fatal_error_names, deadline_ms, pre_write_deadline_ms, clock |
-| `expect` | The run's `status`, `may_have_mutated`, `result`, `latched` (a text of the latched error), the plugin's `log`, its `warnings`, the sites that ran no job (`not_ran`) and the run's `deviations` |
-| `then` | More runs of the case's flow, each with its own `run` and `expect` (below) |
-| `go` | `false` runs the case only through the TypeScript plugin, as a failing or slow plugin needs |
-| `timeout_ms` | At the top of the file: the plugin timeout of the runtimes that run the cases |
+| `provenance` | As the catalogue tags the case, or `policy` for windmill-lite's own rule (with a `policy` field naming it). A `disputed` case's `note` says which reading it encodes, and why the design fixes it ([findings that are not settled](../docs/design/0001-equivalence-contract.md#6-findings-that-are-not-settled)) |
+| `part` | `compile` when the catalogue case's run half is checked elsewhere |
+| `given.contract` | The host contract, as the YAML text of its file; without one, every flow and script is a root |
+| `given.options` | Build options, such as `{"strict": true}` |
+| `expect.errors` | Errors that must all be among those that the compile reports: `kind` and message substrings (`contains`) |
+| `expect.at`, `expect.absent` | JSON Pointers into the program's JSON form |
+| `expect.flows`, `expect.no_flows` | Per flow path, pointers into that flow; the flows that must not be in the program (opaque or unreached) |
+| `expect.steps` | Per `"<flow path> <site>"`, pointers into that module, and `script` for its inventory entry. The site is a site path with its iteration segments left out (`m:l/m:x`, `m:o/b:default/m:c`, `s:failure`) |
+| `expect.lists` | Per `"<flow path>"` or `"<flow path> <site>"` (a loop, or a branch), the site segments of that module list in order, occurrences and virtual steps included |
+| `expect.scripts` | Per inventory id, pointers into that entry |
 
-The same cases run three ways: through a TypeScript plugin
-(`harnesses/bun/test/caseplugin.ts`) in `warm` processes and in host mode,
-and through Go callbacks built from the same plugin. Every plugin's
-`onRunEnd` reports its log of the run in the warning `plugin_log`. Its
-`onRunSettled` writes each run to a report file, with whether one of the
-run's hooks still ran, and the runners check that every run settles, none
-early. `internal/conformance` loads and checks the cases (`plugins.go`).
+`ir/deferred.json` lists the catalogue cases of these findings that are
+neither compile cases nor accounted for at the decode or load level. Its test
+also fails unless every case that `openflow/deferred.json` or
+`syncfolder/deferred.json` defers to `conformance/ir` is a compile case.
 
-A case's `then` runs follow the case's run on the same runtime, and in
-host mode on the same connection, so a case shows that a run's own hooks
-reach that run alone. The `run_halt_*` cases use it: a run with its own
-halt ends `halted`, and the next run of the flow, without one, runs every
-module.
+## Protocol cases
+
+The harness protocol ([Harness protocol](../docs/design/0004-harness-protocol.md))
+is windmill-lite's own, so these cases carry provenance `policy`. They pin the
+Go side ([internal/harness](../internal/harness/README.md)) and each harness
+([harnesses/bun](../harnesses/bun/README.md)) to one set of frames. Each file
+names the design section that it encodes (`design`) and, except the `host/`
+files, the findings it relies on (`relies_on`); a case that also encodes a catalogue case says so in
+`spec`, such as the version check's `WR-3/a`.
+
+### Add a protocol case
+
+1. **A frame case:** add it to `protocol/frames.json` in the file's layout,
+   or run `go test ./internal/harness -run TestFrameCases -args -update`
+   after it, which writes the `payload` and `frames` from Go's encoder.
+2. **An exchange:** add `protocol/exchanges/<case>.json`, a transcript of the
+   steps below on the scripts of `protocol/bundle/`, and run
+   `go test -run '^TestExchanges$' ./internal/harness` with `WL_BUN`.
+3. **A host case:** add it to `protocol/host/versions.json` or
+   `workdir.json`, and run both sides: `go test ./internal/harness` and
+   `bun test` in `harnesses/bun`.
+
+### frames.json
+
+`protocol/frames.json` holds the codec's golden frames.
+`go test ./internal/harness -run TestFrameCases -args -update` writes
+`payload` and `frames` from Go's encoder; both codecs then check every case,
+unless `sides` limits it. The file is laid out as `-update` writes it, and the
+Go test fails when it is not: write a new case by hand in that layout, or run
+`-update` after it.
+
+| Kind | Fields | Check |
+|---|---|---|
+| encode | `message` (JSON) or `message_text` (a payload in any key order), `payload` | The message decodes and encodes to `payload`, which encodes to itself again; `raw` names values whose bytes must survive exactly |
+| split | an encode case, plus `split` (`stream`, `chunk_bytes`) and `frames` | The payload splits into exactly those part frames, which reassemble to it |
+| sequence | `frames`, `messages` | The frames, read in order, decode and reassemble to the messages |
+| reject | `bytes_hex` or `frames`, optional `max_frame` and `max_message`, `error` | Reading raises the protocol error code `error` |
+
+### exchanges
+
+`protocol/exchanges/<case>.json` are transcripts that the Go tests play
+against the real harness, on the synthetic bundle in `protocol/bundle/`. The
+bundle holds a `manifest.json` whose SHA-256 is the bundle digest. Per script
+under `scripts/bun/`, it holds a module written by hand that takes named
+parameters, and the `.meta.json` signature that the build helper would
+record for it. Each
+step does one thing:
+
+| Step | What it does |
+|---|---|
+| `send` | Encode a message canonically and send it, as part frames when it is larger than a frame. `fill` stands in for a long string, and `split` sends it as small parts with one whole frame between them |
+| `send_text` | Send one frame with this exact payload |
+| `expect` | The next message from the harness matches, keys in order, within `within_ms` when given. `parts` is how many part frames carried it. Messages whose type `ignore` lists are dropped while it waits |
+| `quiet_ms` | No message arrives for that long |
+| `exit` | The process exits with this code, and sends nothing more |
+| `stdout_contains` | The process's standard output contains the text |
+| `release` | Create the file of this name in the harness's working directory, which ends a `gate` step that waits for it |
+
+Expected values may use placeholders: `<any>`, `<string>`, `<int>`, `<pid>`
+(the harness's pid), `<bundle>` (the fixture bundle's digest) and `<c*N>` (a
+string of `N` copies of `c`).
+
+- **No timing.** A transcript never relies on a step outlasting the frames
+  that follow it. A call that must still run when a later frame arrives is a
+  `gate` step (`scripts/bun/gate.mjs`), which runs until a `release` step
+  creates its file.
+- **Logs.** What a step writes through `console`, `process.stdout` or
+  `process.stderr` arrives as `log` frames ahead of the frame that reports
+  its outcome, so a transcript expects them, with `<any>` for the text of a
+  stack.
+- **Fresh mode.** `welcome-fresh`, `fresh-one-invocation` and `fresh-exit` run
+  a harness in `fresh` mode, which serves one invocation and exits with it.
+
+### host
+
+- **`protocol/host/versions.json`** holds the cases of the pairing between a
+  host SDK's version and an engine's ([Host adapters and typed methods](../docs/design/0009-host-adapters.md)):
+  whether they pair. An unstamped `dev`, `(devel)` or empty version pairs with anything, a
+  leading `v` is ignored,
+  and two stamped releases pair when they are equal. Both sides run them: the
+  engine's `harness.VersionsPair`, which refuses a host with
+  `version_mismatch` in the handshake (`go test ./internal/harness`), and the
+  SDK's `versionsPair`, which refuses such an engine's welcome (`bun test`).
+- **`protocol/host/workdir.json`** holds host mode's working-directory cases,
+  which both sides check: the host SDK before it starts the engine
+  (`checkWorkdir`, run by `bun test`), and the engine in the handshake
+  (`harness.CheckWorkdir`, run by `go test ./internal/harness`). Each case
+  lays out a fresh directory with `cwd/` (the host's working directory),
+  `other/`, `link` (to `cwd/`) and `file`, sets the modes that it names
+  (skipped as root), and passes `workdir`. `expect` is the refusal's code
+  (`workdir_not_writable`, `workdir_mismatch`) or `null`.
+
+## Plugin cases
+
+`plugins/hooks.yaml` holds the host-plugin cases of the ADR
+[Host hooks](../docs/design/0008-host-hooks.md). Its header says that they
+are windmill-lite's rules for its hosts, not Windmill's. The format is in
+[internal/conformance](../internal/conformance/README.md#host-plugin-cases).
+The cases cover:
+
+- every hook that a plugin answers over `host_call`, a mandatory provided
+  site, and an `around` wrapper around a step;
+- the errors, declines and timeouts that latch a run;
+- fatal error names from the plugin or from the run, the run's deadlines,
+  and a run's own hooks and budgets as the run carries them;
+- settlement: a run settles only once its hooks and providers finish; and
+  later runs of a flow (`then`);
+- step code's `wl.latch` and `wl.signal`.
+
+The same cases run through a TypeScript plugin in `warm` processes and in host
+mode, and through Go callbacks built from the same plugin, except a case with
+`go: false`, which runs only through the TypeScript plugin.
+
+To add a plugin case:
+
+1. Add it to [plugins/hooks.yaml](plugins/hooks.yaml): a unique `id`, its
+   `spec` and `title`, its `flow`, its `plugin` (`{}` for none), and its
+   `run` and `expect`, by the format in
+   [internal/conformance](../internal/conformance/README.md#host-plugin-cases).
+2. Set `go: false` if the plugin fails or starts slowly, which only the
+   TypeScript plugin can do.
+3. Run `go test -run '^TestPluginFileLoads$' ./internal/conformance`, then,
+   with `WL_BUN`, `go test -run '^TestPluginCases$' ./wl` and
+   `go test -run '^TestHostPluginCases$' ./cmd/windmill-lite`.
+
+## Hook cases
+
+`hooks/latch-precedence.yaml` holds the cases of the host's signals of the
+ADR [Host hooks](../docs/design/0008-host-hooks.md) against Windmill's own
+continue decision ([FX-2](../docs/semantics/execution.md#fx-2)): retry,
+`continue_on_error`, `skip_failures` and the failure module. The signals are
+the latch, cancellation and deadlines, fatal error names, halts and the
+clock's record mode. A host's signal has a channel of its own, which no error
+tolerance of the flow swallows.
+
+- Each case runs one synthetic flow of identity modules, at `f/hooks/case`,
+  through [wl](../wl/README.md), with no harness. The host answers the
+  modules' identity jobs where a case needs a failure or a value.
+- A case has a `name`, a `spec`, a `flow` and `args` (the flow input). The
+  file's header lists the other fields: the host's signals (`fail`, `value`,
+  `latch_at_start`, `latch_at_end`, `cancel_at_start`, `cancel_at_end`,
+  `canceled`, `fatal_error_names`, `halt_before`, `halt_after`, `clock`,
+  `pre_write_deadline_ms`) and the expectation (`status`, `latched`, `ran`,
+  `not_ran`, `result`, `deviations`).
+- The header says that these are windmill-lite's rules, so nothing is
+  recorded on the oracle.
+
+To add a hook case:
+
+1. Add it to the topic's file, such as
+   [hooks/latch-precedence.yaml](hooks/latch-precedence.yaml): a `name`, a
+   `spec`, a `flow` and `args`.
+2. Give the host's signals and the expectation, from the fields that the
+   file's header lists.
+3. Run `go test -run '^TestHookCases$' ./wl`, which needs no Bun.
 
 ## Step cases
 
-A step file holds the step cases of one finding, or of a deviation of
-[ADR 0001](../docs/design/0001-equivalence-contract.md) §5 that has none
-(`d5.yaml`, `d9.yaml`, `d11.yaml`, `d12.yaml`, `d13.yaml`), and is named after it in
-lower case. Each case is one script and its runs, in order: in `warm`
-mode one harness process serves them all, so a later run sees what an
-earlier one left in memory (D1); in `fresh` mode each run has a process of
-its own. A native step runs in a realm of its own each time, in either
-(D5). A
-run's observation is the step's **stored** value,
-`{"status": "success" | "failure", "result": …}`: the result, or the
-failure value ([WR-21](../docs/semantics/languages.md#wr-21)).
+A step file holds the step cases of one finding, or of a named deviation that
+has no finding, and is named after it in lower case. Each case is one script, with any more
+`scripts` that its runs invoke, and its runs, in order. The format is in
+[internal/conformance](../internal/conformance/README.md#step-cases), and how
+`wltest check` runs them is in
+[cmd/wltest](../cmd/wltest/README.md#step-cases).
 
 ```yaml
 finding: WR-12
@@ -697,135 +914,74 @@ cases:
         expect: {status: success, result: {x: one, y: two}}
 ```
 
-| Field | Meaning |
+- **Modes.** In `warm` mode, one harness process serves a case's runs, so a
+  later run sees what an earlier one left in memory. In `fresh` mode each run
+  has a process of its own. A native step runs in a realm of its own each
+  time, in either mode.
+- **The observation** is the step's stored value,
+  `{"status": "success" | "failure", "result": …}`: the result, or the
+  failure value ([WR-21](../docs/semantics/languages.md#wr-21)).
+- **Languages.** Only `bun` has a language directory: native steps run in the
+  Bun harness.
+
+### Add a step case
+
+1. Add the case to `steps/bun/<finding>.yaml`, or create the file with its
+   `finding` and `scope`.
+2. Write the script and its runs. Each run has its `args`, and either its
+   own check (`expect`, `claims`, or another non-empty check field, such as
+   `calls: []`), or, where `warm` and `fresh` differ, a `by_mode` with
+   exactly a `warm` and a `fresh` check. A case with
+   `by_mode` names its `deviation`, as
+   [steps/bun/wa-31.yaml](steps/bun/wa-31.yaml) does.
+3. Run it in both modes, from the repository root with `wltest` built, the
+   build helper's dependencies and Bun 1.4.3 (and `WL_NODE` for a CommonJS
+   codebase case): `bin/wltest check conformance/steps/bun/<finding>.yaml`
+   and `bin/wltest check --mode fresh conformance/steps/bun/<finding>.yaml`
+   ([cmd/wltest](../cmd/wltest/README.md#check-a-step-case-locally)).
+4. If a catalogue case of the finding stays without a step case, list it in
+   `steps/bun/deferred.yaml` with the reason and where it is checked.
+
+### Step files for deviations and services
+
+| File | What its cases show |
 |---|---|
-| `spec`, `variant`, `provenance`, `scope`, `title`, `note` | as for the other levels; a case of a finding beyond the catalogue, or of a deviation, cites the finding and needs a `variant` |
-| `script`, `path` | the script, and its Windmill path (default `f/wl_step/<name in snake case>`), which is its import base |
-| `language` | `bun` (the default), `bunnative` or `nativets`; a deploy relabels `bun` and `bunnative` from the script's `//native` header, and `bunnative` and `nativets` run with the native boundary ([WR-40](../docs/semantics/languages.md#wr-40)). The catalogue's "both kinds" are two cases: `language: nativets`, and a script whose first line is `//native` |
-| `timeout` | the step's static timeout in seconds: when it passes, the run is abandoned and its observation is the engine's timeout error for the step's boundary ([WR-37](../docs/semantics/languages.md#wr-37), [WR-44](../docs/semantics/languages.md#wr-44)) |
-| `step_id` | the module id it runs as, which `WM_FLOW_STEP_ID` carries (default `a`); `""` runs it as a script job outside any flow, whose errors carry no `step_id` and no `flow_path`. A wrapper or native error's `job_id`, the run's own job, is written as its site's placeholder, `"<job:m:a>"` by default ([cmd/wltest](../cmd/wltest/README.md)) |
-| `env` | job variables that add to or replace those of the job identity ([internal/platform](../internal/platform/README.md)) |
-| `host_modules` | scripts registered as host-provided modules (D12): `path` and `script`, their key the file path `<path>.ts` |
-| `codebase` | makes the script a codebase script, bundled by esbuild (C2b): the settings of its `codebases` entry as `wmill.yaml` gives them (`format`, `define`, `inject`, `loader`, `banner`, `external`, `assets`) |
-| `files` | other files of the folder, by path from the sync root, that a codebase build reads: modules it imports, inject files, asset sources. For a Bun script, they are workspace scripts it imports, by the `.ts` paths that Windmill's import rewrite gives them (`f/<folder>/<name>.ts`, [WR-28](../docs/semantics/languages.md#wr-28)) |
-| `setup` | the variables and resources the case's platform facade serves, in `setup.yaml`'s format; a secret's `value` is its plaintext (milestone PF2: `wa-10.yaml`, `wa-11.yaml`, `wa-12.yaml`, `wa-42.yaml`, `wa-v3.yaml`) |
-| `compare` | `stack` and `mask` pointers, beyond `/result/error/stack`, which is masked on a side whose status is `failure` (a successful result is data and is compared) unless `keep_stack` is set, for a case that states the stack in claims; `unordered` arrays; `strict_key_order` |
-| `deviation` | the deviation whose two readings the case's `by_mode` gives, or `5a` for the restriction of ADR 0001 §5a that a warm process reaches the platform only through `fetch` (`wa-31.yaml`) |
-| `runs[].args` | the argument object's JSON text, as the script receives it; `_ENTRYPOINT_OVERRIDE` in it selects the export (WR-12) |
-| `runs[].expect`, `claims` | the whole observation, and partial assertions (an error's `name`, a message's prefix) |
-| `runs[].late`, `settled` | what the invocation reports after its outcome (`kind`, `final`, `body`), up to the end of the case, so a late report of work it left running after it settled counts too, compared when either is given; and how it settles: `completed`, `not_started`, `process_exited`, or `pending` for a call that must still run at the end of a 500 ms window |
-| `runs[].warnings` | the codes of every warning the invocation gets up to its settlement, which the runner waits for (D9): `unattributed_error`; `left_behind`, which reports what it still had when it settled; and `native_untracked`, which reports what the native boundary handed it but does not track (D5); none when absent |
-| `runs[].left` | the counts of the `left_behind` warning by kind (`timeout`, `interval`, `immediate`, `fetch`, `child`), compared when given |
-| `runs[].untracked` | the counts of the `native_untracked` warning by kind (a class name, or `function <name>`), compared when given |
-| `runs[].calls` | the platform calls the facade recorded against the invocation, in order, each `<status> <METHOD> <route template>` (`501 POST /w/{ws}/jobs/run/p/{path}`), or the path as sent where no route matched; `[]` for none; compared when given. A call refused by the kernel, or with a token the facade does not know, is never listed (milestone PF1) |
-| `runs[].by_mode` | `warm` and `fresh`, each a check of the fields above, instead of the run's own |
-| `runs[].node` | for a CommonJS codebase case: what the same bundle shows on Node (`expect`, `claims`) where it differs from the run's own check (D13); without it, the run's own `expect` and `claims` must hold on Node too |
-| `shared_code` | at the top of a step file: its bundle is built with shared code ([ADR 0013](../docs/design/0013-shared-module-code.md); deviation [D18](../docs/design/0001-equivalence-contract.md#5-named-deviations)) |
-| `scripts` | more entry scripts of the case, by Windmill path (`f/<folder>/<name>`), built as its own script is (a Bun script, or a codebase script with its settings) |
-| `runs[].script` | the path of one of the case's `scripts` that the run invokes, in the same process, instead of the case's own script |
+| [`d5.yaml`](steps/bun/d5.yaml) | The native boundary: a native step runs in a realm of its own, and an object that the boundary does not track is reported (`native_untracked`) when the invocation settles |
+| [`d9.yaml`](steps/bun/d9.yaml), [`d11.yaml`](steps/bun/d11.yaml), [`d12.yaml`](steps/bun/d12.yaml) | Process-level errors in a shared process; an intercepted `process.exit`, which fixes the step's outcome at the call while the call goes on; [host-provided modules](../docs/glossary.md#host-provided-module) |
+| [`d13.yaml`](steps/bun/d13.yaml) | Where Node and the Bun harness agree, and where they differ, on a CommonJS codebase script. `wltest check --node /path/to/node conformance/steps/bun/d13.yaml`, or the same with `WL_NODE` set, runs each such run on Node as well, as Windmill runs such a bundle ([WR-30](../docs/semantics/languages.md#wr-30), [WR-50](../docs/semantics/languages.md#wr-50)) |
+| [`d18.yaml`](steps/bun/d18.yaml) | Shared code ([Shared module code](../docs/design/0013-shared-module-code.md)): its bundle is built with shared code, so `warm` runs each script's shared-layout module, with its own instance of its group's closure, and `fresh` runs the per-script bundles. Its cases' scripts share a dependency module, and many invoke a second script in the same process (`runs[].script`); and show that each step module keeps module state of its own |
+| [`wr-5.yaml`](steps/bun/wr-5.yaml) | A script reads its own arguments from `args.json` in its working directory, which the harness writes before each invocation ([WR-5](../docs/semantics/languages.md#wr-5)): run after run of one warm process, whose directory every invocation shares, and in each fresh process. The file holds no `_MODULES` or `_TEMP_SCRIPT_REFS`, and every other member keeps its text and place |
+| [`wr-12.yaml`](steps/bun/wr-12.yaml) | Alternate entrypoints and arrow exports ([WR-12](../docs/semantics/languages.md#wr-12)), as the [harness protocol](../docs/design/0004-harness-protocol.md) invokes them |
+| [`wr-6.yaml`](steps/bun/wr-6.yaml), [`wr-7.yaml`](steps/bun/wr-7.yaml), [`wr-8.yaml`](steps/bun/wr-8.yaml) | The run halves of build cases: argument binding (`wr-6.yaml`), a missing export (`wr-7.yaml`), and `Date` hydration (`wr-8.yaml`) |
+| [`wr-50.yaml`](steps/bun/wr-50.yaml) | Built as a bundle of its own: the case whose `package.json` asset declares `"type": "module"`, and `//native` codebase cases. The harness extracts every asset of a step file's bundle into its working directory, and such a file there makes Bun import every CommonJS module beside it as Node does |
+| [`wa-14.yaml`](steps/bun/wa-14.yaml) | Flow user state ([WA-14](../docs/semantics/client-api.md#wa-14)): a flow step's case runs in its case's flow run, so a later run reads what an earlier one wrote; also the web framework's rejections |
+| [`wa-19.yaml`](steps/bun/wa-19.yaml), [`wa-v2.yaml`](steps/bun/wa-v2.yaml) | The root lookup ([WA-19](../docs/semantics/client-api.md#wa-19)): a step's own job, an id with no job, and an id that is not a UUID. The result poll ([WA-V2](../docs/semantics/client-api.md#wa-v2)): a UUID that names no job, an id that is not a UUID, and the step's own job under another workspace's path, which reads as unknown |
+| [`wa-16.yaml`](steps/bun/wa-16.yaml) | The object store's job helpers for explicit keys ([WA-16](../docs/semantics/client-api.md#wa-16)), each case with a store of its own; and an upload that asks the server for a key, answered 501, which fails the step as `UnsupportedPlatformCall` |
+| [`wa-15.yaml`](steps/bun/wa-15.yaml) | The dispatch restriction: a step case's bundle has no root to dispatch, so every dispatch is refused with `dispatch target not in bundle: <path>`, which fails the step as `UnsupportedPlatformCall` ([restrictions](../docs/design/0001-equivalence-contract.md#5a-restrictions)) |
+| [`wa-31.yaml`](steps/bun/wa-31.yaml) | A warm process reaches the platform only through `fetch`, a restriction that its `by_mode` shows |
+| [`wa-10.yaml`](steps/bun/wa-10.yaml), [`wa-11.yaml`](steps/bun/wa-11.yaml), [`wa-12.yaml`](steps/bun/wa-12.yaml), [`wa-42.yaml`](steps/bun/wa-42.yaml), [`wa-v3.yaml`](steps/bun/wa-v3.yaml) | The resource and variable reads, against the variables and resources of a case's `setup`, or with no setup, such as `wa-10.yaml`'s 404 for an absent resource; `wa-11.yaml` also the variable update behind `setVariable` |
+| [`wa-2.yaml`](steps/bun/wa-2.yaml), [`wa-5.yaml`](steps/bun/wa-5.yaml), [`wa-41.yaml`](steps/bun/wa-41.yaml) | The base URL variables ([WA-2](../docs/semantics/client-api.md#wa-2)); the state path ([WA-5](../docs/semantics/client-api.md#wa-5)); the 501 policy on the stock client ([WA-41](../docs/semantics/client-api.md#wa-41)) |
 
-**Shared code.** `d18.yaml` holds the step cases of shared code, the
-deviation file of [D18](../docs/design/0001-equivalence-contract.md#5-named-deviations). Its bundle is built with shared code, so
-`warm` runs each script's shared-layout module, with its own instance of
-its group's closure, and `fresh` runs the per-script bundles.
-
-Most of its cases give two or more scripts that share a dependency module
-and invoke them in turn in one process (`runs[].script`). They show that
-each step module keeps module state of its own. They also show what a step
-sees of its dependencies:
-
-- namespace objects and their shape;
-- the step's `module` and `exports`;
-- the closure's `import.meta` parameter;
-- an `import()` of a module the runtime has built in, which runs from the
-  closure;
-- named and namespace imports of packages whose entry is an ES module, and
-  of folder files whose names end `.mjs`.
-
-Others cover stack text, load errors, host-provided modules, strictness,
-interop, cycles, inject files and the settle-time fence.
-
-Host mode runs the flow suite with shared code instead, since a step case
-runs on a spawned harness.
-
-**D13.** `wltest check --node` (or `WL_NODE`) runs each run of a CommonJS
-codebase case on Node as well, as Windmill runs such a bundle
-([WR-30](../docs/semantics/languages.md#wr-30),
-[WR-50](../docs/semantics/languages.md#wr-50)): in a job directory of its
-own laid out in Windmill's order (a placeholder `package.json` of `{}`,
-then the bundle as `main.js` and the entry's assets, so that an asset named
-`package.json` replaces the placeholder), with the harness's own wrapper
-rules, so that the two sides differ only in the runtime and its module
-loader. `d13.yaml` holds the differential: where Node and the Bun harness
-agree, and where they differ. `wr-50.yaml` holds the one case whose
-`package.json` asset declares `"type": "module"`, in a bundle of its own:
-the harness extracts every asset of a step file's bundle into its working
-directory (D10), and such a file there also makes Bun import the default
-export of every CommonJS module beside it as Node does.
-
-**The arguments file.** `wr-5.yaml` (milestone PF2) checks that a script
-reads its own arguments from `args.json` in its working directory, which
-the harness writes before each invocation
-([WR-5](../docs/semantics/languages.md#wr-5)): run after run of one warm
-process, whose directory is every invocation's (D10), and in each fresh
-process; and that the file holds no `_MODULES` or `_TEMP_SCRIPT_REFS`
-while every other member keeps its text and place, as the script's
-parameters see it too. WR-5's catalogue cases need the engine's argument resolution and
-are checked at the flow level.
-
-**The job, object and dispatch services.**
-
-- `wa-14.yaml` checks flow user state
-  ([WA-14](../docs/semantics/client-api.md#wa-14)). A flow step's case
-  runs in its case's flow run, which the job registry knows while the case
-  runs, so a later run reads what an earlier one wrote. A script job's
-  case (`step_id: ""`) is its own root, with no flow status.
-- `wa-14.yaml` also checks the web framework's rejections, which come
-  before the handler: an id that is not a UUID, a body that is not JSON,
-  and one sent without the JSON content type.
-- `wa-19.yaml` checks the root lookup
-  ([WA-19](../docs/semantics/client-api.md#wa-19)): a step's own job, an
-  id with no job, and an id that is not a UUID.
-- `wa-16.yaml` checks the object store's job helpers for explicit keys
-  ([WA-16](../docs/semantics/client-api.md#wa-16)), each case with a store
-  of its own, and the 501 of an upload that asks the server for a key.
-- `wa-15.yaml` holds the dispatch-target restriction of
-  [ADR 0001](../docs/design/0001-equivalence-contract.md) §5a. A step
-  case's bundle has no root to dispatch, so every dispatch is refused with
-  `dispatch target not in bundle: <path>`. That fails the step as
-  `UnsupportedPlatformCall`, also when the step waits on it as
-  `runScriptByPath` does.
-- `wa-v2.yaml` checks the result poll
-  ([WA-V2](../docs/semantics/client-api.md#wa-v2)): of a UUID that names
-  no job, of an id that is not a UUID, and of the step's own job under
-  another workspace's path, which reads as unknown.
-
-`steps/bun/deferred.yaml` lists the catalogue cases of these findings that
-are not step cases, with the reason and where each is checked. The step
-files cover the run halves of the build cases whose `rest_in` names C3a
-(binding, hydration, the missing export), and
-[ADR 0004](../docs/design/0004-harness-protocol.md)'s alternate-entrypoint
-and arrow-export cases in `wr-12.yaml`.
+Every deviation file's name is the deviation's own name in the
+[named deviations](../docs/design/0001-equivalence-contract.md#5-named-deviations).
 
 ## Build cases
 
-A build case gives a sync folder and one or more Bun scripts, builds them
-with [internal/bundle](../internal/bundle/README.md) and the
+A build case gives a sync folder and one or more Bun scripts, builds them with
+[internal/bundle](../internal/bundle/README.md) and the
 [Bun build helper](../harnesses/bun/build/README.md), and checks what the
-build records for each script (the signature of each export, its exports,
-annotations, bundler target, workflow-as-code markers, the workspace
-scripts it inlined, the host-provided modules it uses) or the problem it
-reports. A case can also run the built modules on the pinned Bun and check
-what their exports return, which is how the import transforms
-([WR-26](../docs/semantics/languages.md#wr-26),
-[WR-28](../docs/semantics/languages.md#wr-28),
-[WR-29](../docs/semantics/languages.md#wr-29)), the env rewrite and the
-host-provided-module shims are checked against real behaviour. Most cases
-check the build half of a catalogue case whose run belongs to the step
-suite; `part` says so and `rest_in` names where the rest is checked.
+build records for each script. That is the signature of each export, its
+exports, annotations, bundler target, workflow-as-code markers, the
+workspace scripts it inlined and the host-provided modules it uses, or the
+problem it reports.
 
-Each `<finding>.json` holds the cases of one finding, or `d12.json` those
-of deviation D12, which has no finding:
+A case can also run the built modules on the pinned Bun, and check what their
+exports return. Some cases check only the build half of a catalogue case
+whose run belongs to the step suite: `part` says so, and `rest_in` names
+where the rest is checked. Most cite a finding or a deviation alone.
+
+Each `build/<finding>.json` holds the cases of one finding, or of a named
+deviation that has no finding:
 
 ```json
 {
@@ -836,7 +992,7 @@ of deviation D12, which has no finding:
       "provenance": "source-derived",
       "title": "a local alias to Date",
       "part": "build",
-      "rest_in": "C3a hydrates the argument",
+      "rest_in": "…",
       "given": {"source": "type Ts = Date; export function main(d: Ts) { return d instanceof Date; }"},
       "expect": {"signatures": {"main": {"params": [{"name": "d", "date": true}]}}}
     }
@@ -844,80 +1000,95 @@ of deviation D12, which has no finding:
 }
 ```
 
-Case fields beyond those of the decode cases:
+This is an excerpt of [build/wr-8.json](build/wr-8.json). Its `rest_in` names
+where the run half, the hydration of the argument, is checked: the step
+file [steps/bun/wr-8.yaml](steps/bun/wr-8.yaml).
 
-| Field | Meaning |
+The fields beyond those of the decode cases:
+
+| Field | What it holds |
 |---|---|
-| `given.source`, `given.path` | the script, and its Windmill path (default `f/case/main`), written as `<path>.ts` |
-| `given.inline`, `given.flow` | the script is inline; `flow` gives `path`, `module` and `explicit_path`, from which the import base is computed (WR-29); `explicit_path` is the module's `path` where a deployed flow keeps it, in the failure and preprocessor slots |
-| `given.entries` | more scripts, each with `id` and the fields above |
-| `given.files` | other folder files; every `.ts` file is a script at its path without the extension |
-| `given.dependencies`, `given.packages` | a script's npm dependencies, and the synthetic packages (`name@version` and their files) that a registry the test serves holds; the runner makes the lock |
-| `given.host_modules` | host-provided modules: `id`, `key`, and a folder `file` or a `package` with its `dependencies` |
-| `expect.signatures` | per export, `params` exactly, or `error_contains` |
-| `expect.exports`, `expect.annotations`, `expect.target`, `expect.workflow_as_code`, `expect.imports`, `expect.host_modules` | what the build recorded; `annotations` lists the flags that are set |
-| `expect.problem` | the problem `kind` and message substrings |
-| `expect.bundle_contains`, `expect.bundle_not_contains`, `expect.first_line` | text of the bundled module |
-| `expect.entries` | the same expectations for other scripts, by id |
-| `expect.provided`, `expect.host_module_order`, `expect.order_problem`, `expect.warnings` | host-provided modules: exports, imports or problem by id; the registration order or the cycle; warning codes |
-| `expect.run` | `env` replaces process.env. `register` lists the host-provided copies to register, in order, and `register_error` is a substring of the error that ends the registration (empty: every copy registers). `calls` are each an `entry`, an `export` (default `main`), positional `args` and the `result` or an `error` substring. |
+| `rest_in`, `policy` | Where the rest of a catalogue case is checked; the windmill-lite policy that the expectation shows |
+| `given.source`, `given.path`, `given.language` | The script, its Windmill path (default `f/case/main`), written as `<path>.ts`, and the language that a deploy records |
+| `given.inline`, `given.flow` | The script is inline. `flow` gives `path`, `module` and `explicit_path`, from which the import base is computed ([WR-29](../docs/semantics/languages.md#wr-29)) |
+| `given.entries` | More scripts, each with `id` and the fields above |
+| `given.files` | Other folder files; every `.ts` file is a script at its path without the extension |
+| `given.dependencies`, `given.packages` | A script's npm dependencies, and the synthetic packages (`name@version` and their files) that a registry the test serves holds; the runner makes the lock |
+| `given.host_modules` | Host-provided modules: `id`, `key`, and a folder `file` or a `package` with its `dependencies` |
+| `expect.signatures` | Per export, `params` exactly, or `error_contains` |
+| `expect.exports`, `expect.annotations`, `expect.target`, `expect.workflow_as_code`, `expect.imports`, `expect.host_modules` | What the build recorded; `annotations` lists the flags that are set |
+| `expect.format`, `expect.boundary`, `expect.transpile_error` | The module's format, its boundary, and a native script's transpile error |
+| `expect.problem` | The problem's `kind` and message substrings |
+| `expect.bundle_contains`, `expect.bundle_not_contains`, `expect.first_line` | Text of the bundled module |
+| `expect.entries` | The same expectations for other scripts, by id |
+| `expect.provided`, `expect.host_module_order`, `expect.order_problem`, `expect.warnings` | Host-provided modules: exports, imports or problem by id; the registration order or the cycle; warning codes |
+| `expect.run` | `env` replaces `process.env`. `register` lists the host-provided copies to register, in order, and `register_error` is a substring of the error that ends the registration. `calls` are each an `entry`, an `export` (default `main`), positional `args`, and the `result` or an `error` substring |
 
-A **whole-folder case** gives `given.folder` instead: a whole sync folder,
-`wmill.yaml` included, which the runner builds with `bundle.Build`, the
-build of `windmill-lite build`, so the rules the build checks on the
-compiled program apply: workflow-as-code is refused
-([WA-33/c](../docs/semantics/conformance.md#wa-33),
-[WR-32](../docs/semantics/languages.md#wr-32)), and so is a script that
+### Whole-folder cases
+
+A whole-folder case gives `given.folder` instead: a whole sync folder,
+`wmill.yaml` included, which the runner builds with `bundle.Build`, the build
+of `windmill-lite build`. So the rules that the build checks on the compiled
+program apply: workflow-as-code is refused
+([WR-32](../docs/semantics/languages.md#wr-32)), and so is a script that
 imports a package without a lock
-([WR-26](../docs/semantics/languages.md#wr-26); ADR 0002, validation 5).
+([WR-26](../docs/semantics/languages.md#wr-26)).
 
-| Field | Meaning |
+| Field | What it holds |
 |---|---|
-| `given.folder` | the folder's files by path from the sync root |
-| `given.outside` | files outside the sync root, by path from it, each starting with a single `../`: a codebase entry's `relative_path` may lie there ([WR-49](../docs/semantics/languages.md#wr-49)) |
-| `given.contract` | the host contract's text; without it every flow and script is a root |
-| `given.locks` | by script file, the npm dependencies whose lock the runner makes from `given.packages` and writes as `<path>.script.lock` |
-| `expect.build_problems` | every problem the build reports, each an `item` (the start of the reported item: `script <path>`, or `<flow> step '<id>' (script inline-` for an inline step), a `kind` and message substrings in `contains`; empty for a clean build, which must then verify |
-| `expect.entries` | for a clean build, by script id: what its metadata in the bundle records (`format`, `target`, `exports`, `signatures`, `host_modules`) and text of its module (`bundle_contains`, `bundle_not_contains`, `first_line`) |
-| `expect.assets` | for a clean build, the files under the bundle's `assets/`, by path, with their content |
-| `expect.warnings` | for a clean build, when given, the codes of every warning the build reports, in order |
-| `expect.host_module_order` | for a clean build, the ids of the manifest's `host_modules`, in registration order |
-| `expect.run` | for a clean build, as above: each call's `entry` is a script id, its module the bundle's `.cjs` or `.mjs`; `register` names host-provided modules by id |
-| `given.shared_code` | build with shared code ([ADR 0013](../docs/design/0013-shared-module-code.md); deviation [D18](../docs/design/0001-equivalence-contract.md#5-named-deviations)) |
-| `expect.shared` | for a build with shared code. `scripts` gives each script's record by id: `closure:<label>`, one label for each closure, `fallback:<reason>`, or `none` for a script in no group. `closures` gives, by label, the dependency modules each closure names `once`, and text it `contains` or `not_contains`. The manifest must have `shared_code`, the shared-code deviation [D18](../docs/design/0001-equivalence-contract.md#5-named-deviations) and the closures of the records |
-| `expect.shared.modules`, `expect.shared.per_script_identical` | by script id, text its shared-layout module `contains` or `not_contains`; and a check of every file but the metadata against a build without shared code, with another bundle digest |
+| `given.folder` | The folder's files, by path from the sync root |
+| `given.outside` | Files outside the sync root, by path from it, each starting with a single `../`: a codebase entry's `relative_path` may lie there ([WR-49](../docs/semantics/languages.md#wr-49)) |
+| `given.contract` | The host contract's text; without it, every flow and script is a root |
+| `given.locks` | By script file, the npm dependencies whose lock the runner makes from `given.packages` and writes as `<path>.script.lock` |
+| `given.shared_code` | Build with shared code |
+| `expect.build_problems` | Every problem that the build reports: an `item` (`script <path>`, `<flow> step '<id>' (script inline-` for an inline step, `host module <path>`, or `host modules`), a `kind`, and message substrings in `contains`. Empty for a clean build, which must then verify |
+| `expect.entries` | For a clean build, by script id: what its metadata in the bundle records (`format`, `target`, `exports`, `signatures`, `host_modules`), and text of its module (`bundle_contains`, `bundle_not_contains`, `first_line`) |
+| `expect.assets` | For a clean build, the files under the bundle's `assets/`, by path, with their content |
+| `expect.warnings` | For a clean build, when given, the codes of every warning that the build reports, in order |
+| `expect.host_module_order` | For a clean build, the ids of the manifest's `host_modules`, in registration order |
+| `expect.run` | For a clean build, as above: each call's `entry` is a script id, and its module the bundle's `.cjs`, `.mjs` or `.native.js` |
+| `expect.shared` | For a build with shared code: each script's record by id (`closure:<label>`, `fallback:<reason>` or `none`); the dependency modules that each closure names `once`, and text it `contains` or `not_contains`; the manifest must name shared code and the closures |
+| `expect.shared.modules`, `expect.shared.per_script_identical` | By script id, text that its shared-layout module `contains` or `not_contains`; and a check of every file but the metadata against a build without shared code |
 
-The codebase cases are whole-folder cases:
+### The build files
 
-- `wr-47.json`: how the pinned CLI bundles a codebase script
-  ([WR-47](../docs/semantics/languages.md#wr-47));
-- `wr-48.json`: a falsy `customBundler` leaves the bundle to esbuild
-  ([WR-48](../docs/semantics/languages.md#wr-48));
-- `wr-49.json`: assets ([WR-49](../docs/semantics/languages.md#wr-49));
-- the codebase variants of `wa-31.json`: the env rewrite in CommonJS and
-  ESM output;
-- the codebase variants of `d12.json`: host-provided modules through their
-  shims, those outside the folder included. They also cover the shared
-  copy of a listed codebase script, built with its entry's settings, the
-  refused import of one by a Bun script, the shared-dependency warning
-  for codebase scripts, and the registration order by load-time imports.
+- `wr-47.json`, `wr-48.json`, `wr-49.json`: how the pinned CLI bundles a
+  codebase script ([WR-47](../docs/semantics/languages.md#wr-47)); a falsy
+  `customBundler` leaves the bundle to esbuild
+  ([WR-48](../docs/semantics/languages.md#wr-48)); assets
+  ([WR-49](../docs/semantics/languages.md#wr-49)).
+- `wa-31.json`: the environment rewrite, its codebase variants in CommonJS
+  and ESM output.
+- `d12.json`: host-provided modules through their shims, those outside the
+  folder included; the shared copy of a listed codebase script; the refused
+  import of one by a Bun script; the registration order by load-time imports.
+- `d18.json`: shared code: closure membership and the `import.meta`
+  parameter, build groups, installations and targets, fallbacks, and native
+  scripts. An import of a module that the runtime has built in causes no
+  fallback, and `node:` before a name of Bun's own, such as `node:ws`, names
+  no built-in module and still does.
+- `d5.json`, `wa-33.json` and the WR files not named above (`wr-6`, `wr-7`,
+  `wr-8`, `wr-26` to `wr-29`, `wr-31`, `wr-32`, `wr-38`, `wr-39`, `wr-v1`,
+  `wr-v3`, `wr-v4`) hold each finding's build cases. They cover signatures
+  and hydration, import transforms, annotations, bundler targets, and the
+  native scripts' build.
+- `annotations.json`, a shared case file with `relies_on` instead of a
+  finding: the leading-comment annotation cases
+  ([WR-31](../docs/semantics/languages.md#wr-31),
+  [SY-V3](../docs/semantics/openflow.md#sy-v3)): a `source` and the `flags` it
+  sets. Both readers of the rule run them: the Go loader's
+  `syncfolder.HasAnnotation` and the Bun build helper, in
+  `go test ./internal/bundle`, and the helper's parser in `bun test`.
 
-`d18.json` holds the build cases of shared code ([D18](../docs/design/0001-equivalence-contract.md#5-named-deviations)): closure
-membership and the `import.meta` parameter, build groups, installations
-and targets, fallbacks (namespace objects and export names among them),
-and native scripts. Its `y-builtin-imports` case shows that an import of a
-module the runtime has built in causes no fallback, and its
-`y-builtin-node-prefix` case that `node:` before a name of Bun's own, such
-as `node:ws`, names no built-in module and still does.
+`build/deferred.json` lists the catalogue cases of these findings that are not
+build cases.
 
-`deferred.json` lists the catalogue cases of these findings that are not
-build cases, each with the reason and where it is checked. A test fails
-unless every catalogue case of a finding with a file here is a case or is
-deferred.
+## Decisions where the reference is silent
 
-`annotations.json` holds the leading-comment annotation cases
-([WR-31](../docs/semantics/languages.md#wr-31),
-[SY-V3](../docs/semantics/openflow.md#sy-v3)): a `source` and the `flags` it
-sets. Both readers of the rule run them: the Go loader's
-`syncfolder.HasAnnotation` and the Bun build helper, in
-`go test ./internal/bundle`, and the helper's parser in `bun test`.
+| Question | Choice | Why | Pinned by |
+|---|---|---|---|
+| Which level does a case go to? | The lowest level that observes the rule; a flow fixture only where the rule needs a whole run: on the oracle, or, for windmill-lite's own policy such as provided sites, on windmill-lite alone, where the oracle skips it | A lower level runs without the oracle, and often without Bun, and fails closer to the cause ([Where semantics live](../docs/design/0003-semantics-placement.md)) | Each level's catalogue test |
+| When does a catalogue case go to a deferred file? | When its finding has a file at a level, and the case cannot be checked there. The entry says why, and where it is checked | The catalogue test can then require every case of the finding to be accounted for | `TestConformanceIRCatalogue` and the other catalogue tests, `TestBatchCoverage` |
+| Can a recorded run stay outside the runs windmill-lite must pass? | Yes. The oracle records what Windmill does; `flowsuite.json` and the manifests' gates decide which runs windmill-lite must pass, and `later` marks a case it need not pass yet | Recording comes before the work that implements a behaviour | `TestRecordingBatches`, `TestFlowSuite` |
+| Which cases are `policy`? | windmill-lite's own rules: the protocol, the plugin and hook cases, provided sites, and the choices of the ADRs. The oracle never records them | Windmill has no such behaviour to observe | The protocol, plugin and hook tests |
+| What happens to a case that needs a restart? | It is `EE`, and deferred | The Community Edition has no restart | [exprs/deferred.yaml](exprs/deferred.yaml) |

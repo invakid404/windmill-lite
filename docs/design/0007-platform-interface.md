@@ -1,9 +1,29 @@
-# 0007 · Platform interface, the `wmill` shim, and hybrid dispatch
+# Platform interface, the `wmill` shim, and hybrid dispatch
 
-**Status:** proposed · **Topic:** the services a step can call (resources,
+**Status:** Accepted · **Topic:** the services a step can call (resources,
 variables, secrets, state, object store, async dispatch, resume), how stock
 client code reaches them, job identity, and delegating chosen steps to a
 real Windmill.
+
+Step code reaches the platform through the
+[platform facade](../glossary.md#platform-facade), by intercepted `fetch` in
+warm and host-mode processes and by a per-invocation token over loopback
+TCP in [`fresh`](../glossary.md#fresh) ones; a token that names no live
+invocation gets a 401. Each service is a Go interface that a host can
+replace, with a local default for every service but `Resume`, and under the
+default `fail` policy a step that called an unsupported route fails with
+`UnsupportedPlatformCall`.
+
+**Not built yet:**
+
+- hybrid dispatch to a real Windmill: step delegation and the proxied
+  platform, with their interfaces;
+- the `Resume` provider, and cacheable answers from TypeScript providers;
+- `createVariable`, resource writes of a type other than `state`, object
+  deletion, generated object keys and presigning, which answer 501;
+- the job routes other than the root lookup, the job reads, flow user
+  state, dispatch, the result polls and the flow restart, which answer 501
+  too.
 
 ## Context
 
@@ -42,19 +62,19 @@ recorded calls.
 ### Services
 
 Each service is a Go interface with a local default; a host replaces any of
-them, per runtime or per run ([0008](0008-host-hooks.md)).
+them, per runtime or per run ([host hooks](0008-host-hooks.md)).
 
 | Service | Routes it serves | Default | Scope |
 |---|---|---|---|
 | `Resources` | `resources/get_value_interpolated`, `get_value`, `exists`, `create`, `update_value`, `delete` | the bundle's resource files plus host overrides, then the resource store's entries | core (read; write of type `state`), later (write of other types) |
 | `Variables` | `variables/get_value`, `exists`, `create`, `update` | the bundle's variable files; secrets through `Secrets` | core (read), later (write) |
 | `Secrets` | used by the two above | plain-secret folders work; ciphertext without a host resolver fails as a value Windmill cannot decrypt | core |
-| `State` | the resource routes at the state path, type `state` | `ResourceStore`: a memory store per runtime, unless the host gives one (D24) | core |
+| `State` | the resource routes at the state path, type `state` | `ResourceStore`: a memory store per runtime (D24), unless the host gives one, such as the Redis store of `wl/redisstore` | core |
 | `FlowUserState` | `jobs_u/get_root_job_id`, `jobs/flow/user_states/{root}/{key}` | a map per effective root, discarded when the root run ends; `null` for a missing key | core |
 | `ObjectStore` | `job_helpers/download_s3_file`, `upload_s3_file`, `delete_s3_file` | a local directory keyed by (storage, key) | core (explicit keys), later (the rest) |
 | `Dispatcher` | `jobs/run/p`, `run/h`, `run/f`, `jobs_u/completed/get_result_maybe`, `get_result` | runs the target from the bundle as a detached run of the same runtime | core (interface) |
-| `Jobs` | `jobs_u/get_root_job_id/{id}`, `jobs_u/get/{id}`, `jobs_u/get_args/{id}` | answers from the run registry for windmill-lite ids ([0001](0001-equivalence-contract.md) D3): the root lookup for a live or an ended job, the job reads for a job of a live run (D22 for an ended one) | core |
-| `ResultCache` | none (engine-internal, `cache_ttl`) | per process (D4); the key and TTL rules of [FX-40](../semantics/execution.md#fx-40) | core (N4); later (S3-aware argument hashing) |
+| `Jobs` | `jobs_u/get_root_job_id/{id}`, `jobs_u/get/{id}`, `jobs_u/get_args/{id}` | answers from the run registry for windmill-lite ids ([D3](0001-equivalence-contract.md#5-named-deviations), job ids that are windmill-lite's own): the root lookup for a live or an ended job, the job reads for a job of a live run (D22 for an ended one) | core |
+| `ResultCache` | none (engine-internal, `cache_ttl`) | per process (D4); the key and TTL rules of [FX-40](../semantics/execution.md#fx-40) | core; later (S3-aware argument hashing) |
 | `Resume` | `jobs/resume_urls` | none: a step that asks gets `UnsupportedPlatformCall`; a host provider may return `{approvalPage, resume, cancel}` | core (call shape, provider interface); out (resuming, since `suspend` is rejected) |
 
 ### One interpolation walker, three modes
@@ -65,7 +85,7 @@ them, per runtime or per run ([0008](0008-host-hooks.md)).
 2. **client interpolated read** (`get_value_interpolated` without a job id):
    `$WM_*` stays literal;
 3. **worker argument resolution** (before a step runs,
-   [0005](0005-json-step-boundaries.md)): `$var:`, `$jsonvar:`, `$res:`,
+   [JSON at step boundaries](0005-json-step-boundaries.md)): `$var:`, `$jsonvar:`, `$res:`,
    `$encrypted:` and reserved `$<NAME>` strings. A nested `$res:` is an
    interpolated resource read made **with** the job's id: unlike mode 2, its
    `$WM_*` strings resolve, from the job's stored fields (so
@@ -100,7 +120,7 @@ per process, from which each root job's key is derived.
 - Worker argument resolution opens a value sealed for the job's root in the
   same process, and hands every other `$encrypted:` value to `Secrets`.
 - Nothing outside the engine's process opens a sealed value, so a
-  host-provided site gets the value in clear ([0008](0008-host-hooks.md)).
+  host-provided site gets the value in clear ([host hooks](0008-host-hooks.md)).
 
 ### Serving
 
@@ -116,11 +136,11 @@ per process, from which each root job's key is derived.
   1. **Intercepted `fetch`** (warm and host-mode Bun processes): the harness
      turns each `fetch` to the facade origin into a `platform` frame carrying
      the invocation id from its `AsyncLocalStorage` context
-     ([0004](0004-harness-protocol.md)). The token in the request is ignored.
+     ([harness protocol](0004-harness-protocol.md)). The token in the request is ignored.
      This is the only supported transport in those processes: the facade
      origin is a loopback port the engine binds without listening on, so any
-     other transport is refused by the kernel, unrecorded (restriction,
-     [0001](0001-equivalence-contract.md) §5a).
+     other transport is refused by the kernel, unrecorded (a restriction of
+     the [equivalence contract](0001-equivalence-contract.md#5a-restrictions)).
   2. **Loopback TCP** (`fresh` processes, and later harnesses that run one
      invocation per process): the port listens, and each process gets a
      token that names its one invocation. A call whose token is unknown, or
@@ -130,7 +150,7 @@ per process, from which each root job's key is derived.
 
   `BASE_URL` (and, for languages other than Bun, `BASE_INTERNAL_URL`) point at
   the facade origin before any module loads ([WA-2](../semantics/client-api.md#wa-2)).
-  Test (milestone PF1): two runs at once, in one warm process, with the
+  Test: two runs at once, in one warm process, with the
   client first imported during the first run's module load: every call of
   each run is attributed to its own invocation on the intercepted path; a
   `node:http` call from a warm step gets "connection refused" and reaches no
@@ -138,7 +158,7 @@ per process, from which each root job's key is derived.
   mode each process's TCP calls carry its own token; a call replaying an
   ended invocation's token gets the `401`.
 - **Calls made by host plugins** outside any step (an interceptor that calls
-  step code, [0008](0008-host-hooks.md) H1) are attributed to the site being
+  step code, [host hooks](0008-host-hooks.md) H1) are attributed to the site being
   intercepted: they see the environment that site's invocation would have
   had, and the 501 policy below applies to that site's outcome.
 - **Providers written in TypeScript** (a Bun host's per-run providers, H13)
@@ -146,17 +166,18 @@ per process, from which each root job's key is derived.
   501 policy, and asks the TypeScript provider only for the raw value over a
   `host_call`. A provider-backed call therefore costs two round trips inside
   one process, about 25–35 µs at the measured 12.5–18 µs each
-  ([0003](0003-semantics-placement.md)); a provider can mark answers
-  cacheable for the run to avoid repeating them. Milestone F2c built this
-  bridge as the plugin's `resource(path)` and `variable(path)`, asked
-  after the run's own providers and before the runtime's, for the job API
-  and for argument resolution alike; cacheable answers are not built yet.
-  A TypeScript provider that throws or times out latches the run, as any
-  plugin hook does ([0008](0008-host-hooks.md) H5): the router still
-  answers the call with its error, but neither the step that tolerates
-  that answer nor `continue_on_error` keeps the run going. Answering `platform` frames
-  directly in TypeScript was rejected because it would copy the router's
-  rules into a second language.
+  ([where semantics live](0003-semantics-placement.md)).
+  - A provider can mark answers cacheable for the run to avoid repeating
+    them; cacheable answers are not built yet.
+  - The bridge is the host plugin's `resource(path)` and `variable(path)`,
+    asked after the run's own providers and before the runtime's, for the
+    job API and for argument resolution alike.
+  - A TypeScript provider that throws or times out latches the run, as any
+    plugin hook does ([host hooks](0008-host-hooks.md) H5). The router still
+    answers the call with its error, but neither the step that tolerates
+    that answer nor `continue_on_error` keeps the run going.
+  - Answering `platform` frames directly in TypeScript was rejected because
+    it would copy the router's rules into a second language.
 - **Unsupported routes** answer `501` with `text/plain` body
   `Not implemented in windmill-lite: <METHOD> <route template>`, never `404`,
   because stock clients read a 404 as "absent"
@@ -188,7 +209,7 @@ and [WA-4](../semantics/client-api.md#wa-4):
   (`default`, the reference configuration's group; windmill-lite has no
   worker groups);
 - the remaining variables of WA-4 are set as a job windmill-lite runs has
-  them (milestone FU7): `WM_SCHEDULED_FOR` is the job's launch, after any
+  them: `WM_SCHEDULED_FOR` is the job's launch, after any
   sleep or retry delay, since every job is scheduled to start at once;
   `WM_OBJECT_PATH` follows WA-4's formula for a manually started job;
   `WM_ROOT_WORKSPACE` is the workspace, since windmill-lite has no forks,
@@ -200,7 +221,7 @@ and [WA-4](../semantics/client-api.md#wa-4):
 
 `FlowUserState` keys on the effective root; `getRootJobId` answers from the
 run registry. A host can override the environment of an invocation
-([0008](0008-host-hooks.md)), for example to keep `WM_JOB_ID` unset for code
+([host hooks](0008-host-hooks.md)), for example to keep `WM_JOB_ID` unset for code
 that treats it as "not running in a job".
 
 ### Async dispatch
@@ -211,11 +232,12 @@ arguments, and the optional `parent_job`, `root_job`, `scheduled_in_secs` and
 dispatcher runs the target from the bundle as a separate run and returns its
 UUID as `text/plain`; `waitJob` and `getResultMaybe` answer for it with
 Windmill's shapes ([WA-V2](../semantics/client-api.md#wa-v2)). The target
-must be a root of the bundle ([0002](0002-ir-and-loader.md) host contract);
+must be a root of the bundle (the host contract of
+[IR, loader and validation](0002-ir-and-loader.md#host-contract-and-mandatory-host-provided-call-sites));
 otherwise the dispatching step fails with `UnsupportedPlatformCall`,
 `dispatch target not in bundle: <path>`. A dispatched run starts at once:
 no default cap delays it, so a parent that waits for it cannot starve it
-([0004](0004-harness-protocol.md); a host-set cap is D15). A host
+([harness protocol](0004-harness-protocol.md); a host-set cap is D15). A host
 dispatcher may route elsewhere, for example to a real Windmill, and decides
 whether parent and root links naming windmill-lite ids are sent on. Code
 that bypasses the facade and posts to a real Windmill itself is outside the
@@ -226,7 +248,7 @@ dispatcher's reach; a host that runs such code strips the links in its own
 
 Two modes, both behind interfaces in the core:
 
-1. **Step delegation.** A selector ([0008](0008-host-hooks.md)) marks steps
+1. **Step delegation.** A selector ([host hooks](0008-host-hooks.md)) marks steps
    or by-path subflows to run remotely. The engine submits them with
    `jobs/run/p|f/{path}` and polls `get_result_maybe`; it never uses
    `run_wait_result`, which rewrites responses and cancels the job on
@@ -250,7 +272,7 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
 ## Consequences
 
 - Stock client code runs unchanged; nothing in a user's bundle is aliased
-  except the host-provided modules a host lists ([0010](0010-packaging.md), D12).
+  except the host-provided modules a host lists ([packaging](0010-packaging.md), D12).
 - Every platform call is attributed to one step, even when steps run
   concurrently in one process, because attribution never depends on the
   token. The price is a restriction: in warm processes the platform is
@@ -259,11 +281,11 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
   continuing with a wrong value.
 - Hosts get one extension point per service and one secret layer, not a
   fork of the facade.
-- Milestone PF1 implemented the router, both transports, attribution, the
-  501 policy and job identity
-  ([internal/platform/facade](../../internal/platform/facade/README.md),
-  [internal/platform](../../internal/platform/README.md)), and fixed what
-  this record left open:
+- The router, both transports, attribution, the 501 policy and job identity
+  are implemented in
+  [internal/platform/facade](../../internal/platform/facade/README.md) and
+  [internal/platform](../../internal/platform/README.md), with these
+  details:
   - **The warm origin.** Its port is the local end of a loopback
     connection the engine holds both ends of, so no other socket is given
     the port and nothing listens on it. A socket that is only bound would
@@ -280,7 +302,7 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     the connection's reader, in frame order, and the facade decides there
     whether the call is unsupported; the harness never sends a result
     ahead of a large platform call of its invocation
-    ([0004](0004-harness-protocol.md)). So the 501 policy counts every call
+    ([harness protocol](0004-harness-protocol.md)). So the 501 policy counts every call
     whose frame arrived before the step's result, an unawaited one
     included. Over TCP the call and the result travel on different
     connections, so a call a fresh step never awaited may be counted or
@@ -296,10 +318,9 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     it carries no `step_id`, and its origin is `facade`. `calls` lists each
     unsupported call as `<METHOD> <route template>`, in order, repeats
     included.
-  - **The root lookup** (`getRootJobId`) answers from the identities of the
-    invocations registered at the time, the job of any of them or a flow
-    scope or root it runs in; a job it does not know of answers 501 until
-    the job registry of milestone PF3.
+  - **The root lookup** (`getRootJobId`) answers from the job registry
+    (below), for a live or an ended job; an id it does not know answers
+    `400`, as Windmill answers an id with no job row (below).
   - **An intercepted reply** carries the reason phrase Go's `net/http`
     writes for its status, so the two transports give a client the same
     response (WA-30/a, checked on the stock client by
@@ -310,32 +331,35 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     placeholders where the host sets none; the `later` variables are not
     set. No schedule triggers a run, so the state path's trigger part is
     always `user` (WA-5).
-  - **Fix round 1 of PF1's review.** A handler that panics, or answers a
-    status outside 200 to 599, gets a `502` on both transports, which the
-    record keeps, and its call stops counting as in flight however it
-    ended, so the 501 policy never waits on a failed call. The answer to
-    `HEAD`, and one with a null-body status (204, 205, 304), has no body on
-    either transport. A token two registrations carried names none until
-    both have ended. The API has no `HEAD` operation, so a `HEAD` request
-    answers 501; whether Windmill answers `HEAD` on its `GET` routes is not
-    in the reference.
-  - **Not yet:** recorded calls are the facade's (`Record`), not part of the
-    run trace; host mode stays on the walking skeleton without a facade
-    until F3a, whose SDK must set `BASE_URL` from the welcome before any
-    step module loads; and a call's `{workspace}` is not checked against
-    the caller's `WM_WORKSPACE` (FU8 checks it, below).
-- Milestone PF2 implemented the resource, variable and secret services,
-  their local defaults, the host secret layer and the interpolation walker
+  - **Failed handlers.** A handler that panics, or answers a status outside
+    200 to 599, gets a `502` on both transports, which the record keeps. Its
+    call stops counting as in flight however it ended, so the 501 policy
+    never waits on a failed call.
+  - **`HEAD` and bodiless answers.** The answer to `HEAD`, and one with a
+    null-body status (204, 205, 304), has no body on either transport. The
+    API has no `HEAD` operation, so a `HEAD` request answers 501; whether
+    Windmill answers `HEAD` on its `GET` routes is not in the reference.
+  - **Shared tokens.** A token that two registrations carried names none
+    until both have ended.
+  - **Records and host mode.** The facade records each call (`Record`), and
+    the run trace carries the calls of the run's steps. Host mode has the
+    facade too: each host-mode invocation carries its origin as `BASE_URL`
+    ([harness protocol](0004-harness-protocol.md), host mode item 7). An
+    authenticated route whose path names another workspace than the
+    caller's `WM_WORKSPACE` answers `401`; a `jobs_u` lookup there answers
+    as for an unknown job (the workspace of a token, below).
+- The resource, variable and secret services, their local defaults, the
+  host secret layer and the interpolation walker
   ([internal/platform](../../internal/platform/README.md)), their routes in
   the facade, and the engine's reads of them
-  ([internal/engine](../../internal/engine/README.md)), and fixed what this
-  record left open:
+  ([internal/engine](../../internal/engine/README.md)) work as follows:
   - **One set of services.** `platform.Services` holds `Resources`,
     `Variables`, `Secrets` and the `ValueResolver` chain; the facade and
     the engine take the same one, and a nil field takes its default. The
     local default is `platform.Store`, filled from a bundle's `data/`
     (`platform.LoadData`); a host's overrides come first in a
-    `ResourceChain` or `VariableChain`. Per-run services (H13) are F2a's.
+    `ResourceChain` or `VariableChain`. A run's own services (H13) come in
+    `wl.RunOptions.Platform`.
   - **Secrets** are never in a bundle; a host passes them, as plaintext in
     a store of its own or through `Secrets`. `LocalSecrets` reveals a
     secret held as plaintext and fails ciphertext under the workspace key,
@@ -358,13 +382,12 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     the library's notation, minimal escapes; a resource is read in jsonb's
     stored form first, as the API reads its column. Parse errors are in the
     library's words, with its line and column (FX-51/c).
-  - **A read with a job id** (`job_id`, contract (b)) resolves `$WM_*`
-    from the stored fields of a live invocation's job
-    (`platform.APIEnv`: its stored root, `""` for a step directly in a
-    top-level flow); a job the facade does not know of answers 501, as the
-    root lookup does, until PF3's job registry, and since FU8 (below) the
-    job is looked up only for a `$WM_*` string and answers Windmill's 404.
-    The engine passes a step's stored fields directly.
+  - **A read with a job id** (`job_id`, contract (b)) resolves `$WM_*` from
+    the stored fields of a live invocation's job (`platform.APIEnv`: its
+    stored root, `""` for a step directly in a top-level flow). The job is
+    looked up only for a `$WM_*` string, and a job the facade does not know
+    of answers Windmill's 404 (a read's `job_id`, below). The engine passes
+    a step's stored fields directly.
   - **Argument resolution** happens at the job's pickup, after its job
     identity, its script's `envs` and H12, before the step runs; a failure
     fails the job with the worker's execution error. `$<NAME>` reads the
@@ -383,22 +406,19 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     `_TEMP_SCRIPT_REFS`; the script's parameters bind from the same text.
     A job's resolved arguments are its trace's O3 however the job then
     ends.
-  - **Not yet:** the writes (`createResource`, `updateResourceValue`,
-    `createVariable`, `updateVariable`) were `later` and answered 501.
-    Milestone F1 has since served `updateVariable`, except with
-    `already_encrypted=true`, a rename or a read-only variable service.
-    The resource store serves the writes of state, and so `setState`
-    (below). A secret's plaintext is not registered for log masking
-    ([Q-WA-9](../semantics/client-api.md#q-wa-9), `later`); per-run
-    providers (H13) are F2a's.
+  - **Writes.** windmill-lite serves `updateVariable`, except with
+    `already_encrypted=true`, a rename or a read-only variable service, and
+    the resource store serves the writes of state, and so `setState`
+    (below). `createVariable` and `createResource` of a type other than
+    `state` answer 501. A secret's plaintext is not registered for log
+    masking ([Q-WA-9](../semantics/client-api.md#q-wa-9), `later`).
 
-- Milestone PF3 implemented the job registry, flow user state, the object
-  store and the dispatcher ([internal/platform](../../internal/platform/README.md)),
-  their routes in the facade
+- The job registry, flow user state, the object store and the dispatcher
+  ([internal/platform](../../internal/platform/README.md)), their routes in
+  the facade
   ([internal/platform/facade](../../internal/platform/facade/README.md)),
   and the default dispatcher and each run's registration in the engine
-  ([internal/engine](../../internal/engine/README.md)), and fixed what this
-  record left open:
+  ([internal/engine](../../internal/engine/README.md)) work as follows:
   - **One registry.** `platform.Services` gained `Jobs`, `UserState`,
     `Objects` and `Dispatcher`; a nil `Jobs` is one `platform.Registry`
     per `Services`, and a nil `UserState` one `platform.UserStates` over
@@ -417,21 +437,22 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     - The root lookup answers for a live or an ended job; a read's
       `job_id` needs a live job (below).
   - **Flow user state** is a map per flow job, which the stock helpers
-    address by the effective root. A read gives `null` for a missing key,
-    a job that is not a live flow job and a run that has ended; a write
+    address by the effective root. A read gives `null` for a missing key, a
+    job that is not a live flow job and a run that has ended. A write
     anywhere but a live flow job answers `404` `Not found: Flow job not
-    found` (WA-14). The map is discarded with its run, so a write by id
-    after the run is refused with that 404, as Windmill refuses it once
-    the root's completion is committed (Q-WA-10, which the reference's
-    revision of 2026-10-29 answered; WA-14/c), and a read gives `null`, as
-    Windmill's does. A value comes back as the oracle recorded it
-    (`conformance/flows/client-api/user-state`, run `order`): in jsonb's
-    key order, with numbers as Windmill's JSON library writes them (`1e3`
-    as `1000.0`). The engine's `flow_user_state()` reads the same map. The
-    default forgets a run's maps when the run's registration through
-    `Services.JobRegistry` ends, and drops the maps of jobs the registry no
-    longer reports live as it grows, so it stays bounded whatever `Jobs`
-    service a host gives.
+    found` ([WA-14](../semantics/client-api.md#wa-14)).
+  - **After the run.** The map is discarded with its run, so a write by id
+    after the run is refused with that 404, as Windmill refuses it once the
+    root's completion is committed ([Q-WA-10](../semantics/client-api.md#q-wa-10), [WA-14/c](../semantics/conformance.md#wa-14)), and a read gives
+    `null`, as Windmill's does.
+  - **Values.** A value comes back as the oracle recorded it
+    (`conformance/flows/client-api/user-state`, run `order`): in jsonb's key
+    order, with numbers as Windmill's JSON library writes them (`1e3` as
+    `1000.0`). The engine's `flow_user_state()` reads the same map.
+  - **Bounds.** The default forgets a run's maps when the run's registration
+    through `Services.JobRegistry` ends, and drops the maps of jobs the
+    registry no longer reports live as it grows, so it stays bounded
+    whatever `Jobs` service a host gives.
   - **The object store** default, `platform.DirObjects`, is a directory
     that keeps each object as one file named by the SHA-256 of its storage
     (`_default_` when none) and key, so no key names a path outside it:
@@ -477,21 +498,24 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     body `dispatch target not in bundle: <path>`, and the 501 policy's
     error now quotes the first unsupported call's answer, so the step fails
     with `UnsupportedPlatformCall`, `dispatch target not in bundle:
-    <path>`, as §5a of [0001](0001-equivalence-contract.md) says. A result
+    <path>`, as
+    [§5a of the equivalence contract](0001-equivalence-contract.md#5a-restrictions)
+    says. A result
     poll whose id is not a UUID answers the web framework's `400` (Request
     extraction, below), so a `waitJob` handed the refusal's body as an id
     fails at once. A UUID that names no job
     answers WA-V2's shapes; a windmill-lite job the dispatcher did not
     start answers the polls with a 501, since the result polls answer
     only for dispatched runs.
-  - **Not yet:** a host's per-run services (H13) are F2a's; deletion,
-    generated keys and presigning in the object store, and the job routes
-    other than the root lookup, the job reads (below) and the result
-    polls of dispatched runs, are `later`.
+  - **Not yet:** deletion, generated keys and presigning in the object
+    store are `later`. So are the job routes other than the root lookup,
+    the job reads (below), flow user state, dispatch, the result polls of
+    dispatched runs and the flow restart. The flow restart answers
+    CE's `400`, since restarting a flow is `EE`.
 
-- Milestone N4 implemented the result cache
-  ([internal/platform](../../internal/platform/README.md), the engine's
-  use of it in [internal/engine](../../internal/engine/README.md)):
+- The result cache ([internal/platform](../../internal/platform/README.md),
+  the engine's use of it in [internal/engine](../../internal/engine/README.md))
+  works as follows:
   - **The interface is a store.** `platform.ResultCache` has two calls:
     `Get(key, now)`, the value stored under a key while it expires after
     now, and `Put(key, value, expires)`. The engine owns the key, the TTL
@@ -507,7 +531,8 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
   - **A hit is a job.** A leaf's or a script root's hit gets the identity
     it would have run with and is registered in the job registry, known
     while its root lives, as a job that ran is. A flow job's hit goes
-    through the host's start and completion checks (0008, H4, H5), so a
+    through the host's start and completion checks
+    ([host hooks](0008-host-hooks.md), H4, H5), so a
     cached result never turns a canceled run into a successful one.
   - **The key** is a SHA-256 over the bundle's digest, the job's kind, its
     runnable (an inline step's inventory id, a path script's path, a
@@ -527,9 +552,9 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     workspace without object storage
     ([FX-40](../semantics/execution.md#fx-40)).
 
-- Milestone FU8 followed the reference's revision of 2026-10-29 (SC3) in
-  the facade ([internal/platform/facade](../../internal/platform/facade/README.md))
-  and the services ([internal/platform](../../internal/platform/README.md)):
+- The facade ([internal/platform/facade](../../internal/platform/facade/README.md))
+  and the services ([internal/platform](../../internal/platform/README.md))
+  follow these rules of the reference:
   - **The workspace of a token** ([WA-4](../semantics/client-api.md#wa-4),
     [WA-42](../semantics/client-api.md#wa-42)). A job token is valid only
     for the job's workspace, so an authenticated route whose path names
@@ -605,8 +630,9 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
       [JE-42](../semantics/expressions.md#je-42)/j), even where Windmill,
       holding the workspace key, would decrypt them. `createVariable`
       still has no handler, so no secret is created with
-      `already_encrypted=true`, and WA-11/d's shape check waits for the
-      milestone that serves it.
+      `already_encrypted=true`, and
+      [WA-11/d](../semantics/conformance.md#wa-11)'s shape check waits until
+      `createVariable` is served.
     - windmill-lite has no instance database and no instance super
       admins. Since Windmill refuses a job's token on a
       `CUSTOM_INSTANCE_DB/` path of the interpolated read (WA-12/h,
@@ -674,7 +700,7 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
 - A host may put a read cache in front of a run's resource and variable
   providers (`wl.Options.ReadCache`, off by default). Each run then reads
   each path once and answers its later reads from that read, which is
-  deviation D21 of [0001](0001-equivalence-contract.md). The cache holds
+  deviation [D21](0001-equivalence-contract.md#5-named-deviations). The cache holds
   the providers' values as stored, below the interpolation walker, so
   `$WM_*` strings still resolve for each job.
 - The resource store served the writes of state
@@ -683,8 +709,12 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
   keeps the entries that steps write, keyed by workspace and path; its doc
   comment and the suite `wl/storetest` hold its contract. The default
   store keeps them in memory, one per runtime
-  ([0001](0001-equivalence-contract.md) D24), and other stores implement
+  ([D24](0001-equivalence-contract.md#5-named-deviations), the memory store), and other stores implement
   the interface.
+- `wl/redisstore` keeps them in Redis, shared by every runtime on the same
+  Redis and key prefix: one hash per entry, and each operation one command
+  or one Lua script on that one key, so each is atomic. It adds no
+  deviation beyond durability, which Redis's configuration sets.
 - `UpdateValue` and `Delete` take the type they may change and act only
   on an entry of it, in one atomic step, since a host may share the store
   and write it directly.
@@ -693,7 +723,7 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
   `conformance/flows/client-api/state` do. Another type and the options
   the stock client never sends answer 501, and an update or a delete of a
   provided resource answers the restriction's 501
-  ([0001](0001-equivalence-contract.md) §5a).
+  ([§5a of the equivalence contract](0001-equivalence-contract.md#5a-restrictions)).
 - Every read, the engine's `$res:` arguments and `resource()` included,
   finds the host's and the bundle's resources first, then the store,
   never cached. A failing store answers 500 `Internal: windmill-lite: the

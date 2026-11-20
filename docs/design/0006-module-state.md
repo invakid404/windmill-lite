@@ -1,7 +1,19 @@
-# 0006 · Module state
+# Module state
 
-**Status:** proposed · **Topic:** whether a script's module state survives
+**Status:** Accepted · **Topic:** whether a script's module state survives
 between invocations in a warm harness, the default, and the opt-out.
+
+A host runs a bundle [`fresh`](../glossary.md#fresh), one harness process
+per invocation as on Windmill, or [`warm`](../glossary.md#warm), the
+default, where each script keeps one module instance per process and the
+scripts share one `globalThis`; host mode always runs `warm`. Native steps
+get a fresh realm at every invocation in either mode, and
+[host-provided modules](../glossary.md#host-provided-module) are the one
+exception to per-script identity: one instance per process, shared by the
+host and every script.
+
+**Not built yet:** a host's list of script paths that always run `fresh`;
+the mode is set for a whole bundle.
 
 ## Context
 
@@ -76,11 +88,13 @@ run's trace:
   identity. A host lists module paths whose single instance the host and
   every script must share (for example a module that holds an
   `AsyncLocalStorage` the host enters); the build replaces their imports
-  with references to that one instance ([0010](0010-packaging.md), D12).
+  with references to that one instance ([packaging](0010-packaging.md), D12).
   Everything else stays per script.
 - **Opt-out.** A host can run the whole bundle `fresh`, or list script paths
   (glob patterns) that always run `fresh`. `fresh` also removes D2, D9, D10
-  and D11 ([0001](0001-equivalence-contract.md) §5). It is not available in
+  and D11
+  ([§5 of the equivalence contract](0001-equivalence-contract.md#5-named-deviations)).
+  It is not available in
   host mode, where steps must run in the host's process: **host mode always
   runs `warm`**.
 - **`shared` is not in the first edition.** A mode with one build and shared
@@ -90,14 +104,14 @@ run's trace:
   scripts must share a few singletons with it, is covered by host-provided
   modules. It can come back through its own record, with a memory
   measurement that shows `warm` does not fit. A host's measurement did,
-  and [0013](0013-shared-module-code.md) is that record: it rejects shared
+  and [Shared module code](0013-shared-module-code.md) is that record: it rejects shared
   chunks, which would share module state between scripts and turn
   CommonJS codebase scripts into ES modules, and adds **shared code** to
   `warm` instead, a build setting under which a process compiles the
   dependency modules of a group of scripts once and each step module makes
   its own instance of them (D18).
 - **Conformance.** Flow cases run in `fresh`, in `warm` and in host mode;
-  step cases run in `fresh` and `warm` ([0003](0003-semantics-placement.md)).
+  step cases run in `fresh` and `warm` ([where semantics live](0003-semantics-placement.md)).
   Cases WR-1/a and WR-1/b expect `1` and `1` in `fresh`, and `1` then `2` in
   `warm`: the deviation is tested, not assumed.
 - **Native steps are fresh in every mode.** Each invocation of a `nativets`
@@ -105,7 +119,7 @@ run's trace:
   native job a new isolate ([WR-41](../semantics/languages.md#wr-41),
   D5), so neither D1 nor the shared `globalThis` applies to them. On Bun
   1.3.10 a realm with the module's compiled code reused costs about
-  0.06 ms per invocation (milestone C3n).
+  0.06 ms per invocation.
 - **`globalThis`** survives in `warm`, across invocations and across scripts.
   Code that keeps resources there on purpose, such as a connection cache
   registered on a global object, keeps working, and that is the point of a
@@ -118,29 +132,30 @@ run's trace:
   it.
 - Memory grows with the number of distinct scripts in `warm`, because each
   carries its dependencies. A host measures it on its own bundle; a result
-  that does not fit is the trigger for a `shared` record, not a silent
-  change of mode. Milestone F8a wrote that record,
-  [0013](0013-shared-module-code.md), after a host measured about 59 MiB
-  per loaded module against a 650 MiB budget. With shared code, what a
-  further module costs is the state its dependencies make when they load,
-  not their code; module identity stays per script, as this record
-  decided.
+  that does not fit calls for a `shared` record, not a silent change of
+  mode.
+- [Shared module code](0013-shared-module-code.md) is that record, for a
+  host that measured about 59 MiB per loaded module against a 650 MiB
+  budget. With shared code, what a further module costs is the state its
+  dependencies make when they load, not their code; module identity stays
+  per script, as this record decides.
 - Shared code is an option of `warm` and host mode, which a bundle opts
   into at build (`windmill-lite build -shared-code`); `fresh` runs the
   per-script bundles.
 - First-invocation latency includes module evaluation; eager loading
-  ([0004](0004-harness-protocol.md)) moves it to process start.
-- Milestone C3b implemented `fresh` mode. A fresh process offers the
-  `fresh` capability and serves one invocation in a working directory of
-  its own. It exits once its result has gone out, as Windmill's wrapper
-  does after writing it, and the engine kills it if the invocation times
-  out or is canceled. The step suite runs in both modes
-  (`wltest check --mode fresh`). It also decided that a step module's
-  top-level code runs in its loading invocation's context, but that the
-  timers and connections it starts are module state, which the settle-time
-  fence of D9 leaves alone ([0004](0004-harness-protocol.md), loading).
+  ([harness protocol](0004-harness-protocol.md)) moves it to process start.
+- A fresh process offers the `fresh` capability and serves one invocation
+  in a working directory of its own. It exits once its result has gone out,
+  as Windmill's wrapper does after writing it, and the engine kills it if
+  the invocation times out or is canceled. The step suite runs in both
+  modes (`wltest check --mode fresh`).
+- A step module's top-level code runs in its loading invocation's context,
+  but the timers and connections it starts are module state, which the
+  settle-time fence of [D9](0001-equivalence-contract.md#5-named-deviations) leaves alone
+  ([harness protocol](0004-harness-protocol.md), loading).
 
 ## Spec IDs relied on
 
-WR-1, WR-2, WR-27, WR-41, Q-WR-19, and deviations D1, D2, D5, D9 to D12
-and D18 of 0001.
+[WR-1](../semantics/languages.md#wr-1), [WR-2](../semantics/languages.md#wr-2), [WR-27](../semantics/languages.md#wr-27), [WR-41](../semantics/languages.md#wr-41), [Q-WR-19](../semantics/languages.md#q-wr-19), and the equivalence contract's
+deviations
+[D1, D2, D5, D9 to D12 and D18](0001-equivalence-contract.md#5-named-deviations).

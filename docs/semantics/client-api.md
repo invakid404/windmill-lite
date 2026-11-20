@@ -21,7 +21,22 @@ unless they say `@ v1.862.0`. Status, scope and confidence tags are
 defined in the [index](README.md#legend).
 
 **ID prefixes in this file:** `WA-` (the wmill client API and the platform
-interface); `WA-Vn` findings were added during validation.
+interface); `WA-Vn` findings come from the independent check of the draft.
+
+**Cases:** a finding's **Conformance** line links its cases in
+[conformance.md](conformance.md#client-api).
+
+- The [oracle](../glossary.md#oracle) has recorded 59 of this area's 135
+  cases, and each recorded case names its recording.
+- 70 are source-derived and 6 are windmill-lite `policy` checks. A case
+  that tests a client against a recording facade, or a windmill-lite
+  policy, needs no oracle run.
+- [Q-WA-13](#q-wa-13) tracks the server-side expectations still to record,
+  and [Q-WA-3](#q-wa-3) the object-store server cases.
+- The design README's
+  [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)
+  ask for the runs that need what the oracle harness does not set up, such
+  as a second workspace, a second user or workspace storage.
 
 **Conventions in this file:**
 
@@ -93,17 +108,19 @@ interface); `WA-Vn` findings were added during validation.
    can be `""`; direct worker resolution of `$<name>` and the process env use the
    worker's **computed** values. ([WA-12](#wa-12), [WA-V3](#wa-v3),
    [WA-40](#wa-40))
-6. **Error bodies are part of the contract and differ by language.** The API
-   status table is exhaustive: `AIError` is 400, `MetricNotFound` and
-   `SerdeJson` are 500, and a missing nested `$res:` gives the located not-found
-   form. An error answer is `text/plain` with no charset, a successful text
-   answer `text/plain; charset=utf-8`, and a location is written
-   ` @<file>:<line>:<col>` or, inside a not-found helper's text,
-   ` (<file>:<line>)` (recorded by batch E3f). TS rewraps resource and
-   variable errors; Python wraps HTTP errors as
-   `<url>: <status>, <text>`, except at the S3 upload and delete boundaries.
+6. **Error bodies are part of the contract and differ by language**
    ([WA-42](#wa-42), [WA-10](#wa-10), [WA-11](#wa-11), [WA-15](#wa-15),
-   [WA-3](#wa-3), [WA-V9](#wa-v9), [WA-V11](#wa-v11))
+   [WA-3](#wa-3), [WA-V9](#wa-v9), [WA-V11](#wa-v11)):
+   - The API status table is exhaustive: `AIError` is 400, `MetricNotFound`
+     and `SerdeJson` are 500, and a missing nested `$res:` gives the located
+     not-found form.
+   - An error answer is `text/plain` with no charset, a successful text
+     answer `text/plain; charset=utf-8`, and a location is written
+     ` @<file>:<line>:<col>` or, inside a not-found helper's text,
+     ` (<file>:<line>)` (recorded on the oracle).
+   - TS rewraps resource and variable errors; Python wraps HTTP errors as
+     `<url>: <status>, <text>`, except at the S3 upload and delete
+     boundaries.
 7. **An HTTP 501 alone does not fail a step with the stock clients:** async
    dispatch returns the body as a job id, and the flow-state and Python read
    helpers swallow it. Under a `text/plain`, non-JSON 501, generated services
@@ -203,9 +220,10 @@ interface); `WA-Vn` findings were added during validation.
 - **Design note (not Windmill behaviour):** set both `BASE_URL` and
   `BASE_INTERNAL_URL` to the facade origin for every language; that covers every
   Windmill branch, and both clients resolve to it.
-- **Revision 2026-10-29 (SC4, recordings of milestone PF1):** WA-2/a is recorded as stated (fixture
-  `conformance/flows/client-api/identity`, oracle run 40805963567). The
-  Python half (WA-2/b) is not recorded.
+- **Settled:** [WA-2/a](conformance.md#wa-2) is recorded on the oracle on CE
+  `v1.767.0` as stated (fixture `conformance/flows/client-api/identity`,
+  oracle run 40805963567). The Python half,
+  [WA-2/b](conformance.md#wa-2), is not recorded.
 
 <a id="wa-3"></a>
 ### WA-3 · Python client: one global client, created lazily from env
@@ -371,29 +389,26 @@ interface); `WA-Vn` findings were added during validation.
   `WM_FLOW_JOB_ID`, `WM_ROOT_FLOW_JOB_ID`, `WM_ROOT_JOB_ID`, `WM_FLOW_PATH`,
   `WM_FLOW_STEP_ID`, `WM_JOB_PATH`, `WM_BASE_URL`, `WM_TOKEN` and
   `WM_STATE_PATH`.
-- **Revision 2026-10-29 (SC3, source re-check, chain PF1):** added the
-  workspace binding of `WM_TOKEN`. Milestone PF1 found that the reference did
-  not say whether a call's `{workspace}` is checked against the caller; the
-  source checks it against the token's own workspace on every authenticated
-  route (401 `Not authorized: Unauthorized`) and not at all on the
-  unauthenticated job routes.
-- **Revision 2026-10-29 (SC4, recordings of milestone E1):** WA-4/a is recorded as stated (fixture
-  `conformance/flows/client-api/job-env`, oracle run 40771900586), with a
-  step by path whose `WM_JOB_PATH` is its script's own path. The oracle
-  probe `env` of `conformance/flows/oracle/probes` records the whole set a
-  flow step sees, identity values masked ([OR-29](oracle.md#or-29)); jobs
-  a step dispatches are in [WA-V1](#wa-v1).
+- **Settled:** [WA-4/a](conformance.md#wa-4) is recorded on the oracle on CE
+  `v1.767.0` as stated (fixture `conformance/flows/client-api/job-env`,
+  oracle run 40771900586), with a step by path whose `WM_JOB_PATH` is its
+  script's own path.
+  - The oracle probe `env` of `conformance/flows/oracle/probes` records the
+    whole set a flow step sees, identity values masked
+    ([OR-29](oracle.md#or-29)); jobs a step dispatches are in
+    [WA-V1](#wa-v1).
 
-- **Revision 2026-11-07 (retarget to v1.862.0):** two variables were
-  re-checked. `WM_ROOT_WORKSPACE` is new (release note 1.793.0): the
-  workspace of the nearest standing environment, the job's own workspace
-  outside a fork. `WM_END_USER_EMAIL` is now set for a run started through
-  the run routes (1.829.0), not only for an app run: the caller's address,
-  or a calling job's end user, inherited by every step. CE v1.862.0
-  recorded both through the `env` probe ([OR-29](oracle.md#or-29), oracle
-  run 42327335039): the root workspace equal to the workspace, and the
-  end user `admin@windmill.dev`, equal to `WM_EMAIL` for a run the admin
-  started by path. The rest of the table is not re-checked.
+- **Settled:** re-checked at `v1.862.0` for two variables, and recorded on
+  CE `v1.862.0` through the `env` probe ([OR-29](oracle.md#or-29), oracle
+  run 42327335039).
+  - `WM_ROOT_WORKSPACE` is new (release note 1.793.0): the workspace of the
+    nearest standing environment, the job's own workspace outside a fork.
+    The recording gives the root workspace equal to the workspace.
+  - `WM_END_USER_EMAIL` is set for a run started through the run routes
+    (1.829.0), not only for an app run: the caller's address, or a calling
+    job's end user, inherited by every step. The recording gives
+    `admin@windmill.dev`, equal to `WM_EMAIL` for a run the admin started
+    by path.
 
 <a id="wa-5"></a>
 ### WA-5 · State path formula
@@ -416,12 +431,14 @@ interface); `WA-Vn` findings were added during validation.
 - **Conformance:** [WA-5/a, WA-5/b, WA-5/c](conformance.md#wa-5)
 - **Note:** a transformation preserves a step's state path only if it keeps the
   parent flow path, the step id **and** the trigger ([WA-50](#wa-50)).
-- **Revision 2026-10-29 (SC4, recordings of milestones PF1 and PF3):** WA-5/a is recorded as stated
-  (fixture `conformance/flows/client-api/identity`), with a step by path
-  that takes its flow step's state path. Fixture `client-api/flow-path`
-  recorded the formula inside loop and branch bodies ([WA-6](#wa-6)), and
-  `client-api/dispatch` the `nostep` form for a script a step dispatches
-  ([WA-V1](#wa-v1)). WA-5/b and WA-5/c are not recorded.
+- **Settled:** [WA-5/a](conformance.md#wa-5) is recorded on the oracle on CE
+  `v1.767.0` as stated (fixture `conformance/flows/client-api/identity`),
+  with a step by path that takes its flow step's state path.
+  - Fixture `client-api/flow-path` recorded the formula inside loop and
+    branch bodies ([WA-6](#wa-6)), and `client-api/dispatch` the `nostep`
+    form for a script a step dispatches ([WA-V1](#wa-v1)).
+  - [WA-5/b](conformance.md#wa-5) and [WA-5/c](conformance.md#wa-5) are not
+    recorded.
 
 <a id="wa-6"></a>
 ### WA-6 · When loop and branch bodies run as sub-flows, and the runnable paths that drive `WM_FLOW_PATH`, `WM_JOB_PATH` and `WM_STATE_PATH`
@@ -461,12 +478,14 @@ interface); `WA-Vn` findings were added during validation.
 - **Conformance:** [WA-6/a, WA-6/b, WA-6/c, WA-6/d](conformance.md#wa-6)
 - **Note:** loop and branch semantics are in [control-flow.md](control-flow.md).
   Answers [Q-WA-1](#q-wa-1).
-- **Revision 2026-10-29 (SC4, recordings of milestone PF3):** WA-6/a to WA-6/d are recorded as stated
-  (fixture `conformance/flows/client-api/flow-path`, runs `seq`, `retry`,
-  `par`, `branch` and `branch_default`, oracle run 40839879047), each body
-  step also reporting `WM_JOB_PATH` and `WM_STATE_PATH` (for the collapsed
-  body of WA-6/a, `<flow>/loop-<i>` and `<flow>/<loop id>_user`). This is
-  the oracle corroboration [Q-WA-1](#q-wa-1) asked for.
+- **Settled:** [WA-6/a to WA-6/d](conformance.md#wa-6) are recorded on the
+  oracle on CE `v1.767.0` as stated: the oracle corroboration that
+  [Q-WA-1](#q-wa-1) asked for.
+  - Fixture `conformance/flows/client-api/flow-path`, runs `seq`, `retry`,
+    `par`, `branch` and `branch_default`, oracle run 40839879047.
+  - Each body step also reports `WM_JOB_PATH` and `WM_STATE_PATH`: for the
+    collapsed body of [WA-6/a](conformance.md#wa-6), `<flow>/loop-<i>` and
+    `<flow>/<loop id>_user`.
 
 <a id="wa-v1"></a>
 ### WA-V1 · Stored root fields, effective root identity and innermost flow scope are distinct
@@ -521,18 +540,17 @@ interface); `WA-Vn` findings were added during validation.
 - **Conformance:** [WA-V1/a, WA-V1/b](conformance.md#wa-v1)
 - **Note:** answers [Q-WA-5](#q-wa-5) and, with [WA-6](#wa-6),
   [Q-WA-1](#q-wa-1).
-- **Revision 2026-10-29 (SC4, recordings of milestones E1 and PF3):** the
-  rule left jobs a client dispatches open. Fixture
-  `conformance/flows/client-api/dispatch` (run `identity`, oracle run
-  40842413751) recorded them; the new bullet states the rule and the source
-  explains it (the run routes put `root_job` in the innermost-root slot).
-  The
-  direct-step half of WA-V1/a is recorded by `client-api/job-env` (oracle run
-  40771900586), and inside a by-path subflow `WM_FLOW_JOB_ID` and
-  `WM_ROOT_FLOW_JOB_ID` are the subflow's job in milestone N5's
-  `control-flow/subflow-retry` recordings ([CF-17](control-flow.md#cf-17));
-  `getRootJobId()` there and the shared state are not recorded, so WA-V1/a
-  stays source-derived.
+- **Settled:** the rule for jobs a client dispatches is recorded on the
+  oracle on CE `v1.767.0` (fixture `conformance/flows/client-api/dispatch`,
+  run `identity`, oracle run 40842413751), and the source explains it: the
+  run routes put `root_job` in the innermost-root slot.
+  - The direct-step half of [WA-V1/a](conformance.md#wa-v1) is recorded by
+    `client-api/job-env` (oracle run 40771900586).
+  - Inside a by-path subflow, `WM_FLOW_JOB_ID` and `WM_ROOT_FLOW_JOB_ID`
+    are the subflow's job in the `control-flow/subflow-retry` recordings
+    ([CF-17](control-flow.md#cf-17)).
+  - `getRootJobId()` there and the shared state are not recorded, so
+    [WA-V1/a](conformance.md#wa-v1) stays source-derived.
 
 <a id="wa-v10"></a>
 ### WA-V10 · Runnable identity depends on the flow-step representation
@@ -860,11 +878,11 @@ interface); `WA-Vn` findings were added during validation.
 - **Evidence:** `typescript-client/client.ts:103-135`, `:1505-1512`;
   `python-client/wmill/wmill/client.py:628-673`, `:2204-2211`.
 - **Conformance:** [WA-10/a](conformance.md#wa-10)
-- **Revision 2026-10-29 (SC4, recordings of milestone PF2):** the server's answer in WA-10/a, 404
+- **Settled:** the server's answer in [WA-10/a](conformance.md#wa-10), 404
   `Not found: Resource <p> not found` from the interpolated read, is
-  recorded (fixture `conformance/flows/client-api/providers`, oracle run
-  40824738438); the clients' own parts were not run and are the stock
-  clients' code.
+  recorded on the oracle on CE `v1.767.0` (fixture
+  `conformance/flows/client-api/providers`, oracle run 40824738438). The
+  clients' own parts were not run; they are the stock clients' code.
 
 <a id="wa-11"></a>
 ### WA-11 · Variables: `getVariable` / `setVariable`
@@ -983,73 +1001,86 @@ interface); `WA-Vn` findings were added during validation.
   header); axum-core 0.5.6 `src/response/into_response.rs:179-200` (a
   string answer's header; the crate's checksum matches `backend/Cargo.lock`).
 - **Conformance:** [WA-11/a–e](conformance.md#wa-11)
-- **Revision 2026-10-29 (SC3, source re-check, chain PF2):** milestone PF2
-  fails ciphertext and `$encrypted:` with its own text. Added Windmill's
-  texts for a secret that cannot be decrypted and the server's shape check
-  on already-encrypted values, with new cases WA-11/c and WA-11/d (not yet
-  recorded, [Q-WA-13](#q-wa-13)).
-- **Revision 2026-10-29 (SC3 validation round 1, finding 6):** the rule
-  and WA-11/c allowed only a padding or a UTF-8 failure for ciphertext
-  under another key. A key that leaves valid padding and valid UTF-8 makes
-  the read succeed, so WA-11/c is now an observation with three allowed
-  outcomes, and its recording selects a ciphertext that fails.
-- **Revision 2026-10-29 (SC4, source re-check, milestone F1):** milestone
-  F1 serves the update route and answers `updated variable <path>`, a
-  text of its own, because the reference gave none. Added Windmill's
-  answers to a create and an update (status, text, the not-found and
-  refusal texts) and the existence probe TS `setVariable` makes first.
-  New source-derived case WA-11/e.
-- **Revision 2026-10-29 (SC4, recordings of milestone PF2):** WA-11/a's two reads are recorded (fixture
+- **Settled:** read from the source at `v1.767.0`: Windmill's texts for a
+  secret that cannot be decrypted, and the server's shape check on
+  already-encrypted values ([WA-11/c](conformance.md#wa-11) and
+  [WA-11/d](conformance.md#wa-11)). When this was checked, windmill-lite
+  failed ciphertext and `$encrypted:` with a text of its own.
+- **Settled:** read from the source at `v1.767.0`: a key that leaves valid
+  padding and valid UTF-8 makes the read of ciphertext under another key
+  succeed. The reading this replaces allowed only a padding or a UTF-8
+  failure.
+  - So at `v1.767.0` [WA-11/c](conformance.md#wa-11) was an observation with
+    three allowed outcomes: the padding cause, the UTF-8 cause and a
+    successful read. Its recording selects a ciphertext that fails.
+  - Since Windmill 1.829.0 the two causes are one text, so the case allows
+    two outcomes: the decryption failure and a successful read (the
+    re-check at `v1.862.0` below).
+- **Settled:** read from the source at `v1.767.0`: Windmill's answers to a
+  create and an update (status, text, the not-found and refusal texts), and
+  the existence probe TS `setVariable` makes first
+  ([WA-11/e](conformance.md#wa-11)). When this was checked, windmill-lite
+  served the update route and answered `updated variable <path>`, a text of
+  its own.
+- **Settled:** [WA-11/a](conformance.md#wa-11)'s two reads are recorded on
+  the oracle on CE `v1.767.0` (fixture
   `conformance/flows/client-api/providers`, oracle run 40824738438): the
   plain path answers the value, and a path starting `$var:` answers 404
   `Not found: Variable $var:<p> not found`.
-- **Revision 2026-10-30 (SC5, oracle batch E3f, milestone FU8):** WA-11/c,
-  WA-11/d and WA-11/e are recorded (fixture
-  `conformance/flows/client-api/facade-answers`, runs `answers` and
-  `secret_arg`, oracle run 41000318656), as drafted, except one detail:
-  only a successful write is typed `text/plain; charset=utf-8`; the 400
-  and 404 refusals are Windmill's error responses, `text/plain` with no
-  charset. The rule said both routes answer with the charset; it is
-  corrected, and the drafted parts are now `confirmed`. For the build team,
-  which asked (milestone FU8) because its update answers
-  `updated variable <path>`: Windmill's update of a variable answers HTTP
-  200, `text/plain; charset=utf-8`, with exactly
-  `variable <path> updated (npath: "<path>")` (the path after the update,
-  quoted), and its create HTTP 201 with `variable <path> created`; neither
-  text reaches a script through the stock clients.
-- **Revision 2026-11-06 (retarget to v1.862.0):** the read of a secret
-  that cannot be decrypted and the shape check were re-checked. Since
-  Windmill 1.829.0 the cause is always the one decryption text, so a
-  stored value the shape check admits but the decoder refuses (WA-11/d's,
-  which gave `Invalid byte 36, offset 0.` at v1.767.0) fails like any
-  other. Values are written as AES-256-GCM since 1.831.0, and CBC values
-  are still read; the shape check is unchanged, and also lets through an
-  `$http_store:` value or an `$external:` reference. Evidence at v1.862.0:
-  `backend/windmill-store/src/variables.rs:1701-1724 @ v1.862.0`
-  (`get_value`: the audit, then decryption of a non-empty value),
-  `:396-434` (`get` with decryption);
-  `backend/windmill-common/src/secret_backend/resolver.rs:94-97 @ v1.862.0`
-  (CE has only the database backend), `:294-311` (the decryption and its
-  outer text); `backend/windmill-common/src/variables.rs:511-521
-  @ v1.862.0` (the one inner text); `backend/windmill-common/src/workspace_crypt.rs:155-160`,
-  `:186-195 @ v1.862.0` (base64, the GCM format, then CBC, then UTF-8);
-  `backend/windmill-store/src/variables.rs:596-626 @ v1.862.0` (the shape
-  check), `:644-666` (it applies to a create and an update),
-  `backend/windmill-common/src/secret_backend/resolver.rs:358-363` and
-  `external_ref.rs:85-93 @ v1.862.0` (the values let through). CE v1.862.0
-  recorded [WA-11/c](conformance.md#wa-11) (run `secret_arg`) with the
-  locations `@variables.rs:519:9 @resolver.rs:311:17`; run `answers`,
-  which holds WA-11/c's read and WA-11/d, is re-recorded with the
-  job-token change of [WA-12](#wa-12). The rest of the finding is not
-  re-checked.
-- **Revision 2026-11-07 (retarget to v1.862.0):** the update's not-found
-  answers moved to `backend/windmill-store/src/variables.rs:1487` and
-  `:1505 @ v1.862.0` (in `update_variable`, `:1253`), so a missing
-  variable's text ends ` (variables.rs:1487)` when the body sets a value.
-  CE v1.862.0 recorded [WA-11/c](conformance.md#wa-11),
-  [WA-11/d](conformance.md#wa-11) and [WA-11/e](conformance.md#wa-11) in
-  run `answers` (oracle run 42327335039) as stated, with that
-  location. The `1505` case is not recorded.
+- **Settled:** [WA-11/c](conformance.md#wa-11),
+  [WA-11/d](conformance.md#wa-11) and [WA-11/e](conformance.md#wa-11) are
+  recorded on the oracle on CE `v1.767.0` as the cases then expected,
+  except one detail (fixture `conformance/flows/client-api/facade-answers`,
+  runs `answers` and `secret_arg`, oracle run 41000318656). The re-checks at
+  `v1.862.0` below give what changed since.
+  - Only a successful write is typed `text/plain; charset=utf-8`; the 400
+    and 404 refusals are Windmill's error responses, `text/plain` with no
+    charset. The reading this replaces gave both routes the charset.
+  - Windmill's update of a variable answers HTTP 200,
+    `text/plain; charset=utf-8`, with exactly
+    `variable <path> updated (npath: "<path>")` (the path after the update,
+    quoted), and its create HTTP 201 with `variable <path> created`.
+    Neither text reaches a script through the stock clients.
+  - windmill-lite asked for these texts because its update answered
+    `updated variable <path>`.
+- **Settled:** re-checked at `v1.862.0` for the read of a secret that
+  cannot be decrypted and for the shape check.
+  - Since Windmill 1.829.0 the cause is always the one decryption text, so
+    a stored value the shape check admits but the decoder refuses
+    ([WA-11/d](conformance.md#wa-11)'s, which gave `Invalid byte 36, offset 0.`
+    at v1.767.0) fails like any other.
+  - Values are written as AES-256-GCM since 1.831.0, and CBC values are
+    still read. The shape check is unchanged, and also lets through an
+    `$http_store:` value or an `$external:` reference.
+  - Evidence at v1.862.0, the read:
+    `backend/windmill-store/src/variables.rs:1701-1724 @ v1.862.0`
+    (`get_value`: the audit, then decryption of a non-empty value),
+    `:396-434` (`get` with decryption).
+  - Evidence at v1.862.0, the decryption:
+    `backend/windmill-common/src/secret_backend/resolver.rs:94-97 @ v1.862.0`
+    (CE has only the database backend), `:294-311` (the decryption and its
+    outer text); `backend/windmill-common/src/variables.rs:511-521
+    @ v1.862.0` (the one inner text); `backend/windmill-common/src/workspace_crypt.rs:155-160`,
+    `:186-195 @ v1.862.0` (base64, the GCM format, then CBC, then UTF-8).
+  - Evidence at v1.862.0, the shape check:
+    `backend/windmill-store/src/variables.rs:596-626 @ v1.862.0` (the shape
+    check), `:644-666` (it applies to a create and an update),
+    `backend/windmill-common/src/secret_backend/resolver.rs:358-363` and
+    `external_ref.rs:85-93 @ v1.862.0` (the values let through).
+  - Recorded on CE `v1.862.0`: [WA-11/c](conformance.md#wa-11) (run
+    `secret_arg`) with the locations
+    `@variables.rs:519:9 @resolver.rs:311:17`. Run `answers`, which holds
+    WA-11/c's read and WA-11/d, is re-recorded with the job-token change of
+    [WA-12](#wa-12).
+- **Settled:** re-checked at `v1.862.0` and recorded on CE `v1.862.0`: the
+  update's not-found answers are at
+  `backend/windmill-store/src/variables.rs:1487` and `:1505 @ v1.862.0` (in
+  `update_variable`, `:1253`), so a missing variable's text ends
+  ` (variables.rs:1487)` when the body sets a value.
+  - [WA-11/c](conformance.md#wa-11), [WA-11/d](conformance.md#wa-11) and
+    [WA-11/e](conformance.md#wa-11) are recorded in run `answers` (oracle
+    run 42327335039) as stated, with that location. The `1505` case is not
+    recorded.
 
 <a id="wa-12"></a>
 ### WA-12 · Resource values are interpolated on the server
@@ -1183,56 +1214,65 @@ interface); `WA-Vn` findings were added during validation.
   @ v1.862.0` and `backend/windmill-worker/src/worker.rs:4167-4183`
   (a step's `$res:` argument is read with the job's token).
 - **Conformance:** [WA-12/a, WA-12/b, WA-12/c, WA-12/d, WA-12/e, WA-12/f, WA-12/g, WA-12/h, WA-12/i](conformance.md#wa-12)
-- **Revision 2026-10-29 (SC3, source re-check, chain PF2):** milestone PF2
-  answers 501 for a `job_id` naming an unknown job and reads
-  `CUSTOM_INSTANCE_DB/` paths as plain resources, the reference being
-  silent on both. Added what Windmill does (a 404 only when a `$WM_*`
-  string is met, and the super-admin-only database settings) and the
-  `$jsonvar:` body, with new cases WA-12/g and WA-12/h (not yet recorded,
-  [Q-WA-13](#q-wa-13)). Also corrected the error bodies' location from
-  `@<file>:<line>` to `@<file>:<line>:<column>`, as every location suffix
-  is written ([FX-50](execution.md#fx-50)).
+- **Settled:** read from the source at `v1.767.0`: Windmill's answers in
+  [WA-12/g](conformance.md#wa-12) and [WA-12/h](conformance.md#wa-12), and
+  the `$jsonvar:` body.
+  - A `job_id` that names an unknown job gives a 404 only when a `$WM_*`
+    string is met, and `CUSTOM_INSTANCE_DB/` paths are the super-admin-only
+    database settings.
+  - When this was checked, windmill-lite answered 501 for such a `job_id`
+    and read `CUSTOM_INSTANCE_DB/` paths as plain resources.
+  - The error bodies' location is `@<file>:<line>:<column>`, as every
+    location suffix is written ([FX-50](execution.md#fx-50)). The reading
+    this replaces gave `@<file>:<line>`.
 - **Design note (not Windmill behaviour):** windmill-lite has to own this
   interpolation (in Go); a shared engine must keep the contexts of
   [WA-V3](#wa-v3) and [WA-40](#wa-40) apart.
-- **Revision 2026-10-29 (SC4, recordings of milestone PF2):** fixture `conformance/flows/client-api/providers`
-  (oracle run 40824738438) recorded WA-12/c (500 and the depth text for a
-  50-level resource) and WA-12/d, and the `$var:`, nested `$res:` and
-  literal `$WM_*` parts of WA-12/a; WA-12/a's array part is not recorded,
+- **Settled:** [WA-12/c](conformance.md#wa-12) (500 and the depth text for
+  a 50-level resource) and [WA-12/d](conformance.md#wa-12) are recorded on
+  the oracle on CE `v1.767.0` (fixture
+  `conformance/flows/client-api/providers`, oracle run 40824738438), with
+  the `$var:`, nested `$res:` and literal `$WM_*` parts of
+  [WA-12/a](conformance.md#wa-12). WA-12/a's array part is not recorded,
   so that case stays source-derived.
-- **Revision 2026-10-30 (SC5, oracle batch E3f):** WA-12/g and the super
-  admin's half of WA-12/h are recorded as drafted (fixture
+- **Settled:** [WA-12/g](conformance.md#wa-12) and the super admin's half of
+  [WA-12/h](conformance.md#wa-12) are recorded on the oracle on CE
+  `v1.767.0` as the cases then expected (fixture
   `conformance/flows/client-api/facade-answers`, run `answers`, oracle run
-  41000318656): a value without `$WM_*` ignored every `job_id`; a value
-  with one gave the 404 `Not found: Job not found at name <id> (resources.rs:899)`
-  for an unknown and for a completed job, and resolved for the caller's own
-  running job; a `job_id` that is not a UUID got the framework's 400; the
-  oracle's admin read `CUSTOM_INSTANCE_DB/demo` through the interpolated
-  route as the database settings and through the raw route as a missing
-  resource. The 401 for a caller who is not a super admin is not recorded
-  (the harness has one user), so it stays drafted; the SC5 request in the
-  [design README](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) asks for it.
+  41000318656). The two re-checks at `v1.862.0` below give what the cases
+  expect now.
+  - A value without `$WM_*` ignored every `job_id`. A value with one gave
+    the 404 `Not found: Job not found at name <id> (resources.rs:899)` for
+    an unknown and for a completed job, and resolved for the caller's own
+    running job; a `job_id` that is not a UUID got the framework's 400. At
+    `v1.862.0` the location is ` (resources.rs:1088)`.
+  - The oracle's admin read `CUSTOM_INSTANCE_DB/demo` through the
+    interpolated route with HTTP 200 and the database settings, and through
+    the raw route as a missing resource. At `v1.862.0` the interpolated read
+    from a job's token answers 401.
+- **Not recorded:** the 401 for a caller who is not a super admin, because
+  the harness has one user, so it stays drafted. The design README's
+  [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) ask for it.
 
-- **Revision 2026-11-07 (retarget to v1.862.0):** `CUSTOM_INSTANCE_DB/`
-  and the job lookup were re-checked. The route now refuses a caller who
-  authenticated with a job's token, before the super-admin check, with
-  HTTP 401 `Not authorized: CUSTOM_INSTANCE_DB cannot be resolved from a job token ($WM_TOKEN)`,
-  whatever identity the job runs as, so `getResource`, `resource()` and a
-  step's `$res:` argument no longer reach the database settings. CE
-  v1.862.0 recorded it ([WA-12/h](conformance.md#wa-12), run `answers`,
-  oracle run 42327335039): the oracle's admin, whose step's token had
-  read the settings at v1.767.0, got the 401, and the raw read still
-  answered 404. The job lookup of an unusable `job_id` is unchanged but for
-  its location, ` (resources.rs:1088)` ([WA-12/g](conformance.md#wa-12)).
-  The rest of the finding is not re-checked.
-- **Revision 2026-11-09 (retarget to v1.862.0, source re-check and
-  oracle):** a resource whose whole value is one reference string is
-  walked from depth 0 like any node; the new bullet says so and
-  [WA-12/i](conformance.md#wa-12) records it (fixture
-  `conformance/flows/client-api/whole-value`, oracle run 42605323019).
-  Validation round 1 (finding 3) added the `$WM_*` exception to that
-  bullet's catch-all: such a whole value is resolved from the job that
-  `job_id` names, as the `$WM_*` bullet says.
+- **Settled:** re-checked at `v1.862.0` for `CUSTOM_INSTANCE_DB/` and the
+  job lookup, and recorded on CE `v1.862.0`
+  ([WA-12/h](conformance.md#wa-12), run `answers`, oracle run
+  42327335039).
+  - The route refuses a caller who authenticated with a job's token, before
+    the super-admin check, with HTTP 401
+    `Not authorized: CUSTOM_INSTANCE_DB cannot be resolved from a job token ($WM_TOKEN)`,
+    whatever identity the job runs as. So `getResource`, `resource()` and a
+    step's `$res:` argument no longer reach the database settings.
+  - The oracle's admin, whose step's token had read the settings at
+    v1.767.0, got the 401, and the raw read still answered 404.
+  - The job lookup of an unusable `job_id` is unchanged but for its
+    location, ` (resources.rs:1088)` ([WA-12/g](conformance.md#wa-12)).
+- **Settled:** re-checked in the source at `v1.862.0` and recorded on CE
+  `v1.862.0`: a resource whose whole value is one reference string is
+  walked from depth 0 like any node ([WA-12/i](conformance.md#wa-12),
+  fixture `conformance/flows/client-api/whole-value`, oracle run
+  42605323019). Such a whole value with `$WM_*` is resolved from the job
+  that `job_id` names, as the `$WM_*` bullet says.
 
 <a id="wa-v3"></a>
 ### WA-V3 · Shared interpolation needs separate resource and argument contexts
@@ -1264,9 +1304,10 @@ interface); `WA-Vn` findings were added during validation.
   root normalisation `backend/windmill-queue/src/jobs.rs:6373-6382`.
 - **Conformance:** [WA-V3/a, WA-V3/b](conformance.md#wa-v3)
 - **Note:** the worker side is specified in [expressions.md](expressions.md).
-- **Revision 2026-10-29 (SC4, recordings of milestone PF2):** WA-V3/a and WA-V3/b are recorded as stated
-  (fixture `conformance/flows/client-api/providers`, oracle run
-  40824738438).
+- **Settled:** [WA-V3/a](conformance.md#wa-v3) and
+  [WA-V3/b](conformance.md#wa-v3) are recorded on the oracle on CE
+  `v1.767.0` as stated (fixture `conformance/flows/client-api/providers`,
+  oracle run 40824738438).
 
 <a id="wa-13"></a>
 ### WA-13 · State (`getState`/`setState`) is a resource of type `state` at the state path
@@ -1485,38 +1526,44 @@ interface); `WA-Vn` findings were added during validation.
   through the stock helpers during the run, and for an explicit-id write after
   it, which Windmill also answers with 404; an explicit-id GET after the run
   gets `null` from Windmill.
-- **Revision 2026-10-29 (SC3, source re-check, chain PF3):** answers
-  [Q-WA-10](#q-wa-10). The first edition allowed that a POST to a completed
-  root might still succeed while its status row lived on. It cannot: the
-  status table's key references the queue row with a cascading delete (the
-  constraint was created while the table was still called `queue`, and the
-  rename kept it), and completion copies `flow_status` into the completed row
-  and deletes the queue row in one transaction. So a write after the run gets
-  404 `Not found: Flow job not found` at once, as windmill-lite's
-  discard-at-end policy already answers, and a read gets `null`. Also added:
-  Windmill's status and text for an id that is not a UUID and a body that is
-  not JSON, where windmill-lite answers 400 with texts of its own (the status
-  agrees; the texts are the framework's, above).
-- **Revision 2026-10-29 (SC4, recordings of milestone PF3):** fixture
-  `conformance/flows/client-api/user-state` (runs `basic` and `order`,
-  oracle run 40839879047) recorded the routes' answers (`Flow job state
-  updated`, `null` for a missing key, 404 `Not found: Flow job not found`
-  for a write at a script job and `null` for its read), sharing between a
-  step, the iterations of a parallel loop and a later step, and the stored
-  form, which the reference did not state; the **Stored form** bullet and
-  new case WA-14/e record them (handlers:
-  `backend/windmill-api/src/jobs.rs:4214-4234`, `:4236-4261`). WA-14/a
-  itself stays source-derived: its standalone-script half was not run.
-- **Revision 2026-10-30 (SC5, oracle batch E3f):** access after the run
-  and the request rejections are recorded as drafted, and are now
-  `confirmed`: after the root completed, a GET by its id answered 200
-  `null` and a POST 404 `Not found: Flow job not found` (fixture
-  `conformance/flows/client-api/driven`, run `wa14c`, oracle run
-  41000318656); an id that is not a UUID, a body that does not parse and a
-  missing JSON content type got the three framework answers of
-  [WA-14/d](conformance.md#wa-14) word for word, each `text/plain;
-  charset=utf-8` (fixture `conformance/flows/client-api/facade-answers`,
-  run `answers`, the same oracle run).
+- **Settled:** read from the source at `v1.767.0`
+  ([Q-WA-10](#q-wa-10), answered): a write after the run gets 404
+  `Not found: Flow job not found` at once, and a read gets `null`.
+  - The status table's key references the queue row with a cascading
+    delete. The constraint was created while the table was still called
+    `queue`, and the rename kept it.
+  - Completion copies `flow_status` into the completed row and deletes the
+    queue row in one transaction.
+  - windmill-lite's discard-at-end policy answers the same. The reading
+    this replaces allowed that a POST to a completed root might still
+    succeed while its status row lived on.
+  - For an id that is not a UUID and a body that is not JSON, windmill-lite
+    answered 400 with texts of its own when this was checked. The status
+    agrees with Windmill's, whose texts are the framework's (above).
+- **Settled:** recorded on the oracle on CE `v1.767.0` (fixture
+  `conformance/flows/client-api/user-state`, runs `basic` and `order`,
+  oracle run 40839879047): the routes' answers, the sharing and the stored
+  form, which the **Stored form** bullet and
+  [WA-14/e](conformance.md#wa-14) state (handlers:
+  `backend/windmill-api/src/jobs.rs:4214-4234`, `:4236-4261`).
+  - The answers: `Flow job state updated`, `null` for a missing key, 404
+    `Not found: Flow job not found` for a write at a script job and `null`
+    for its read.
+  - The sharing: between a step, the iterations of a parallel loop and a
+    later step.
+  - [WA-14/a](conformance.md#wa-14) itself stays source-derived: its
+    standalone-script half was not run.
+- **Settled:** access after the run and the request rejections are recorded
+  on the oracle on CE `v1.767.0` as stated.
+  - After the root completed, a GET by its id answered 200 `null` and a
+    POST 404 `Not found: Flow job not found` (fixture
+    `conformance/flows/client-api/driven`, run `wa14c`, oracle run
+    41000318656).
+  - An id that is not a UUID, a body that does not parse and a missing JSON
+    content type got the three framework answers of
+    [WA-14/d](conformance.md#wa-14) word for word, each `text/plain;
+    charset=utf-8` (fixture `conformance/flows/client-api/facade-answers`,
+    run `answers`, the same oracle run).
 
 <a id="wa-15"></a>
 ### WA-15 · Dispatch: `run*Async`, `run*`, `waitJob`
@@ -1575,16 +1622,19 @@ interface); `WA-Vn` findings were added during validation.
   `backend/windmill-api/src/jobs.rs:9197-9300`, `:9305-9328`; the result
   read as the stored `jsonb` text: `:9223-9234`.
 - **Conformance:** [WA-15/a, WA-15/b, WA-15/c, WA-15/d, WA-15/e](conformance.md#wa-15)
-- **Revision 2026-10-29 (SC4, recordings of milestone PF3):** fixture
-  `conformance/flows/client-api/dispatch` (runs `wait` and `identity`, oracle
-  runs 40839879047 and 40842413751) dispatched scripts and flows with the
-  requests the stock clients send and polled them as `waitJob` does: each
-  dispatch answered 201 with the job id, and a failed Bun child's polled
-  `result` held exactly `{"error": {"name", "message", "stack"}}`. WA-15/a
-  expected `message` right after `name` in the client's message; the polled
-  value comes from `jsonb`, so `stack` comes between them. Corrected (the
-  order itself was not captured). What the server does with the
-  `parent_job` and `root_job` the clients send is in [WA-V1](#wa-v1).
+- **Settled:** recorded on the oracle on CE `v1.767.0` (fixture
+  `conformance/flows/client-api/dispatch`, runs `wait` and `identity`,
+  oracle runs 40839879047 and 40842413751), which dispatched scripts and
+  flows with the requests the stock clients send and polled them as
+  `waitJob` does.
+  - Each dispatch answered 201 with the job id, and a failed Bun child's
+    polled `result` held exactly `{"error": {"name", "message", "stack"}}`.
+  - The polled value comes from `jsonb`, so `stack` comes between `name`
+    and `message` in the client's message; the order itself was not
+    captured. The reading this replaces, in
+    [WA-15/a](conformance.md#wa-15), put `message` right after `name`.
+  - What the server does with the `parent_job` and `root_job` the clients
+    send is in [WA-V1](#wa-v1).
 
 <a id="wa-v2"></a>
 ### WA-V2 · Unfinished and unknown-job polling responses carry explicit nulls
@@ -1633,23 +1683,28 @@ interface); `WA-Vn` findings were added during validation.
   (a token for another workspace is not accepted).
 - **Conformance:** [WA-V2/a, WA-V2/b, WA-V2/c, WA-V2/d](conformance.md#wa-v2)
 - **Note:** answers [Q-WA-2](#q-wa-2).
-- **Revision 2026-10-29 (SC3, source re-check, chains PF1 and PF3):** added
-  the answer to an id that is not a UUID (windmill-lite answers 400 with a
-  text of its own; Windmill's status agrees and its text is the framework's,
-  above) and the anonymous reading of a token from another workspace.
-- **Revision 2026-10-29 (SC4, recordings of milestone PF3):** WA-V2/a and WA-V2/b are recorded (fixture
-  `conformance/flows/client-api/dispatch`, run `wait`, oracle run
-  40839879047): the two bodies for a UUID that names no job; the status
-  was not captured. This is the corroboration [Q-WA-2](#q-wa-2) asked for.
-- **Revision 2026-10-30 (SC5, oracle batch E3f, milestone FU8):** WA-V2/c
-  is recorded word for word, 400 `text/plain; charset=utf-8` (fixture
+- **Settled:** read from the source at `v1.767.0`: the answer to an id that
+  is not a UUID, and the anonymous reading of a token from another
+  workspace. When this was checked, windmill-lite answered such an id with
+  a 400 and a text of its own: the status agrees with Windmill's, whose
+  text is the framework's (above).
+- **Settled:** [WA-V2/a](conformance.md#wa-v2) and
+  [WA-V2/b](conformance.md#wa-v2) are recorded on the oracle on CE
+  `v1.767.0` (fixture `conformance/flows/client-api/dispatch`, run `wait`,
+  oracle run 40839879047): the two bodies for a UUID that names no job; the
+  status was not captured. This is the corroboration [Q-WA-2](#q-wa-2)
+  asked for.
+- **Settled:** [WA-V2/c](conformance.md#wa-v2) is recorded on the oracle on
+  CE `v1.767.0` word for word, 400 `text/plain; charset=utf-8` (fixture
   `conformance/flows/client-api/facade-answers`, run `answers`, oracle run
-  41000318656), so ids that are not UUIDs leave the drafted list. WA-V2/d
-  is not recorded: its first request needs a token of a second workspace,
-  which the harness does not create (the SC5 request in the
-  [design README](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)). Milestone FU8 noted that WA-V2/d's first half
-  cannot arise in a runtime whose tokens all belong to one workspace; the
-  bullet above states that on Windmill it is an ordinary case.
+  41000318656).
+- **Not recorded:** [WA-V2/d](conformance.md#wa-v2), because its first
+  request needs a token of a second workspace, which the harness does not
+  create. The design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) ask for
+  it.
+  - Its first half cannot arise in a runtime whose tokens all belong to one
+    workspace, as windmill-lite noted; the bullet above states that on
+    Windmill it is an ordinary case.
 
 <a id="wa-16"></a>
 ### WA-16 · Object store (S3) client contract
@@ -1743,22 +1798,23 @@ interface); `WA-Vn` findings were added during validation.
   a host extension that implements the verified client contract, keyed by
   `(storage or "_default_", key)` ([WA-40](#wa-40)). It claims no CE parity for
   what that contract leaves open: keys, quotas, storage selection, errors.
-- **Revision 2026-10-29 (SC3, source re-check, chain PF3):** re-checked
-  whether the public source can settle the CE answers milestone PF3 needed
-  (no storage, a missing object). It cannot: the CE image is built with the
-  closed-source modules (`ce` includes `private`). windmill-lite's 404 for a
-  missing object is its own choice until [Q-WA-3](#q-wa-3)'s recording.
-- **Revision 2026-10-30 (SC5, oracle batch E3f):** WA-16/d is recorded
-  (fixture `conformance/flows/client-api/object-storage`, run `upload`,
-  oracle run 40994947681): with no workspace storage the stock client's
-  upload threw `Internal Server Error`, so CE answers HTTP 500; the case
-  had no expectation, and the **Server** list gains the bullet above. The
-  client is generated by `@hey-api/openapi-ts` 0.43.0
-  (`typescript-client/build.sh:7`), and `fileUpload` declares only its
-  200 answer (`backend/windmill-api/openapi.yaml:21449-21451`), so the
-  message names the status and not the body. The body, the explicit-key
-  round trip and a missing object stay with [Q-WA-3](#q-wa-3): WA-16/c and
-  WA-16/e need workspace storage, which the harness does not start.
+- **Settled:** read from the source at `v1.767.0`: the public source cannot
+  settle the CE answers for no storage and for a missing object, because
+  the CE image is built with the closed-source modules (`ce` includes
+  `private`). windmill-lite's 404 for a missing object is its own choice
+  until [Q-WA-3](#q-wa-3)'s recording.
+- **Settled:** [WA-16/d](conformance.md#wa-16) is recorded on the oracle on
+  CE `v1.767.0` (fixture `conformance/flows/client-api/object-storage`, run
+  `upload`, oracle run 40994947681): with no workspace storage the stock
+  client's upload threw `Internal Server Error`, so CE answers HTTP 500.
+  - The client is generated by `@hey-api/openapi-ts` 0.43.0
+    (`typescript-client/build.sh:7`), and `fileUpload` declares only its
+    200 answer (`backend/windmill-api/openapi.yaml:21449-21451`), so the
+    message names the status and not the body.
+- **Not recorded:** the body, the explicit-key round trip and a missing
+  object, which stay with [Q-WA-3](#q-wa-3):
+  [WA-16/c](conformance.md#wa-16) and [WA-16/e](conformance.md#wa-16) need
+  workspace storage, which the harness does not start.
 
 <a id="wa-17"></a>
 ### WA-17 · `WM_MOCKED_API_FILE`: an upstream local-mode hook for resources and variables
@@ -2089,8 +2145,8 @@ interface); `WA-Vn` findings were added during validation.
     the result of the job's completed record, which windmill-lite serves.
 
   A job of a run that has ended answers 501, since windmill-lite releases
-  the run (deviation D22 of
-  [ADR 0001](../design/0001-equivalence-contract.md)). Of children a
+  the run (deviation D22 of the
+  [equivalence contract](../design/0001-equivalence-contract.md)). Of children a
   running parallel container released together, it names the last
   released by index, the child Windmill named in most recorded repeats.
   It replaces large arguments and results as Windmill does: it computes
@@ -2101,37 +2157,40 @@ interface); `WA-Vn` findings were added during validation.
   latched or halted), a flow with a preprocessor module, and a flow job
   while a host-provided step of it waits for the sleep of the step before
   it, since a provided site has no Windmill job.
-- **Revision 2026-10-29 (SC3, source re-check, chains PF1 and PF3):** added
-  Windmill's answers where windmill-lite chose its own: the root lookup of an
-  unknown id is a 400 `SqlErr` text, not a 404 and not windmill-lite's 501;
-  `getResult` on a job that has not completed is the 404 not-found text above,
-  the status windmill-lite already gives.
-- **Revision 2026-10-29 (SC4, recordings of milestone PF1):** WA-19/a is recorded as stated (fixture
-  `conformance/flows/client-api/identity`, oracle run 40805963567): the
-  root lookup answered 200 with the flow's job from an inline step and from
-  a step by path, equal to `WM_ROOT_JOB_ID`.
-- **Revision 2026-10-30 (SC5, oracle batch E3f):** the error answers are
-  recorded as drafted and are now `confirmed`: the root lookup of an
-  unknown id answered 400, `text/plain`,
-  `SqlErr: no rows returned by a query that expected to return at least one row @jobs.rs:498:20`,
-  and of `abc` the framework's 400 (fixture
-  `conformance/flows/client-api/facade-answers`, run `answers`, oracle run
-  41000318656); `getResult` of a running child answered 404
-  `Not found: Completed Job not found at name <id> (jobs.rs:9074)` (fixture
-  `conformance/flows/client-api/driven`, run `wa19d`, oracle run
-  41003988171).
-- **Revision 2026-10-30 (SC5, source re-check, milestone FU8):** milestone
-  FU8 answers WA-19/b's 400 for a job of a run that has ended, because it
-  forgets ended runs, and noted that Windmill keeps the row. Added what
-  Windmill answers: 200 with the root id until the job retention removes
-  the job (30 days by default), then the 400 of an unknown id.
-- **Revision 2026-11-06 (retarget to v1.862.0):** WA-19/d was
-  re-recorded on CE v1.862.0: the same 404, with the completed-job lookup
-  at `backend/windmill-api/src/jobs.rs:12065 @ v1.862.0`, so the text ends
-  ` (jobs.rs:12065)`. The rest of the finding is not re-checked.
-- **Revision 2026-11-07 (retarget to v1.862.0):** WA-19/b was re-recorded
-  on CE v1.862.0 (run `answers`, oracle run 42327335039): the same 400
-  `SqlErr` text, with the root lookup's query at
+- **Settled:** read from the source at `v1.767.0`: the root lookup of an
+  unknown id is a 400 `SqlErr` text, not a 404, and `getResult` on a job
+  that has not completed is the 404 not-found text above. When this was
+  checked, windmill-lite answered the first with a 501 of its own, and the
+  second with the same status.
+- **Settled:** [WA-19/a](conformance.md#wa-19) is recorded on the oracle on
+  CE `v1.767.0` as stated (fixture `conformance/flows/client-api/identity`,
+  oracle run 40805963567): the root lookup answered 200 with the flow's job
+  from an inline step and from a step by path, equal to `WM_ROOT_JOB_ID`.
+- **Settled:** the error answers are recorded on the oracle on CE
+  `v1.767.0` as the cases then expected; the two re-recordings on CE
+  `v1.862.0` below give their locations now.
+  - The root lookup of an unknown id answered 400, `text/plain`,
+    `SqlErr: no rows returned by a query that expected to return at least one row @jobs.rs:498:20`,
+    and of `abc` the framework's 400 (fixture
+    `conformance/flows/client-api/facade-answers`, run `answers`, oracle
+    run 41000318656).
+  - `getResult` of a running child answered 404
+    `Not found: Completed Job not found at name <id> (jobs.rs:9074)`
+    (fixture `conformance/flows/client-api/driven`, run `wa19d`, oracle run
+    41003988171).
+- **Settled:** read from the source at `v1.767.0`: for a job of a run that
+  has ended, Windmill answers 200 with the root id until the job retention
+  removes the job (30 days by default). After that it gives the 400 of an
+  unknown id. When
+  this was checked, windmill-lite answered [WA-19/b](conformance.md#wa-19)'s
+  400 for such a job, because it forgets ended runs.
+- **Settled:** [WA-19/d](conformance.md#wa-19) is re-recorded on CE
+  `v1.862.0` with the same 404. The completed-job lookup is at
+  `backend/windmill-api/src/jobs.rs:12065 @ v1.862.0`, so the text ends
+  ` (jobs.rs:12065)`.
+- **Settled:** [WA-19/b](conformance.md#wa-19) is re-recorded on CE
+  `v1.862.0` (run `answers`, oracle run 42327335039) with the same 400
+  `SqlErr` text. The root lookup's query is at
   `backend/windmill-api/src/jobs.rs:676-687 @ v1.862.0`, so the body ends
   ` @jobs.rs:677:20`.
 
@@ -2344,11 +2403,11 @@ interface); `WA-Vn` findings were added during validation.
   form), `:378-423` (exported and plain top-level declarations; the variable
   form only while no parameters are known), `:428-440`, `:476-530`
   (`extract_workflow_params`).
-- **Revision 2026-10-28 (source re-check):** the parsed path said the
-  variable had to be exported and that any function declaration took
-  priority over it; the parser accepts an unexported declaration too, only
-  an earlier `function main` blocks the variable form, and the
-  default-export form was missing.
+- **Settled:** read from the source at `v1.767.0`: the parser accepts an
+  unexported declaration too, only an earlier `function main` blocks the
+  variable form, and the default-export form belongs to the parsed path.
+  The reading this replaces said the variable had to be exported and that
+  any function declaration took priority over it.
 - **Conformance:** [WA-33/a, WA-33/b](conformance.md#wa-33); the policy
   check [WA-33/c](conformance.md#wa-33)
 - **Design note (not Windmill behaviour):** rejecting WAC scripts is
@@ -2371,7 +2430,7 @@ interface); `WA-Vn` findings were added during validation.
     - **(b) Client interpolated read** (`get_value_interpolated` with no job
       id): `$WM_*` stays literal and the depth counter starts at 0
       ([WA-12](#wa-12)). The expression helper `resource()` reads this way
-      too ([JE-20](expressions.md#je-20); revision 2026-10-29, SC3).
+      too ([JE-20](expressions.md#je-20); revision 2026-10-29).
     - **(c) Worker argument resolution** ([expressions.md](expressions.md)):
       handles `$var:`, `$jsonvar:`, `$res:`, `$encrypted:` and any string
       `$<name>` that matches a reserved or custom env variable; runs for a
@@ -2616,25 +2675,25 @@ interface); `WA-Vn` findings were added during validation.
   [WA-V2/c](conformance.md#wa-v2), the 401 in [WA-4/b](conformance.md#wa-4)
 - **Design note (not Windmill behaviour):** a facade answering in Windmill's
   place reproduces these statuses and bodies.
-- **Revision 2026-10-29 (SC3, source re-check, chains PF1 and PF3):** the
-  request-extraction rejections, which the first edition only said differ,
-  are now spelled out from the pinned framework crates, and the 401 of a
-  token for another workspace is added.
-- **Revision 2026-10-29 (SC4, recordings of milestone PF2):** WA-42/b and WA-42/c are recorded (fixture
-  `conformance/flows/client-api/providers`, oracle run 40824738438),
-  WA-42/c up to the resource path, before the location suffix.
-- **Revision 2026-10-30 (SC5, oracle batch E3f):** batch E3f recorded the
-  request-extraction rejections a client meets, word for word and typed
+- **Settled:** read from the source at `v1.767.0`: the request-extraction
+  rejections, from the pinned framework crates, and the 401 of a token for
+  another workspace.
+- **Settled:** [WA-42/b](conformance.md#wa-42) and
+  [WA-42/c](conformance.md#wa-42) are recorded on the oracle on CE
+  `v1.767.0` (fixture `conformance/flows/client-api/providers`, oracle run
+  40824738438), WA-42/c up to the resource path, before the location
+  suffix.
+- **Settled:** the request-extraction rejections a client meets are
+  recorded on the oracle on CE `v1.767.0`, word for word and typed
   `text/plain; charset=utf-8` ([WA-14/d](conformance.md#wa-14),
-  [WA-19/c](conformance.md#wa-19), [WA-V2/c](conformance.md#wa-v2)), so
-  they leave the drafted list; the 401s stay drafted ([WA-4/b](conformance.md#wa-4)
-  is not recorded). Added the **Content types** and **Location suffixes**
-  bullets: the recordings showed that the variable and resource routes
-  answer a 2xx text with `; charset=utf-8` and their 400, 404 and 500 with
-  bare `text/plain`, and write some locations ` (<file>:<line>)` rather
-  than ` @<file>:<line>:<col>`; the rule now says where each comes from.
-  This SC4 note, which sat under the next section's heading, is moved back
-  into the finding.
+  [WA-19/c](conformance.md#wa-19), [WA-V2/c](conformance.md#wa-v2)).
+  - The recordings showed that the variable and resource routes answer a
+    2xx text with `; charset=utf-8` and their 400, 404 and 500 with bare
+    `text/plain`, and write some locations ` (<file>:<line>)` rather than
+    ` @<file>:<line>:<col>`. The **Content types** and **Location
+    suffixes** bullets say where each comes from.
+  - The 401s stay drafted: [WA-4/b](conformance.md#wa-4) is not
+    recorded.
 
 ## G. Hybrid: delegating chosen steps to a real Windmill
 
@@ -2869,8 +2928,8 @@ interface); `WA-Vn` findings were added during validation.
   store: run `writeS3File({s3:"t/a.txt"},"hi")` plus `loadS3File`,
   `writeS3File(undefined,"x")`, the same upload with no storage configured, and
   a quota-boundary upload; record status, body and returned `file_key`
-  (cases [WA-16/c, WA-16/d](conformance.md#wa-16)). **Re-scoped 2026-10-29
-  (SC3).** Re-checked for milestone PF3: the public source cannot answer any
+  (cases [WA-16/c, WA-16/d](conformance.md#wa-16)). **Re-scoped 2026-10-29**.
+  Re-checked: the public source cannot answer any
   part of this, because the CE image is built with the closed-source modules
   ([WA-16](#wa-16), Server), so this stays oracle-only. Added to it: the
   status and body of `loadS3File` for a key that does not exist (the stock
@@ -2879,15 +2938,15 @@ interface); `WA-Vn` findings were added during validation.
   the runs above plus `loadS3File({s3:"t/none.txt"})` after the explicit-key
   write, on the same storage-configured session, recording the caught
   error's message ([WA-16/e](conformance.md#wa-16)).
-  *2026-10-30 (SC5):* batch E3f recorded the no-storage upload
+  *2026-10-30:* the oracle recorded the no-storage upload
   ([WA-16/d](conformance.md#wa-16), fixture
   `conformance/flows/client-api/object-storage`, oracle run 40994947681):
   the stock client threw `Internal Server Error`, so CE answers HTTP 500;
   its body was not returned by the step. WA-16/c and WA-16/e were deferred
   because the harness starts no S3-compatible store. **Re-scoped
-  2026-10-30 (SC5).** Still open: the no-storage body, the explicit-key
+  2026-10-30**. Still open: the no-storage body, the explicit-key
   round trip, the auto-generated key, a missing object and the quota
-  boundary; the SC5 request in the [design README](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) lists them.
+  boundary; the request in the [design README](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) lists them.
 <a id="q-wa-4"></a>
 - **Q-WA-4** · affects [WA-31](#wa-31) · Does the per-invocation isolation
   mechanism hold on the pinned Bun, `1.4.3`, with the real client? (build gate)
@@ -2927,7 +2986,7 @@ interface); `WA-Vn` findings were added during validation.
   secret variable and prints it, checking whether the stored job log shows it
   masked.
 <a id="q-wa-10"></a>
-- **Q-WA-10** · affects [WA-14](#wa-14) · **Answered 2026-10-29 (SC3)**
+- **Q-WA-10** · affects [WA-14](#wa-14) · **Answered 2026-10-29**
   from the source: see [WA-14](#wa-14) (After the run). The status row is
   deleted, by a cascading key, in the same transaction that completes the
   root, so from that moment a POST answers 404 `Not found: Flow job not found`
@@ -2960,19 +3019,19 @@ interface); `WA-Vn` findings were added during validation.
   [WA-V7](#wa-v7). *Settled by:* recording each case on the
   oracle ([oracle.md](oracle.md)) in the configuration it states; cases that
   run against a recording facade test the client only and need no oracle.
-  **Re-scoped 2026-10-29 (SC3, chain PF2):** the source re-check added four
+  **Re-scoped 2026-10-29:** the source re-check added four
   server cases to this list: [WA-11/c, WA-11/d](conformance.md#wa-11) (a
   secret that cannot be decrypted; the `already_encrypted` shape check) and
   [WA-12/g, WA-12/h](conformance.md#wa-12) (an unusable `job_id`;
   `CUSTOM_INSTANCE_DB/`). Each is recordable from a Bun step that calls the
   API with its own token; WA-11/c's ciphertext is accepted whatever the
-  oracle's workspace key, but whether its read fails depends on that key
-  (validation round 1): almost always with the padding cause, rarely with a
+  oracle's workspace key, but whether its read fails depends on that key:
+  almost always with the padding cause, rarely with a
   UTF-8 cause, and more rarely the read succeeds. The recording therefore
   selects a ciphertext whose read fails with the padding cause and records
   which one it kept ([WA-11/c](conformance.md#wa-11)).
-  **Re-scoped 2026-10-29 (SC4).** The opening sentence no longer holds.
-  Milestones E1 and PF1 to PF3 recorded the fixtures under
+  **Re-scoped 2026-10-29**. The opening sentence no longer holds.
+  The oracle recorded the fixtures under
   `conformance/flows/client-api/` (`job-env`, `identity`, `providers`,
   `flow-path`, `user-state`, `dispatch`; oracle runs 40771900586,
   40805963567, 40824738438, 40826651517, 40839879047 and 40842413751), each
@@ -2999,9 +3058,9 @@ interface); `WA-Vn` findings were added during validation.
   does with the query it checks is WA-V1/b. Still open for the oracle: the
   other server cases listed above, among them WA-11/c to WA-11/e,
   WA-12/g, WA-12/h, WA-14/c, WA-14/d, WA-19/b to WA-19/d, WA-V2/c and
-  WA-V2/d, requested for batch E3f
+  WA-V2/d, requested from a future recording batch
   ([docs/design/README.md](../design/README.md)).
-  **Re-scoped 2026-10-30 (SC5).** Batch E3f recorded them (fixtures
+  **Re-scoped 2026-10-30**. The oracle recorded them (fixtures
   `conformance/flows/client-api/facade-answers`, `driven` and
   `object-storage`; oracle runs 41000318656, 41003988171 and 40994947681),
   each as predicted except the content types, now a rule of
@@ -3017,7 +3076,7 @@ interface); `WA-Vn` findings were added during validation.
   [WA-V2/d](conformance.md#wa-v2) (a second workspace),
   WA-12/h's other half (a second user), and
   [WA-16/c, WA-16/e](conformance.md#wa-16) (workspace storage,
-  [Q-WA-3](#q-wa-3)). The SC5 request in the [design README](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) asks for
+  [Q-WA-3](#q-wa-3)). The request in the [design README](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) asks for
   them; WA-4/b's 401s and WA-V2/d's second outcome can be recorded in the
   reference session with a workspace name that holds no workspace. The
   other server-side expectations listed above that no fixture records stay

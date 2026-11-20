@@ -6,7 +6,8 @@
 `github.com/invakid404/windmill-lite/wl/storetest`.
 
 A resource store keeps the resources that steps write through the job API,
-such as the state of the stock client's `setState`
+such as the [state](../../docs/glossary.md#state) of the stock client's
+`setState`, which is not the flow user state of a flow run
 ([The resource store](../README.md#the-resource-store)). A host that
 implements its own store runs this suite on it from a Go test:
 
@@ -19,6 +20,14 @@ func TestMyStore(t *testing.T) {
 `Run` makes a new, empty store for each test with the function it gets.
 Run the suite with `-race`: the atomicity tests look for data races as well
 as for wrong answers.
+
+The contract is the doc comment of `ResourceStore` in
+[internal/platform/resourcestore.go](../../internal/platform/resourcestore.go),
+which `wl.ResourceStore` aliases. Two of its rules have no test in this
+suite: a store that cannot tell whether an entry exists returns an error,
+never `false`; and a write that returns an error may or may not have been
+applied. The Redis store's fault tests and the facade's tests check them
+for those parts.
 
 ## What the suite checks
 
@@ -52,6 +61,6 @@ runs the suite without `-short`.
 |---|---|
 | `storetest.go` | `Run`, `Names` and the tests |
 | `storetest_test.go` | The suite on `wl.NewMemoryResourceStore` |
-| `broken_test.go` | Stores that break the contract, on each of which a test must fail: an update written in two steps, a create under two locks, and an update that deletes and creates. Also a store that keeps every entry as `state`, and one that checks the type and writes in two steps. |
+| `broken_test.go` | Stores that break the contract, on each of which a test must fail: an update written in two steps, a create under two locks, and an update that deletes and creates. Also a store that keeps every entry as `state`, one that checks the type and writes in two steps, and one whose updates all fail, so that the typed-write test's competing updaters stop at once. |
 
 Run `go test -race ./wl/storetest`. No test needs Bun.

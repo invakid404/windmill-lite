@@ -1,0 +1,9 @@
+# Run 1 of the fixture, taken in name order: the counter becomes 1.
+spec: [WA-13/g]
+target: f/wlt_iso/count
+args: {}
+expect:
+  status: success
+  result: {"n": 1}
+  steps:
+    "m:x": {status: success, args: {}, result: {"n": 1}}
