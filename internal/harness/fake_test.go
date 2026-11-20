@@ -563,7 +563,9 @@ func TestSettledInvocationKeepsNoCallerContext(t *testing.T) {
 	held := weak.Make(payload)
 	inv := newInvocation("x", `{}`, newRecorder())
 	func() {
-		ctx, cancel := context.WithTimeout(context.WithValue(context.Background(), key{}, payload), 20*time.Second)
+		// No deadline: the runtime can keep a stopped deadline timer, and
+		// the context with it, for a while after cancel.
+		ctx, cancel := context.WithCancel(context.WithValue(context.Background(), key{}, payload))
 		defer cancel()
 		if out, err := p.Execute(ctx, inv); err != nil || out.Kind != engine.OutcomeOK {
 			t.Fatalf("got %+v, %v", out, err)
@@ -580,12 +582,13 @@ func TestSettledInvocationKeepsNoCallerContext(t *testing.T) {
 	if !ok {
 		t.Fatal("the settled invocation is not in recent")
 	}
-	for i := 0; i < 5 && held.Value() != nil; i++ {
+	// Collect until the value is gone. Goroutines that are still ending
+	// can hold the context a moment longer; the invocation in recent would
+	// hold it for good, and fail this.
+	waitFor(t, "the value of the caller's context to be collected", func() bool {
 		runtime.GC()
-	}
-	if held.Value() != nil {
-		t.Fatal("a settled invocation keeps a value of its caller's context")
-	}
+		return held.Value() == nil
+	})
 }
 
 // loadingContext is a caller's context whose Done calls back into the
