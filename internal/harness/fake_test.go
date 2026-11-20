@@ -8,13 +8,16 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
+	"weak"
 
 	"github.com/invakid404/windmill-lite/internal/engine"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
@@ -34,7 +37,57 @@ func TestMain(m *testing.M) {
 	if os.Getenv("WL_WAIT_ALL") != "" {
 		os.Exit(waitAll())
 	}
+	if pgid := os.Getenv("WL_STRAY_PARENT"); pgid != "" {
+		os.Exit(strayParent(pgid, os.Getenv("WL_STRAY_FILE")))
+	}
 	os.Exit(m.Run())
+}
+
+// strayParent starts /bin/sleep in the process group pgid, writes its own
+// pid to file+".parent" and the child's to file, and does not wait for the
+// child until file+".done" exists (or 30 s have passed): once killed, the
+// child stays in that group as a zombie until then. Then it reaps the child
+// and exits; once file+".orphan" exists instead, it exits without reaping
+// it, so the child's zombie goes to whoever adopts orphans. Once
+// file+".late" exists, it starts a second /bin/sleep in the same group and
+// writes its pid to file+".late.pid": a member that joins the group after
+// a kill of it.
+func strayParent(pgid, file string) int {
+	g, err := strconv.Atoi(pgid)
+	if err != nil {
+		return 2
+	}
+	child := exec.Command("/bin/sleep", "30")
+	child.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pgid: g}
+	if err := child.Start(); err != nil {
+		return 3
+	}
+	os.WriteFile(file+".parent", []byte(strconv.Itoa(os.Getpid())), 0o644)
+	os.WriteFile(file, []byte(strconv.Itoa(child.Process.Pid)), 0o644)
+	var late *exec.Cmd
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if _, err := os.Stat(file + ".orphan"); err == nil {
+			return 0
+		}
+		if _, err := os.Stat(file + ".done"); err == nil {
+			break
+		}
+		if _, err := os.Stat(file + ".late"); late == nil && err == nil {
+			late = exec.Command("/bin/sleep", "30")
+			late.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pgid: g}
+			if err := late.Start(); err != nil {
+				return 4
+			}
+			os.WriteFile(file+".late.pid", []byte(strconv.Itoa(late.Process.Pid)), 0o644)
+		}
+	}
+	for _, c := range []*exec.Cmd{child, late} {
+		if c != nil {
+			c.Process.Kill()
+			c.Wait()
+		}
+	}
+	return 0
 }
 
 func fakeConfig(t testing.TB, mode string) (ProcessConfig, *syncBuffer) {
@@ -91,7 +144,9 @@ func fakeHarness(mode string) int {
 		time.Sleep(time.Second)
 	}
 	hello := Hello{Proto: ProtocolVersion, Harness: HarnessInfo{"fake", "0"}, Runtime: "fake-1", Bundle: "sha256:fake", PID: pid}
-	if mode == "fresh-unread-pong" || mode == "fresh-hang" || mode == "fresh-log-exit" || mode == "fresh-drip-exit" {
+	if mode == "fresh-unread-pong" || mode == "fresh-hang" || mode == "fresh-log-exit" || mode == "fresh-drip-exit" ||
+		mode == "fresh-slow-exit" || mode == "fresh-no-exit" || mode == "fresh-no-exit-child" || mode == "fresh-term-after-end" ||
+		mode == "fresh-exit-at-once" || mode == "fresh-no-exit-stray" {
 		hello.Caps.Fresh = true
 	}
 	if mode == "plugin" {
@@ -223,6 +278,71 @@ func fakeHarness(mode string) int {
 			send(Ping{ID: "h1", Health: &Health{}})
 			time.Sleep(300 * time.Millisecond)
 			send(Result{ID: inv.ID, Outcome: OutcomeOK, Body: body, Settled: true})
+			return 0
+		case "fresh-slow-exit", "fresh-no-exit":
+			// Ends its stream right after its result, as the Bun runtime
+			// does, and exits 1.5 s later, or never.
+			send(Result{ID: inv.ID, Outcome: OutcomeOK, Body: body, Settled: true})
+			nc.Close()
+			f.Close()
+			if mode == "fresh-no-exit" {
+				time.Sleep(time.Hour)
+			}
+			time.Sleep(1500 * time.Millisecond)
+			return 0
+		case "fresh-no-exit-child", "fresh-no-exit-stray":
+			// Leaves a child in its process group, writes the child's pid to
+			// the pidFile argument, and once the goFile argument exists ends
+			// its stream right after its result, and never exits. The socket
+			// is closed on exec, so the child does not hold it. In
+			// fresh-no-exit-stray the child is started by another process,
+			// in a group of its own, that waits for it only once the test
+			// lets it (strayParent).
+			var a struct {
+				PIDFile string `json:"pidFile"`
+				GoFile  string `json:"goFile"`
+			}
+			json.Unmarshal(inv.Args.Producer(), &a)
+			syscall.CloseOnExec(int(f.Fd()))
+			if mode == "fresh-no-exit-child" {
+				child := exec.Command("/bin/sleep", "30")
+				if err := child.Start(); err != nil {
+					return 72
+				}
+				os.WriteFile(a.PIDFile, []byte(strconv.Itoa(child.Process.Pid)), 0o644)
+			} else {
+				parent := exec.Command(os.Args[0], "-test.run=^$")
+				parent.Env = append(os.Environ(), "WL_FAKE_HARNESS=", "WL_STRAY_PARENT="+strconv.Itoa(pid), "WL_STRAY_FILE="+a.PIDFile)
+				parent.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+				if err := parent.Start(); err != nil {
+					return 72
+				}
+			}
+			for {
+				if _, err := os.Stat(a.GoFile); err == nil {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			send(Result{ID: inv.ID, Outcome: OutcomeOK, Body: body, Settled: true})
+			nc.Close()
+			f.Close()
+			time.Sleep(time.Hour)
+			return 0
+		case "fresh-exit-at-once":
+			// Exits right after its result without closing its socket, so
+			// the engine reads the end of the stream only once the process
+			// is gone.
+			send(Result{ID: inv.ID, Outcome: OutcomeOK, Body: body, Settled: true})
+			return 0
+		case "fresh-term-after-end":
+			// Ends its stream right after its result and dies by its own
+			// SIGTERM.
+			send(Result{ID: inv.ID, Outcome: OutcomeOK, Body: body, Settled: true})
+			nc.Close()
+			f.Close()
+			syscall.Kill(os.Getpid(), syscall.SIGTERM)
+			time.Sleep(time.Hour)
 			return 0
 		case "fresh-log-exit":
 			// Logs a line, and once the engine says its reader has it, 20
@@ -430,6 +550,81 @@ func TestKillIsNamed(t *testing.T) {
 	waitFor(t, "the kill's diagnostic line", func() bool {
 		return strings.Contains(diag.String(), "killing the harness: killed by the engine")
 	})
+}
+
+// A settled invocation stays in recent, so it keeps nothing of its caller's
+// context: what the context carries is garbage once Execute has returned
+// and the caller has let the context go.
+func TestSettledInvocationKeepsNoCallerContext(t *testing.T) {
+	cfg, _ := fakeConfig(t, "ok")
+	p := spawn(t, cfg)
+	type key struct{}
+	payload := new([4096]byte)
+	held := weak.Make(payload)
+	inv := newInvocation("x", `{}`, newRecorder())
+	func() {
+		ctx, cancel := context.WithTimeout(context.WithValue(context.Background(), key{}, payload), 20*time.Second)
+		defer cancel()
+		if out, err := p.Execute(ctx, inv); err != nil || out.Kind != engine.OutcomeOK {
+			t.Fatalf("got %+v, %v", out, err)
+		}
+		rec := inv.Report.(*recorder)
+		if k := rec.waitSettled(t, 5*time.Second); k != engine.SettleCompleted {
+			t.Fatalf("settled %s; calls %s", k, rec.log())
+		}
+	}()
+	payload = nil
+	p.mu.Lock()
+	_, ok := p.recent.get(inv.ID)
+	p.mu.Unlock()
+	if !ok {
+		t.Fatal("the settled invocation is not in recent")
+	}
+	for i := 0; i < 5 && held.Value() != nil; i++ {
+		runtime.GC()
+	}
+	if held.Value() != nil {
+		t.Fatal("a settled invocation keeps a value of its caller's context")
+	}
+}
+
+// loadingContext is a caller's context whose Done calls back into the
+// process, as a context that samples its load would.
+type loadingContext struct {
+	context.Context
+	p *Process
+}
+
+func (c loadingContext) Done() <-chan struct{} {
+	c.p.Load()
+	return c.Context.Done()
+}
+
+// A fresh dispatch asks the caller's context for its Done channel without
+// holding the process's lock, so a context that calls back into the
+// process from Done does not stall it.
+func TestFreshDispatchAsksForDoneOutsideTheLock(t *testing.T) {
+	cfg, diag := fakeConfig(t, "fresh-exit-at-once")
+	cfg.ModuleState = engine.ModuleStateFresh
+	p := spawn(t, cfg)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		out, err := p.Execute(loadingContext{ctx, p}, freshInvocation("x", `{}`, newRecorder()))
+		if err == nil && out.Kind != engine.OutcomeOK {
+			err = fmt.Errorf("got %+v", out)
+		}
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("%v; diagnostics %q", err, diag.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the dispatch did not return: it holds the process's lock while it asks for Done")
+	}
 }
 
 // blockedWriter is a diagnostics writer whose writes block until it is
@@ -1092,6 +1287,525 @@ func TestDeadProcessLeavesThePoolBeforeTheReporter(t *testing.T) {
 	for _, s := range rec.atSettled {
 		if s.PID == dead {
 			t.Fatalf("the pool still had the dead process %d when its invocation settled: %+v", dead, rec.atSettled)
+		}
+	}
+}
+
+// A fresh process that ends its stream right after its result and exits
+// 1.5 s later, longer than the reader's grace after an exit, keeps its
+// result: the engine waits for the exit itself, as Windmill's worker waits
+// for the job's process, and nothing is killed.
+func TestFreshSlowExitKeepsItsResult(t *testing.T) {
+	cfg, diag := fakeConfig(t, "fresh-slow-exit")
+	cfg.ModuleState = engine.ModuleStateFresh
+	p := spawn(t, cfg)
+	rec := newRecorder()
+	out, err := execute(t, p, freshInvocation("x", `{}`, rec), 20*time.Second)
+	if err != nil || out.Kind != engine.OutcomeOK || string(out.Body.Producer()) != `"done"` {
+		t.Fatalf("got %+v, %v; diagnostics %q", out, err, diag.String())
+	}
+	if k := rec.waitSettled(t, 5*time.Second); k != engine.SettleCompleted {
+		t.Fatalf("settled %s; calls %s", k, rec.log())
+	}
+	<-p.Done()
+	if st := p.ExitStatus(); st.Signal != "" || st.Code != 0 {
+		t.Fatalf("exit status %s, want exit code 0", st)
+	}
+	if d := diag.String(); strings.Contains(d, "killing the harness") {
+		t.Fatalf("the process was killed: %q", d)
+	}
+}
+
+// A fresh process that ends its stream and never exits is killed once
+// endWait has passed: its invocation fails as escaped by SIGKILL, its held
+// result dropped, and the diagnostics say why.
+func TestFreshNoExitIsEnded(t *testing.T) {
+	cfg, diag := fakeConfig(t, "fresh-no-exit")
+	cfg.ModuleState = engine.ModuleStateFresh
+	p := spawn(t, cfg)
+	p.mu.Lock()
+	p.endWait = 300 * time.Millisecond
+	p.mu.Unlock()
+	rec := newRecorder()
+	start := time.Now()
+	out, err := execute(t, p, freshInvocation("x", `{}`, rec), 20*time.Second)
+	if err != nil || out.Kind != engine.OutcomeEscaped || out.Signal != "SIGKILL" || out.ExitCode != -1 {
+		t.Fatalf("got %+v, %v; diagnostics %q", out, err, diag.String())
+	}
+	if d := time.Since(start); d > 10*time.Second {
+		t.Errorf("the outcome took %s", d)
+	}
+	if k := rec.waitSettled(t, 5*time.Second); k != engine.SettleProcessExited {
+		t.Fatalf("settled %s; calls %s", k, rec.log())
+	}
+	<-p.Done()
+	if st := p.ExitStatus(); st.Signal != "SIGKILL" {
+		t.Fatalf("exit status %s, want SIGKILL", st)
+	}
+	waitFor(t, "the kill's diagnostics line", func() bool {
+		return strings.Contains(diag.String(), "killing the harness: no exit within 300ms of the end of its connection")
+	})
+}
+
+// A fresh harness that ends its stream and never exits, leaving a child in
+// its group, is ended within the bound: its kill is what ended it, so the
+// job has failed, and its group is killed too, then waited for.
+func TestFreshNoExitWithAChildIsBounded(t *testing.T) {
+	cfg, diag := fakeConfig(t, "fresh-no-exit-child")
+	cfg.ModuleState = engine.ModuleStateFresh
+	p := spawn(t, cfg)
+	p.mu.Lock()
+	p.endWait = 300 * time.Millisecond
+	p.mu.Unlock()
+	child, then, done := startHeldChild(t, p, nil)
+	if observable && then.ppid != p.pid {
+		t.Fatalf("child %d: %+v, want a child of %d", child, then, p.pid)
+	}
+	r := <-done
+	if r.err != nil || r.out.Kind != engine.OutcomeEscaped || r.out.Signal != "SIGKILL" {
+		t.Fatalf("got %+v, %v; diagnostics %q", r.out, r.err, diag.String())
+	}
+	if d := time.Since(r.start); d > 10*time.Second {
+		t.Fatalf("the outcome took %s, the child's 30 s", d)
+	}
+	if observable {
+		waitFor(t, "the child to be killed with the group", func() bool {
+			now, ok := procInfoOf(child)
+			return !ok || now.start != then.start || now.zombie
+		})
+	}
+}
+
+// When the bound's kill has ended a fresh harness, the job settles at most
+// the same bound later, whatever is left in its group: here the group keeps
+// a zombie whose parent, another process outside the group, does not wait
+// for it until the test lets it. While the caller's context lasts, the
+// process itself ends once the group has emptied, as it does at main.
+func TestFreshNoExitWithAStrayZombieIsBounded(t *testing.T) {
+	cfg, diag := fakeConfig(t, "fresh-no-exit-stray")
+	cfg.ModuleState = engine.ModuleStateFresh
+	p := spawn(t, cfg)
+	p.mu.Lock()
+	p.endWait = 300 * time.Millisecond
+	p.mu.Unlock()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	child, then, done := startHeldChild(t, p, ctx)
+	if observable && (then.pgid != p.pid || then.ppid == p.pid || then.ppid == os.Getpid()) {
+		t.Fatalf("child %d: %+v, want a member of group %d whose parent is neither", child, then, p.pid)
+	}
+	r := <-done
+	if r.err != nil || r.out.Kind != engine.OutcomeEscaped || r.out.Signal != "SIGKILL" {
+		t.Fatalf("got %+v, %v; diagnostics %q", r.out, r.err, diag.String())
+	}
+	if d := time.Since(r.start); d > 10*time.Second {
+		t.Fatalf("the outcome took %s", d)
+	}
+	// The job settled with the group not empty: it still holds the killed
+	// child, as the zombie of its parent, which still runs.
+	parent := waitPID(t, then.pidFile+".parent")
+	if observable {
+		waitFor(t, "the child to be killed with the group", func() bool {
+			now, ok := procInfoOf(child)
+			return ok && now.start == then.start && now.zombie
+		})
+		if now, _ := procInfoOf(child); now.ppid != parent || now.pgid != p.pid {
+			t.Fatalf("child %d: %+v, want the zombie of %d in group %d", child, now, parent, p.pid)
+		}
+		if info, ok := procInfoOf(parent); !ok || info.zombie {
+			t.Fatalf("the zombie's parent %d has ended: %+v, %v", parent, info, ok)
+		}
+	}
+	// The group is not empty, and the caller's context has not ended: the
+	// process has not ended either.
+	select {
+	case <-p.Done():
+		t.Fatal("the process ended while its group still held the zombie")
+	default:
+	}
+	// Once that parent reaps the zombie, the group is empty and the
+	// process ends.
+	if err := os.WriteFile(then.pidFile+".done", nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-p.Done():
+	case <-time.After(10 * time.Second):
+		t.Fatal("the process did not end once its group was empty")
+	}
+}
+
+// A cancellation that abandons the invocation before the landed kill's
+// deadline settles it wins, and the process ends as it does at main once
+// nothing waits for an outcome: it does not wait for a group that still
+// holds a zombie of another process's. The cancellation comes as the
+// deadline passes, after the wait has last looked for a pending invocation
+// (settleSeen), and the caller's context has no deadline of its own.
+func TestFreshCancellationBeforeTheSettlementEndsTheWait(t *testing.T) {
+	cfg, diag := fakeConfig(t, "fresh-no-exit-stray")
+	cfg.ModuleState = engine.ModuleStateFresh
+	p := spawn(t, cfg)
+	p.mu.Lock()
+	p.endWait = 300 * time.Millisecond
+	p.mu.Unlock()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var r heldResult
+	dones := make(chan chan heldResult, 1)
+	got := make(chan struct{})
+	seen := func(q *Process) {
+		if q != p {
+			return
+		}
+		cancel()
+		r = <-<-dones
+		close(got)
+	}
+	settleSeen.Store(&seen)
+	t.Cleanup(func() { settleSeen.Store(nil) })
+	_, then, done := startHeldChild(t, p, ctx)
+	dones <- done
+	select {
+	case <-got:
+	case <-time.After(20 * time.Second):
+		t.Fatalf("the landed kill's deadline did not pass; diagnostics %q", diag.String())
+	}
+	if !errors.Is(r.err, context.Canceled) {
+		t.Fatalf("got %+v, %v, want the cancellation; diagnostics %q", r.out, r.err, diag.String())
+	}
+	select {
+	case <-p.Done():
+	case <-time.After(10 * time.Second):
+		t.Fatal("the process did not end once nothing waited for an outcome")
+	}
+	// It ended while the zombie's parent, outside the group, still ran.
+	parent := waitPID(t, then.pidFile+".parent")
+	if info, ok := procInfoOf(parent); observable && (!ok || info.zombie) {
+		t.Fatalf("the zombie's parent %d has ended: %+v, %v", parent, info, ok)
+	}
+}
+
+// When the bound's kill has settled a fresh job early, the process goes on
+// waiting for its group only for as long as the invocation's caller would
+// have waited for the outcome, as at main: until its context ends, here at
+// its deadline. The zombie's parent never lets the zombie go before the
+// test ends.
+func TestFreshSettledJobEndsByItsCallersDeadline(t *testing.T) {
+	cfg, diag := fakeConfig(t, "fresh-no-exit-stray")
+	cfg.ModuleState = engine.ModuleStateFresh
+	p := spawn(t, cfg)
+	p.mu.Lock()
+	p.endWait = 300 * time.Millisecond
+	p.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	deadline, _ := ctx.Deadline()
+	child, then, done := startHeldChild(t, p, ctx)
+	r := <-done
+	if r.err != nil || r.out.Kind != engine.OutcomeEscaped || r.out.Signal != "SIGKILL" {
+		t.Fatalf("got %+v, %v; diagnostics %q", r.out, r.err, diag.String())
+	}
+	select {
+	case <-p.Done():
+	case <-time.After(time.Until(deadline) + 5*time.Second):
+		t.Fatal("the process did not end by its caller's deadline")
+	}
+	if early := time.Until(deadline); early > 0 {
+		t.Fatalf("the process ended %s before its caller's deadline", early)
+	}
+	// The group still held the zombie: only the deadline ended the wait.
+	parent := waitPID(t, then.pidFile+".parent")
+	if observable {
+		now, ok := procInfoOf(child)
+		if !ok || now.start != then.start || !now.zombie || now.ppid != parent {
+			t.Fatalf("child %d: %+v, %v, want the zombie of %d", child, now, ok, parent)
+		}
+	}
+}
+
+// When the bound's kill has settled a fresh job early, a cancellation of
+// the caller's context ends the wait for its group at once, as it would at
+// main, where the invocation is still pending then: the process ends while
+// the group still holds a zombie of another process's. The engine cannot
+// tell such a cancellation from the caller's own release of its context
+// once Execute has returned, and ends the wait for either.
+func TestFreshCallersContextEndEndsTheWait(t *testing.T) {
+	cfg, diag := fakeConfig(t, "fresh-no-exit-stray")
+	cfg.ModuleState = engine.ModuleStateFresh
+	p := spawn(t, cfg)
+	p.mu.Lock()
+	p.endWait = 300 * time.Millisecond
+	p.mu.Unlock()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	child, then, done := startHeldChild(t, p, ctx)
+	r := <-done
+	if r.err != nil || r.out.Kind != engine.OutcomeEscaped || r.out.Signal != "SIGKILL" {
+		t.Fatalf("got %+v, %v; diagnostics %q", r.out, r.err, diag.String())
+	}
+	parent := waitPID(t, then.pidFile+".parent")
+	if observable {
+		waitFor(t, "the child to be killed with the group", func() bool {
+			now, ok := procInfoOf(child)
+			return ok && now.start == then.start && now.zombie
+		})
+	}
+	select {
+	case <-p.Done():
+		t.Fatal("the process ended while its caller waited and its group held the zombie")
+	case <-time.After(300 * time.Millisecond):
+	}
+	cancel()
+	select {
+	case <-p.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("the process did not end once its caller's context had ended")
+	}
+	if observable {
+		now, ok := procInfoOf(child)
+		if !ok || now.start != then.start || !now.zombie || now.ppid != parent {
+			t.Fatalf("child %d: %+v, %v, want the zombie of %d", child, now, ok, parent)
+		}
+	}
+}
+
+// When the caller's context ends after the early settlement, the group is
+// killed as it would be at main, where the invocation is still pending then
+// and its cancellation kills the job's group: here a member that joined the
+// group after the bound's group kill, started by the zombie's parent, is
+// killed, and the process ends at once.
+func TestFreshCallersContextEndKillsALateMember(t *testing.T) {
+	cfg, diag := fakeConfig(t, "fresh-no-exit-stray")
+	cfg.ModuleState = engine.ModuleStateFresh
+	p := spawn(t, cfg)
+	p.mu.Lock()
+	p.endWait = 300 * time.Millisecond
+	p.mu.Unlock()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	child, then, done := startHeldChild(t, p, ctx)
+	r := <-done
+	if r.err != nil || r.out.Kind != engine.OutcomeEscaped || r.out.Signal != "SIGKILL" {
+		t.Fatalf("got %+v, %v; diagnostics %q", r.out, r.err, diag.String())
+	}
+	if observable {
+		waitFor(t, "the child to be killed with the group", func() bool {
+			now, ok := procInfoOf(child)
+			return ok && now.start == then.start && now.zombie
+		})
+	}
+	if err := os.WriteFile(then.pidFile+".late", nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	late := waitPID(t, then.pidFile+".late.pid")
+	var lateThen procInfo
+	if observable {
+		var ok bool
+		lateThen, ok = procInfoOf(late)
+		if !ok || lateThen.zombie || lateThen.pgid != p.pid {
+			t.Fatalf("late member %d: %+v, %v, want it running in group %d", late, lateThen, ok, p.pid)
+		}
+	}
+	select {
+	case <-p.Done():
+		t.Fatal("the process ended while its caller waited and its group held members")
+	default:
+	}
+	cancel()
+	select {
+	case <-p.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("the process did not end once its caller's context had ended")
+	}
+	if observable {
+		waitFor(t, "the late member to be killed", func() bool {
+			now, ok := procInfoOf(late)
+			return !ok || now.start != lateThen.start || now.zombie
+		})
+	}
+}
+
+// observable is set where the tests can read a process's parent, group and
+// state (procInfoOf).
+var observable = runtime.GOOS == "linux" || runtime.GOOS == "darwin"
+
+type heldResult struct {
+	out   engine.StepOutcome
+	err   error
+	start time.Time
+}
+
+// heldChild is what startHeldChild read of the child while it ran, and
+// where its pid was written.
+type heldChild struct {
+	procInfo
+	pidFile string
+}
+
+// startHeldChild runs an invocation of a fresh-no-exit-child or
+// fresh-no-exit-stray harness: it waits for the child's pid, reads the
+// child while it runs, then lets the harness end its stream, which starts
+// the bound. It returns the child, what was read of it, and the outcome
+// to come. The invocation runs under ctx, or, when it is nil, under a
+// context that ends 20 s after it starts. However it ends, the harness is
+// let go, so the invocation's
+// goroutine finishes; in fresh-no-exit-stray the child's parent is let go
+// too when the test ends.
+func startHeldChild(t *testing.T, p *Process, ctx context.Context) (int, heldChild, chan heldResult) {
+	t.Helper()
+	dir := t.TempDir()
+	pidFile, goFile := filepath.Join(dir, "pid"), filepath.Join(dir, "go")
+	done := make(chan heldResult, 1)
+	start := make(chan time.Time, 1)
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			start <- time.Now()
+			os.WriteFile(goFile, nil, 0o644)
+		}
+	}
+	defer release()
+	// Before the temporary directory goes (registered earlier, so removed
+	// later): in fresh-no-exit-stray the child's parent is let go, and the
+	// test waits for it to reap the child and exit.
+	t.Cleanup(func() {
+		if err := os.WriteFile(pidFile+".done", nil, 0o644); err != nil {
+			t.Errorf("letting the child's parent go: %v", err)
+			return
+		}
+		b, err := os.ReadFile(pidFile + ".parent")
+		if err != nil || !observable {
+			return
+		}
+		if parent, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
+			waitFor(t, "the child's parent to reap it and exit", func() bool {
+				info, ok := procInfoOf(parent)
+				return !ok || info.zombie
+			})
+		}
+	})
+	go func() {
+		inv := freshInvocation("x", `{"pidFile":`+strconv.Quote(pidFile)+`,"goFile":`+strconv.Quote(goFile)+`}`, newRecorder())
+		var out engine.StepOutcome
+		var err error
+		if ctx == nil {
+			out, err = execute(t, p, inv, 20*time.Second)
+		} else {
+			out, err = p.Execute(ctx, inv)
+		}
+		done <- heldResult{out, err, <-start}
+	}()
+	child := waitPID(t, pidFile)
+	then := heldChild{pidFile: pidFile}
+	if observable {
+		var ok bool
+		then.procInfo, ok = procInfoOf(child)
+		if !ok || then.zombie {
+			t.Fatalf("child %d: %+v, %v, want it running", child, then.procInfo, ok)
+		}
+	}
+	release()
+	return child, then, done
+}
+
+// waitPID waits for file to hold a pid, and returns it.
+func waitPID(t *testing.T, file string) int {
+	t.Helper()
+	var pid int
+	waitFor(t, "a pid in "+filepath.Base(file), func() bool {
+		b, err := os.ReadFile(file)
+		if err != nil || len(b) == 0 {
+			return false
+		}
+		pid, err = strconv.Atoi(strings.TrimSpace(string(b)))
+		return err == nil
+	})
+	return pid
+}
+
+// A fresh process whose exit is seen only after the bound's kill was
+// attempted keeps its held result: the kill found it gone, and its own
+// exit status, 0, stands. The engine hears of the exit only once the kill
+// has been tried (exitObserved).
+func TestFreshExitSeenAfterTheBoundKeepsItsResult(t *testing.T) {
+	cfg, diag := fakeConfig(t, "fresh-exit-at-once")
+	cfg.ModuleState = engine.ModuleStateFresh
+	p := spawn(t, cfg)
+	p.mu.Lock()
+	p.endWait = 300 * time.Millisecond
+	p.mu.Unlock()
+	late := func(q *Process) {
+		if q != p {
+			return
+		}
+		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+			q.mu.Lock()
+			tried := q.killReason != ""
+			q.mu.Unlock()
+			if tried {
+				return
+			}
+		}
+	}
+	exitObserved.Store(&late)
+	t.Cleanup(func() { exitObserved.Store(nil) })
+	rec := newRecorder()
+	out, err := execute(t, p, freshInvocation("x", `{}`, rec), 20*time.Second)
+	if err != nil || out.Kind != engine.OutcomeOK || string(out.Body.Producer()) != `"done"` {
+		t.Fatalf("got %+v, %v; diagnostics %q", out, err, diag.String())
+	}
+	if k := rec.waitSettled(t, 5*time.Second); k != engine.SettleCompleted {
+		t.Fatalf("settled %s; calls %s", k, rec.log())
+	}
+	<-p.Done()
+	if st := p.ExitStatus(); st.Signal != "" || st.Code != 0 {
+		t.Fatalf("exit status %s, want exit code 0", st)
+	}
+	waitFor(t, "the bound's kill line", func() bool {
+		return strings.Contains(diag.String(), "killing the harness: no exit within 300ms")
+	})
+}
+
+// A fresh process that ends its stream after its result and dies by its
+// own SIGTERM before the bound keeps its result, and its exit status is its
+// own: nothing is killed.
+func TestFreshSignalledExitIsItsOwn(t *testing.T) {
+	cfg, diag := fakeConfig(t, "fresh-term-after-end")
+	cfg.ModuleState = engine.ModuleStateFresh
+	p := spawn(t, cfg)
+	rec := newRecorder()
+	out, err := execute(t, p, freshInvocation("x", `{}`, rec), 20*time.Second)
+	if err != nil || out.Kind != engine.OutcomeOK || string(out.Body.Producer()) != `"done"` {
+		t.Fatalf("got %+v, %v; diagnostics %q", out, err, diag.String())
+	}
+	<-p.Done()
+	if st := p.ExitStatus(); st.Signal != "SIGTERM" {
+		t.Fatalf("exit status %s, want SIGTERM", st)
+	}
+	if d := diag.String(); strings.Contains(d, "killing the harness") {
+		t.Fatalf("the process was killed: %q", d)
+	}
+}
+
+// The kill of the process alone is what ended it only when it was sent and
+// the process ended by SIGKILL. One that ended with a code, or by another
+// signal, ended by itself. This covers the exit that is seen only after
+// the bound's kill was sent, which cannot be timed from outside.
+func TestKillLanded(t *testing.T) {
+	for _, c := range []struct {
+		alone bool
+		st    ExitStatus
+		want  bool
+	}{
+		{true, ExitStatus{Code: -1, Signal: "SIGKILL"}, true},
+		{true, ExitStatus{Code: -1, Signal: "SIGTERM"}, false},
+		{true, ExitStatus{Code: 0}, false},
+		{true, ExitStatus{Code: 3}, false},
+		{false, ExitStatus{Code: -1, Signal: "SIGKILL"}, false},
+	} {
+		if got := killLanded(c.alone, c.st); got != c.want {
+			t.Errorf("killLanded(%v, %s) = %v, want %v", c.alone, c.st, got, c.want)
 		}
 	}
 }
