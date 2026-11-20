@@ -107,7 +107,7 @@ type buildCase struct {
 			Contains []string `json:"contains"`
 		} `json:"build_problems"`
 		// Assets are the files a Folder case's bundle carries under
-		// assets/, by path, with their content (codebase scripts, C2b).
+		// assets/, by path, with their content (codebase scripts).
 		Assets          map[string]string `json:"assets"`
 		HostModuleOrder []string          `json:"host_module_order"`
 		OrderProblem    *problemWant      `json:"order_problem"`

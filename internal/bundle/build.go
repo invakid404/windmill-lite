@@ -209,7 +209,7 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 		s := prog.Scripts[id]
 		names[id] = ScriptItem(s)
 		if s.Bundling == ir.BundlingCodebase {
-			// esbuild bundles it with its entry's settings (C2b).
+			// esbuild bundles it with its entry's settings.
 			codebase = append(codebase, CodebaseScript{ID: id, Path: s.Path, File: s.File,
 				Settings: folder.Config.Codebases[s.Codebase.Index].Settings})
 			continue

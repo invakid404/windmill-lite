@@ -39,9 +39,10 @@ func TestSpells(t *testing.T) {
 	}
 }
 
-// esbuild resolves the imports of different modules concurrently, so the
-// plugin's callbacks that map host-provided modules to their shims run at
-// once (c2b review 1, finding 1). Many modules of one codebase bundle each
+// TestBuildCodebaseConcurrentHostImports checks the plugin under
+// concurrency: esbuild resolves the imports of different modules
+// concurrently, so the plugin's callbacks that map host-provided modules
+// to their shims run at once. Many modules of one codebase bundle each
 // import a listed folder module and a listed package: the build records
 // both, every import reads the registered instance, and under -race no
 // write is unsynchronised.
@@ -125,12 +126,13 @@ func TestBuildCodebaseConcurrentHostImports(t *testing.T) {
 	}
 }
 
-// One codebase script that fails does not keep the others from their
-// outputs (c2b review 3, finding 5): an entry whose module and assets
-// build gets its metadata and assets, so a caller can run it, while the
-// failed entries are reported. An asset that collides with one an earlier
-// entry took is the later entry's problem; paths that would not extract to
-// one tree are the bundle's, and then nothing is written.
+// TestBuildCodebasePartialSuccess checks that one codebase script that
+// fails does not keep the others from their outputs: an entry whose module
+// and assets build gets its metadata and assets, so a caller can run it,
+// while the failed entries are reported. An asset that collides with one
+// an earlier entry took is the later entry's problem; paths that would not
+// extract to one tree are the bundle's, and then no metadata and no asset
+// is written.
 func TestBuildCodebasePartialSuccess(t *testing.T) {
 	bun := bunPath(t)
 	build := func(t *testing.T, files map[string]string, entries []CodebaseScript) (*CodebaseResult, *BuildError, string) {

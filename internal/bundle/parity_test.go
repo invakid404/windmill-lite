@@ -27,7 +27,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/syncfolder"
 )
 
-// The CLI parity check (ADR 0002, decision 4; milestone C2b; Q-WR-24): the
+// The CLI parity check (ADR 0002, decision 4; Q-WR-24): the
 // pinned windmill-cli, run unmodified as a black-box tool against a
 // recording HTTP stub, produces the codebase bundle it would upload, and
 // the esbuild reproduction of its settings (CodebaseSettings.CLIBundle)

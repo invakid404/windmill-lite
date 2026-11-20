@@ -70,11 +70,16 @@ func bundleScripts(t testing.TB, folder string, scripts int, listed bool) time.D
 	return time.Since(start)
 }
 
-// Listing a host-provided module leaves a codebase build's time as it was
-// (milestone F3h). Mapping imports of the listed module to its shim once
-// resolved every import a second time, outside esbuild's directory cache,
-// which made a build that imports a package of many modules 16 to 44 times
-// slower; the shim now replaces the module's file when esbuild loads it.
+// TestCodebaseHostModulesKeepBuildTime checks that listing a host-provided
+// module keeps a codebase build's time close to the plain build's: six
+// scripts import a package of 400 modules, and the build with a listed
+// module may take at most three times the plain build plus 300 ms, each
+// the fastest of three runs. The shim replaces the module's file when
+// esbuild loads it. Mapping imports of the listed module to its shim when
+// they resolve would resolve every import a second time, outside
+// esbuild's directory cache, which made a build that imports a package of
+// many modules 16 to 44 times slower; this test does not run that
+// resolver.
 func TestCodebaseHostModulesKeepBuildTime(t *testing.T) {
 	const n, scripts = 400, 6
 	folder := manyModulesFolder(t, n, scripts)
@@ -116,14 +121,14 @@ func sfxPackage(name, global string) map[string]string {
 	}
 }
 
-// Listing host-provided modules keeps the load effects of the modules a
-// step bundle still inlines, those of modules marked sideEffects:false
-// included (milestone F3h): esbuild and the Bun build resolve and prune
-// every import the same way whether or not a module is listed, and only a
-// listed module's file is replaced, by its shim. The one difference is
-// D12's own: every listed module loads once per process when it is
-// registered, so a listed module that a step imports but never uses, which
-// sideEffects:false prunes from the plain bundle, still runs its load
+// TestHostModulesKeepLoadEffects checks that listing host-provided modules
+// keeps the load effects of the modules a step bundle still inlines, those
+// of modules marked sideEffects:false included: esbuild and the Bun build
+// resolve and prune every import the same way whether or not a module is
+// listed, and only a listed module's file is replaced, by its shim. The one
+// difference is D12's own: every listed module loads once per process when
+// it is registered, so a listed module that a step imports but never uses,
+// which sideEffects:false prunes from the plain bundle, still runs its load
 // effects (step g).
 func TestHostModulesKeepLoadEffects(t *testing.T) {
 	bun := bunPath(t)

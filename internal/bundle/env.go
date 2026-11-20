@@ -6,7 +6,7 @@ import "fmt"
 type Format string
 
 // The module formats: Bun.build always writes ESM; esbuild writes either
-// (C2b, WR-47).
+// (WR-47).
 const (
 	ESM Format = "esm"
 	CJS Format = "cjs"
@@ -43,7 +43,7 @@ const EnvBinding = "__windmill_lite_Bun"
 // (globalThis, Reflect, Proxy, Object, process) to the real globals and
 // renames a script's own top-level bindings of those names, as it renames
 // any collision between modules; nothing is inserted into a script's scope.
-// In ESM output the bundle imports it first; in CJS output (esbuild, C2b)
+// In ESM output the bundle imports it first; in CJS output (esbuild)
 // it is injected the same way, so its source runs as either format.
 //
 // What a define cannot see still reads the real environment: imports of
@@ -53,10 +53,11 @@ const EnvBinding = "__windmill_lite_Bun"
 // and code built at run time (`eval`, `new Function`).
 //
 // The Bun build applies the rewrite to Bun-target bundles only. A
-// `//native` script runs at the native boundary (C3n), whose process.env is
-// its preamble's; a `//nodejs` one runs on Node on Windmill with Bun's
-// environment (WR-50), and on the Bun harness here, whose environment view
-// covers it at run time (D13).
+// `//native` script runs at the native boundary, whose process.env is its
+// preamble's, with `//nodejs` or without; a `//nodejs` one that is not
+// native runs on Node on Windmill with Bun's environment (WR-50), and on
+// the Bun harness here, whose environment view covers it at run time
+// (D13).
 func EnvRewrite(f Format) (define map[string]string, support string, err error) {
 	define = map[string]string{
 		"Bun":            EnvBinding,
