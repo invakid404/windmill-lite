@@ -336,7 +336,8 @@ func traceSpans(tr *wl.Trace, site map[string]time.Duration) (int, time.Duration
 	return len(mods), expr
 }
 
-// BenchmarkPassThrough is the pass-through chain at both passSizes, from 0 to 4 sub-flow levels and forwarded into 1 to 5 steps, on
+// BenchmarkPassThrough is the pass-through chain at both passSizes, from 0
+// to 4 sub-flow levels and forwarded into 1 to 5 steps, on
 // the host and on the plugin host, whose onRunEnd takes the whole trace.
 // The difference between depths is what one level costs.
 func BenchmarkPassThrough(b *testing.B) {
