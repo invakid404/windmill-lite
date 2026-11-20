@@ -23,7 +23,7 @@ host's own process
 Install the package at an exact version:
 
 ```sh
-bun add --exact windmill-lite@0.4.0
+bun add --exact windmill-lite@0.4.1
 ```
 
 Pin the version, because the SDK works only with the engine of the same
@@ -32,7 +32,7 @@ take an SDK that your engine refuses.
 
 | npm dist-tag | What it names |
 |---|---|
-| `latest` | The latest release, `0.4.0` |
+| `latest` | The latest release, `0.4.1` |
 | `next` | The latest [release candidate](../RELEASING.md#release-a-release-candidate), `0.2.0-rc.1` |
 
 ## Versions
@@ -51,7 +51,7 @@ Otherwise the engine refuses the host, and `connect()` rejects with a
 ### Get the engine
 
 Each version has a GitHub Release `v<version>`, such as
-[v0.4.0](https://github.com/invakid404/windmill-lite/releases/tag/v0.4.0).
+[v0.4.1](https://github.com/invakid404/windmill-lite/releases/tag/v0.4.1).
 It holds the engine for Linux (amd64 and arm64, static binaries) and for
 macOS (arm64 and amd64), with `LICENSES.txt` and `SHA256SUMS`. In these
 steps, replace `<os>-<arch>` with `linux-amd64`, `linux-arm64`,
@@ -60,13 +60,13 @@ steps, replace `<os>-<arch>` with `linux-amd64`, `linux-arm64`,
 1. Download the engine:
 
    ```sh
-   curl -fLO https://github.com/invakid404/windmill-lite/releases/download/v0.4.0/windmill-lite-<os>-<arch>
+   curl -fLO https://github.com/invakid404/windmill-lite/releases/download/v0.4.1/windmill-lite-<os>-<arch>
    ```
 
 2. Download the release's sums:
 
    ```sh
-   curl -fLO https://github.com/invakid404/windmill-lite/releases/download/v0.4.0/SHA256SUMS
+   curl -fLO https://github.com/invakid404/windmill-lite/releases/download/v0.4.1/SHA256SUMS
    ```
 
 3. Check the engine against its sum:
@@ -74,7 +74,7 @@ steps, replace `<os>-<arch>` with `linux-amd64`, `linux-arm64`,
    macOS, use `shasum -a 256 --check` in place of `sha256sum --check`.
 4. Make it executable: `chmod +x windmill-lite-<os>-<arch>`.
 5. Check its version: `./windmill-lite-<os>-<arch> version` prints
-   `windmill-lite v0.4.0`.
+   `windmill-lite v0.4.1`.
 
 ### Build a bundle
 
@@ -84,7 +84,7 @@ release nor the package ships. Take it from a checkout of the release's
 tag:
 
 1. Clone the tag:
-   `git clone --branch v0.4.0 https://github.com/invakid404/windmill-lite.git`.
+   `git clone --branch v0.4.1 https://github.com/invakid404/windmill-lite.git`.
 2. Install the helper's dependencies:
    `(cd windmill-lite/harnesses/bun/build && bun install --frozen-lockfile)`.
 3. Build the bundle with Bun 1.4.3 as `bun` on the `PATH` or in `WL_BUN`.
@@ -122,7 +122,7 @@ await host.close();
 
 - `connect()` starts the engine as `windmill-lite host`, and runs the
   steps in this process. Give `bundle` as an absolute path: in versions
-  0.2.0, 0.3.0 and 0.4.0, `connect()` fails on a relative one.
+  0.2.0, 0.3.0, 0.4.0 and 0.4.1, `connect()` fails on a relative one.
 - `workdir` must be a writable directory that is already the process's
   working directory. Otherwise `connect()` rejects with
   `workdir_not_writable` or `workdir_mismatch`.

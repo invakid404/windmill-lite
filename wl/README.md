@@ -32,10 +32,10 @@ The `windmill-lite run` and `windmill-lite host` commands
 
 The engine version of your program is `wl.Version()`. It is the version
 of the module `github.com/invakid404/windmill-lite` in the program's build
-information, such as `v0.4.0` when your `go.mod` requires that version.
+information, such as `v0.4.1` when your `go.mod` requires that version.
 Build the bundle with the engine of the same version: the release's
 `windmill-lite` binary, or the command that
-`go install github.com/invakid404/windmill-lite/cmd/windmill-lite@v0.4.0`
+`go install github.com/invakid404/windmill-lite/cmd/windmill-lite@v0.4.1`
 installs.
 
 ## A minimal example
@@ -46,7 +46,7 @@ installs.
    This example uses the synthetic [fixture](../docs/glossary.md#fixture) of
    [Quick start](../README.md#quick-start), built to `fixture.wlb`.
 2. Add the module to your program:
-   `go get github.com/invakid404/windmill-lite@v0.4.0`.
+   `go get github.com/invakid404/windmill-lite@v0.4.1`.
 3. Open the bundle, run its flow `f/app/main`, and print the outcome:
 
 ```go
