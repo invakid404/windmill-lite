@@ -617,7 +617,7 @@ recorded baseline is in the
 |---|---|---|
 | `BenchmarkStepBoundary` | `bench_test.go` | An eight-step chain, with payloads from 26 B to 4 MiB |
 | `BenchmarkHostShapes` | `bench_test.go` | Flows shaped like a host-mode embedder's, 50 to 600 steps |
-| `BenchmarkRetainedHeap` | `bench_test.go` | What each finished run leaves reachable in the engine's heap |
+| `BenchmarkRetainedHeap` | `bench_test.go` | The average net growth of the engine's Go heap per finished run, which can be negative and stays near zero when runs are released |
 | `BenchmarkPassThrough` | `bench_large_test.go` | A large value passed on unchanged through steps and subflows |
 | `BenchmarkExpressions` | `bench_large_test.go` | Expressions on a large value |
 | `BenchmarkRunPeaks` | `bench_large_test.go` | The peak memory of the engine and the host over one run, on Linux |

@@ -196,8 +196,9 @@ The disk watchdog covers the start and the rest of the session.
    - a fixture with [provided sites](../../docs/glossary.md#provided-site)
      is skipped, its runs reported `skipped`
      (`fixture_has_provided_sites`). windmill-lite replaces those sites with
-     the host's providers, while the oracle would run their real targets, so
-     such a fixture holds expectations only;
+     what the host configures, a static value or a named provider, while the
+     oracle would run their real targets, so such a fixture holds
+     expectations only;
    - a fixture that needs another configuration is refused, or skipped with
      `SkipUnmetSession`; one that names an unknown configuration is refused
      (`unknown_session`, [Oracle configurations](#oracle-configurations));
@@ -647,9 +648,9 @@ reason, a tree in which an executed script would keep its real body:
 | A retry on a loop or branch step | A failed attempt is walked as its last failed child alone, under `r:<k>` without the child's `i:` or `b:` segment, so none of its calls matches the site that the replay service resolved |
 | A source that `StubSource` refuses | [The stub](#the-stub) |
 
-A retry on a flow step is accepted: each attempt's subflow is walked whole
-below the step's `r:<k>`, and the replay service counts its steps' jobs
-across the attempts.
+A retry on a flow step is accepted: each failed attempt's subflow is walked
+whole below the step's `r:<k>`, and the last attempt's below the step's own
+site. The replay service counts its steps' jobs across the attempts.
 
 The output must not lie inside the tree or inside a carried directory. File
 identity decides it (`os.SameFile` against each existing ancestor of the
