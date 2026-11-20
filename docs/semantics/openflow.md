@@ -35,7 +35,7 @@ secret without a resolver fails with a clear error
 
 The sync-folder cases that wait on a recording are listed in
 [Q-OF-13](#q-of-13), and the design README's
-[recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)
+[recording requests](../design/README.md#recording-requests)
 ask for them.
 
 Conventions used below:
@@ -809,7 +809,7 @@ the effective decoder decides acceptance (OF-1).
   either, so it cannot honour a pin from the folder alone ([SY-15](#sy-15)).
   It needs a policy: refuse the step, or take the hash from a host that
   knows the target workspace.
-- **Not recorded:** [OF-14/f](conformance.md#of-14) needs no push of a tree, since the flows API accepts any well-formed pin, so it waits on an API-deployed fixture in the reference session, which the design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5) ask for. Pinned steps whose hash exists, deployed through the API, are recorded on CE `v1.767.0` ([WR-11](languages.md#wr-11), [FX-40](execution.md#fx-40)).
+- **Not recorded:** [OF-14/f](conformance.md#of-14) needs no push of a tree, since the flows API accepts any well-formed pin, so it waits on an API-deployed fixture in the reference session, which the design README's [recording requests](../design/README.md#recording-requests) ask for. Pinned steps whose hash exists, deployed through the API, are recorded on CE `v1.767.0` ([WR-11](languages.md#wr-11), [FX-40](execution.md#fx-40)).
 
 <a id="of-15"></a>
 ### OF-15 · Inline-script locks on deploy
@@ -2591,5 +2591,5 @@ its licence status is the one given there.
   tree, only a flow deployed through the API with an unknown pin
   ([OF-14](#of-14)). Nothing here can be settled from the source beyond
   what the findings state. Still open; the design README's
-  [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)
+  [recording requests](../design/README.md#recording-requests)
   ask for a push-as-run session and list what to observe per case.

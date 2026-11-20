@@ -44,7 +44,7 @@ The other 10 cases are source-derived:
   expectation established: that a squashed loop on an EE build gives the
   results it gives without `squash`. EE behaviour is out of scope;
 - two wait on a recording, which the design README's
-  [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)
+  [recording requests](../design/README.md#recording-requests)
   ask for:
   - [CF-30/c](conformance.md#cf-30): that the run API refuses a flow whose
     preprocessor is a collapsible forloop, as it refuses any container

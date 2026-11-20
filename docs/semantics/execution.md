@@ -31,7 +31,7 @@ refused ([FX-39/a](conformance.md#fx-39)).
 The other 12 cases are source-derived. For each one that waits on a
 recording, an open question below says which recording settles it. The
 design README's
-[recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)
+[recording requests](../design/README.md#recording-requests)
 ask for those recordings. They also list the cases that no open question
 names:
 
@@ -3543,7 +3543,7 @@ names:
 - **Not recorded:** the cache log line, because the walker records results
   and statuses only; and S3-aware hashing with workspace object storage,
   which [Q-FX-21](#q-fx-21) tracks and the design README's
-  [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)
+  [recording requests](../design/README.md#recording-requests)
   ask for.
 
 <a id="fx-41"></a>
@@ -4993,7 +4993,7 @@ against Windmill CE `v1.767.0`, except those that name CE `v1.862.0`.
   step `return 1` with `timeout: 0`; do not assume a deterministic ordering
   for the race.
   *2026-10-30:* a recording batch on the oracle did not record this;
-  requested for the next run of that batch (the design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)). Still open.
+  requested for the next run of that batch (the design README's [recording requests](../design/README.md#recording-requests)). Still open.
   **Answered 2026-11-07 (retarget to v1.862.0).** At v1.862.0 there is no
   race: a `timeout` of 0 is unset (1.768.0, [FX-24](#fx-24)), so the step
   runs under the instance default. Recorded on CE v1.862.0:
@@ -5021,7 +5021,7 @@ against Windmill CE `v1.767.0`, except those that name CE `v1.862.0`.
   FX-V2/a's handler, which reads `previous_result` and `results.a`
   (recorded on the oracle), follows an error stop without
   `continue_on_error`, a different way into the failure module. Requested
-  again (the design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)). Still open.
+  again (the design README's [recording requests](../design/README.md#recording-requests)). Still open.
 
 <a id="q-fx-4"></a>
 - **Q-FX-4** · affects [FX-15](#fx-15), [FX-24](#fx-24) ·
@@ -5035,7 +5035,7 @@ against Windmill CE `v1.767.0`, except those that name CE `v1.862.0`.
   *Settled by:* oracle runs of [FX-15/b, FX-15/c](conformance.md#fx-15) and
   [FX-24/b](conformance.md#fx-24).
   *2026-10-30:* a recording batch on the oracle did not record FX-24/b;
-  requested (the design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)).
+  requested (the design README's [recording requests](../design/README.md#recording-requests)).
   Still open.
   **Answered 2026-11-07 (retarget to v1.862.0).** At v1.862.0 a negative
   `timeout` is unset (1.768.0), so FX-24/b's pickup path no longer fails.
@@ -5056,7 +5056,7 @@ against Windmill CE `v1.767.0`, except those that name CE `v1.862.0`.
   that a driver
   step can start previews through the API (fixture
   `conformance/flows/client-api/driven`, run `previews`), so the preview
-  halves can be recorded the same way; requested (the design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)). Still open.
+  halves can be recorded the same way; requested (the design README's [recording requests](../design/README.md#recording-requests)). Still open.
 
 <a id="q-fx-6"></a>
 - **Q-FX-6** · affects [FX-40](#fx-40) · **Answered 2026-10-28.** Yes: a
@@ -5101,7 +5101,7 @@ against Windmill CE `v1.767.0`, except those that name CE `v1.862.0`.
   (fixture `conformance/flows/client-api/raw-requests`, run `requests`,
   oracle run 41003988171). The optional `0.028735999999999998` probe of
   rule 9's correctly rounded parse was not part of the batch; it is
-  requested again as optional (the design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)). Status: closed.
+  requested again as optional (the design README's [recording requests](../design/README.md#recording-requests)). Status: closed.
 
 <a id="q-fx-8"></a>
 - **Q-FX-8** · affects [FX-48](#fx-48), [FX-50](#fx-50) · **Re-scoped
@@ -5153,7 +5153,7 @@ against Windmill CE `v1.767.0`, except those that name CE `v1.862.0`.
   *Settled by:* oracle runs of [FX-41/a–FX-41/c](conformance.md#fx-41) on a
   Linux worker.
   *2026-10-30:* a recording batch on the oracle did not record this;
-  requested (the design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)). Still open.
+  requested (the design README's [recording requests](../design/README.md#recording-requests)). Still open.
 
 <a id="q-fx-11"></a>
 - **Q-FX-11** · affects [FX-49](#fx-49), [FX-22](#fx-22) · **Answered
@@ -5445,4 +5445,4 @@ against Windmill CE `v1.767.0`, except those that name CE `v1.862.0`.
   oracle run 41020447570), except the cache log line, which the walker
   does not record. What remains is S3-aware hashing with workspace object
   storage: the harness of that recording starts no S3-compatible store.
-  Requested again (the design README's [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5)). Still open.
+  Requested again (the design README's [recording requests](../design/README.md#recording-requests)). Still open.

@@ -38,7 +38,7 @@ independent check of the draft. Open questions are `Q-OR-n`.
   sleeps 2 s. [OR-V7/c](conformance.md#or-v7) records the same shape with a
   1 s sleep.
 - Recording requests live in the design README's
-  [recording requests](../design/README.md#recording-requests-for-a-future-batch-e3f-sc5).
+  [recording requests](../design/README.md#recording-requests).
 
 <a id="conventions"></a>
 ## Conventions
