@@ -15,8 +15,12 @@ type Flow struct {
 	// Dir is the flow folder and File its flow.yaml, root-relative.
 	Dir  string `json:"dir"`
 	File string `json:"file"`
-	// Document is the decoded flow.yaml (A3's decoder), with the content
-	// and lock of every inline script read from its files.
+	// Document is the decoded flow.yaml (openflow.DecodeFlow). Flow
+	// resolves each rawscript whose content is an `!inline` reference: the
+	// content from its file, and the lock from its file when the lock is a
+	// reference too; other content and locks stay as written.
+	// FlowDocument leaves every reference as written, for InlineScript to
+	// resolve.
 	Document *openflow.Flow `json:"flow"`
 	// Inline lists the rawscripts whose content was an `!inline`
 	// reference, in traversal order.
