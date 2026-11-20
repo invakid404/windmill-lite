@@ -1,6 +1,6 @@
 name: Benchmarks
 
-# Non-gating comparisons of G1's end-to-end benchmarks (cmd/windmill-lite,
+# Non-gating comparisons of the end-to-end benchmarks (cmd/windmill-lite,
 # ADR 0005's benchmark plan) and of the module-memory tests (ADR 0013)
 # between builds of the engine, on GitHub's hosted runners, linux/amd64 and
 # linux/arm64. It is started by hand (workflow_dispatch) and never gates a
@@ -26,12 +26,13 @@ name: Benchmarks
 #       passthrough  BenchmarkPassThrough
 #       expressions  BenchmarkExpressions
 #       peaks        BenchmarkRunPeaks (peak resident memory)
-#       small        G1's configurations and shapes at 1 KiB and below, and
+#       small        BenchmarkStepBoundary's configurations and
+#                    BenchmarkHostShapes' shapes at 1 KiB and below, and
 #                    the eight-concurrent shape, each in a process of its
 #                    own (WL_BENCH_FRESH=1)
-#       mid          G1's sequential shapes between 1 KiB and 256 KiB
-#                    (10 KiB, 50 KiB and mixed results), each in a process
-#                    of its own
+#       mid          BenchmarkHostShapes' sequential shapes between 1 KiB
+#                    and 256 KiB (10 KiB, 50 KiB and mixed results), each in
+#                    a process of its own
 #       retained     BenchmarkRetainedHeap (what finished runs leave
 #                    reachable on one long-lived runtime)
 #       embedder     BenchmarkEmbedder: the embedder shapes, twelve

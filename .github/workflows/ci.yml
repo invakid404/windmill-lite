@@ -107,13 +107,12 @@ jobs:
         run: echo "WL_NODE=$(command -v node)" >> "$GITHUB_ENV"
 
       - name: Fetch windmill-client 1.862.0
-        # The Q-WA-4 env-view test (milestone W1, internal/harness), the
-        # facade's attribution test (milestone PF1,
-        # internal/platform/facade) and the client's shared-code test
-        # (cmd/wltest) run the stock client of Windmill 1.862.0: an
-        # Apache-2.0 package, used as a test dependency and never
-        # committed. The tarball is checked
-        # against the SHA-512 of its npm integrity hash.
+        # The Q-WA-4 env-view test (internal/harness), the facade's
+        # attribution test (internal/platform/facade) and the client's
+        # shared-code test (cmd/wltest) run the stock client of Windmill
+        # 1.862.0: an Apache-2.0 package, used as a test dependency and
+        # never committed. The step checks the tarball's SHA-512 digest
+        # against the one that npm's integrity value gives, written in hex.
         run: |
           dir="$RUNNER_TEMP/windmill-client"
           mkdir -p "$dir/node_modules/windmill-client"
@@ -195,9 +194,9 @@ jobs:
 
       - name: Build a fixture bundle twice and compare
         if: matrix.checks
-        # F4's exit gate (ADR 0010, 0012): the same inputs and pins give one
-        # bundle digest. The second build reads a copy of the fixture in
-        # another directory; the archives must be the same bytes.
+        # The reproducible-build check (ADR 0010, 0012): the same inputs and
+        # pins give one bundle digest. The second build reads a copy of the
+        # fixture in another directory; the archives must be the same bytes.
         env:
           WL_BUN: ${{ steps.bun.outputs.bun-path }}
           WL_BUILD_HELPER: ${{ github.workspace }}/harnesses/bun/build/main.ts
@@ -217,8 +216,8 @@ jobs:
       - name: Measure the expression pool under load
         if: matrix.checks
         # Prints latency percentiles of the native QuickJS-ng pool
-        # (internal/expr/quickjs, milestone B1a). Report only: it sets no
-        # threshold; the budget gate is milestone B2b's.
+        # (internal/expr/quickjs). Report only: it sets no threshold; the
+        # budget gate is package expr's (TestBudgetGate).
         env:
           WL_QUICKJS_LOAD: "1"
           WL_QUICKJS_LOAD_SECONDS: "1"
@@ -227,8 +226,8 @@ jobs:
       - name: Report the expression budget gate
         if: matrix.checks
         # ADR 0003's budget gate, measured through the whole pipeline
-        # (internal/expr, milestone B2b). Report only: the gate holds on the
-        # benchmark machine; CI's shared runners show the trend.
+        # (internal/expr). Report only: the gate holds on the benchmark
+        # machine; CI's shared runners show the trend.
         env:
           WL_EXPR_BUDGET: report
           WL_EXPR_BUDGET_SECONDS: "1"
@@ -340,9 +339,10 @@ jobs:
     # (ADR 0003). This job builds the engine and the expression suite that
     # way for each Linux architecture, checks that the binaries are static,
     # runs the suite from them, and starts the engine on an empty base image
-    # (ADR 0010, drift guard 5; milestone F4). The engine's heap uses
-    # mimalloc, chosen because musl's malloc serialises the expression pool's
-    # threads; the last step measures that choice (review item cl R3-2).
+    # (ADR 0010, drift guard 5). Each QuickJS runtime's heap uses mimalloc,
+    # while the rest of the program keeps the C library's malloc; mimalloc
+    # was chosen because musl's malloc serialises the expression pool's
+    # threads, and the last step measures that choice on four builds.
     name: Static Linux engine (${{ matrix.arch }})
     strategy:
       fail-fast: false
@@ -424,9 +424,8 @@ jobs:
           (cd internal/expr/quickjs && "$RUNNER_TEMP/quickjs.test" -test.v -test.count=1)
 
       - name: Report the expression budget gate from the static engine
-        # Report only (review item cl R3-2): ADR 0003's budget gate through
-        # the pipeline, from the shipped static musl build. The table goes
-        # to the job summary.
+        # Report only: ADR 0003's budget gate through the pipeline, from the
+        # shipped static musl build. The table goes to the job summary.
         env:
           WL_EXPR_BUDGET: report
           WL_EXPR_BUDGET_SECONDS: "1"
@@ -458,11 +457,10 @@ jobs:
           test "$(run verify /fixture.wlb -digest "$digest")" = "$digest"
 
       - name: Compare the expression pool's allocators
-        # Report only (review item cl R3-2). The same load as the Go job's
-        # measurement, run from four builds on the same runner: the release
-        # build (static, musl, mimalloc), the static musl build with musl's
-        # own malloc, and dynamic glibc builds with mimalloc and with
-        # glibc's malloc. The tables go to the job summary.
+        # Report only. The same load as the Go job's measurement, run from four
+        # builds on the same runner: the release build (static, musl, mimalloc), the
+        # static musl build with musl's own malloc, and dynamic glibc builds with
+        # mimalloc and with glibc's malloc. The tables go to the job summary.
         env:
           WL_QUICKJS_LOAD: "1"
           WL_QUICKJS_LOAD_SECONDS: "1"

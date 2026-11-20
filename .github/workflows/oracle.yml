@@ -90,12 +90,12 @@ jobs:
           - id: workers2
             args: --workers 2 --listen-interval 10 --skip-unmet-session conformance/flows/oracle/smoke conformance/flows/oracle/workers2 conformance/flows/client-api/dispatch conformance/flows/client-api/driven conformance/flows/client-api/job-reads-ended conformance/flows/client-api/job-reads-parallel conformance/flows/control-flow/cf-7-release conformance/flows/openflow/of-drivers conformance/flows/execution/fx-40-raw conformance/flows/languages/wr-28-lock conformance/flows/client-api/state-parallel
           # A worker that serves the nativets tag (WORKER_TAGS=nativets,
-          # Q-WR-21) records the native-step fixtures (batch E3f).
+          # Q-WR-21) records the native-step fixtures.
           - id: native
             args: --workers 1 --session native --skip-unmet-workers --skip-unmet-session conformance/flows
           # The reference configuration, for the fixtures whose runs wait a
-          # minute or more on the server's own monitors (batch E3f), with a
-          # longer run timeout.
+          # minute or more on the server's own monitors, with a longer run
+          # timeout.
           - id: long
             args: --workers 1 --session long --skip-unmet-workers --skip-unmet-session --run-timeout 5m conformance/flows
             timeout: 75
