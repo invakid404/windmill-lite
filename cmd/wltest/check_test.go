@@ -56,12 +56,13 @@ func repo(t *testing.T) string {
 	return root
 }
 
-// TestStepSuite is the exit gate of milestones C3a and C3b: every step
-// case of conformance/steps passes in warm mode and in fresh mode, through
-// the real Bun harness on the pinned Bun, each script built by the Bun
-// build helper or, for a codebase script, by esbuild. With WL_NODE it is
-// also milestone C2b's D13 gate: each CommonJS codebase bundle runs on
-// Node too, as on Windmill, and shows its node check there.
+// TestStepSuite checks that every step case of conformance/steps passes in
+// warm mode and in fresh mode, through the real Bun harness on the pinned
+// Bun, each script built by the Bun build helper or, for a codebase script,
+// by esbuild. With WL_NODE it also checks D13: each CommonJS codebase
+// bundle in the Bun boundary runs on Node too, as on Windmill, and shows
+// its node check there, or, without one, the expect and claims of its
+// mode's check.
 func TestStepSuite(t *testing.T) {
 	bun := bunOrSkip(t)
 	node := nodeOrSkip(t)
@@ -316,10 +317,11 @@ cases:
 	}
 }
 
-// A codebase case whose script fails to build fails alone (c2b review 3,
-// finding 5): the codebase build writes the metadata and assets of every
-// script that built, so another case of the file, which reads its asset in
-// the harness's working directory, still runs and passes.
+// TestStepCheckerIsolatesCodebaseFailures checks that a codebase case
+// whose script fails to build fails alone: the codebase build writes the
+// metadata and assets of every script that built, so another case of the
+// file, which reads its asset in the harness's working directory, still
+// runs and passes.
 func TestStepCheckerIsolatesCodebaseFailures(t *testing.T) {
 	bun := bunOrSkip(t)
 	dir := filepath.Join(t.TempDir(), "steps", "bun")
@@ -448,13 +450,13 @@ func TestStepCatalogue(t *testing.T) {
 	t.Logf("catalogue cases of the findings with a step file: %d; step cases: %d; deferred: %d", n, len(covered), len(isDeferred))
 }
 
-// A native invocation's rejection that nobody handles, from a promise a web
-// API returned (a method of its own or inherited, a continuation, a stream
-// iterator's next, an object an iterator handed over), fails that
-// invocation (WR-43/d) and no other, and an
-// iteration error the script catches fails none: native and Bun
-// invocations in flight beside them in the same process succeed with no
-// warning (c3n review, finding 1; round 2, findings 1 and 4).
+// TestNativeRejectionIsItsInvocationsOwn checks that a native invocation's
+// rejection that nobody handles, from a promise a web API returned (a
+// method of its own or inherited, a continuation, a stream iterator's
+// next, an object an iterator handed over), fails that invocation
+// (WR-43/d) and no other, and that an iteration error the script catches
+// fails none: native and Bun invocations in flight beside them in the same
+// process succeed with no warning.
 func TestNativeRejectionIsItsInvocationsOwn(t *testing.T) {
 	bun := bunOrSkip(t)
 	dir := filepath.Join(t.TempDir(), "steps", "bun")
@@ -615,12 +617,12 @@ cases:
 	}
 }
 
-// A flow's native steps run through the real build and harness with their
-// boundary and the native environment: a nativets step without a //native
-// line, one with it, and a bun step with it are each native (no Bun) and
-// read BASE_URL and BASE_INTERNAL_URL as the fixture's facade origin, a
-// loopback one (milestone PF1), and only the nativets ones declare the job variables as bare names
-// (WR-40's note, SC1; WR-45/a; c3n review r3, finding 6).
+// TestNativeFlowSteps checks that a flow's native steps run through the
+// real build and harness with their boundary and the native environment:
+// a nativets step without a //native line, one with it, and a bun step
+// with it are each native (no Bun) and read BASE_URL and BASE_INTERNAL_URL
+// as the fixture's facade origin, a loopback one, and only the nativets
+// ones declare the job variables as bare names (WR-40's note; WR-45/a).
 func TestNativeFlowSteps(t *testing.T) {
 	bun := bunOrSkip(t)
 	dir := filepath.Join(t.TempDir(), "flows", "languages", "native-steps")
@@ -787,12 +789,12 @@ func TestScriptEnvsReachOnlyBunSteps(t *testing.T) {
 	}
 }
 
-// WR-50/c as a flow step: an ESM codebase script whose source starts with
-// //native runs in the native runtime when a flow reaches it by path, and
-// its control, the same entry without the header, on Bun. The step suite's
-// wr-50.yaml checks the script alone; this checks the engine's path. On
-// the oracle such a job never completed (batch E3e), so the reference's
-// reading is what this holds.
+// TestNativeCodebaseFlowStep checks WR-50/c as a flow step: an ESM
+// codebase script whose source starts with //native runs in the native
+// runtime when a flow reaches it by path, and its control, the same entry
+// without the header, on Bun. The step suite's wr-50.yaml checks the
+// script alone; this checks the engine's path. On the oracle such a job
+// never completed, so the reference's reading is what this holds.
 func TestNativeCodebaseFlowStep(t *testing.T) {
 	bun := bunOrSkip(t)
 	const probe = "export function main() { return [typeof (globalThis as any).Bun, typeof (process as any).version]; }\n"

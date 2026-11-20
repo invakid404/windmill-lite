@@ -32,11 +32,12 @@ func gitTree(t *testing.T, files map[string]string, tracked bool) string {
 	return dir
 }
 
-// TestLedgerGuard is the guard's exit gate: `wltest ledger` fails while
-// the ledger file exists, with an entry or empty, while a marker remains
-// in a Go test, a bun test or any other file, or while a test source holds
-// a malformed marker, and passes without them. Prose about the marker form
-// outside a test source passes.
+// TestLedgerGuard checks that `wltest ledger` fails while the ledger file
+// exists, with an entry or empty, while a marker remains in a Go test, a
+// bun test or another text file that Git tracks or would add (tracked and
+// untracked variants; a file that Git ignores is not read), or while a test
+// source holds a malformed marker, and passes without them. Prose about
+// the marker form outside a test source passes.
 func TestLedgerGuard(t *testing.T) {
 	m := func(milestone, reason string) string {
 		return markerPrefix + " " + milestone + " " + reason

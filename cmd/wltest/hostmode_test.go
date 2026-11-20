@@ -12,8 +12,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/expr/quickjs"
 )
 
-// The flow suite's host mode (hostmode.go, F3b review round 1) on one
-// small fixture.
+// The flow suite's host mode (hostmode.go) on one small fixture.
 
 func hostChecker(t *testing.T) (*flowChecker, func()) {
 	t.Helper()

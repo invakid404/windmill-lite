@@ -9,17 +9,18 @@ import (
 	"github.com/invakid404/windmill-lite/wl"
 )
 
-// platformOf returns the platform services of a flow fixture or a step
-// case: the resources and variables of its sync folder (nil for a step
-// case), then those of its setup, which the oracle creates after the push
-// (OR-31), so they replace the folder's (milestone PF2). A setup applied
-// before the push is removed by the push, so it holds nothing at run
-// time. A secret is held as the folder holds it: ciphertext without
-// plainSecrets, which needs a host secret resolver; a setup's secret is
-// its plaintext, which wltest passes in as a host passes its secrets,
-// never through a bundle (ADR 0010). Its object store is a directory of
-// its own, objects (milestone PF3); its job registry and flow user state
-// are the services' own, and the caller adds a dispatcher.
+// platformOf returns platform services that hold the resources and
+// variables of folder, when it is not nil, then those of setup, which the
+// oracle creates after the push (OR-31), so they replace the folder's. A
+// setup applied before the push is removed by the push, so it holds nothing
+// at run time. A secret is held as the folder holds it: ciphertext without
+// plainSecrets, which needs a host secret resolver; a setup's secret is its
+// plaintext, which wltest passes in as a host passes its secrets, never
+// through a bundle (ADR 0010). Its object store is a directory of its own,
+// objects; its job registry and flow user state are the services' own, and
+// it has no dispatcher. Its caller is the step checker (runCase), with no
+// folder and the case's setup; a flow fixture's runtime takes its host data
+// from hostDataOf instead.
 func platformOf(folder *syncfolder.Folder, setup *conformance.Setup, policy, objects string) (*platform.Services, error) {
 	store := platform.NewStore()
 	if folder != nil {

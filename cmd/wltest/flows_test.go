@@ -85,16 +85,16 @@ func requiredRuns(t *testing.T) map[string]string {
 	return req
 }
 
-// TestFlowSuite is the exit gate of milestones E1, N1a and F1, and in host
-// mode part of F3b's: every run the flow suite requires passes in warm and
-// in fresh mode, through wl on the engine and the real Bun harness on the
-// pinned Bun, and in host mode, on a Bun host that embeds the host SDK and
-// runs the steps in its own process (hostmode.go), and again in warm and
-// host mode from bundles built with shared code (ADR 0013), each compared
-// with its expect or recording. Every other fixture under
-// conformance/flows, and every expression file under conformance/exprs as
-// its generated one-step flow fixture, also runs: each must load, and its
-// runs are reported as passing, failing or unsupported, with the reason.
+// TestFlowSuite checks that every run the flow suite requires passes in
+// warm and in fresh mode, through wl on the engine and the real Bun harness
+// on the pinned Bun, and in host mode, on a Bun host that embeds the host
+// SDK and runs the steps in its own process (hostmode.go), and again in
+// warm and host mode from bundles built with shared code (ADR 0013), each
+// compared with its expect or recording and checked against its claims.
+// Every other fixture under conformance/flows, and every expression file
+// under conformance/exprs as its generated one-step flow fixture, also
+// runs: each must load, and its runs are reported as passing, failing or
+// unsupported, with the reason.
 func TestFlowSuite(t *testing.T) {
 	bun := bunOrSkip(t)
 	req := requiredRuns(t)
@@ -178,10 +178,11 @@ func TestFlowSuite(t *testing.T) {
 	}
 }
 
-// Milestone N4's gate (ADR 0012): the E3d FX-40 cases, the fixture
+// TestCacheFixturesFreshAndWarm checks that the FX-40 cases, the fixture
 // conformance/flows/execution/fx-40, pass on windmill-lite in fresh and in
-// warm mode, since the result cache lives in the engine, not in a harness
-// process (FX-40, D4). Every run of the fixture runs and passes in both.
+// warm mode (ADR 0012), since the result cache lives in the engine, not in
+// a harness process (FX-40, D4). Every run of the fixture runs and passes
+// in both.
 func TestCacheFixturesFreshAndWarm(t *testing.T) {
 	bun := bunOrSkip(t)
 	root := repo(t)
@@ -216,17 +217,17 @@ func TestCacheFixturesFreshAndWarm(t *testing.T) {
 	}
 }
 
-// The flow outcomes of run-and-wait runs match their expects on
-// windmill-lite in fresh and in warm mode. Of execution/fx-36-http:
-// FX-12/a's error with its own property under extra (run extra) and
-// FX-36/b's plain error (run failed), each with the step context keys of
-// FX-12, and FX-36/h's array of five, an ordinary successful result that
-// no step turns into anything else (run array). Of
+// TestRunWaitOutcomes checks that the flow outcomes of run-and-wait runs
+// match their expects on windmill-lite in fresh and in warm mode. Of
+// execution/fx-36-http: FX-12/a's error with its own property under extra
+// (run extra) and FX-36/b's plain error (run failed), each with the step
+// context keys of FX-12, and FX-36/h's array of five, an ordinary
+// successful result that no step turns into anything else (run array). Of
 // execution/fx-37-branches, every run: FX-37/b to FX-37/e's flows with an
-// early_return step inside a branch, which complete with their last
-// step's result whatever the early answer was. The flow suite leaves every
-// run-and-wait run unsupported, since its response is the HTTP adapter's
-// (milestone F7b); here each run is submitted as an ordinary run and
+// early_return step inside a branch, which complete with their last step's
+// result whatever the early answer was. The flow suite leaves every
+// run-and-wait run unsupported, since its response is the HTTP adapter's,
+// which is not built yet; here each run is submitted as an ordinary run and
 // checked without its response (flowChecker.runWaitOutcome). The fixtures'
 // other runs are logged.
 func TestRunWaitOutcomes(t *testing.T) {
@@ -279,10 +280,11 @@ func TestRunWaitOutcomes(t *testing.T) {
 	}
 }
 
-// Milestone N5's gate (ADR 0012): the control-flow/subflow-retry runs, a
-// retry on a flow step recorded on the oracle, and a retry on a while loop
-// and a branchone, match their recordings on windmill-lite in fresh and in
-// warm mode. Every run of the fixture runs and passes in both.
+// TestSubflowRetryFixturesFreshAndWarm checks that the
+// control-flow/subflow-retry runs, a retry on a flow step recorded on the
+// oracle, and a retry on a while loop and a branchone, match their
+// recordings on windmill-lite in fresh and in warm mode (ADR 0012). Every
+// run of the fixture runs and passes in both.
 func TestSubflowRetryFixturesFreshAndWarm(t *testing.T) {
 	bun := bunOrSkip(t)
 	root := repo(t)
@@ -1031,9 +1033,10 @@ func TestCarriedLocation(t *testing.T) {
 	}
 }
 
-// N1b: a flow with a failure module has the site s:failure, not_run when
-// it never ran, as the oracle's walker reads the flow's failure_module
-// entry. A carried value the engine set apart from the job's result (an
+// TestObserveFailureSlotAndCarriedOrigin checks that a flow with a failure
+// module has the site s:failure, not_run when it never ran, as the
+// oracle's walker reads the flow's failure_module entry. A carried value
+// the engine set apart from the job's result (an
 // error stop's, FX-21's string, a chaining error with no job) has its own
 // origin, so the location rule reaches it: FX-21/a's string loses its
 // <loc> there, while the job's user result next to it keeps its text.
@@ -1169,11 +1172,13 @@ func TestCompactJSON(t *testing.T) {
 	}
 }
 
-// A codebase script that fails to build fails only the flows that reach it
-// (c2b review 3, finding 5): the codebase build writes the metadata and
-// assets of every script that built, so an unrelated flow whose codebase
-// script reads its asset still runs and passes. A script whose asset
-// collides with one an earlier script took fails its own flow.
+// TestFlowCheckerIsolatesCodebaseFailures, below, checks that a codebase
+// script that fails to build fails only the flows that reach it: the
+// codebase build writes the metadata and assets of every script that built,
+// so an unrelated flow whose codebase script reads its asset still runs and
+// passes. A script whose asset collides with one an earlier script took
+// fails its own flow.
+
 // TestAsOracleBase: the runtime's platform origin in an observation reads
 // as the oracle's base URL in every value, the stack line of WR-43/c's
 // nativets run included, and nowhere a further digit of a port follows it.
@@ -1270,9 +1275,9 @@ func TestFlowCheckerIsolatesCodebaseFailures(t *testing.T) {
 	}
 }
 
-// A run that exceeds its deadline is reported as such, and the files its
-// steps left to count their attempts are still removed, while another
-// run's stay (FU8 review).
+// TestTimedOutRunRemovesCounters checks that a run that exceeds its
+// deadline is reported as such, and that the files its steps left to count
+// their attempts are still removed, while another run's stay.
 func TestTimedOutRunRemovesCounters(t *testing.T) {
 	bun := bunOrSkip(t)
 	counters := t.TempDir()
@@ -1313,9 +1318,10 @@ func TestTimedOutRunRemovesCounters(t *testing.T) {
 	}
 }
 
-// The files a run's steps leave to count their attempts are removed after
-// the run, those named after its root, its child flows and its steps' jobs,
-// and no other run's (N5's follow-up: they piled up in the host's /tmp).
+// TestRemoveCounters checks that the files a run's steps leave to count
+// their attempts are removed after the run, those named after its root,
+// its child flows and its steps' jobs, and no other run's (left there,
+// they would pile up in the host's /tmp).
 func TestRemoveCounters(t *testing.T) {
 	dir := t.TempDir()
 	old := counterDir

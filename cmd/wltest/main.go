@@ -11,12 +11,11 @@
 // and writes their recordings with provenance; fixtures in stub mode run
 // stubbed, with the replay service answering from each run's table. stub
 // writes a stubbed copy of a sync tree. check runs the step cases of
-// conformance/steps on windmill-lite's Bun harness (milestone C3a) and the
-// flow fixtures of conformance/flows on its engine (milestone E1). ledger
-// fails while a retarget ledger or any of its markers exists (ledger.go).
-// diff,
-// which would run the oracle and windmill-lite live and compare them, is
-// not implemented: no milestone of ADR 0012 has it yet.
+// conformance/steps on windmill-lite's Bun harness and the flow fixtures
+// of conformance/flows on its engine. ledger fails while a retarget ledger
+// or any of its markers exists (ledger.go). diff, which would run the
+// oracle and windmill-lite live and compare them, is not built yet (ADR
+// 0011).
 package main
 
 import (
@@ -42,7 +41,7 @@ import (
 var version = ""
 
 func main() {
-	// A flow-suite host spawns wltest as its engine (host mode, F3b).
+	// A flow-suite host spawns wltest as its engine (host mode).
 	proxyMain()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
