@@ -1518,8 +1518,9 @@ func (p *Process) awaitGroup(until time.Time, early func() (bool, func() bool)) 
 			settled, gone = true, g
 		}
 		if settled && gone != nil && gone() {
-			// The bound's kill has named the kill already (killReason),
-			// so this reason is not recorded.
+			// The kill that came first has recorded its reason already
+			// (killReason): the bound's, or one before it, such as a
+			// concurrent Kill. So this reason is not recorded.
 			p.kill("invocation: its caller stopped waiting")
 			return false
 		}
@@ -1773,6 +1774,12 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 		times.ArgsWritten = time.Now()
 	}
 	e := &invocation{id: inv.ID, run: inv.Run, report: inv.Report, outcome: make(chan execResult, 1), drive: make(chan struct{}, 1), fixed: fixed, times: times}
+	fresh := p.cfg.ModuleState == engine.ModuleStateFresh
+	if fresh {
+		// Asked for before p.mu is taken: a caller's context may call
+		// back into the process from Done (Load, for one).
+		e.ctxDone = ctx.Done()
+	}
 	p.mu.Lock()
 	if p.state != stateServing || p.killReason != "" || p.ending {
 		p.mu.Unlock()
@@ -1781,10 +1788,6 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 	if _, dup := p.invs[inv.ID]; dup {
 		p.mu.Unlock()
 		return engine.StepOutcome{}, notDispatched, fmt.Errorf("harness: invocation %q is already in flight", inv.ID)
-	}
-	fresh := p.cfg.ModuleState == engine.ModuleStateFresh
-	if fresh {
-		e.ctxDone = ctx.Done()
 	}
 	if fresh && p.served {
 		p.mu.Unlock()

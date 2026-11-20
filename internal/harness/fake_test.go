@@ -588,6 +588,45 @@ func TestSettledInvocationKeepsNoCallerContext(t *testing.T) {
 	}
 }
 
+// loadingContext is a caller's context whose Done calls back into the
+// process, as a context that samples its load would.
+type loadingContext struct {
+	context.Context
+	p *Process
+}
+
+func (c loadingContext) Done() <-chan struct{} {
+	c.p.Load()
+	return c.Context.Done()
+}
+
+// A fresh dispatch asks the caller's context for its Done channel without
+// holding the process's lock, so a context that calls back into the
+// process from Done does not stall it.
+func TestFreshDispatchAsksForDoneOutsideTheLock(t *testing.T) {
+	cfg, diag := fakeConfig(t, "fresh-exit-at-once")
+	cfg.ModuleState = engine.ModuleStateFresh
+	p := spawn(t, cfg)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		out, err := p.Execute(loadingContext{ctx, p}, freshInvocation("x", `{}`, newRecorder()))
+		if err == nil && out.Kind != engine.OutcomeOK {
+			err = fmt.Errorf("got %+v", out)
+		}
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("%v; diagnostics %q", err, diag.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the dispatch did not return: it holds the process's lock while it asks for Done")
+	}
+}
+
 // blockedWriter is a diagnostics writer whose writes block until it is
 // opened, as a full stderr pipe or a stalled host logger does.
 type blockedWriter struct {

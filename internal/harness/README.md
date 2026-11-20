@@ -1005,6 +1005,9 @@ unattributed warning, and a signature that did not parse. Others hold:
   group later (`TestFreshCallersContextEndKillsALateMember`);
 - that a settled invocation, kept among the recent ones, holds nothing of
   its caller's context (`TestSettledInvocationKeepsNoCallerContext`);
+- that a fresh dispatch asks the caller's context for its `Done` channel
+  without holding the process's lock
+  (`TestFreshDispatchAsksForDoneOutsideTheLock`);
 - that the pool hears of an abandonment and of a death before any Reporter
   does;
 - that a kill is named (`TestKillIsNamed`) without waiting for a blocked
