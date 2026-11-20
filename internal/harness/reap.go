@@ -9,19 +9,18 @@ import (
 	"time"
 )
 
-// Reaping (WR-55; review round 5, finding 1). A process whose parent exits
-// is adopted by the nearest subreaper, or by PID 1: by the engine, when it
-// runs as PID 1 without an init or as a subreaper. The guardian of every
-// child group is such an orphan from the start (guardedCommand), and so is
-// whatever a group's member leaves when it exits. Once one of them has
-// exited it stays a zombie, holding its pid and its group's id, until its
-// parent waits for it. So the engine reaps the members of the groups it
-// owns: each by its own pid, without blocking (wait4(pid, WNOHANG)), only
-// while it is still the process the engine saw in the group (its pid and
-// start time) and only when the engine is its parent. No wait takes
-// another child's exit status: the engine's own children, its harness
-// processes among them, are in no group it reaps, and a wait names one
-// process, never "any child".
+// Reaping (WR-55). A process whose parent exits is adopted by the nearest
+// subreaper, or by PID 1: by the engine, when it runs as PID 1 without an
+// init or as a subreaper. The guardian of every child group is such an
+// orphan from the start (guardedCommand), and so is whatever a group's
+// member leaves when it exits. Once one of them has exited it stays a
+// zombie, holding its pid and its group's id, until its parent waits for
+// it. So the engine reaps the members of the groups it owns: each by its
+// own pid, without blocking (wait4(pid, WNOHANG)), only while it is still
+// the process the engine saw in the group (its pid and start time) and only
+// when the engine is its parent. No wait takes another child's exit status:
+// the engine's own children, its harness processes among them, are in no
+// group it reaps, and a wait names one process, never "any child".
 
 // procInfo is what reaping reads of a process: its start time, in
 // groupMembers' units, its parent, its group, and whether it is a zombie.

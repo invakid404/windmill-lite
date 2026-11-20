@@ -80,7 +80,7 @@ type HostConfig struct {
 	Refuse *Reject
 	// Check, when set, is the engine's own check of the host's hello, after
 	// the protocol's: a reject it returns refuses the host, such as one
-	// whose host plugin declaration the engine cannot use (milestone F2c).
+	// whose host plugin declaration the engine cannot use.
 	// It runs before the welcome goes out.
 	Check func(h Hello) *Reject
 	// Run serves one run the host submitted, on a goroutine of its own,
@@ -435,11 +435,12 @@ func (p *Process) hostDone(err error) {
 	p.conn.close()
 	p.host.closeTarget()
 	p.endInvocations()
-	// The runs' contexts end first, with the cause: an Execute that is
-	// given its invocation's outcome next finds the cause already set, and
-	// one woken by its context abandons the invocation, which
-	// failInvocations then settles with the process (FU7: TestHostLost
-	// read a nil cause when the outcome came first).
+	// The runs' contexts end first, with the cause: a run whose Execute
+	// returns the invocation's outcome next finds its context's cause
+	// already set when it reads it, and an Execute woken by its context
+	// abandons the invocation, which failInvocations then settles with the
+	// process. In the other order, a run could read a nil cause after its
+	// Execute returned the outcome (TestHostLost).
 	p.mu.Lock()
 	for _, cancel := range p.runs {
 		cancel(ErrHostLost)

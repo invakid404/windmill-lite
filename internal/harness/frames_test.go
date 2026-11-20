@@ -334,9 +334,9 @@ func TestFrameCaseCodesAreKnown(t *testing.T) {
 	}
 }
 
-// Only an error result names an origin, and only the harness (ADR 0004,
-// FU5): Encode refuses any other, so the engine never writes a frame the
-// harness would reject.
+// TestEncodeRefusesAMisplacedOrigin checks that only an error result names
+// an origin, and only the harness (ADR 0004): Encode refuses any other, so
+// the engine never writes a frame the harness would reject.
 func TestEncodeRefusesAMisplacedOrigin(t *testing.T) {
 	body := jsonval.FromProducer([]byte(`{"message":"m"}`))
 	for _, r := range []Result{

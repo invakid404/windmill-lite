@@ -7,12 +7,13 @@ import (
 	"weak"
 )
 
-// An invocation's call queue keeps no function it has run. The process
-// keeps its last settled invocations for their late output (D9); their
-// queues must not keep what their calls closed over, the outcome among
-// them, so that a finished run's values become unreachable (lever J5).
-// Both ways a queue runs are checked: its own goroutine (do), and the
-// goroutine that claimed it, up to an outcome (claim, runUntil).
+// TestSerialKeepsNoCallItRan checks that an invocation's call queue keeps
+// no function it has run. The process keeps its last settled invocations
+// for their late output (D9); their queues must not keep what their calls
+// closed over, the outcome among them, so that a finished run's values
+// become unreachable. Both ways a queue runs are checked: its own goroutine
+// (do), and the goroutine that claimed it, up to an outcome (claim,
+// runUntil).
 func TestSerialKeepsNoCallItRan(t *testing.T) {
 	// big returns a call that closes over 1 MiB, and a weak pointer to it.
 	big := func() (func(), weak.Pointer[byte]) {

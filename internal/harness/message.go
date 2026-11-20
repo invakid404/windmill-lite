@@ -17,12 +17,10 @@ import (
 // `proto` in hello and welcome.
 const ProtocolVersion = 1
 
-// Message types (the `t` field, ADR 0004). Milestone C1 implemented the
-// frames of spawned harnesses; the walking skeleton (W1) added
-// `platform`/`platform_reply`, with the fields the facade (PF1) builds on,
-// and host mode's `run`/`run_done`/`run_cancel`; milestone C3a added
-// `warning`, FU6 `child`, F3a host mode's `run_settled`, and F2c the host
-// plugin's `host_call`/`host_reply`.
+// Message types (the `t` field, ADR 0004). Among them,
+// `platform`/`platform_reply` carry the platform calls that the facade
+// serves, `run`/`run_done`/`run_cancel`/`run_settled` carry host mode's
+// runs, and `host_call`/`host_reply` carry the calls to a host plugin.
 const (
 	TypeHello         = "hello"
 	TypeWelcome       = "welcome"
@@ -78,7 +76,7 @@ type Hello struct {
 	// otherwise.
 	Workdir string
 	// Plugin, if not zero, is the declaration of the host plugin the
-	// harness loaded (ADR 0008, milestone F2c): a JSON object naming the
+	// harness loaded (ADR 0008): a JSON object naming the
 	// hooks it answers over host_call, with their selectors. The engine
 	// asks it only for those.
 	Plugin jsonval.Value
@@ -151,11 +149,11 @@ const (
 	// at all: another engine version built it, or it does not verify.
 	RejectEngine = "engine_refused"
 	// RejectPlugin refuses a harness whose host plugin declaration the
-	// engine cannot use (milestone F2c): it differs from the one the
+	// engine cannot use: it differs from the one the
 	// pool's other processes declared, or the engine finds it invalid.
 	RejectPlugin = "plugin_mismatch"
 	// RejectVersion refuses a host whose SDK is of another release than
-	// the engine (ADR 0009, milestone F3b; VersionsPair).
+	// the engine (ADR 0009; VersionsPair).
 	RejectVersion = "version_mismatch"
 )
 
@@ -174,8 +172,8 @@ func VersionsPair(sdk, engine string) bool {
 
 // Invoke asks the harness to run one step. Around, when not empty, lists
 // the host plugin's around wrappers whose selectors match the step's
-// site, by their index in its declaration, outermost first (ADR 0008 H1,
-// milestone F2c): the harness runs the step inside them.
+// site, by their index in its declaration, outermost first (ADR 0008 H1):
+// the harness runs the step inside them.
 type Invoke struct {
 	ID       string
 	Run      string
@@ -397,7 +395,7 @@ type RunDone struct {
 	MayHaveMutated bool
 	Warnings       jsonval.Value
 	// Latched is the text of the error a latched run latched (H5), such
-	// as provider_declined (milestone F2c); "" otherwise.
+	// as provider_declined; "" otherwise.
 	Latched string
 	// Deviations are the flow run's deviations that depend on a run-time
 	// setting, as its trace lists them (H7, H10).
@@ -426,8 +424,8 @@ const (
 	RunRefused = "refused"
 )
 
-// HostCall asks the harness's host plugin to answer one hook (ADR 0008,
-// milestone F2c): Hook names it, Run and Site are the run and the site it
+// HostCall asks the harness's host plugin to answer one hook (ADR 0008):
+// Hook names it, Run and Site are the run and the site it
 // serves (Site is "" for a hook of the run as a whole), and Payload, a
 // JSON object, is what the hook gets. The harness answers with a
 // HostReply under the same id.
