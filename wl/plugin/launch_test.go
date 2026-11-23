@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -422,7 +423,9 @@ func TestClientConfigSocketPlacement(t *testing.T) {
 // TestClientConfigCleanup checks that the cleanup that ClientConfig returns
 // removes the base directory where the launch itself cannot: when
 // go-plugin's Start fails before it calls the runner, and when the
-// configuration is never started. After Kill it has nothing left to do.
+// configuration is never started. Once the launch has removed the base
+// directory, cleanup leaves a later directory of the same name alone, and
+// after a failed removal it tries again.
 func TestClientConfigCleanup(t *testing.T) {
 	buildPlugins(t)
 	l := Launch{Path: testPlugins.v1, SHA256: testPlugins.sum1, Config: writeConfig(t, pluginConfig{}), Logger: quiet}
@@ -467,97 +470,215 @@ func TestClientConfigCleanup(t *testing.T) {
 		checkGone(t, "the base directory", base)
 	})
 
+	// After the launch removed its base directory, a later directory of the
+	// same name, made by anyone, is not the launch's.
+	reuse := func(t *testing.T, base string, cleanup func() error) {
+		t.Helper()
+		checkGone(t, "the base directory", base)
+		if err := os.Mkdir(base, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.RemoveAll(base) })
+		sentinel := filepath.Join(base, "sentinel")
+		if err := os.WriteFile(sentinel, []byte("not the launch's"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 2; i++ {
+			if err := cleanup(); err != nil {
+				t.Errorf("cleanup: %v", err)
+			}
+		}
+		if _, err := os.Stat(sentinel); err != nil {
+			t.Errorf("cleanup removed a later directory of the base directory's name: %v", err)
+		}
+	}
+
 	t.Run("after Kill", func(t *testing.T) {
 		client, base, cleanup := newLaunch(t, l)
 		dispense(t, client)
 		client.Kill()
+		reuse(t, base, cleanup)
+	})
+
+	t.Run("after a refused start", func(t *testing.T) {
+		mismatch := l
+		mismatch.SHA256 = testPlugins.sum2
+		client, base, cleanup := newLaunch(t, mismatch)
+		if _, err := client.Start(); !errors.Is(err, ErrChecksumMismatch) {
+			t.Fatalf("Start = %v, want ErrChecksumMismatch", err)
+		}
+		reuse(t, base, cleanup)
+	})
+
+	t.Run("a failed removal is tried again", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("root removes a directory whatever its mode")
+		}
+		cfg, cleanup, err := ClientConfig(l)
+		if err != nil {
+			t.Fatal(err)
+		}
+		base := cfg.UnixSocketConfig.TempDir
+		// A directory whose entries cannot be removed makes the removal fail.
+		locked := filepath.Join(base, "locked")
+		if err := os.Mkdir(locked, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(locked, "file"), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(locked, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.Chmod(locked, 0o700); os.RemoveAll(base) })
+		if err := cleanup(); err == nil {
+			t.Fatal("cleanup removed a directory whose entries cannot be removed")
+		}
+		if err := os.Chmod(locked, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := cleanup(); err != nil {
+			t.Fatalf("cleanup after the failure: %v", err)
+		}
 		checkGone(t, "the base directory", base)
-		if err := cleanup(); err != nil {
-			t.Errorf("cleanup after Kill: %v", err)
-		}
-		if err := cleanup(); err != nil {
-			t.Errorf("a second cleanup: %v", err)
-		}
 	})
 }
 
-// TestClientConfigStartTimeout launches an executable whose read never
-// ends, a named pipe with a silent writer: the launch's start timeout ends
-// the SHA-256 check, Start returns the timeout's error, no process starts,
-// and the base directory is gone.
+// TestClientConfigStartTimeout launches a large executable, a sparse file
+// of 4 GiB, whose SHA-256 check takes much longer than the start timeout of
+// 50 ms: the timeout ends the check, Start returns the timeout's error, no
+// process starts, and the base directory is gone.
 func TestClientConfigStartTimeout(t *testing.T) {
-	fifo := filepath.Join(t.TempDir(), "engine")
-	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	sum := hex.EncodeToString(make([]byte, sha256.Size))
-	client, base, _ := newLaunch(t, Launch{Path: fifo, SHA256: sum, Config: "unused", StartTimeout: 300 * time.Millisecond})
-	// The test holds the pipe open for writing, so the launch's open of it
-	// succeeds and its read waits. Its cleanup, registered after the
-	// launch's, closes the pipe first, which ends a read that still waits.
-	w, err := os.OpenFile(fifo, os.O_RDWR, 0)
+	big := filepath.Join(t.TempDir(), "engine")
+	f, err := os.Create(big)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { w.Close() })
-	done := make(chan error, 1)
-	go func() {
-		_, err := client.Start()
-		done <- err
-	}()
-	select {
-	case err := <-done:
-		if !errors.Is(err, context.DeadlineExceeded) {
-			t.Errorf("Start = %v, want context.DeadlineExceeded", err)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("Start did not return within 10 s of its start timeout of 300 ms")
+	if err := f.Truncate(4 << 30); err != nil {
+		t.Fatal(err)
 	}
+	f.Close()
+
+	sum := hex.EncodeToString(make([]byte, sha256.Size))
+	client, base, _ := newLaunch(t, Launch{Path: big, SHA256: sum, Config: "unused", StartTimeout: 50 * time.Millisecond})
+	start := time.Now()
+	if _, err := client.Start(); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("Start = %v, want context.DeadlineExceeded", err)
+	}
+	t.Logf("Start returned after %v", time.Since(start))
 	if id := client.ID(); id != "" {
 		t.Errorf("go-plugin reports the process %q", id)
 	}
 	checkGone(t, "the base directory", base)
 }
 
-// endsAfterFirstCheck is a context whose Err is nil once, at the runner's
-// first check, and DeadlineExceeded from then on. Its Done never closes, so
-// the SHA-256 check runs to its end.
-type endsAfterFirstCheck struct {
-	context.Context
-	mu     sync.Mutex
-	checks int
-}
-
-func (c *endsAfterFirstCheck) Done() <-chan struct{} { return nil }
-
-func (c *endsAfterFirstCheck) Err() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.checks++
-	if c.checks == 1 {
-		return nil
+// TestClientConfigNotARegularFile launches a named pipe that no process
+// writes, whose blocking open would never return, and a directory: each
+// launch refuses at once, starts no process and removes its base
+// directory.
+func TestClientConfigNotARegularFile(t *testing.T) {
+	sum := hex.EncodeToString(make([]byte, sha256.Size))
+	fifo := filepath.Join(t.TempDir(), "engine")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
 	}
-	return context.DeadlineExceeded
+	for _, path := range []string{fifo, t.TempDir()} {
+		client, base, _ := newLaunch(t, Launch{Path: path, SHA256: sum, Config: "unused"})
+		// If the launch's open of the pipe blocked, this cleanup, which runs
+		// before the client's, would open the pipe for writing and close it,
+		// so that the open returns and the test ends.
+		t.Cleanup(func() {
+			if path == fifo {
+				if w, err := os.OpenFile(fifo, os.O_RDWR|syscall.O_NONBLOCK, 0); err == nil {
+					w.Close()
+				}
+			}
+		})
+		done := make(chan error, 1)
+		go func() {
+			_, err := client.Start()
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			if err == nil || !strings.Contains(err.Error(), "is not a regular file") {
+				t.Errorf("Start(%s) = %v, want the refusal of a file that is not regular", path, err)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatalf("Start(%s) did not return within 10 s", path)
+		}
+		if id := client.ID(); id != "" {
+			t.Errorf("go-plugin reports the process %q", id)
+		}
+		checkGone(t, "the base directory", base)
+	}
 }
 
-// TestLauncherStartEndsBeforeTheSpawn ends the start context between the
-// SHA-256 check, which the executable passes, and the start of its
-// process: the runner starts no process and removes the base directory.
-func TestLauncherStartEndsBeforeTheSpawn(t *testing.T) {
+// startLauncher runs the runner of a launch of the test plugin directly,
+// with a context that the test cancels from the runner's hook after the
+// SHA-256 check (afterCheck) or right after the process has started
+// (afterSpawn). It returns the runner, the process id that afterSpawn saw,
+// or 0, and Start's error.
+func startLauncher(t *testing.T, cancelAfterSpawn bool) (*launcher, int, error) {
+	t.Helper()
 	buildPlugins(t)
-	base := t.TempDir()
 	sum, err := hex.DecodeString(testPlugins.sum1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &launcher{path: testPlugins.v1, sum: sum, config: writeConfig(t, pluginConfig{}), base: base}
-	if err := r.Start(&endsAfterFirstCheck{Context: context.Background()}); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("Start = %v, want context.DeadlineExceeded", err)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pid := 0
+	r := &launcher{path: testPlugins.v1, sum: sum, config: writeConfig(t, pluginConfig{}), base: &baseDir{path: t.TempDir()}}
+	r.afterSpawn = func(p int) {
+		pid = p
+		if cancelAfterSpawn {
+			cancel()
+		}
+	}
+	if !cancelAfterSpawn {
+		r.afterCheck = cancel
+	}
+	err = r.Start(ctx)
+	return r, pid, err
+}
+
+// TestLauncherStartEndsBeforeTheSpawn cancels the start context after the
+// SHA-256 check has passed: the runner starts no process and removes the
+// base directory.
+func TestLauncherStartEndsBeforeTheSpawn(t *testing.T) {
+	r, pid, err := startLauncher(t, false)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Start = %v, want context.Canceled", err)
+	}
+	if pid != 0 {
+		t.Errorf("the runner started the process %d", pid)
 	}
 	if id := r.ID(); id != "" {
-		t.Errorf("the runner started the process %s", id)
+		t.Errorf("the runner reports the process %s", id)
 	}
-	checkGone(t, "the base directory", base)
+	checkGone(t, "the base directory", r.base.path)
+}
+
+// TestLauncherStartEndsAsTheProcessStarts cancels the start context right
+// after the process has started: the runner kills and reaps the process,
+// returns the context's error and removes the base directory.
+func TestLauncherStartEndsAsTheProcessStarts(t *testing.T) {
+	r, pid, err := startLauncher(t, true)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Start = %v, want context.Canceled", err)
+	}
+	if pid == 0 {
+		t.Fatal("the runner started no process")
+	}
+	// The process was reaped, so no process of that id is left.
+	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
+		t.Errorf("the process %d is still there (kill 0: %v)", pid, err)
+	}
+	if id := r.ID(); id != "" {
+		t.Errorf("the runner reports the process %s", id)
+	}
+	checkGone(t, "the base directory", r.base.path)
 }
 
 // TestClientConfigRelativeTempDir gives a relative TempDir, then changes the

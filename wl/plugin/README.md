@@ -94,7 +94,7 @@ res, err := engine.Run(ctx, &plugin.RunRequest{
 | `TempDir` | Where the launch creates its private base directory; a relative one is resolved like `Path` | `os.TempDir()` |
 | `MaxMessageBytes` | The largest gRPC message that the host sends or receives | 536870912 bytes (512 MiB), the harness protocol's limit |
 | `ReplyMargin` | How long before the context's deadline `Run` sets the run's hard deadline | 1 s |
-| `StartTimeout` | go-plugin's start timeout. It bounds two intervals one after the other: the check of the SHA-256 and the start of the process, and then the wait for the engine's handshake line | go-plugin's, 1 minute |
+| `StartTimeout` | go-plugin's start timeout, which applies to two intervals one after the other: the check of the SHA-256 and the start of the process, then the wait for the engine's handshake line | go-plugin's, 1 minute |
 | `Logger` | The logger of go-plugin and of the engine's standard error | go-plugin's |
 
 `ClientConfig` refuses a `Launch` without `Path` or `Config`, with a
@@ -105,10 +105,15 @@ margin. Each configuration serves one launch.
   On a mismatch it starts no process, and go-plugin's `Start` returns
   `ErrChecksumMismatch`. The host keeps the file where no one else can
   change it between the check and the start.
-- **The start timeout.** When the start timeout ends during the check,
-  even while a read of the file waits, or after the check but before the
-  process starts, the launch starts no process, and `Start` returns
-  `context.DeadlineExceeded`.
+- **A regular file.** The executable must be a regular file. The launch
+  opens it without blocking and refuses anything else, such as a named
+  pipe or a directory, at once.
+- **The start timeout.** The launch checks the start timeout before each
+  read of 1 MiB of the file, just before it starts the process, and just
+  after. When the timeout has ended at one of these checks, `Start` returns
+  `context.DeadlineExceeded` and no process is left: one that has just
+  started is killed and reaped. Once the last check has passed, go-plugin's
+  wait for the handshake line begins.
 - **Why not `SecureConfig`.** go-plugin's own check of the executable
   cannot work here: go-plugin leaves the command's path empty when a runner
   of the host's starts the plugin.
@@ -128,7 +133,11 @@ margin. Each configuration serves one launch.
 - **The cleanup.** The cleanup removes the base directory in the other
   cases too: when go-plugin's `Start` fails before it calls the runner, or
   when the configuration is never started. Call it once `Kill` has
-  returned or `Start` has failed; a second call does nothing.
+  returned or `Start` has failed.
+- **One removal.** The runner and the cleanup remove the base directory
+  once between them. After that, the cleanup does nothing, so it never
+  removes a later directory of the same name. After a removal that failed,
+  it tries again.
 - **The length of a socket path.** macOS refuses a Unix socket path of 104
   bytes or more. go-plugin adds up to 38 bytes to the base directory, so
   `ClientConfig` refuses a base directory longer than 65 bytes: set
@@ -229,9 +238,11 @@ working directory or `PATH`, so no test of the package runs in parallel.
 | `TestClientConfigPin` | A matching SHA-256 starts the plugin, which sees the handshake variables and `Env` but not the test's own environment; a mismatching one starts no process and removes the base directory |
 | `TestClientConfigBareFilename` | A bare file name starts the file in the current directory that the launch hashed, not one of that name on `PATH` |
 | `TestClientConfigSocketPlacement` | The launch makes its directories under the host umask `0277`. The plugin's socket, made under umask `0077`, and the host's broker listener lie in a directory of mode `0700` in the base directory of mode `0700`. The plugin calls the host's `HostHooks` over that broker connection, and both directories are gone after `Kill` and after a failed launch |
-| `TestClientConfigCleanup` | The cleanup removes the base directory after a start that fails before the runner, and of a configuration never started, and does nothing after `Kill` |
-| `TestClientConfigStartTimeout` | The start timeout ends a check of the SHA-256 whose read waits, a named pipe's: no process starts, and the base directory is gone |
-| `TestLauncherStartEndsBeforeTheSpawn` | A start context that ends after the SHA-256 check has passed starts no process |
+| `TestClientConfigCleanup` | The cleanup removes the base directory after a start that fails before the runner, and of a configuration never started. After `Kill` or a refused start, it leaves a later directory of the same name alone; after a failed removal, it tries again |
+| `TestClientConfigStartTimeout` | A start timeout of 50 ms ends the SHA-256 check of a sparse file of 4 GiB: no process starts, and the base directory is gone |
+| `TestClientConfigNotARegularFile` | A named pipe that no process writes, and a directory, are refused at once |
+| `TestLauncherStartEndsBeforeTheSpawn` | A start context canceled after the SHA-256 check has passed: the runner starts no process |
+| `TestLauncherStartEndsAsTheProcessStarts` | A start context canceled right after the process started: the runner kills and reaps it |
 | `TestClientConfigRelativeTempDir` | A relative `TempDir` gives an absolute base directory, which is gone after `Kill` though the working directory changed during the launch |
 | `TestClientConfigRefusals` | The `Launch` fields that `ClientConfig` refuses |
 
