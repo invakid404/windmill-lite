@@ -288,10 +288,14 @@ func TestClientRunOutcomes(t *testing.T) {
 
 	t.Run("an answer after the call's deadline", func(t *testing.T) {
 		received := make(chan struct{})
+		returned := make(chan struct{})
 		answered := make(chan time.Time, 1)
-		fake := &fakeRunner{run: func(ctx context.Context, req *RunRequest) (*RunResult, error) {
+		fake := &fakeRunner{run: func(_ context.Context, req *RunRequest) (*RunResult, error) {
 			close(received)
-			<-ctx.Done()
+			// The answer waits for the client's call to end. The server's
+			// own context ends at the call's deadline too, so an answer sent
+			// then races the client's deadline timer, and can win it.
+			<-returned
 			answered <- time.Now()
 			return &RunResult{Id: req.GetId(), Status: "success"}, nil
 		}}
@@ -306,6 +310,7 @@ func TestClientRunOutcomes(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), dl)
 		defer cancel()
 		_, err := c.Run(ctx, &RunRequest{Id: "r"})
+		close(returned)
 		select {
 		case <-received:
 		default:
