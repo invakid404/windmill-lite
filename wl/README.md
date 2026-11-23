@@ -6,6 +6,7 @@ Only Bun steps run. Of the adapters of the
 [host adapters ADR](../docs/design/0009-host-adapters.md), the go-plugin
 adapter has only its host's side, [wl/plugin](plugin/README.md), and the
 gRPC and HTTP adapters do not exist yet.
+
 This README covers `wl/`, the Go package
 `github.com/invakid404/windmill-lite/wl`, and its `testdata/`: the
 synthetic fixture of the tests of `ForeignWindmillOrigins`, which the
