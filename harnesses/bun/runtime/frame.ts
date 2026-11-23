@@ -91,10 +91,21 @@ function value(v: unknown, nestedOrder?: readonly string[]): string {
     // Protocol objects use their fixed order; data objects (env, headers)
     // sort their keys by UTF-16 code units, as Go sorts them bytewise for
     // the ASCII names the cases use.
-    const keys = nestedOrder ? nestedOrder.filter((k) => o[k] !== undefined) : Object.keys(o).sort();
+    const keys = nestedOrder ? nestedOrder.filter((k) => present(k, o[k])) : Object.keys(o).sort();
     return "{" + keys.map((k) => JSON.stringify(k) + ":" + value(o[k])).join(",") + "}";
   }
   throw new ProtocolError("bad_field", `cannot encode ${typeof v}`);
+}
+
+/** Fields of a protocol object that an empty array leaves out, as Go
+ * leaves them out: an empty list means none. */
+const OMITTED_WHEN_EMPTY = new Set(["foreign_windmill_origins"]);
+
+/** Whether field k of a protocol object, of value v, is written and kept
+ * when decoded: a null field counts as absent, as in Go, and so does an
+ * empty OMITTED_WHEN_EMPTY array. */
+function present(k: string, v: unknown): boolean {
+  return v !== undefined && v !== null && !(OMITTED_WHEN_EMPTY.has(k) && Array.isArray(v) && v.length === 0);
 }
 
 /** Boolean fields written only when true, as Go writes them. */
@@ -414,7 +425,7 @@ function own(m: Message): Message {
     const nested = Object.hasOwn(NESTED, k) ? NESTED[k] : undefined;
     if (nested && m[k] !== null) {
       const o: Record<string, unknown> = {};
-      for (const n of nested) if (m[k][n] !== undefined) o[n] = m[k][n];
+      for (const n of nested) if (present(n, m[k][n])) o[n] = m[k][n];
       out[k] = o;
     } else if (m[k] !== null || KEEP_NULL.has(`${m.t}.${k}`)) {
       out[k] = m[k];

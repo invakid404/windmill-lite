@@ -423,7 +423,8 @@ An accepted harness gets the module-state mode, `heartbeat_ms`,
 `max_message` and, for a warm or host-mode process with a facade origin,
 `facade`. When `ForeignWindmillOrigins` names any, the welcome of every
 module state also carries them as `foreign_windmill_origins`, an array of
-strings ([Platform calls](#platform-calls)).
+strings ([Platform calls](#platform-calls)). Both codecs leave an empty
+list out, and decode an empty or null one as none.
 `Spawn` refuses a heartbeat that is not shorter than `KillAfter`, and
 negative values.
 
@@ -867,7 +868,7 @@ and `WL_REQUIRE_BUN` set ([docs/ci.md](../../docs/ci.md#the-go-jobs)).
 
 | File | What it checks | Needs |
 |---|---|---|
-| `frames_test.go` | The codec cases of `conformance/protocol/frames.json`; `-args -update` rewrites their payloads | |
+| `frames_test.go` | The codec cases of `conformance/protocol/frames.json`; `-args -update` rewrites their payloads. An empty or null `foreign_windmill_origins` decodes as none (`TestWelcomeEmptyForeignOriginsAreNone`). | |
 | `args_test.go` | `scriptArgs`: the two internal keys dropped, a key written with an escape included, every other member's raw text and place kept. Arguments with nothing to drop, or that are not an object, stay unchanged | |
 | `conn_test.go` | The writer's ordering rules, the barrier behind open run streams (with a `pong` still overtaking them), and the exchange matcher. `TestFlushWritesTheFrameItself` and `TestFlushKeepsFramesWholeAndInOrder` (a sender's own write, under `-race`, on a 4 KiB socket buffer) | |
 | `host_test.go` | A host on a socketpair: the handshake's parent check, a host gone before its hello, runs and their invocations, `run_cancel`, a lost host (also with a gap, `hostLostGap`), the watchdog, and the 502 for a bad platform answer | |

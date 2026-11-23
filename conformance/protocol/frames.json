@@ -549,6 +549,30 @@
       "payload": "{\"t\":\"welcome\",\"proto\":1,\"engine\":\"0.0.0\",\"bundle\":\"sha256:00ff\",\"config\":{\"module_state\":\"warm\",\"heartbeat_ms\":1000,\"max_message\":536870912,\"facade\":\"http://127.0.0.1:40123\",\"foreign_windmill_origins\":[\"https://windmill.example.com\",\"http://127.0.0.1:8000\"]}}"
     },
     {
+      "case": "welcome-config-foreign-windmill-empty",
+      "title": "an empty list of foreign Windmill origins is left out, as an absent one is",
+      "message": {
+        "t": "welcome",
+        "proto": 1,
+        "engine": "0.0.0",
+        "bundle": "sha256:00ff",
+        "config": {
+          "facade": "http://127.0.0.1:40123",
+          "module_state": "warm",
+          "heartbeat_ms": 1000,
+          "max_message": 536870912,
+          "foreign_windmill_origins": []
+        }
+      },
+      "payload": "{\"t\":\"welcome\",\"proto\":1,\"engine\":\"0.0.0\",\"bundle\":\"sha256:00ff\",\"config\":{\"module_state\":\"warm\",\"heartbeat_ms\":1000,\"max_message\":536870912,\"facade\":\"http://127.0.0.1:40123\"}}"
+    },
+    {
+      "case": "welcome-config-foreign-windmill-null",
+      "title": "a null list of foreign Windmill origins counts as absent",
+      "message_text": "{\"t\":\"welcome\",\"proto\":1,\"engine\":\"0.0.0\",\"bundle\":\"sha256:00ff\",\"config\":{\"module_state\":\"warm\",\"heartbeat_ms\":1000,\"max_message\":536870912,\"facade\":\"http://127.0.0.1:40123\",\"foreign_windmill_origins\":null}}",
+      "payload": "{\"t\":\"welcome\",\"proto\":1,\"engine\":\"0.0.0\",\"bundle\":\"sha256:00ff\",\"config\":{\"module_state\":\"warm\",\"heartbeat_ms\":1000,\"max_message\":536870912,\"facade\":\"http://127.0.0.1:40123\"}}"
+    },
+    {
       "case": "platform",
       "title": "an intercepted fetch to the facade, attributed to its invocation; header names are data, sorted; the body's bytes travel as padded base64",
       "message": {

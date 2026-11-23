@@ -127,7 +127,8 @@ type WelcomeConfig struct {
 	// one of them under /api/w/{workspace}/jobs/run/, the harness's fetch
 	// view removes each parent_job and root_job query parameter whose
 	// value is one of the invocation's own job ids, which name no job
-	// there (ADR 0007, async dispatch). Encoded only when not empty.
+	// there (ADR 0007, async dispatch). Encoded only when not empty; an
+	// empty or null list decodes as none.
 	ForeignWindmillOrigins []string
 }
 
@@ -955,8 +956,11 @@ func Decode(payload []byte) (Message, error) {
 				if cd.present("facade") {
 					wm.Config.Facade = cd.str("facade")
 				}
+				// An empty list means none, as an absent or null one does.
 				if cd.present("foreign_windmill_origins") {
-					wm.Config.ForeignWindmillOrigins = cd.strings("foreign_windmill_origins")
+					if o := cd.strings("foreign_windmill_origins"); len(o) > 0 {
+						wm.Config.ForeignWindmillOrigins = o
+					}
 				}
 			}
 		case reject:

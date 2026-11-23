@@ -101,6 +101,20 @@ describe("conformance/protocol/frames.json", () => {
   }
 });
 
+// A welcome whose foreign_windmill_origins is an empty list, or null,
+// decodes to the welcome without it, as in Go, so the runtime reads no list
+// of none (the two shared cases).
+test("an empty or null foreign_windmill_origins decodes to the ordinary welcome", () => {
+  const two = cases.filter((c) => c.case === "welcome-config-foreign-windmill-empty" || c.case === "welcome-config-foreign-windmill-null");
+  expect(two.length).toBe(2);
+  for (const c of two) {
+    const text = c.message_text ?? JSON.stringify(c.message);
+    const got = decode(enc.encode(text));
+    expect(Object.hasOwn(got.config, "foreign_windmill_origins")).toBe(false);
+    expect(got).toEqual(decode(enc.encode(c.payload!)));
+  }
+});
+
 /** readAll, with the stream pushed size bytes at a time. */
 function readPieces(bytes: Uint8Array, size: number, maxFrame = MAX_FRAME, maxMessage = DEFAULT_MAX_MESSAGE): Message[] {
   const r = new FrameReader(maxFrame);
