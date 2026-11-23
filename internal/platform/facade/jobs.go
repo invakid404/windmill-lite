@@ -67,8 +67,8 @@ func (f *Facade) rootJobID(_ context.Context, c *Call) Reply {
 	if refused != nil {
 		return *refused
 	}
-	if ownWorkspace(c) && !f.foreign(c, id) {
-		if root, ok := f.platform.RootJob(id); ok {
+	if ownWorkspace(c) {
+		if root, ok := f.platform.RootJobIn(id, callerScope(c)); ok {
 			return jsonReply(200, jsonString(root))
 		}
 	}
@@ -90,7 +90,7 @@ func (f *Facade) rootJobID(_ context.Context, c *Call) Reply {
 // [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
 // [WA-4]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-4
 func (f *Facade) getJob(_ context.Context, c *Call) Reply {
-	return f.jobRead(c, "Job not found at name ", f.platform.GetJob)
+	return f.jobRead(c, "Job not found at name ", f.platform.GetJobIn)
 }
 
 // getJobArgs answers getJobArgs, GET /w/{ws}/jobs_u/get_args/{id}
@@ -103,22 +103,23 @@ func (f *Facade) getJob(_ context.Context, c *Call) Reply {
 //
 // [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
 func (f *Facade) getJobArgs(_ context.Context, c *Call) Reply {
-	return f.jobRead(c, "Job Args not found at name ", f.platform.GetJobArgs)
+	return f.jobRead(c, "Job Args not found at name ", f.platform.GetJobArgsIn)
 }
 
 // jobRead answers a job read of a live run: the id checked as the web
 // framework checks it, the 404 whose text starts with notFound for a job
 // of no run or of another workspace, the 501 of a job windmill-lite does
-// not answer for, or read's answer.
-func (f *Facade) jobRead(c *Call, notFound string, read func(id string) ([]byte, error)) Reply {
+// not answer for, or read's answer, which checks the job's workspace
+// scope on the registry entry that it answers from.
+func (f *Facade) jobRead(c *Call, notFound string, read func(id, scope string) ([]byte, error)) Reply {
 	id, refused := pathUUID(c, "id", "id")
 	if refused != nil {
 		return *refused
 	}
-	if !ownWorkspace(c) || f.foreign(c, id) {
+	if !ownWorkspace(c) {
 		return Error{Variant: "NotFound", Message: notFound + id}.Reply()
 	}
-	body, err := read(id)
+	body, err := read(id, callerScope(c))
 	var ns *platform.NotServed
 	switch {
 	case errors.As(err, &ns):
@@ -137,11 +138,7 @@ func (f *Facade) getFlowUserState(ctx context.Context, c *Call) Reply {
 	if refused != nil {
 		return *refused
 	}
-	if f.foreign(c, id) {
-		// Another workspace's flow job is unknown here.
-		return answer(json.RawMessage("null"), nil)
-	}
-	v, err := f.platform.FlowUserState(ctx, id, c.Params["key"])
+	v, err := f.platform.FlowUserStateIn(ctx, id, c.Params["key"], callerScope(c))
 	return answer(v, err)
 }
 
@@ -161,10 +158,7 @@ func (f *Facade) setFlowUserState(ctx context.Context, c *Call) Reply {
 	if refused != nil {
 		return *refused
 	}
-	if f.foreign(c, id) {
-		return answer(nil, platform.ErrFlowJobNotFound)
-	}
-	if err := f.platform.SetFlowUserState(ctx, id, c.Params["key"], c.Body); err != nil {
+	if err := f.platform.SetFlowUserStateIn(ctx, id, c.Params["key"], c.Body, callerScope(c)); err != nil {
 		return answer(nil, err)
 	}
 	return plainText(200, "Flow job state updated")
@@ -251,7 +245,7 @@ func (f *Facade) dispatched(ctx context.Context, c *Call, id string) (platform.J
 	if d == nil || !ownWorkspace(c) {
 		return platform.JobResult{}, false, nil
 	}
-	return d.Result(ctx, id, c.Caller.Host.Workspace)
+	return d.Result(ctx, id, callerScope(c))
 }
 
 // known reports whether the job registry knows the job id names, looked
@@ -259,21 +253,19 @@ func (f *Facade) dispatched(ctx context.Context, c *Call, id string) (platform.J
 // scope.
 func (f *Facade) known(c *Call, id string) bool {
 	scope, ok := f.platform.JobScope(id)
-	return ok && ownWorkspace(c) && scope == c.Caller.Host.Workspace
+	return ok && ownWorkspace(c) && scope == callerScope(c)
 }
 
-// foreign reports whether the job registry knows the job id names in
-// another workspace scope than that of c's run (Caller.Host): a job of a
-// run of another workspace, which the job routes answer for as for an
-// unknown id, as Windmill answers for a job of another workspace
-// ([WA-V2]). Without a configured workspace every job and caller has the
-// scope "", so no job is foreign, and the routes answer as for one
-// workspace.
+// callerScope is the workspace scope of c's caller: the effective
+// workspace of its run (Caller.Host). The job routes find only the jobs of
+// runs of that scope, and answer for a job of another as for an unknown
+// id, as Windmill answers for a job of another workspace ([WA-V2]).
+// Without a configured workspace every job and caller has DefaultHost's,
+// and the routes answer as for one workspace.
 //
 // [WA-V2]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-v2
-func (f *Facade) foreign(c *Call, id string) bool {
-	scope, ok := f.platform.JobScope(id)
-	return ok && scope != c.Caller.Host.Workspace
+func callerScope(c *Call) string {
+	return c.Caller.Host.EffectiveWorkspace()
 }
 
 func jsonString(s string) []byte {

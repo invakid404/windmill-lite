@@ -1038,8 +1038,8 @@ func TestHostWorkdirRefusedBySDK(t *testing.T) {
 // that a host that does not use the SDK is held to the same rule
 // (harness.CheckWorkdir). The test plays the host itself: it starts the
 // engine as its child with a socketpair as file descriptor 3 and greets it.
-// An engine that cannot open the bundle refuses the host too, with its
-// reason.
+// An engine that cannot open the bundle, or read its -identity file as an
+// identity, refuses the host too, with its reason.
 func TestHostWorkdirRefusedByEngine(t *testing.T) {
 	compiledHost(t) // builds the bundle
 	manifest, err := os.ReadFile(filepath.Join(hostBundle, "manifest.json"))
@@ -1048,6 +1048,16 @@ func TestHostWorkdirRefusedByEngine(t *testing.T) {
 	}
 	sum := sha256.Sum256(manifest)
 	digest := "sha256:" + hex.EncodeToString(sum[:])
+	identityDir := t.TempDir()
+	identity := func(name, text string) []string {
+		p := filepath.Join(identityDir, name)
+		if text != "" {
+			if err := os.WriteFile(p, []byte(text), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return []string{"-identity", p}
+	}
 	for _, tc := range []struct {
 		name     string
 		readOnly bool
@@ -1070,6 +1080,12 @@ func TestHostWorkdirRefusedByEngine(t *testing.T) {
 		{"the password as the master's name", false, false, []string{"-resource-store", "redis"}, harness.RejectEngine, "", "redis://user:s3cr3t-marker@127.0.0.1:1/0?master_name=s3cr3t-marker"},
 		{"a host plugin with a malformed selector", false, false, nil, harness.RejectPlugin, `{"intercept":[{"selector":{"flow":"f/host/echo"}}]}`, ""},
 		{"a usable host plugin", false, false, nil, "", `{"halt_before":[{"flow":"f/host/echo","module":"a"}]}`, ""},
+		{"an identity file that does not open", false, false, identity("missing.json", ""), harness.RejectEngine, "", ""},
+		{"an identity file of null", false, false, identity("null.json", "null"), harness.RejectEngine, "", ""},
+		{"an identity file with a second value", false, false, identity("second.json", `{"workspace":"ws"}}`), harness.RejectEngine, "", ""},
+		{"an identity file with a null field", false, false, identity("null-field.json", `{"workspace":null}`), harness.RejectEngine, "", ""},
+		{"an identity file with a key in another case", false, false, identity("case.json", `{"Workspace":"ws"}`), harness.RejectEngine, "", ""},
+		{"a usable identity file", false, false, identity("usable.json", `{"workspace":"ws"}`), "", "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.readOnly && os.Geteuid() == 0 {
@@ -1375,7 +1391,8 @@ func TestHostScriptOutcomeWithDeadline(t *testing.T) {
 // A host's connect identity reaches the engine (`windmill-lite host
 // -identity`) and every job's environment; a run's own identity, in its run
 // frame, replaces the fields it sets for that run; and an identity field
-// that is not a string refuses the run, which the host serves on after.
+// that is not a string refuses the run, and the next run on the same host
+// succeeds.
 func TestHostIdentity(t *testing.T) {
 	s := supervise(t, 30000, `WL_IDENTITY={"workspace":"ws-host","username":"host-user"}`)
 	for _, tc := range []struct {
@@ -1387,6 +1404,7 @@ func TestHostIdentity(t *testing.T) {
 		{"connect's identity", nil, `{"workspace":"ws-host","username":"host-user","email":"windmill-lite@localhost"}`, ""},
 		{"a run's identity", map[string]any{"workspace": "ws-run", "email": "run@example.test"}, `{"workspace":"ws-run","username":"host-user","email":"run@example.test"}`, ""},
 		{"an identity field that is not a string", map[string]any{"workspace": 1}, "", "refused"},
+		{"a run after the refused one", map[string]any{"workspace": "ws-after"}, `{"workspace":"ws-after","username":"host-user","email":"windmill-lite@localhost"}`, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			body := map[string]any{"path": "f/host/identity", "args": map[string]any{}}

@@ -566,8 +566,10 @@ func TestBudgetDuration(t *testing.T) {
 // A run frame's identity is that run's own job identity: each field it
 // sets replaces the runtime's (Options.Identity) in the environment of the
 // run's steps, which the host gets in their invoke frames. An identity
-// with a field it does not know refuses that run, naming the field, and
-// the connection serves on.
+// with a field it does not know (a spelling in another case included), or
+// a field that is not a string (null included), refuses that run, naming
+// the field, and the connection serves on: the next run, a valid one,
+// succeeds.
 func TestHostRunIdentity(t *testing.T) {
 	dir := writeBundleOf(t, stepFlows, nil, "test-engine", nil, nil)
 	work := t.TempDir()
@@ -583,6 +585,12 @@ func TestHostRunIdentity(t *testing.T) {
 		{"", "ws-runtime", "rt-user", "windmill-lite@localhost", ""},
 		{`,"identity":{"workspace":"ws-run","email":"run@example.test"}`, "ws-run", "rt-user", "run@example.test", ""},
 		{`,"identity":{"workspace":"ws-run","workspac":"x"}`, "", "", "", `unknown field "workspac"`},
+		{`,"identity":{"workspace":"ws-run"}`, "ws-run", "rt-user", "windmill-lite@localhost", ""},
+		{`,"identity":{"workspace":null}`, "", "", "", `field "workspace" is not a string`},
+		{`,"identity":{"email":"run@example.test"}`, "ws-runtime", "rt-user", "run@example.test", ""},
+		{`,"identity":{"Workspace":"ws-run"}`, "", "", "", `unknown field "Workspace"`},
+		{`,"identity":{"username":7}`, "", "", "", `field "username" is not a string`},
+		{"", "ws-runtime", "rt-user", "windmill-lite@localhost", ""},
 	} {
 		id := fmt.Sprintf("0b6d2a4e-5b5d-4f00-9c3e-%012d", i+1)
 		h.sendRaw(`{"t":"run","id":"` + id + `","kind":"flow","path":"f/t/step","args":{}` + tc.identity + `}`)

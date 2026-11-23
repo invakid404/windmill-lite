@@ -3,6 +3,7 @@ package wl
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"sync"
 	"testing"
@@ -22,7 +23,18 @@ import (
 //     own workspace;
 //   - f/i/root returns the root lookup of a job id through the step's own
 //     workspace;
-//   - f/i/spawn dispatches f/s/write with its value and returns its result;
+//   - f/i/spawn dispatches the target of its route (such as p/f/s/write or
+//     f/f/i/env) with its body, and returns the dispatched run's result;
+//   - f/i/stateread, a flow, returns flow_user_state("k") through f/i/echo,
+//     and f/i/flowpath returns its WM_FLOW_PATH;
+//   - f/i/probe2 is f/i/probe at another path;
+//   - f/i/hooked returns its WM_WORKSPACE and the answers of its root lookup
+//     and of a variable read, in that workspace and in the one it is given;
+//   - f/i/overlap publishes that it runs in u/i/r<me>, waits for the other
+//     run's u/i/r<other>, then returns its root lookup;
+//   - f/i/nonce returns its workspace and a fresh UUID, cached by a flow
+//     (f/i/cached_flow); f/i/cached_step's inline step does so with a step
+//     cache_ttl, and f/i/nonce_script as a root script with a cache_ttl;
 //   - and the state writes and reads of storeFiles.
 var identityFiles = func() map[string]string {
 	files := map[string]string{
@@ -44,10 +56,10 @@ var identityFiles = func() map[string]string {
 `,
 		"f/i/child.ts": `export async function main() { return process.env.WM_WORKSPACE; }
 `,
-		"f/i/spawn.ts": `export async function main(value: unknown) {
+		"f/i/spawn.ts": `export async function main(route: string, body: unknown) {
   const api = ` + "`${process.env.BASE_URL}/api/w/${process.env.WM_WORKSPACE}`" + `;
   const headers = { Authorization: ` + "`Bearer ${process.env.WM_TOKEN}`" + `, "Content-Type": "application/json" };
-  const d = await fetch(api + "/jobs/run/p/f/s/write", { method: "POST", headers, body: JSON.stringify({ value }) });
+  const d = await fetch(api + "/jobs/run/" + route, { method: "POST", headers, body: JSON.stringify(body) });
   const id = await d.text();
   if (d.status !== 201) throw new Error("dispatch: " + d.status + " " + id);
   for (let i = 0; i < 500; i++) {
@@ -55,11 +67,57 @@ var identityFiles = func() map[string]string {
     if (r.completed) return r.result;
     await Bun.sleep(10);
   }
-  throw new Error("the dispatched write never completed");
+  throw new Error("the dispatched run never completed");
 }
 `,
 		"f/i/spawn.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/i/spawn",` +
-			`"input_transforms":{"value":{"type":"javascript","expr":"flow_input.value"}}}}]}}`,
+			`"input_transforms":{"route":{"type":"javascript","expr":"flow_input.route"},"body":{"type":"javascript","expr":"flow_input.body"}}}}]}}`,
+		"f/i/echo.ts": `export async function main(x: unknown) { return x ?? null; }
+`,
+		"f/i/flowpath.ts": `export async function main() { return process.env.WM_FLOW_PATH ?? ""; }
+`,
+		"f/i/stateread.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/i/echo",` +
+			`"input_transforms":{"x":{"type":"javascript","expr":"flow_user_state(\"k\")"}}}}]}}`,
+		"f/i/hooked.ts": `export async function main(configured: string) {
+  const e = process.env;
+  const call = async (ws: string, p: string) => {
+    const r = await fetch(` + "`${e.BASE_URL}/api/w/${ws}${p}`" + `, { headers: { Authorization: ` + "`Bearer ${e.WM_TOKEN}`" + ` } });
+    return r.status + " " + (await r.text());
+  };
+  const at = async (ws: string) => ({
+    root: await call(ws, ` + "`/jobs_u/get_root_job_id/${e.WM_ROOT_JOB_ID}`" + `),
+    variable: (await call(ws, "/variables/get_value/u/i/a")).split(" ")[0],
+  });
+  return { env: e.WM_WORKSPACE, hooked: await at(e.WM_WORKSPACE!), configured: configured ? await at(configured) : null };
+}
+`,
+		"f/i/hooked.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/i/hooked",` +
+			`"input_transforms":{"configured":{"type":"javascript","expr":"flow_input.configured"}}}}]}}`,
+		"f/i/overlap.ts": `export async function main(me: string, other: string) {
+  const api = ` + "`${process.env.BASE_URL}/api/w/${process.env.WM_WORKSPACE}`" + `;
+  const headers = { Authorization: ` + "`Bearer ${process.env.WM_TOKEN}`" + `, "Content-Type": "application/json" };
+  const pub = await fetch(` + "`${api}/variables/update/u/i/r${me}`" + `, { method: "POST", headers, body: JSON.stringify({ value: "1" }) });
+  if (!pub.ok) throw new Error("publish: " + pub.status);
+  let seen = false;
+  for (let i = 0; i < 1000 && !seen; i++) {
+    seen = !!JSON.parse(await (await fetch(` + "`${api}/variables/get_value/u/i/r${other}`" + `, { headers })).text());
+    if (!seen) await Bun.sleep(10);
+  }
+  if (!seen) throw new Error("the other run never started its step");
+  const r = await fetch(` + "`${api}/jobs_u/get_root_job_id/${process.env.WM_ROOT_JOB_ID}`" + `);
+  return { job: process.env.WM_JOB_ID, root: r.status + " " + (await r.text()) };
+}
+`,
+		"f/i/overlap.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/i/overlap",` +
+			`"input_transforms":{"me":{"type":"javascript","expr":"flow_input.me"},"other":{"type":"javascript","expr":"flow_input.other"}}}}]}}`,
+		"f/i/nonce.ts": `export async function main() { return { workspace: process.env.WM_WORKSPACE, nonce: crypto.randomUUID() }; }
+`,
+		"f/i/cached_step.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"rawscript","language":"bun",` +
+			`"content":"export async function main() { return { workspace: process.env.WM_WORKSPACE, nonce: crypto.randomUUID() } }","input_transforms":{}},"cache_ttl":600}]}}`,
+		"f/i/cached_flow.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/i/nonce","input_transforms":{}}}],"cache_ttl":600}}`,
+		"f/i/nonce_script.ts": `export async function main() { return { workspace: process.env.WM_WORKSPACE, nonce: crypto.randomUUID() }; }
+`,
+		"f/i/nonce_script.script.yaml": "summary: a nonce, cached for 600 s\ndescription: ''\ncache_ttl: 600\nkind: script\nschema:\n  properties: {}\n  required: []\n",
 		"f/i/probe.ts": `export async function main(me: string, other: string, sibling: string) {
   const api = ` + "`${process.env.BASE_URL}/api/w/${process.env.WM_WORKSPACE}`" + `;
   const headers = { Authorization: ` + "`Bearer ${process.env.WM_TOKEN}`" + `, "Content-Type": "application/json" };
@@ -90,9 +148,31 @@ var identityFiles = func() map[string]string {
   const rootOf = async (id: string) => { const r = await get(` + "`/jobs_u/get_root_job_id/${id}`" + `); return r.status + " " + r.body; };
   const poll = async (id: string) => (await get(` + "`/jobs_u/completed/get_result_maybe/${id}`" + `)).body;
   const state = async (id: string) => (await get(` + "`/jobs/flow/user_states/${id}/k`" + `)).body;
+  const tracked = async (rootJob: string, parentJob: string) => {
+    const t = await post(` + "`/jobs/run/f/f/i/stateread?root_job=${rootJob}&parent_job=${parentJob}`" + `, {});
+    if (t.status !== 201) throw new Error("tracked dispatch: " + t.status + " " + t.body);
+    for (let i = 0; i < 500; i++) {
+      const r = JSON.parse((await get(` + "`/jobs_u/completed/get_result_maybe/${t.body}`" + `)).body);
+      if (r.completed) return JSON.stringify(r.result);
+      await Bun.sleep(10);
+    }
+    throw new Error("the tracked dispatch never completed");
+  };
+  const parentPath = async (parentJob: string) => {
+    const t = await post(` + "`/jobs/run/p/f/i/flowpath?parent_job=${parentJob}`" + `, {});
+    if (t.status !== 201) throw new Error("tracked dispatch: " + t.status + " " + t.body);
+    for (let i = 0; i < 500; i++) {
+      const r = JSON.parse((await get(` + "`/jobs_u/completed/get_result_maybe/${t.body}`" + `)).body);
+      if (r.completed) return r.result;
+      await Bun.sleep(10);
+    }
+    throw new Error("the tracked dispatch never completed");
+  };
   return {
     ids: mine,
     own: { job: await read(mine.job), sibling: await read(sibling), root: await rootOf(mine.job), child: await poll(child), state: await state(root) },
+    tracked: { own: await tracked(root, mine.job), theirs: await tracked(theirs.root, theirs.job) },
+    parentPath: { own: await parentPath(mine.flow), theirs: await parentPath(theirs.flow) },
     other: {
       job: await read(theirs.job), sibling: await read(theirs.sibling), root: await rootOf(theirs.job), child: await poll(theirs.child),
       state: await state(theirs.root), setState: (await post(` + "`/jobs/flow/user_states/${theirs.root}/k`" + `, "x")).status,
@@ -101,6 +181,11 @@ var identityFiles = func() map[string]string {
 }
 `,
 		"f/i/probe.flow/flow.yaml": `{"summary":"t","value":{"modules":[` +
+			`{"id":"first","value":{"type":"script","path":"f/i/first","input_transforms":{}}},` +
+			`{"id":"probe","value":{"type":"script","path":"f/i/probe","input_transforms":{` +
+			`"me":{"type":"javascript","expr":"flow_input.me"},"other":{"type":"javascript","expr":"flow_input.other"},` +
+			`"sibling":{"type":"javascript","expr":"results.first"}}}}]}}`,
+		"f/i/probe2.flow/flow.yaml": `{"summary":"t","value":{"modules":[` +
 			`{"id":"first","value":{"type":"script","path":"f/i/first","input_transforms":{}}},` +
 			`{"id":"probe","value":{"type":"script","path":"f/i/probe","input_transforms":{` +
 			`"me":{"type":"javascript","expr":"flow_input.me"},"other":{"type":"javascript","expr":"flow_input.other"},` +
@@ -136,16 +221,25 @@ func identityRuntime(t *testing.T, opts Options) *Runtime {
 // into v.
 func runJSON(t *testing.T, rt *Runtime, path, args string, opts RunOptions, v any) {
 	t.Helper()
-	res, err := rt.Run(context.Background(), path, json.RawMessage(args), opts)
-	if err != nil {
+	if err := runResult(rt, path, args, opts, v); err != nil {
 		t.Fatal(err)
 	}
-	if res.Status != StatusSuccess {
-		t.Fatalf("%s: %s %s", path, res.Status, res.Result)
+}
+
+// runResult is runJSON's run, which returns its failure, for a goroutine
+// other than the test's.
+func runResult(rt *Runtime, path, args string, opts RunOptions, v any) error {
+	res, err := rt.Run(context.Background(), path, json.RawMessage(args), opts)
+	switch {
+	case err != nil:
+		return err
+	case res.Status != StatusSuccess:
+		return fmt.Errorf("%s: %s %s", path, res.Status, res.Result)
 	}
 	if err := json.Unmarshal(res.Result, v); err != nil {
-		t.Fatalf("%s: result %s: %v", path, res.Result, err)
+		return fmt.Errorf("%s: result %s: %v", path, res.Result, err)
 	}
+	return nil
 }
 
 // identityEnv is what f/i/env returns.
@@ -203,7 +297,7 @@ func TestScriptRunIdentity(t *testing.T) {
 // The resource store keys its entries under the workspace: two runtimes of
 // two workspaces sharing one memory store keep a state each, and so do two
 // runs of one runtime in two workspaces. A run that a step dispatches
-// writes in the step's run's workspace.
+// writes in the step's run's workspace, a script and a flow alike.
 func TestIdentityStoreKey(t *testing.T) {
 	store := NewMemoryResourceStore()
 	one := identityRuntime(t, Options{Identity: Identity{Workspace: "ws-one"}, ResourceStore: store})
@@ -213,12 +307,14 @@ func TestIdentityStoreKey(t *testing.T) {
 	runJSON(t, two, "f/s/write", `{"value":2}`, RunOptions{}, &s)
 	runJSON(t, one, "f/s/write", `{"value":3}`, RunOptions{Identity: Identity{Workspace: "ws-three"}}, &s)
 	// A run that a step of ws-four dispatches writes in ws-four.
-	runJSON(t, one, "f/i/spawn", `{"value":4}`, RunOptions{Identity: Identity{Workspace: "ws-four"}}, &s)
+	runJSON(t, one, "f/i/spawn", `{"route":"p/f/s/write","body":{"value":4}}`, RunOptions{Identity: Identity{Workspace: "ws-four"}}, &s)
+	// So does a flow that a step of ws-five dispatches.
+	runJSON(t, one, "f/i/spawn", `{"route":"f/f/s/write","body":{"value":5}}`, RunOptions{Identity: Identity{Workspace: "ws-five"}}, &s)
 	for _, tc := range []struct {
 		rt   *Runtime
 		id   Identity
 		want float64
-	}{{one, Identity{}, 1}, {two, Identity{}, 2}, {one, Identity{Workspace: "ws-three"}, 3}, {two, Identity{Workspace: "ws-one"}, 1}, {two, Identity{Workspace: "ws-four"}, 4}} {
+	}{{one, Identity{}, 1}, {two, Identity{}, 2}, {one, Identity{Workspace: "ws-three"}, 3}, {two, Identity{Workspace: "ws-one"}, 1}, {two, Identity{Workspace: "ws-four"}, 4}, {two, Identity{Workspace: "ws-five"}, 5}} {
 		var got float64
 		runJSON(t, tc.rt, "f/s/read", `{}`, RunOptions{Identity: tc.id}, &got)
 		if got != tc.want {
@@ -235,7 +331,9 @@ type probeResult struct {
 		Root, Child  string
 		State        string
 	} `json:"own"`
-	Other struct {
+	Tracked    struct{ Own, Theirs string } `json:"tracked"`
+	ParentPath struct{ Own, Theirs string } `json:"parentPath"`
+	Other      struct {
 		Job, Sibling int
 		Root, Child  string
 		State        string
@@ -243,39 +341,60 @@ type probeResult struct {
 	} `json:"other"`
 }
 
-// Two concurrent runs of one runtime in two workspaces (RunOptions.Identity)
-// each find their own run's jobs through their workspace's paths, and the
-// run that they dispatched, which runs in their workspace; they find the
-// other run's jobs as unknown ids: the job read answers 404, the root lookup 400
-// SqlErr, the result poll of the run the other dispatched nulls, and the
-// other's flow user state is null to read and not found to write. Once both
-// runs have ended, the root lookup of an ended job still answers in its
-// workspace only.
-func TestTwoWorkspacesOneRuntime(t *testing.T) {
-	rt := identityRuntime(t, Options{Variables: map[string]Variable{"u/i/a": {Value: ""}, "u/i/b": {Value: ""}}})
+// probePair runs f/i/probe as "a" with identity a and f/i/probe2 as "b"
+// with identity b at once on rt, and returns each run's result by its name.
+func probePair(t *testing.T, rt *Runtime, a, b Identity) map[string]probeResult {
+	t.Helper()
 	runs := map[string]probeResult{}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	for _, tc := range []struct{ me, other, ws string }{{"a", "b", "ws-a"}, {"b", "a", "ws-b"}} {
+	for _, tc := range []struct {
+		me, other, path string
+		id              Identity
+	}{{"a", "b", "f/i/probe", a}, {"b", "a", "f/i/probe2", b}} {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			var p probeResult
-			runJSON(t, rt, "f/i/probe", `{"me":"`+tc.me+`","other":"`+tc.other+`"}`, RunOptions{Identity: Identity{Workspace: tc.ws}}, &p)
+			if err := runResult(rt, tc.path, `{"me":"`+tc.me+`","other":"`+tc.other+`"}`, RunOptions{Identity: tc.id}, &p); err != nil {
+				t.Error(err)
+				return
+			}
 			mu.Lock()
-			runs[tc.ws] = p
+			runs[tc.me] = p
 			mu.Unlock()
 		}()
 	}
 	wg.Wait()
 	if t.Failed() {
-		return
+		t.FailNow()
 	}
-	noRows := `400 SqlErr: no rows returned by a query that expected to return at least one row`
-	unknownPoll := `{"started":null,"success":null,"completed":false,"result":null}`
-	for ws, p := range runs {
+	return runs
+}
+
+const (
+	noRows      = `400 SqlErr: no rows returned by a query that expected to return at least one row`
+	unknownPoll = `{"started":null,"success":null,"completed":false,"result":null}`
+)
+
+// Two concurrent runs of one runtime in two workspaces (RunOptions.Identity)
+// each find their own run's jobs through their workspace's paths, and the
+// run that they dispatched, which runs in their workspace; they find the
+// other run's jobs as unknown ids: the job read answers 404, the root
+// lookup 400 SqlErr, the result poll of the run the other dispatched
+// nulls, and the other's flow user state is null to read and not found to
+// write. A flow that a run dispatches with the other run's jobs as its
+// parent_job and root_job reads null through flow_user_state(), and one
+// dispatched with its own run's reads its run's state. Once both runs have
+// ended, the root lookup of an ended job still answers in its workspace
+// only.
+func TestTwoWorkspacesOneRuntime(t *testing.T) {
+	rt := identityRuntime(t, Options{Variables: map[string]Variable{"u/i/a": {Value: ""}, "u/i/b": {Value: ""}}})
+	runs := probePair(t, rt, Identity{Workspace: "ws-a"}, Identity{Workspace: "ws-b"})
+	for me, p := range runs {
+		ws := "ws-" + me
 		own, other := p.Own, p.Other
-		if own.Job != 200 || own.Sibling != 200 || own.Root != `200 "`+p.IDs.Root+`"` || own.State != `"`+map[string]string{"ws-a": "a", "ws-b": "b"}[ws]+`"` {
+		if own.Job != 200 || own.Sibling != 200 || own.Root != `200 "`+p.IDs.Root+`"` || own.State != `"`+me+`"` {
 			t.Errorf("%s, its own jobs: %+v", ws, own)
 		}
 		var child struct {
@@ -288,18 +407,191 @@ func TestTwoWorkspacesOneRuntime(t *testing.T) {
 		if other.Job != 404 || other.Sibling != 404 || other.Root != noRows || other.Child != unknownPoll || other.State != "null" || other.SetState != 404 {
 			t.Errorf("%s, the other workspace's jobs: %+v; want 404, 404, %q, %s, null, 404", ws, other, noRows, unknownPoll)
 		}
+		if p.Tracked.Own != `"`+me+`"` || p.Tracked.Theirs != "null" {
+			t.Errorf("%s, flow_user_state() of a tracked dispatch: own root %s, the other's %s; want %q and null", ws, p.Tracked.Own, p.Tracked.Theirs, me)
+		}
+		if ownPath := map[string]string{"a": "f/i/probe", "b": "f/i/probe2"}[me]; p.ParentPath.Own != ownPath || p.ParentPath.Theirs != "" {
+			t.Errorf("%s, the WM_FLOW_PATH of a dispatch tracked in its own run %q and in the other's %q; want %q and none", ws, p.ParentPath.Own, p.ParentPath.Theirs, ownPath)
+		}
 	}
 	// The ended jobs keep their workspace.
 	for _, tc := range []struct{ id, ws, want string }{
-		{runs["ws-a"].IDs.Job, "ws-a", `200 "` + runs["ws-a"].IDs.Root + `"`},
-		{runs["ws-a"].IDs.Job, "ws-b", noRows},
-		{runs["ws-b"].IDs.Root, "ws-b", `200 "` + runs["ws-b"].IDs.Root + `"`},
-		{runs["ws-b"].IDs.Root, "ws-a", noRows},
+		{runs["a"].IDs.Job, "ws-a", `200 "` + runs["a"].IDs.Root + `"`},
+		{runs["a"].IDs.Job, "ws-b", noRows},
+		{runs["b"].IDs.Root, "ws-b", `200 "` + runs["b"].IDs.Root + `"`},
+		{runs["b"].IDs.Root, "ws-a", noRows},
 	} {
 		var got string
 		runJSON(t, rt, "f/i/root", `{"id":"`+tc.id+`"}`, RunOptions{Identity: Identity{Workspace: tc.ws}}, &got)
 		if got != tc.want {
 			t.Errorf("root lookup of the ended job %s from %s: %s, want %s", tc.id, tc.ws, got, tc.want)
+		}
+	}
+}
+
+// A run that names DefaultHost's workspace, windmill-lite, and one that
+// names none are in one workspace, as their job environments and resource
+// store keys are: each finds the other's jobs, the run the other
+// dispatched and the other's flow user state.
+func TestDefaultWorkspaceAlias(t *testing.T) {
+	rt := identityRuntime(t, Options{Variables: map[string]Variable{"u/i/a": {Value: ""}, "u/i/b": {Value: ""}}})
+	runs := probePair(t, rt, Identity{}, Identity{Workspace: "windmill-lite"})
+	for me, p := range runs {
+		other := runs[map[string]string{"a": "b", "b": "a"}[me]]
+		// The other run sets "x" on this run's root once it has read it,
+		// so this run reads its own state as its own value or as "x".
+		mine := map[string]bool{`"` + me + `"`: true, `"x"`: true}
+		if p.Own.Job != 200 || !mine[p.Own.State] || !mine[p.Tracked.Own] {
+			t.Errorf("%s, its own jobs: %+v, tracked %s", me, p.Own, p.Tracked.Own)
+		}
+		var child struct {
+			Completed bool
+			Result    string
+		}
+		theirs := `"` + map[string]string{"a": "b", "b": "a"}[me] + `"`
+		if p.Other.Job != 200 || p.Other.Sibling != 200 || p.Other.Root != `200 "`+other.IDs.Root+`"` || p.Other.State != theirs || p.Other.SetState != 200 ||
+			json.Unmarshal([]byte(p.Other.Child), &child) != nil || !child.Completed || child.Result != "windmill-lite" {
+			t.Errorf("%s, the other run's jobs: %+v; want them found", me, p.Other)
+		}
+		if p.Tracked.Theirs != theirs {
+			t.Errorf("%s, flow_user_state() of a dispatch tracked in the other run: %s, want %s", me, p.Tracked.Theirs, theirs)
+		}
+		if theirPath := map[string]string{"a": "f/i/probe2", "b": "f/i/probe"}[me]; p.ParentPath.Theirs != theirPath {
+			t.Errorf("%s, the WM_FLOW_PATH of a dispatch tracked in the other run: %q, want %q", me, p.ParentPath.Theirs, theirPath)
+		}
+	}
+}
+
+// hookedResult is what f/i/hooked returns.
+type hookedResult struct {
+	Env                string
+	Hooked, Configured *struct{ Root, Variable string }
+}
+
+// A hook that changes a job's WM_WORKSPACE (InvocationEnv) changes the
+// workspace of a run without a configured one, as it always did: its
+// root lookup and its variable read answer in the hook's workspace. A run
+// with a configured workspace stays in it: through the hook's workspace
+// its root lookup finds no job and its variable read answers 401, and
+// through the configured one both answer.
+func TestIdentityHookedWorkspace(t *testing.T) {
+	rt := identityRuntime(t, Options{Variables: map[string]Variable{"u/i/a": {Value: "v"}}})
+	hook := func(ws string) *Hooks {
+		return &Hooks{InvocationEnv: func(_ context.Context, _ RunHandle, _ Site, env map[string]string) error {
+			env["WM_WORKSPACE"] = ws
+			return nil
+		}}
+	}
+	const plain, configured = "0b6d2a4e-5b5d-4f00-9c3e-00000000f001", "0b6d2a4e-5b5d-4f00-9c3e-00000000f002"
+	var got hookedResult
+	runJSON(t, rt, "f/i/hooked", `{"configured":""}`, RunOptions{ID: plain, Hooks: hook("ws-h")}, &got)
+	if got.Env != "ws-h" || got.Hooked == nil || got.Hooked.Root != `200 "`+plain+`"` || got.Hooked.Variable != "200" {
+		t.Errorf("no configured workspace, hooked to ws-h: %s %+v; want the root and 200 in ws-h", got.Env, got.Hooked)
+	}
+	got = hookedResult{}
+	runJSON(t, rt, "f/i/hooked", `{"configured":"ws-a"}`, RunOptions{ID: configured, Identity: Identity{Workspace: "ws-a"}, Hooks: hook("ws-b")}, &got)
+	if got.Env != "ws-b" || got.Hooked == nil || got.Hooked.Root != noRows || got.Hooked.Variable != "401" {
+		t.Errorf("configured ws-a, hooked to ws-b, through ws-b: %s %+v; want no rows and 401", got.Env, got.Hooked)
+	}
+	if got.Configured == nil || got.Configured.Root != `200 "`+configured+`"` || got.Configured.Variable != "200" {
+		t.Errorf("configured ws-a, hooked to ws-b, through ws-a: %+v; want the root and 200", got.Configured)
+	}
+}
+
+// Two live invocations of runs of two workspaces whose hook gives both
+// the same WM_JOB_ID each keep their own run's workspace: each finds its
+// own run's root through its workspace.
+func TestOverlappingJobIDs(t *testing.T) {
+	rt := identityRuntime(t, Options{Variables: map[string]Variable{"u/i/ra": {Value: ""}, "u/i/rb": {Value: ""}}})
+	const shared = "0b6d2a4e-5b5d-4f00-9c3e-00000000e000"
+	hooks := &Hooks{InvocationEnv: func(_ context.Context, _ RunHandle, _ Site, env map[string]string) error {
+		env["WM_JOB_ID"] = shared
+		return nil
+	}}
+	var wg sync.WaitGroup
+	for _, tc := range []struct{ me, other, ws, id string }{
+		{"a", "b", "ws-a", "0b6d2a4e-5b5d-4f00-9c3e-00000000e00a"},
+		{"b", "a", "ws-b", "0b6d2a4e-5b5d-4f00-9c3e-00000000e00b"},
+	} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			var got struct{ Job, Root string }
+			if err := runResult(rt, "f/i/overlap", `{"me":"`+tc.me+`","other":"`+tc.other+`"}`, RunOptions{ID: tc.id, Identity: Identity{Workspace: tc.ws}, Hooks: hooks}, &got); err != nil {
+				t.Error(err)
+				return
+			}
+			if got.Job != shared || got.Root != `200 "`+tc.id+`"` {
+				t.Errorf("%s: job %s, root lookup %s; want %s and its own root", tc.ws, got.Job, got.Root, shared)
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+// A script and a flow that a step dispatches take the identity of the
+// step's run, a flow's or a root script's.
+func TestDispatchedRunIdentity(t *testing.T) {
+	rt := identityRuntime(t, Options{Identity: Identity{Workspace: "ws-runtime", Username: "rt-user"}})
+	for _, kind := range []string{KindFlow, KindScript} {
+		for _, route := range []string{"p/f/i/env", "f/f/i/env"} {
+			var got identityEnv
+			runJSON(t, rt, "f/i/spawn", `{"route":"`+route+`","body":{}}`, RunOptions{Kind: kind, Identity: Identity{Workspace: "ws-d", Email: "dee@example.test"}}, &got)
+			if got.Workspace != "ws-d" || got.Username != "rt-user" || got.Email != "dee@example.test" {
+				t.Errorf("%s run, %s: the dispatched run's identity %+v; want ws-d, rt-user, dee@example.test", kind, route, got)
+			}
+		}
+	}
+}
+
+// The result cache keeps the results of runs of each workspace apart: a
+// step's, a flow's and a root script's cache_ttl each give a later run of
+// the same workspace the cached result, and a run of another workspace its
+// own. A run that names windmill-lite shares the results of runs that name
+// no workspace.
+func TestIdentityResultCache(t *testing.T) {
+	rt := identityRuntime(t, Options{})
+	type nonce struct{ Workspace, Nonce string }
+	for _, tc := range []struct {
+		path string
+		kind string
+	}{{"f/i/cached_step", KindFlow}, {"f/i/cached_flow", KindFlow}, {"f/i/nonce_script", KindScript}} {
+		run := func(ws string) nonce {
+			var n nonce
+			runJSON(t, rt, tc.path, `{}`, RunOptions{Kind: tc.kind, Identity: Identity{Workspace: ws}}, &n)
+			return n
+		}
+		a1, a2, b, d1, d2 := run("ws-a"), run("ws-a"), run("ws-b"), run(""), run("windmill-lite")
+		if a1.Workspace != "ws-a" || a2 != a1 {
+			t.Errorf("%s: two runs in ws-a gave %+v and %+v; want one cached result", tc.path, a1, a2)
+		}
+		if b.Workspace != "ws-b" || b.Nonce == a1.Nonce {
+			t.Errorf("%s: a run in ws-b gave %+v after ws-a's %+v; want its own", tc.path, b, a1)
+		}
+		if d1.Workspace != "windmill-lite" || d2 != d1 || d1.Nonce == a1.Nonce || d1.Nonce == b.Nonce {
+			t.Errorf("%s: runs naming no workspace and windmill-lite gave %+v and %+v; want one result of their own", tc.path, d1, d2)
+		}
+	}
+}
+
+// DecodeIdentity takes exactly one JSON object of the six keys, spelled
+// exactly, each a string, and nothing after it but white space.
+func TestDecodeIdentity(t *testing.T) {
+	got, err := DecodeIdentity([]byte(` {"workspace":"ws","username":"u","email":"e@example.test","permissioned_as":"g/x","base_url":"https://x.test","worker_group":"g"} ` + "\n"))
+	want := Identity{Workspace: "ws", Username: "u", Email: "e@example.test", PermissionedAs: "g/x", BaseURL: "https://x.test", WorkerGroup: "g"}
+	if err != nil || got != want {
+		t.Fatalf("a full identity: %+v, %v", got, err)
+	}
+	if got, err := DecodeIdentity([]byte(`{}`)); err != nil || got != (Identity{}) {
+		t.Fatalf("an empty object: %+v, %v", got, err)
+	}
+	for _, bad := range []string{
+		`null`, `[]`, `"ws"`, `7`, ``, `{"workspace":null}`, `{"workspace":1}`, `{"workspace":{}}`,
+		`{"Workspace":"ws"}`, `{"WORKSPACE":"ws"}`, `{"other":"x"}`,
+		`{"workspace":"ws"}}`, `{"workspace":"ws"} {}`, `{"workspace":"ws"} x`, `{"workspace":"ws"`,
+	} {
+		if got, err := DecodeIdentity([]byte(bad)); err == nil {
+			t.Errorf("%s decoded as %+v", bad, got)
 		}
 	}
 }

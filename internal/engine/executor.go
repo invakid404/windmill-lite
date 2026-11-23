@@ -87,6 +87,11 @@ type Invocation struct {
 	// own (RunRequest.Platform, H13), which the facade answers the step's
 	// resource and variable reads from; nil means the facade's own.
 	Platform *platform.Services
+	// Host is the identity of the invocation's run, the runtime's with the
+	// run's own over it. The platform facade scopes the invocation's job
+	// lookups by its workspace, whatever its Env says (ADR 0007, a
+	// workspace per run).
+	Host platform.Host
 	// Around lists the host plugin's around wrappers whose selectors match
 	// the site, by their index in the plugin's declaration, outermost
 	// first (ADR 0008 H1): the harness runs the step inside

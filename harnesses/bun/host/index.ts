@@ -498,41 +498,52 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   const { spawn } = createRequire(import.meta.url)("node:child_process") as typeof import("node:child_process");
   // The identity reaches the engine as a file it reads before its welcome
   // (-identity), in a directory of its own, removed once the engine has
-  // answered.
+  // answered, or as soon as writing it or starting the engine fails.
   let identityDir: string | undefined;
   let identityFile: string | undefined;
-  if (identity !== undefined) {
-    identityDir = mkdtempSync(join(tmpdir(), "wl-identity-"));
-    identityFile = join(identityDir, "identity.json");
-    writeFileSync(identityFile, identity);
-  }
   const dropIdentityFile = () => {
     if (identityDir) rmSync(identityDir, { recursive: true, force: true });
   };
+  if (identity !== undefined) {
+    identityDir = mkdtempSync(join(tmpdir(), "wl-identity-"));
+    identityFile = join(identityDir, "identity.json");
+    try {
+      writeFileSync(identityFile, identity);
+    } catch (e) {
+      dropIdentityFile();
+      throw e;
+    }
+  }
   // The second one, the child's fd 4, carries only the child frames that
   // announce the steps' child groups (WR-55), written synchronously: the
   // socket may hold bytes it has not written yet, which such a write would
   // overtake, and the step may block the event loop right after.
-  const child = spawn(
-    o.engine,
-    [
-      ...(o.engineArgs ?? []),
-      ...["host", "--bundle", o.bundle, "--workdir", workdir, "--kill-after", `${killAfter}ms`],
-      ...(o.readCache ? ["-read-cache"] : []),
-      ...(o.skipArgsFile ? ["-skip-args-file"] : []),
-      ...(store ? ["-resource-store", store.kind] : []),
-      ...(store?.kind === "redis" && store.prefix !== undefined ? ["-redis-prefix", store.prefix] : []),
-      ...(store?.kind === "redis" && store.allowEviction ? ["-redis-allow-eviction"] : []),
-      ...(identityFile ? ["-identity", identityFile] : []),
-      ...(o.engineFlags ?? []),
-    ],
-    {
-      stdio: ["ignore", "inherit", "inherit", "pipe", "pipe"],
-      // The Redis URL reaches the engine only in its environment: a
-      // command line shows in ps.
-      ...(store?.kind === "redis" ? { env: { ...process.env, WL_REDIS_URL: store.url } } : {}),
-    },
-  );
+  let child: ReturnType<typeof spawn>;
+  try {
+    child = spawn(
+      o.engine,
+      [
+        ...(o.engineArgs ?? []),
+        ...["host", "--bundle", o.bundle, "--workdir", workdir, "--kill-after", `${killAfter}ms`],
+        ...(o.readCache ? ["-read-cache"] : []),
+        ...(o.skipArgsFile ? ["-skip-args-file"] : []),
+        ...(store ? ["-resource-store", store.kind] : []),
+        ...(store?.kind === "redis" && store.prefix !== undefined ? ["-redis-prefix", store.prefix] : []),
+        ...(store?.kind === "redis" && store.allowEviction ? ["-redis-allow-eviction"] : []),
+        ...(identityFile ? ["-identity", identityFile] : []),
+        ...(o.engineFlags ?? []),
+      ],
+      {
+        stdio: ["ignore", "inherit", "inherit", "pipe", "pipe"],
+        // The Redis URL reaches the engine only in its environment: a
+        // command line shows in ps.
+        ...(store?.kind === "redis" ? { env: { ...process.env, WL_REDIS_URL: store.url } } : {}),
+      },
+    );
+  } catch (e) {
+    dropIdentityFile();
+    throw e;
+  }
   let settle: { resolve: () => void; reject: (e: Error) => void };
   const ready = new Promise<void>((resolve, reject) => (settle = { resolve, reject }));
   const started = new Promise<Error | undefined>((resolve) => {

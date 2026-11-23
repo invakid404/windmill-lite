@@ -22,6 +22,9 @@ import (
 type helpers struct {
 	s    *platform.Services
 	root string
+	// scope is the run's workspace scope (platform.Host.EffectiveWorkspace),
+	// "" for every scope.
+	scope string
 }
 
 // Variable is variable(path): the variable's value, a secret's plaintext,
@@ -43,9 +46,10 @@ func (h helpers) Resource(ctx context.Context, path string) (jsonval.Value, erro
 
 // FlowUserState is flow_user_state(key): the value stored under key for
 // the run's root flow job (WA-14), JSON null when there is none, as the
-// API's read gives it.
+// API's read gives it, and for a root of another workspace scope than the
+// run's, which a dispatch may name as its root_job.
 func (h helpers) FlowUserState(ctx context.Context, key string) (jsonval.Value, error) {
-	v, err := h.s.FlowUserState(ctx, h.root, key)
+	v, err := h.s.FlowUserStateIn(ctx, h.root, key, h.scope)
 	if err != nil {
 		return jsonval.Value{}, err
 	}

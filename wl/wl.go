@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -219,19 +220,39 @@ type Identity struct {
 	WorkerGroup string `json:"worker_group,omitempty"`
 }
 
-// DecodeIdentity decodes an identity from its JSON form: an object of
-// strings whose keys are workspace, username, email, permissioned_as,
-// base_url and worker_group, each optional. Another key, or a value that
-// is not a string, is an error.
+// DecodeIdentity decodes an identity from its JSON form: exactly one JSON
+// object, and nothing after it but white space, whose keys are workspace,
+// username, email, permissioned_as, base_url and worker_group, spelled
+// exactly so, each optional and each a string. Another key (a spelling in
+// another case included), a value that is not a string (null included),
+// a text that is not an object (null included) and a second value are
+// errors.
 func DecodeIdentity(data []byte) (Identity, error) {
-	var id Identity
+	var fields map[string]json.RawMessage
 	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&id); err != nil {
+	if err := dec.Decode(&fields); err != nil {
 		return Identity{}, fmt.Errorf("wl: identity: %w", err)
 	}
-	if dec.More() {
+	if fields == nil {
+		return Identity{}, errors.New("wl: identity: not a JSON object")
+	}
+	if _, err := dec.Token(); err != io.EOF {
 		return Identity{}, errors.New("wl: identity: more than one JSON value")
+	}
+	var id Identity
+	dst := map[string]*string{
+		"workspace": &id.Workspace, "username": &id.Username, "email": &id.Email,
+		"permissioned_as": &id.PermissionedAs, "base_url": &id.BaseURL, "worker_group": &id.WorkerGroup,
+	}
+	for _, k := range slices.Sorted(maps.Keys(fields)) {
+		p, ok := dst[k]
+		if !ok {
+			return Identity{}, fmt.Errorf("wl: identity: unknown field %q", k)
+		}
+		v := bytes.TrimSpace(fields[k])
+		if len(v) == 0 || v[0] != '"' || json.Unmarshal(v, p) != nil {
+			return Identity{}, fmt.Errorf("wl: identity: field %q is not a string", k)
+		}
 	}
 	return id, nil
 }

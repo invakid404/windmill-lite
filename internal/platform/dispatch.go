@@ -59,8 +59,9 @@ type Dispatcher interface {
 	Dispatch(ctx context.Context, d Dispatch) (string, error)
 	// Result returns the state of the job id names, and false when the
 	// dispatcher did not start it, or started it for a dispatch whose
-	// Host's Workspace is not workspace: a caller of another workspace
-	// scope (Job.Host) finds no such job.
+	// Host's effective workspace (Host.EffectiveWorkspace) is not
+	// workspace: a caller of another workspace scope finds no such job.
+	// A workspace of "" finds the job of any scope.
 	Result(ctx context.Context, id, workspace string) (JobResult, bool, error)
 }
 

@@ -748,7 +748,7 @@ func (r *run) runList(ctx context.Context, fr *frame) (e flowEnd) {
 		return r.runModules(ctx, fr)
 	}
 	ignoreS3Path := isTrue(fr.def.CacheIgnoreS3Path)
-	key, ok := r.e.cacheKey(ctx, cacheKindFlow, fr.def.Path, fr.input, ignoreS3Path)
+	key, ok := r.e.cacheKey(ctx, r.host.EffectiveWorkspace(), cacheKindFlow, fr.def.Path, fr.input, ignoreS3Path)
 	if ok {
 		// A hit is the flow job's start and completion at once, so the
 		// host's checks of both apply (ADR 0008, H4, H5; FX-38): a latch,
@@ -770,7 +770,7 @@ func (r *run) runList(ctx context.Context, fr *frame) (e flowEnd) {
 	if !e.stores || ended(e.status) || !fr.cacheTTL.stores() {
 		return e
 	}
-	if key, ok := r.e.cacheKey(ctx, cacheKindFlow, fr.def.Path, fr.input, ignoreS3Path); ok {
+	if key, ok := r.e.cacheKey(ctx, r.host.EffectiveWorkspace(), cacheKindFlow, fr.def.Path, fr.input, ignoreS3Path); ok {
 		r.store(ctx, key, fr.cacheTTL.duration(), e.result, e.origin, e.nested)
 		// The store comes before the flow job's completion, so a latch or
 		// the cancellation that arrives while it runs ends the flow too.
@@ -2236,7 +2236,7 @@ func (r *run) startScope(fr *frame, prev jsonval.Value, prevID string) *expr.Sco
 		FlowInput: fr.input,
 		FlowEnv:   r.envOf(fr),
 		Results:   r.results(fr),
-		Helpers:   helpers{r.platform, r.rootID},
+		Helpers:   helpers{r.platform, r.rootID, r.host.EffectiveWorkspace()},
 	}
 }
 
@@ -2257,7 +2257,7 @@ func (r *run) transformScope(fr *frame, i int, prev jsonval.Value, prevID string
 		FlowInput: fr.input,
 		FlowEnv:   r.envOf(fr),
 		Results:   r.results(fr),
-		Helpers:   helpers{r.platform, r.rootID},
+		Helpers:   helpers{r.platform, r.rootID, r.host.EffectiveWorkspace()},
 	}
 	if fr.isFailure(i) {
 		// The flow job's: the run's at the root, a body's or a subflow's
@@ -2278,7 +2278,7 @@ func (r *run) stopScope(fr *frame, x *expr.Expr, own jsonval.Value) *expr.Scope 
 	s := &expr.Scope{
 		Context:   []expr.Named{{Name: "previous_result", Value: own}, {Name: "result", Value: own}},
 		FlowInput: fr.input,
-		Helpers:   helpers{r.platform, r.rootID},
+		Helpers:   helpers{r.platform, r.rootID, r.host.EffectiveWorkspace()},
 	}
 	t := x.Trimmed
 	if strings.Contains(t, "results.") || strings.Contains(t, "results[") || strings.Contains(t, "results?.") {
@@ -2299,7 +2299,7 @@ func (r *run) sleepScope(fr *frame, own jsonval.Value) *expr.Scope {
 		Context:   []expr.Named{{Name: "previous_result", Value: own}, {Name: "result", Value: own}},
 		FlowInput: fr.input,
 		FlowEnv:   r.envOf(fr),
-		Helpers:   helpers{r.platform, r.rootID},
+		Helpers:   helpers{r.platform, r.rootID, r.host.EffectiveWorkspace()},
 	}
 }
 
@@ -2314,7 +2314,7 @@ func (r *run) timeoutScope(fr *frame, prev jsonval.Value, prevID string) *expr.S
 		FlowInput:  fr.input,
 		FlowEnv:    r.envOf(fr),
 		Results:    r.results(fr),
-		Helpers:    helpers{r.platform, r.rootID},
+		Helpers:    helpers{r.platform, r.rootID, r.host.EffectiveWorkspace()},
 	}
 }
 
@@ -2328,7 +2328,7 @@ func (r *run) retryScope(fr *frame, x *expr.Expr, failed jsonval.Value) *expr.Sc
 	s := &expr.Scope{
 		Context:   []expr.Named{{Name: "previous_result", Value: failed}, {Name: "result", Value: failed}},
 		FlowInput: fr.input,
-		Helpers:   helpers{r.platform, r.rootID},
+		Helpers:   helpers{r.platform, r.rootID, r.host.EffectiveWorkspace()},
 	}
 	if strings.Contains(x.Trimmed, "flow_env") {
 		s.FlowEnv = r.cachedEnvOf(fr)
@@ -2599,6 +2599,7 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 		Boundary:    Boundary(m.Leaf.Boundary),
 		ModuleState: r.e.moduleState,
 		Platform:    r.ownPlatform(),
+		Host:        r.host,
 	}
 	if r.around != nil {
 		inv.Around = r.around(site)

@@ -155,7 +155,7 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 		ttl = ttlOf(s.Metadata.CacheTTL)
 	}
 	if ttl.set {
-		if k, ok := e.cacheKey(ctx, cacheKindScript, s.ID, args, false); ok {
+		if k, ok := e.cacheKey(ctx, host.EffectiveWorkspace(), cacheKindScript, s.ID, args, false); ok {
 			key = k
 			if c, hit, err := e.cacheGet(ctx, key, time.Now()); err == nil && hit {
 				if ctx.Err() != nil {
@@ -203,6 +203,7 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 		Report:      rep,
 		Around:      around,
 		Platform:    req.Platform,
+		Host:        host,
 	})
 	switch {
 	case errors.Is(err, CancelTimeout):
@@ -319,7 +320,7 @@ func (x *Dispatcher) Dispatch(_ context.Context, d platform.Dispatch) (string, e
 	// caller that returns at once).
 	links := x.links(d)
 	id := newUUID()
-	rec := &dispatched{owner: d.Caller["WM_ROOT_JOB_ID"], workspace: d.Host.Workspace}
+	rec := &dispatched{owner: d.Caller["WM_ROOT_JOB_ID"], workspace: d.Host.EffectiveWorkspace()}
 	x.mu.Lock()
 	if x.closed {
 		x.mu.Unlock()
@@ -481,12 +482,17 @@ func (x *Dispatcher) services(host platform.Host) *platform.Services {
 type parentLinks struct{ job, root, path string }
 
 // links snapshots d's links; the path is "" when d names no parent, or one
-// the registry does not know.
+// the registry does not know, or knows in another workspace scope than
+// d's (ADR 0007, a workspace per run), which is as unknown to it. The ids
+// stay as d sent them, as an unknown id's do; the dispatched run's reads
+// through them check the scope (helpers.FlowUserState, the facade).
 func (x *Dispatcher) links(d platform.Dispatch) parentLinks {
 	l := parentLinks{job: d.ParentJob, root: d.RootJob}
 	if l.job != "" {
-		j, _, _ := x.e.platform.JobRegistry().Job(l.job)
-		l.path = j.Path
+		j, _, ok := x.e.platform.JobRegistry().Job(l.job)
+		if ok && j.Host.EffectiveWorkspace() == d.Host.EffectiveWorkspace() {
+			l.path = j.Path
+		}
 	}
 	return l
 }
@@ -505,12 +511,13 @@ func storedText(v jsonval.Value) []byte {
 }
 
 // Result returns the state of a run the dispatcher started for a dispatch
-// in workspace scope workspace.
+// of workspace scope workspace, the effective workspace of the dispatching
+// run (platform.Host.EffectiveWorkspace), or of any scope for "".
 func (x *Dispatcher) Result(_ context.Context, id, workspace string) (platform.JobResult, bool, error) {
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	rec := x.runs[id]
-	if rec == nil || rec.workspace != workspace {
+	if rec == nil || workspace != "" && rec.workspace != workspace {
 		return platform.JobResult{}, false, nil
 	}
 	return rec.result, true, nil

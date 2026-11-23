@@ -397,8 +397,8 @@ func TestFlowUserStateWithAHostsStates(t *testing.T) {
 // A job's workspace scope comes from its run: a job registered without a
 // Host takes the Host of the job its Run names, the flow jobs that a
 // script job makes known take the script job's, a job whose run the
-// registry does not know has none, and an ended job keeps its scope while
-// the registry remembers it.
+// registry does not know has DefaultHost's workspace, and an ended job
+// keeps its scope while the registry remembers it.
 func TestRegistryJobScope(t *testing.T) {
 	r := NewRegistry()
 	s := &Services{Jobs: r}
@@ -414,7 +414,7 @@ func TestRegistryJobScope(t *testing.T) {
 			}
 		}
 	}
-	live := map[string]string{"run": "ws-a", "step": "ws-a", "parent": "ws-a", "scope": "ws-a", "other": ""}
+	live := map[string]string{"run": "ws-a", "step": "ws-a", "parent": "ws-a", "scope": "ws-a", "other": DefaultHost.Workspace}
 	check("live", live)
 	if j, _, _ := r.Job("step"); j.Host.Username != "alice" {
 		t.Errorf("the step's host %+v, want its run's", j.Host)

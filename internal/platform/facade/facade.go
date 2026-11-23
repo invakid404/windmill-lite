@@ -8,6 +8,7 @@
 package facade
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -312,23 +313,21 @@ type Session struct {
 // it runs in become known with it, held by run, whose view renders its
 // record (WA-19).
 func (f *Facade) Register(id, run string, env map[string]string) *Session {
-	return f.register(id, run, env, nil)
+	return f.register(id, run, env, nil, platform.Host{})
 }
 
 // register is Register for an invocation whose run chose its own platform
-// services, p (Caller.Platform), or none.
-func (f *Facade) register(id, run string, env map[string]string, p *platform.Services) *Session {
-	e := &entry{caller: Caller{ID: id, Run: run, Env: env, Platform: p}, token: env["WM_TOKEN"], idle: make(chan struct{})}
+// services, p (Caller.Platform), or none, and whose run has the identity
+// host (Caller.Host), which the invocation's job takes too. The caller
+// takes host from its invocation, never from a lookup by its job id,
+// which a hook may change (H12) and another live invocation may share.
+func (f *Facade) register(id, run string, env map[string]string, p *platform.Services, host platform.Host) *Session {
+	e := &entry{caller: Caller{ID: id, Run: run, Env: env, Platform: p, Host: host}, token: env["WM_TOKEN"], idle: make(chan struct{})}
 	job := env["WM_JOB_ID"]
 	if job == "" {
 		job = id
 	}
-	jobs := f.platform.JobRegistry()
-	e.endJob = jobs.Begin(platform.Job{ID: job, Kind: platform.JobScript, Root: env["WM_ROOT_JOB_ID"], Path: env["WM_JOB_PATH"], Env: env, Run: run})
-	// The job took its run's identity from the registry.
-	if j, _, ok := jobs.Job(job); ok {
-		e.caller.Host = j.Host
-	}
+	e.endJob = f.platform.JobRegistry().Begin(platform.Job{ID: job, Kind: platform.JobScript, Root: env["WM_ROOT_JOB_ID"], Path: env["WM_JOB_PATH"], Env: env, Run: run, Host: host})
 	f.mu.Lock()
 	f.invs[id] = e
 	if e.token != "" {
@@ -587,13 +586,15 @@ func authenticated(r *Route) bool {
 }
 
 // ownWorkspace reports whether the workspace in c's path is its caller's,
-// WM_WORKSPACE, for which the caller's token is valid (WA-4), or c's path
-// names none. It is the one workspace windmill-lite has jobs in: a
-// runtime runs its jobs under one host configuration. A caller without
-// WM_WORKSPACE is taken to be of every workspace.
+// for which the caller's token is valid (WA-4), or c's path names none.
+// The caller's workspace is its run's configured one (Caller.Host), and
+// without one its WM_WORKSPACE, which a hook may change (H12): a hook
+// then changes the workspace of a run without a configured one, as it
+// always did, but not that of a run with one. A caller with neither is
+// taken to be of every workspace.
 func ownWorkspace(c *Call) bool {
 	ws, ok := c.Params["workspace"]
-	own := c.Caller.Env["WM_WORKSPACE"]
+	own := cmp.Or(c.Caller.Host.Workspace, c.Caller.Env["WM_WORKSPACE"])
 	return !ok || own == "" || ws == own
 }
 

@@ -87,8 +87,14 @@ func isTrue(b *bool) bool { return b != nil && *b }
 // alone and ignoreS3Path has no effect, as in a Windmill workspace without
 // object storage ([FX-40]).
 //
+// The key is of workspace ws, the effective workspace of the run that
+// looks it up (platform.Host.EffectiveWorkspace), so that runs of two
+// workspaces never share a result (ADR 0007, a workspace per run): a key
+// of DefaultHost's workspace is the one it always was, and one of another
+// workspace starts with a marker of its own and holds the workspace.
+//
 // [FX-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-40
-func (e *Engine) cacheKey(ctx context.Context, kind, id string, args jsonval.Value, ignoreS3Path bool) (string, bool) {
+func (e *Engine) cacheKey(ctx context.Context, ws, kind, id string, args jsonval.Value, ignoreS3Path bool) (string, bool) {
 	ms, ok := members(args.Producer())
 	if !ok {
 		return "", false
@@ -125,7 +131,12 @@ func (e *Engine) cacheKey(ctx context.Context, kind, id string, args jsonval.Val
 		h.Write(n[:])
 		h.Write(b)
 	}
-	field([]byte("windmill-lite result cache 1"))
+	if ws == platform.DefaultHost.Workspace {
+		field([]byte("windmill-lite result cache 1"))
+	} else {
+		field([]byte("windmill-lite result cache 1, workspace"))
+		field([]byte(ws))
+	}
 	field([]byte(e.bundle))
 	field([]byte(kind))
 	field([]byte(id))
@@ -316,7 +327,7 @@ func (r *run) leafCache(ctx context.Context, fr *frame, m *ir.Module, args jsonv
 	if !ttl.set {
 		return "", ttl
 	}
-	key, ok := r.e.cacheKey(ctx, kind, s.ID, args, ignoreS3Path)
+	key, ok := r.e.cacheKey(ctx, r.host.EffectiveWorkspace(), kind, s.ID, args, ignoreS3Path)
 	if !ok {
 		return "", jobTTL{}
 	}

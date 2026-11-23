@@ -484,20 +484,33 @@ func (noJobs) Job(string) (Job, bool, bool) { return Job{}, false, false }
 var ErrFlowJobNotFound = &Error{Variant: "NotFound", Message: "Flow job not found"}
 
 // JobScope returns the workspace scope of the job id names, live or ended:
-// the Workspace of its Host, "" for a job whose runtime and run set none
-// (ADR 0007, a workspace per run); and false when the registry does not
-// know the job. A job of another scope is as unknown to a caller of this
-// one.
+// the effective workspace of its Host (Host.EffectiveWorkspace; ADR 0007,
+// a workspace per run); and false when the registry does not know the
+// job. A job of another scope is as unknown to a caller of this one.
 func (s *Services) JobScope(id string) (string, bool) {
 	j, _, ok := s.jobs().Job(id)
-	return j.Host.Workspace, ok
+	return j.Host.EffectiveWorkspace(), ok
+}
+
+// inScope reports whether j is of the workspace scope scope; every job is
+// of scope "", which a caller that is of every workspace looks up with.
+func inScope(j Job, scope string) bool {
+	return scope == "" || j.Host.EffectiveWorkspace() == scope
 }
 
 // RootJob answers getRootJobId (WA-14, WA-V1): the effective root of the
 // job id names, and false when the registry does not know it.
 func (s *Services) RootJob(id string) (string, bool) {
+	return s.RootJobIn(id, "")
+}
+
+// RootJobIn is RootJob for a caller of the workspace scope scope (JobScope;
+// "" for every scope): a job of another scope is unknown. The scope and
+// the root come from one lookup of the registry, so a job registered
+// again in between cannot answer for another workspace.
+func (s *Services) RootJobIn(id, scope string) (string, bool) {
 	j, _, ok := s.jobs().Job(id)
-	if !ok {
+	if !ok || !inScope(j, scope) {
 		return "", false
 	}
 	return j.Root, true
@@ -514,7 +527,14 @@ func (s *Services) RootJob(id string) (string, bool) {
 //
 // [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
 func (s *Services) GetJob(id string) ([]byte, error) {
-	j, err := s.liveJob(id, "Job not found at name %s")
+	return s.GetJobIn(id, "")
+}
+
+// GetJobIn is GetJob for a caller of the workspace scope scope: a job of
+// another scope fails as an unknown id. The record comes from the view of
+// the registry entry whose scope was checked.
+func (s *Services) GetJobIn(id, scope string) ([]byte, error) {
+	j, err := s.liveJob(id, scope, "Job not found at name %s")
 	if err != nil {
 		return nil, err
 	}
@@ -530,7 +550,13 @@ func (s *Services) GetJob(id string) ([]byte, error) {
 //
 // [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
 func (s *Services) GetJobArgs(id string) ([]byte, error) {
-	j, err := s.liveJob(id, "Job Args not found at name %s")
+	return s.GetJobArgsIn(id, "")
+}
+
+// GetJobArgsIn is GetJobArgs for a caller of the workspace scope scope, as
+// GetJobIn is GetJob's.
+func (s *Services) GetJobArgsIn(id, scope string) ([]byte, error) {
+	j, err := s.liveJob(id, scope, "Job Args not found at name %s")
 	if err != nil {
 		return nil, err
 	}
@@ -538,12 +564,13 @@ func (s *Services) GetJobArgs(id string) ([]byte, error) {
 }
 
 // liveJob returns the job id names when a run that is live holds it: an
-// id the registry does not know fails with the API's 404 of format, a job
-// whose root run has ended with ErrEndedRun.
-func (s *Services) liveJob(id, format string) (Job, error) {
+// id the registry does not know, or knows in another scope than scope,
+// fails with the API's 404 of format, a job whose root run has ended with
+// ErrEndedRun.
+func (s *Services) liveJob(id, scope, format string) (Job, error) {
 	jobs := s.jobs()
 	j, _, ok := jobs.Job(id)
-	if !ok {
+	if !ok || !inScope(j, scope) {
 		return Job{}, notFound(format, id)
 	}
 	// A job of a live run is known while its root lives, running or
@@ -594,7 +621,7 @@ func (u *UserStates) UserStates(_ context.Context, job string) (map[string]json.
 // (FlowUserStateLister).
 func (s *Services) FlowUserStates(ctx context.Context, id string) (json.RawMessage, bool, error) {
 	l, ok := s.userState().(FlowUserStateLister)
-	if !ok || !s.liveFlow(id) {
+	if !ok || !s.liveFlow(id, "") {
 		return nil, false, nil
 	}
 	m, err := l.UserStates(ctx, id)
@@ -646,9 +673,16 @@ var ErrNoJobVariables = errors.New("platform: the job registry keeps no job vari
 // <id>`, written without Windmill's Rust location (D14); a live flow job
 // fails with ErrNoJobVariables.
 func (s *Services) ReadJobEnv(id, workspace string) (map[string]string, error) {
+	return s.ReadJobEnvIn(id, workspace, "")
+}
+
+// ReadJobEnvIn is ReadJobEnv for a caller of the workspace scope scope: a
+// job of another scope fails as an unknown id, whatever its job variables
+// say, and so does a live flow job of another scope.
+func (s *Services) ReadJobEnvIn(id, workspace, scope string) (map[string]string, error) {
 	j, live, ok := s.jobs().Job(id)
 	switch {
-	case !ok || !live || workspace != "" && j.Env["WM_WORKSPACE"] != "" && j.Env["WM_WORKSPACE"] != workspace:
+	case !ok || !live || !inScope(j, scope) || workspace != "" && j.Env["WM_WORKSPACE"] != "" && j.Env["WM_WORKSPACE"] != workspace:
 		return nil, notFound("Job not found at name %s", id)
 	case j.Kind != JobScript || j.Env == nil:
 		return nil, ErrNoJobVariables
@@ -661,14 +695,23 @@ func (s *Services) ReadJobEnv(id, workspace string) (map[string]string, error) {
 // when the job is not a flow job, and when it is no longer live, as the
 // API answers once a root has left the queue.
 func (s *Services) FlowUserState(ctx context.Context, id, key string) (json.RawMessage, error) {
-	if !s.liveFlow(id) {
+	return s.FlowUserStateIn(ctx, id, key, "")
+}
+
+// FlowUserStateIn is FlowUserState for a caller of the workspace scope
+// scope: a flow job of another scope reads null, as an unknown one does.
+// The job is looked up again after the read, and a value read while the
+// id stopped naming a live flow job of scope (it ended, and a run
+// registered it again) reads null too.
+func (s *Services) FlowUserStateIn(ctx context.Context, id, key, scope string) (json.RawMessage, error) {
+	if !s.liveFlow(id, scope) {
 		return json.RawMessage("null"), nil
 	}
 	v, ok, err := s.userState().UserState(ctx, id, key)
 	switch {
 	case err != nil:
 		return nil, err
-	case !ok:
+	case !ok || !s.liveFlow(id, scope):
 		return json.RawMessage("null"), nil
 	}
 	return v, nil
@@ -687,11 +730,18 @@ func (s *Services) FlowUserState(ctx context.Context, id, key string) (json.RawM
 // A body that is not JSON, or that jsonb refuses, answers 400; the text is
 // windmill-lite's.
 func (s *Services) SetFlowUserState(ctx context.Context, id, key string, body []byte) error {
+	return s.SetFlowUserStateIn(ctx, id, key, body, "")
+}
+
+// SetFlowUserStateIn is SetFlowUserState for a caller of the workspace
+// scope scope: a flow job of another scope fails as an unknown one does,
+// after the value's own check, in the same order.
+func (s *Services) SetFlowUserStateIn(ctx context.Context, id, key string, body []byte, scope string) error {
 	v, err := userStateValue(body)
 	if err != nil {
 		return &Error{Variant: "BadRequest", Message: "windmill-lite: the flow user state value: " + err.Error()}
 	}
-	if !s.liveFlow(id) {
+	if !s.liveFlow(id, scope) {
 		return ErrFlowJobNotFound
 	}
 	return s.userState().SetUserState(ctx, id, key, v)
@@ -724,7 +774,7 @@ func JSONSyntaxError(text []byte) error {
 	return err
 }
 
-func (s *Services) liveFlow(id string) bool {
+func (s *Services) liveFlow(id, scope string) bool {
 	j, live, ok := s.jobs().Job(id)
-	return ok && live && j.Kind == JobFlow
+	return ok && live && j.Kind == JobFlow && inScope(j, scope)
 }
