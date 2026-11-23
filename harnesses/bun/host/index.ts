@@ -108,6 +108,21 @@ export type ConnectOptions = {
    * mode item 7). Otherwise every invocation's file is written, as
    * Windmill's worker writes it. */
   skipArgsFile?: boolean;
+  /** The origins of real Windmill instances that the host's steps call
+   * through their own client, such as "https://windmill.example.com";
+   * none by default. windmill-lite's job ids name no job there. So on a
+   * step's request to one of them under /api/w/{workspace}/jobs/run/,
+   * where the stock clients dispatch a script or a flow, the harness
+   * removes each parent_job and root_job query parameter whose value is
+   * one of the step's own job ids (ADR 0007, async dispatch). Every other
+   * part of the request stays as it was, and a request that does not go
+   * through fetch, from a child process or a socket, keeps its links.
+   * connect() refuses (options) a value with user information, a query or
+   * a fragment before it starts the engine. The engine gets the rest as
+   * -foreign-windmill flags, and refuses the host (engine_refused) when
+   * one is not an origin that wl accepts. Neither refusal repeats the
+   * value. */
+  foreignWindmillOrigins?: string[];
   /** Recycle triggers (none by default): health() reports the first that
    * trips, and onRecycle is called once with it ("rss", "modules" or
    * "retired"). A host that sees one drains and exits, and its supervisor
@@ -399,6 +414,21 @@ export async function connect(o: ConnectOptions): Promise<Host> {
       throw new HostError("options", `resourceStore's allowEviction is a boolean; got ${typeof store.allowEviction}`);
     }
   }
+  if (o.foreignWindmillOrigins !== undefined && !Array.isArray(o.foreignWindmillOrigins)) {
+    const got = o.foreignWindmillOrigins;
+    throw new HostError("options", `foreignWindmillOrigins is an array of origins, such as ["https://windmill.example.com"]; got ${got === null ? "null" : typeof got}`);
+  }
+  // A copy, read once: the engine's flags are built from the values checked
+  // here, before connect() awaits anything, whatever the caller does to its
+  // array afterwards. An origin has no user information, query or fragment,
+  // which could hold a secret: such a value is refused here, before it
+  // reaches the engine's command line, and no message repeats a value.
+  const foreign = [...(o.foreignWindmillOrigins ?? [])];
+  foreign.forEach((origin, i) => {
+    if (typeof origin !== "string") throw new HostError("options", `foreignWindmillOrigins[${i}] is a string; got ${origin === null ? "null" : typeof origin}`);
+    if (/[@?#]/.test(origin)) throw new HostError("options", `foreignWindmillOrigins[${i}] is not an origin: it has user information, a query or a fragment`);
+  });
+  const foreignFlags = foreign.flatMap((origin) => ["-foreign-windmill", origin]);
   // Without collect, false: a host with no trigger takes no idle check.
   const whenIdle = collect !== undefined && (collect.policy ?? DEFAULT_COLLECT_POLICY) === "idle";
   // The host's stderr as Bun has it: a step's context must never take a
@@ -443,6 +473,7 @@ export async function connect(o: ConnectOptions): Promise<Host> {
       ...["host", "--bundle", o.bundle, "--workdir", workdir, "--kill-after", `${killAfter}ms`],
       ...(o.readCache ? ["-read-cache"] : []),
       ...(o.skipArgsFile ? ["-skip-args-file"] : []),
+      ...foreignFlags,
       ...(store ? ["-resource-store", store.kind] : []),
       ...(store?.kind === "redis" && store.prefix !== undefined ? ["-redis-prefix", store.prefix] : []),
       ...(store?.kind === "redis" && store.allowEviction ? ["-redis-allow-eviction"] : []),

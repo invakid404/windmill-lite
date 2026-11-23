@@ -103,7 +103,7 @@ step without failing the others.
 | `t` | Direction | Fields | Purpose |
 |---|---|---|---|
 | `hello` | harness → engine | `proto`, `harness` (kind, version), `runtime` (for Bun, `Bun.version`), `caps` (`fetch`, `native`, `fresh`, `host`), `bundle` (digest of what it loaded), `pid` (its process id), `workdir` (host mode: the host's working directory, host mode item 7), `plugin` (raw: the declaration of the host plugin it loaded, §Host plugins) | handshake |
-| `welcome` | engine → harness | `proto`, `engine`, `bundle`, `config` (module-state mode, `heartbeat_ms`, `max_message`, the facade origin; log limits once windmill-lite uses them) or `reject` (`code`, `message`) | handshake result |
+| `welcome` | engine → harness | `proto`, `engine`, `bundle`, `config` (module-state mode, `heartbeat_ms`, `max_message`, the facade origin, the origins of real Windmill instances; log limits once windmill-lite uses them) or `reject` (`code`, `message`) | handshake result |
 | `invoke` | engine → harness | `id`, `run`, `site` (typed path, [differential testing](0011-differential-testing.md)), `script` (inventory id), `entry` (a validated export name, below), `args` (raw JSON object), `env` (the invocation's `WM_*` and other job variables), `boundary` (`bun` or `native`), `around` (the host plugin's around wrappers for its site, by index, §Host plugins) | run one step |
 | `result` | harness → engine | `id`, `outcome` (`ok`, `error`, `escaped`, `empty`), `body` (raw JSON: the serialised result, or the error object), `origin` (`harness`, for an `error` whose object the harness generated in place of the worker's; absent for the step code's own), `tail` and `exit_code` (for `escaped`: the last log text, and the exit code the job's process would have had), `settled` (false when the outcome was fixed while the entrypoint call goes on: an intercepted `process.exit`, D11, or an attributed process-level error, item 2 of the failure model below) | step outcome |
 | `late` | harness → engine | `id`, `kind` (`result`, `error`, `log`), `body`, `settled` (true on the one late result or error that says how an entrypoint call ended after it was abandoned or after its outcome was fixed early) | something an already settled or abandoned invocation produced (D9) |
@@ -508,6 +508,10 @@ step, never releases them.
   that the invocation's settlement aborts it. Host plugins that wrap
   `fetch` themselves wrap this one, so facade requests pass through the
   plugin's wrapper first and must be passed on.
+- A request that the wrapper passes through to the origin of a real
+  Windmill that the welcome names loses its links to the invocation's own
+  job ids first, under the rule of the
+  [platform interface](0007-platform-interface.md#async-dispatch).
 - **Platform transports.** In `warm` and host-mode processes, `fetch` is the
   only way to reach the platform. The facade origin in `BASE_URL` is a
   loopback port that the engine binds but never listens on, so any other

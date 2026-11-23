@@ -5,7 +5,9 @@ scripts, with host hooks, providers, budgets, host mode and host plugins.
 Only Bun steps run, and the go-plugin, gRPC and HTTP adapters of the
 [host adapters ADR](../docs/design/0009-host-adapters.md) do not exist yet.
 This README covers `wl/`, the Go package
-`github.com/invakid404/windmill-lite/wl`.
+`github.com/invakid404/windmill-lite/wl`, and its `testdata/`: the
+synthetic fixture of the tests of `ForeignWindmillOrigins`, which the
+host-mode test of `cmd/windmill-lite` runs too.
 
 `wl` is the only exported Go package of the windmill-lite
 [engine](../docs/glossary.md#engine). A Go program, the
@@ -148,6 +150,7 @@ The zero value of each field is its default.
 | `Plugin` | The path of a [host plugin](../docs/glossary.md#host-plugin) module, which every `warm` harness process loads | None | To give [hooks](../docs/glossary.md#hook) in TypeScript ([Host plugins](#host-plugins)) |
 | `PluginTimeout` | How long each call to the host plugin waits for its reply | `DefaultPluginTimeout`, 60 s | To change that bound |
 | `ReadCache` | Gives each flow run a read cache: the run reads each of the host's and the bundle's resources and variables once, and answers its later reads from that read. A provider's error is not kept, so the next read asks again, and an update of a variable through the run drops its cached value ([the read cache](../internal/platform/README.md#the-read-cache)). A state that steps wrote to the `ResourceStore` is read again each time, so a run sees its latest value. | Off | When a run reads the same values often and need not see a change during the run |
+| `ForeignWindmillOrigins` | The origins of real [Windmill](../docs/glossary.md#windmill) instances that steps call through their own client, such as `https://windmill.example.com`. A step's dispatch to one of them loses its links to the step's own [job](../docs/glossary.md#job) ids ([Job ids on a real Windmill](#job-ids-on-a-real-windmill)). | None | When steps dispatch jobs on a real Windmill |
 | `Host` | Opens the runtime in [host mode](#host-mode) | Nil | Only for host mode |
 
 A `Variable` holds its `Value`, and `Secret` marks a secret. With
@@ -163,6 +166,44 @@ a resource or variable again for each step and each call. The
 [equivalence contract](../docs/design/0001-equivalence-contract.md#5-named-deviations)
 names it, and the [trace](../docs/glossary.md#trace) of a run with it
 lists `D21`.
+
+### Job ids on a real Windmill
+
+windmill-lite's job ids name no job of any Windmill instance. The stock
+clients still send a step's `WM_JOB_ID` as `parent_job` and its
+`WM_ROOT_FLOW_JOB_ID` as `root_job` when the step dispatches a script or
+calls `runFlow`. With `ForeignWindmillOrigins`, the harness removes those
+links from a step's request to a listed origin, in every module state and
+in host mode:
+
+- It acts on a request under `/api/w/{workspace}/jobs/run/`, the path of
+  Windmill's dispatch, that goes through the harness's `fetch`, a native
+  step's included.
+- It removes each `parent_job` and `root_job` query parameter whose value
+  is one of the step's own job ids: its `WM_JOB_ID` or
+  `WM_ROOT_FLOW_JOB_ID`, as the engine set them. The rest of the request
+  stays as the step sent it, and so does a link whose value is neither of
+  those two, whichever variable the step took it from.
+- A request that does not go through `fetch` keeps its links, such as one
+  from a child process or over a socket that the step opens.
+- `Open` compares origins as URLs do, so `https://Windmill.example.com:443/`
+  names `https://windmill.example.com`.
+- `Open` fails on a value with user information, a query, a fragment or a
+  path, or with a host that the harness's URL parser refuses or reads as
+  another. It reads a host that ends in a number as that parser does: as an
+  IPv4 address of up to four decimal, octal or hex parts, so `http://127.1`
+  names `http://127.0.0.1`.
+- `Open`'s error names the value's position in the list and the reason,
+  never the value, which could hold a secret.
+- A host with a character outside ASCII reaches the harness whole, and so
+  does a name in its `xn--` form. The harness's URL parser maps it as it
+  maps a request's URL, so `http://１２７.0.0.1`, in fullwidth digits, names
+  `http://127.0.0.1`. A host that the parser refuses cannot be a request's
+  host, so the harness leaves it out of the list and writes a diagnostic
+  line.
+
+The [platform interface ADR](../docs/design/0007-platform-interface.md#async-dispatch)
+gives the reason.
 
 ### The resource store
 
@@ -545,6 +586,7 @@ This section is for contributors who change `wl`.
 
 | File | Contents |
 |---|---|
+| `foreign.go` | The check of `Options.ForeignWindmillOrigins`, and the one form of each origin that the welcome carries |
 | `wl.go` | `Options`, `Resource`, `Variable`, `ResultCache`, `ResourceStore`, `MemoryResourceStore`, `NewMemoryResourceStore`, `Runtime`, `Open`, `BuildInfo`, `PlatformOrigin`, `Close`, `Version`, and `ErrUnsupported`, `ErrEngineVersion`, `ErrClosed` |
 | `run.go` | `RunOptions`, `RunPlatform`, `Result`, `Run`; the causes of a canceled run; the clock and jitter types; `ErrPreWriteDeadline`, `ErrRunInFlight`; the trace types, which alias the engine's; the executor that collects each run's platform calls |
 | `hooks.go` | `Hooks` and the types of their callbacks, `Selector`, `Site`, `FatalError` and the selector and provider errors; selector matching, and the adapter to the engine's hook interface |
@@ -687,4 +729,5 @@ build helper's dependencies, and skip without them unless
 | `outside_test.go` | A bundle whose host contract lists two modules outside the [sync folder](../docs/glossary.md#sync-folder), without a host | Yes |
 | `plugincases_test.go` | The cases of `conformance/plugins/hooks.yaml`, through the TypeScript case plugin and through Go callbacks built from the same plugins | Yes |
 | `store_test.go` | `Options.ResourceStore` on real steps (`TestResourceStoreOnBun`): two runtimes that share a memory store, one with its own, a failing store's warning, and `D24` in the trace; a run id in flight refused (`TestRunIDInFlight`). Without Bun: `Close` releasing its own store while readers use it (`TestCloseReleasesItsOwnStore`), and a late answer kept from a later run of the same id (`TestLateAnswerAcrossIDReuse`) | Yes, but for the last two |
+| `foreign_test.go` | `ForeignWindmillOrigins` in the welcome, and its refusals (`TestForeignWindmillOrigins`). The stock client's and a native step's dispatch to two loopback servers that stand in for real Windmill instances, in `warm` and `fresh`, with and without the option (`TestForeignWindmillLinks`, on the cases of `testdata/foreign/cases.json`). That test also needs `WL_WINDMILL_CLIENT`. | Yes, but for the first |
 | `example_test.go` | Compiles the README's example | No |
