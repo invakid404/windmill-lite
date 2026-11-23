@@ -83,6 +83,9 @@ type run struct {
 	// around gives a host plugin's around wrappers at a leaf's site
 	// (RunRequest.Around), or is nil.
 	around func(Site) []int
+	// host is the run's identity: the engine's, with RunRequest.Host over
+	// it.
+	host platform.Host
 
 	mu    sync.Mutex // guards trace, the frames' job results, jobs and iterLen
 	trace Trace
@@ -1981,7 +1984,7 @@ func (r *run) jobEnv(fr *frame, i int, id string) map[string]string {
 		JobPath:       r.jobPath(fr, i),
 		Token:         platform.NewToken(),
 		Start:         r.clock.Now(),
-	}.Env(r.e.host)
+	}.Env(r.host)
 }
 
 // The states of a pre-write deadline (run.preWrite).

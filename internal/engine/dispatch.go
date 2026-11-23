@@ -49,6 +49,15 @@ type ScriptRequest struct {
 	// script job's site, a site with no path whose Script is the script's
 	// path (RunRequest.Around).
 	Around func(Site) []int
+	// Host is the job's own identity: each field it sets replaces
+	// Config.Host's, for the job's environment and its registration
+	// (platform.Job.Host); zero means Config.Host.
+	Host platform.Host
+	// Platform, when set, is the platform services of a job that chose
+	// its own (RunRequest.Platform), which resolve its arguments and
+	// which the facade answers its resource and variable reads from (as
+	// Invocation.Platform); nil means Config.Platform.
+	Platform *platform.Services
 }
 
 // ScriptResult is how a script job ended: its stored result, or its
@@ -118,13 +127,14 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 		ident.FlowJobID, ident.RootFlowJobID, ident.FlowPath = req.ParentJob, req.RootJob, req.ParentPath
 		ident.RootJobID = cmp.Or(req.RootJob, req.ParentJob, id)
 	}
-	env := ident.Env(e.host)
+	host := e.host.Override(req.Host)
+	env := ident.Env(host)
 	reserved := maps.Clone(env)
 	// The job is the run's own: its record (WA-19) shows it running, then
 	// completed while its root lives, which outlives it when its dispatch
 	// placed it in another run's tree.
 	view := &scriptView{id: id, env: reserved, script: s, args: args}
-	defer e.platform.JobRegistry().Begin(platform.Job{ID: id, Kind: platform.JobScript, Root: env["WM_ROOT_JOB_ID"], Path: s.Path, Env: env, Run: id, View: view})()
+	defer e.platform.JobRegistry().Begin(platform.Job{ID: id, Kind: platform.JobScript, Root: env["WM_ROOT_JOB_ID"], Path: s.Path, Env: env, Run: id, View: view, Host: host})()
 	defer func() { view.complete(res, err, rep.latch.Err() != nil) }()
 	// An envs entry the worker refuses fails the job once it is picked up,
 	// after the result cache and the entrypoint's check (WR-22).
@@ -167,7 +177,11 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 	if envErr != nil {
 		return ScriptResult{ID: id, Failed: true, Result: workerError("", "execution error:\n"+envErr.Error())}, nil
 	}
-	resolved, err := e.platform.ResolveArgs(ctx, args, reserved, platform.APIEnv(reserved))
+	services := e.platform
+	if req.Platform != nil {
+		services = req.Platform
+	}
+	resolved, err := services.ResolveArgs(ctx, args, reserved, platform.APIEnv(reserved))
 	if err != nil {
 		return ScriptResult{ID: id, Failed: true, Result: workerError("", "execution error:\n"+err.Error())}, nil
 	}
@@ -188,6 +202,7 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 		ModuleState: e.moduleState,
 		Report:      rep,
 		Around:      around,
+		Platform:    req.Platform,
 	})
 	switch {
 	case errors.Is(err, CancelTimeout):
@@ -242,10 +257,12 @@ type Dispatcher struct {
 // dispatched is the record of one dispatched run.
 type dispatched struct {
 	// owner is the effective root of the step that dispatched it, whose
-	// life the record follows.
-	owner  string
-	result platform.JobResult
-	done   bool
+	// life the record follows; workspace the workspace scope of its
+	// dispatch (platform.Dispatch.Host), which a result poll must share.
+	owner     string
+	workspace string
+	result    platform.JobResult
+	done      bool
 }
 
 // NewDispatcher returns the dispatcher of e's program, whose runs go to
@@ -302,7 +319,7 @@ func (x *Dispatcher) Dispatch(_ context.Context, d platform.Dispatch) (string, e
 	// caller that returns at once).
 	links := x.links(d)
 	id := newUUID()
-	rec := &dispatched{owner: d.Caller["WM_ROOT_JOB_ID"]}
+	rec := &dispatched{owner: d.Caller["WM_ROOT_JOB_ID"], workspace: d.Host.Workspace}
 	x.mu.Lock()
 	if x.closed {
 		x.mu.Unlock()
@@ -416,9 +433,9 @@ func (x *Dispatcher) run(id string, d platform.Dispatch, args jsonval.Value, lin
 	x.mu.Unlock()
 	var res platform.JobResult
 	if d.Kind == platform.DispatchFlow {
-		res = x.runFlow(id, d.Target, args, links)
+		res = x.runFlow(id, d.Target, args, links, d.Host)
 	} else {
-		res = x.runScript(id, d.Target, args, links)
+		res = x.runScript(id, d.Target, args, links, d.Host)
 	}
 	res.Started, res.Completed = true, true
 	x.mu.Lock()
@@ -426,22 +443,36 @@ func (x *Dispatcher) run(id string, d platform.Dispatch, args jsonval.Value, lin
 	x.mu.Unlock()
 }
 
-// runFlow runs a dispatched flow, with the links its dispatch sent.
-func (x *Dispatcher) runFlow(id, path string, args jsonval.Value, l parentLinks) platform.JobResult {
-	t, err := x.e.Run(x.ctx, RunRequest{ID: id, Path: path, Args: args, Exec: x.exec, ParentJob: l.job, RootJob: l.root, ParentPath: l.path})
+// runFlow runs a dispatched flow, with the links its dispatch sent and its
+// dispatching run's identity.
+func (x *Dispatcher) runFlow(id, path string, args jsonval.Value, l parentLinks, host platform.Host) platform.JobResult {
+	t, err := x.e.Run(x.ctx, RunRequest{ID: id, Path: path, Args: args, Exec: x.exec, ParentJob: l.job, RootJob: l.root, ParentPath: l.path, Host: host, Platform: x.services(host)})
 	if err != nil {
 		return platform.JobResult{Result: storedText(engineError("InternalErr", err.Error()))}
 	}
 	return platform.JobResult{Success: t.Status == conformance.RunSuccess, Result: storedText(t.Result)}
 }
 
-// runScript runs a dispatched script, with the links its dispatch sent.
-func (x *Dispatcher) runScript(id, path string, args jsonval.Value, l parentLinks) platform.JobResult {
-	r, err := x.e.RunScript(x.ctx, ScriptRequest{ID: id, Path: path, Args: args, Exec: x.exec, ParentJob: l.job, RootJob: l.root, ParentPath: l.path})
+// runScript runs a dispatched script, with the links its dispatch sent and
+// its dispatching run's identity.
+func (x *Dispatcher) runScript(id, path string, args jsonval.Value, l parentLinks, host platform.Host) platform.JobResult {
+	r, err := x.e.RunScript(x.ctx, ScriptRequest{ID: id, Path: path, Args: args, Exec: x.exec, ParentJob: l.job, RootJob: l.root, ParentPath: l.path, Host: host, Platform: x.services(host)})
 	if err != nil {
 		return platform.JobResult{Result: storedText(engineError("InternalErr", err.Error()))}
 	}
 	return platform.JobResult{Success: !r.Failed, Result: storedText(r.Result)}
+}
+
+// services is the platform services of a dispatched run of host's
+// identity: nil, the engine's, unless host sets a workspace other than
+// theirs, whose resource store entries are then keyed under it.
+func (x *Dispatcher) services(host platform.Host) *platform.Services {
+	if host.Workspace == "" || x.e.platform != nil && host.Workspace == x.e.platform.Workspace {
+		return nil
+	}
+	s := x.e.platform.WithProviders(platform.Providers{})
+	s.Workspace = host.Workspace
+	return s
 }
 
 // parentLinks are the links a dispatch tracked in its parent gives its
@@ -473,12 +504,13 @@ func storedText(v jsonval.Value) []byte {
 	return s
 }
 
-// Result returns the state of a run the dispatcher started.
-func (x *Dispatcher) Result(_ context.Context, id string) (platform.JobResult, bool, error) {
+// Result returns the state of a run the dispatcher started for a dispatch
+// in workspace scope workspace.
+func (x *Dispatcher) Result(_ context.Context, id, workspace string) (platform.JobResult, bool, error) {
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	rec := x.runs[id]
-	if rec == nil {
+	if rec == nil || rec.workspace != workspace {
 		return platform.JobResult{}, false, nil
 	}
 	return rec.result, true, nil

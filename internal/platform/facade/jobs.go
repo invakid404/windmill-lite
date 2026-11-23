@@ -67,7 +67,7 @@ func (f *Facade) rootJobID(_ context.Context, c *Call) Reply {
 	if refused != nil {
 		return *refused
 	}
-	if ownWorkspace(c) {
+	if ownWorkspace(c) && !f.foreign(c, id) {
 		if root, ok := f.platform.RootJob(id); ok {
 			return jsonReply(200, jsonString(root))
 		}
@@ -115,7 +115,7 @@ func (f *Facade) jobRead(c *Call, notFound string, read func(id string) ([]byte,
 	if refused != nil {
 		return *refused
 	}
-	if !ownWorkspace(c) {
+	if !ownWorkspace(c) || f.foreign(c, id) {
 		return Error{Variant: "NotFound", Message: notFound + id}.Reply()
 	}
 	body, err := read(id)
@@ -137,6 +137,10 @@ func (f *Facade) getFlowUserState(ctx context.Context, c *Call) Reply {
 	if refused != nil {
 		return *refused
 	}
+	if f.foreign(c, id) {
+		// Another workspace's flow job is unknown here.
+		return answer(json.RawMessage("null"), nil)
+	}
 	v, err := f.platform.FlowUserState(ctx, id, c.Params["key"])
 	return answer(v, err)
 }
@@ -156,6 +160,9 @@ func (f *Facade) setFlowUserState(ctx context.Context, c *Call) Reply {
 	}
 	if refused != nil {
 		return *refused
+	}
+	if f.foreign(c, id) {
+		return answer(nil, platform.ErrFlowJobNotFound)
 	}
 	if err := f.platform.SetFlowUserState(ctx, id, c.Params["key"], c.Body); err != nil {
 		return answer(nil, err)
@@ -238,20 +245,35 @@ func (f *Facade) result(ctx context.Context, c *Call) Reply {
 
 // dispatched returns the state of a run the dispatcher started, looked up
 // in the workspace of c's path: a run in no other workspace than the
-// caller's.
+// caller's, dispatched by a run of the caller's workspace scope.
 func (f *Facade) dispatched(ctx context.Context, c *Call, id string) (platform.JobResult, bool, error) {
 	d := f.platform.Dispatcher
 	if d == nil || !ownWorkspace(c) {
 		return platform.JobResult{}, false, nil
 	}
-	return d.Result(ctx, id)
+	return d.Result(ctx, id, c.Caller.Host.Workspace)
 }
 
 // known reports whether the job registry knows the job id names, looked
-// up in the workspace of c's path.
+// up in the workspace of c's path, for a caller of the job's workspace
+// scope.
 func (f *Facade) known(c *Call, id string) bool {
-	_, _, ok := f.platform.JobRegistry().Job(id)
-	return ok && ownWorkspace(c)
+	scope, ok := f.platform.JobScope(id)
+	return ok && ownWorkspace(c) && scope == c.Caller.Host.Workspace
+}
+
+// foreign reports whether the job registry knows the job id names in
+// another workspace scope than that of c's run (Caller.Host): a job of a
+// run of another workspace, which the job routes answer for as for an
+// unknown id, as Windmill answers for a job of another workspace
+// ([WA-V2]). Without a configured workspace every job and caller has the
+// scope "", so no job is foreign, and the routes answer as for one
+// workspace.
+//
+// [WA-V2]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-v2
+func (f *Facade) foreign(c *Call, id string) bool {
+	scope, ok := f.platform.JobScope(id)
+	return ok && scope != c.Caller.Host.Workspace
 }
 
 func jsonString(s string) []byte {

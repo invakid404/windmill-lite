@@ -26,8 +26,8 @@ default `fail` policy a step that called an unsupported route fails with
   too;
 - the option that makes the result polls answer for a job of a live run
   that the dispatcher did not start (§Services);
-- the settings of the job identity in `wl` and in the go-plugin adapter,
-  and a workspace per run (§Job identity);
+- the settings of the job identity in the go-plugin adapter (§Job
+  identity);
 - removing windmill-lite's job ids from a step's own dispatch to a real
   Windmill (§Async dispatch).
 
@@ -304,20 +304,33 @@ and [WA-4](../semantics/client-api.md#wa-4):
   since no schedule or CI test starts a job and windmill-lite keeps no
   script hashes ([WA-V10](../semantics/client-api.md#wa-v10)).
 
-**The identity's settings** (planned). A runtime option is planned to set
-this host configuration once, for the job environment, the facade's check
-of a call's workspace and the resource store's key alike. Until then `wl`
-sets none of it, so every job reads windmill-lite's placeholders, such as
-`WM_WORKSPACE` `windmill-lite`. The go-plugin adapter's configuration is to
-carry the option.
+**The identity's settings.** A runtime option (`wl`'s `Options.Identity`)
+sets this host configuration once, for the job environment, the facade's
+check of a call's workspace and the resource store's key alike. A field it
+leaves empty takes windmill-lite's placeholder, such as `WM_WORKSPACE`
+`windmill-lite`.
 
-**A workspace per run** (planned). A run may set the identity for itself,
-so one runtime can hold runs of several workspaces, each job in its run's
-workspace. The job reads, the result polls, the root lookup
-with its record of ended jobs, flow user state and the dispatcher's results
-find a job only through a path in its own workspace. For a job of another
-workspace they answer as for an unknown id, as Windmill does
-([WA-V2](../semantics/client-api.md#wa-v2)).
+Host mode takes it as the host SDK's connect option `identity`, which
+reaches the engine as `windmill-lite host -identity`. The go-plugin
+adapter's configuration is to carry the option (planned).
+
+**A workspace per run.** A run may set the identity for itself
+(`RunOptions.Identity`, or a host-mode `run` frame's `identity`): each field
+it sets replaces the runtime's for the run's jobs and the runs that they
+dispatch. One runtime can so hold runs of several workspaces, each job in
+its run's workspace.
+
+- The job reads, the result polls, the root lookup with its record of
+  ended jobs, flow user state and the dispatcher's results find a job only
+  through a path in its own workspace, from a run of that workspace. For a
+  job of another workspace they answer as for an unknown id, as Windmill
+  does ([WA-V2](../semantics/client-api.md#wa-v2)).
+- A job's workspace is its run's configured one, not its environment: a
+  host hook that changes `WM_WORKSPACE` ([H12](0008-host-hooks.md#the-hooks))
+  changes the facade's check of a call's workspace, not which jobs a step
+  finds. Without a configured workspace every job is in the one workspace,
+  and the lookups answer as for a single workspace.
+- The resource store keys a run's entries under its workspace.
 
 `FlowUserState` keys on the effective root; `getRootJobId` answers from the
 run registry. A host can override the environment of an invocation
@@ -688,14 +701,15 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     apps' routes, which have no handler and keep their 501. The caller's
     workspace is its `WM_WORKSPACE`, and a caller without one is of every
     workspace. Every token windmill-lite issues names one of its
-    invocations, of the one workspace its jobs run in, so no caller is
+    invocations, in the workspace of the invocation's run, so no caller is
     anonymous and a token issued for another workspace (WA-V2/d's first
     request) cannot arise; a token that names no invocation keeps its own
     `401` text (Transports, above).
-  - **Job lookups in the path's workspace.** windmill-lite's jobs are all
-    of the caller's workspace, so a `jobs_u` lookup in any other finds no
-    job: the root lookup answers as for an unknown id, and the result
-    polls as for a UUID with no job (WA-V2/d's second request).
+  - **Job lookups in the path's workspace.** A `jobs_u` lookup in another
+    workspace than the caller's finds no job. Neither does a lookup of a
+    job of a run of another workspace (§Job identity, a workspace per run).
+    The root lookup then answers as for an unknown id, and the result polls
+    as for a UUID with no job (WA-V2/d's second request).
   - **The root lookup of an unknown id** answers as Windmill answers an id
     with no job row ([WA-19](../semantics/client-api.md#wa-19)/b): `400`
     `text/plain` `SqlErr: no rows returned by a query that expected to

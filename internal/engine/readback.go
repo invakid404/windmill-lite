@@ -126,7 +126,7 @@ func (r *run) monitor(ctx context.Context, waiting *frame) {
 			// The run ended otherwise first: the monitor never acts.
 			return
 		}
-		env := platform.Identity{}.Env(r.e.host)
+		env := platform.Identity{}.Env(r.host)
 		page := waiting.id + " (" + env["WM_BASE_URL"] + "/run/" + waiting.id + "?workspace=" + env["WM_WORKSPACE"] + ")"
 		reason := "Flow " + page + " was cancelled because it was hanging in between 2 steps."
 		if waiting.subflow {

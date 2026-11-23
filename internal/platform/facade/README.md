@@ -108,8 +108,10 @@ How a request finds its route:
 that the API does not have panics. A handler runs on a goroutine of its own
 and receives the `Call`:
 
-- its `Caller`: the invocation's id, run and job environment, and the
-  services of a run that chose its own providers (`Caller.Platform`);
+- its `Caller`: the invocation's id, run and job environment, the
+  services of a run that chose its own providers (`Caller.Platform`), and
+  its run's host configuration (`Caller.Host`), whose workspace scopes the
+  job lookups;
 - the matched `Route` and its unescaped parameters;
 - the method, path, query, headers and body as sent.
 
@@ -162,10 +164,11 @@ The root lookup answers:
   flow scope one of its jobs runs in; and the run itself.
 - **A job of a run that has ended**, among the latest 4096 ended jobs that
   the registry keeps.
-- **No job in the path's workspace:** an unknown or forgotten id, and any id
-  looked up in a workspace other than the caller's. It answers as Windmill
-  answers an id with no job row: `400` `text/plain` `SqlErr: no rows
-  returned by a query that expected to return at least one row`.
+- **No job in the path's workspace:** an unknown or forgotten id, any id
+  looked up in a workspace other than the caller's, and a job of a run of
+  another workspace ([A job's workspace](#a-jobs-workspace)). It answers as
+  Windmill answers an id with no job row: `400` `text/plain` `SqlErr: no
+  rows returned by a query that expected to return at least one row`.
 - **An id that is not a UUID:** the web framework's `400`.
 
 The job reads answer:
@@ -289,6 +292,9 @@ answers from the services
 
 - Both routes take the id as a UUID, which Windmill's route names `job_id`.
   The web framework's rejections answer first, the id before the body.
+- A flow job of a run of another workspace is not a live flow job of the
+  caller's ([A job's workspace](#a-jobs-workspace)): it reads `null` and
+  its update answers `404`.
 - A value comes back in jsonb's key order with its numbers as Windmill's
   backend JSON library writes them, as the oracle recorded
   (`conformance/flows/client-api/user-state`, run `order`).
@@ -451,6 +457,21 @@ rejection of its path or body.
   unless it is the caller's. `apps_u` and `ai_u` have no handler, so their
   calls keep their 501 whatever the workspace.
 - A caller without `WM_WORKSPACE` belongs to every workspace.
+
+### A job's workspace
+
+A job is in its run's workspace: the one that the runtime or the run
+configured (`platform.Job.Host`), not the caller's `WM_WORKSPACE`, which a
+host hook may change. Only a call from a run of the same workspace finds
+it ([WA-V2](../../../docs/semantics/client-api.md#wa-v2)).
+
+- **The lookups that check it:** the root lookup, the job reads, flow user
+  state and the result polls of the jobs that the dispatcher started.
+- **A job of another workspace's run** answers as an unknown id on each
+  of them. An id that the registry does not know at all answers as it
+  always did.
+- **Without a configured workspace** every job and every caller have the
+  same scope, so the lookups answer as for one workspace.
 
 ### One reply for both transports
 

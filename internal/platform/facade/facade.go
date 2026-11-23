@@ -61,6 +61,11 @@ type Caller struct {
 	// whose job registry, flow user state, object store and dispatcher
 	// such services share.
 	Platform *platform.Services
+	// Host is the identity of the invocation's run as the job registry
+	// holds it (platform.Job.Host), which is not the step's environment: a
+	// host's H12 may change that. Its Workspace scopes the job routes'
+	// lookups (scoped), and a run the invocation dispatches takes it.
+	Host platform.Host
 }
 
 // Call is one platform call, attributed to its caller.
@@ -318,7 +323,12 @@ func (f *Facade) register(id, run string, env map[string]string, p *platform.Ser
 	if job == "" {
 		job = id
 	}
-	e.endJob = f.platform.JobRegistry().Begin(platform.Job{ID: job, Kind: platform.JobScript, Root: env["WM_ROOT_JOB_ID"], Path: env["WM_JOB_PATH"], Env: env, Run: run})
+	jobs := f.platform.JobRegistry()
+	e.endJob = jobs.Begin(platform.Job{ID: job, Kind: platform.JobScript, Root: env["WM_ROOT_JOB_ID"], Path: env["WM_JOB_PATH"], Env: env, Run: run})
+	// The job took its run's identity from the registry.
+	if j, _, ok := jobs.Job(job); ok {
+		e.caller.Host = j.Host
+	}
 	f.mu.Lock()
 	f.invs[id] = e
 	if e.token != "" {

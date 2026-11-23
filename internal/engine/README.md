@@ -579,7 +579,7 @@ The engine gives each step its job identity, from which
 | `WM_FLOW_JOB_ID`, `WM_ROOT_FLOW_JOB_ID`, `WM_ROOT_JOB_ID` | The run's id; a dispatched run's two root ids follow its links ([A dispatched flow](#a-dispatched-flow)) |
 | `WM_FLOW_PATH`, `WM_FLOW_STEP_ID`, `WM_JOB_PATH`, `WM_STATE_PATH` | The flow's path, the module id, the job path, the state path |
 | `WM_TOKEN` | A fresh token |
-| The host configuration | `Config.Host` and `Config.Workspace` |
+| The host configuration | `Config.Host` and `Config.Workspace`, under the run's own (`RunRequest.Host`, `ScriptRequest.Host`), field by field |
 
 A step in a loop body takes its child flow's job id, innermost scope and
 path. A collapsed iteration's step takes its loop's step id and the job

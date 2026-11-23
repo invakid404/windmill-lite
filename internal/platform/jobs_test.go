@@ -393,3 +393,37 @@ func TestFlowUserStateWithAHostsStates(t *testing.T) {
 		t.Error("a default store was made beside the host's")
 	}
 }
+
+// A job's workspace scope comes from its run: a job registered without a
+// Host takes the Host of the job its Run names, the flow jobs that a
+// script job makes known take the script job's, a job whose run the
+// registry does not know has none, and an ended job keeps its scope while
+// the registry remembers it.
+func TestRegistryJobScope(t *testing.T) {
+	r := NewRegistry()
+	s := &Services{Jobs: r}
+	endRun := r.Begin(Job{ID: "run", Kind: JobFlow, Run: "run", Host: Host{Workspace: "ws-a", Username: "alice"}})
+	endStep := r.Begin(Job{ID: "step", Kind: JobScript, Root: "run", Run: "run",
+		Env: map[string]string{"WM_FLOW_JOB_ID": "parent", "WM_ROOT_FLOW_JOB_ID": "scope"}})
+	endOther := r.Begin(Job{ID: "other", Kind: JobScript, Run: "gone"})
+	check := func(when string, want map[string]string) {
+		t.Helper()
+		for id, ws := range want {
+			if got, ok := s.JobScope(id); !ok || got != ws {
+				t.Errorf("%s: the scope of %s: %q, %v; want %q", when, id, got, ok, ws)
+			}
+		}
+	}
+	live := map[string]string{"run": "ws-a", "step": "ws-a", "parent": "ws-a", "scope": "ws-a", "other": ""}
+	check("live", live)
+	if j, _, _ := r.Job("step"); j.Host.Username != "alice" {
+		t.Errorf("the step's host %+v, want its run's", j.Host)
+	}
+	endStep()
+	endRun()
+	endOther()
+	check("ended", live)
+	if _, ok := s.JobScope("unknown"); ok {
+		t.Error("an unknown id has a scope")
+	}
+}

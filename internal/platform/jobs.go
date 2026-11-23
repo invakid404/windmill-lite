@@ -50,6 +50,14 @@ type Job struct {
 	//
 	// [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
 	View JobView
+	// Host is the identity the job's run was given, the runtime's with the
+	// run's own over it, with zero fields where neither set one (ADR 0007,
+	// job identity). Its Workspace scopes the job: the facade finds it for
+	// a caller only when the caller's run has the same Workspace
+	// (Services.JobScope).
+	// A job registered with a zero Host takes the Host of the job its Run
+	// names, when the registry knows that job.
+	Host Host
 }
 
 // JobView renders the records of one run's jobs as GET jobs_u/get/{id}
@@ -151,9 +159,9 @@ const endedJobs = 4096
 // ended job costs no more than these strings, whatever Job holds while it
 // is live.
 type endedJob struct {
-	kind       JobKind
-	root, path string
-	seq        uint64
+	kind                  JobKind
+	root, path, workspace string
+	seq                   uint64
 }
 
 type endedRef struct {
@@ -187,6 +195,12 @@ func (r *Registry) Begin(j Job) (end func()) {
 		j.Root = j.ID
 	}
 	r.mu.Lock()
+	if j.Host == (Host{}) && j.Run != "" && j.Run != j.ID {
+		// The jobs of a run are in its run's workspace, as its user's.
+		if re := r.jobs[j.Run]; re != nil {
+			j.Host = re.job.Host
+		}
+	}
 	delete(r.ended, j.ID)
 	e := r.jobs[j.ID]
 	switch {
@@ -205,9 +219,9 @@ func (r *Registry) Begin(j Job) (end func()) {
 	}
 	e.live++
 	if j.Kind == JobScript {
-		r.derive(j.Env["WM_FLOW_JOB_ID"], j.Root, j.Env["WM_FLOW_PATH"], j.Run)
-		r.derive(j.Env["WM_ROOT_FLOW_JOB_ID"], j.Root, "", j.Run)
-		r.derive(j.Root, j.Root, "", j.Run)
+		r.derive(j.Env["WM_FLOW_JOB_ID"], j.Root, j.Env["WM_FLOW_PATH"], j.Run, j.Host)
+		r.derive(j.Env["WM_ROOT_FLOW_JOB_ID"], j.Root, "", j.Run, j.Host)
+		r.derive(j.Root, j.Root, "", j.Run, j.Host)
 	}
 	r.mu.Unlock()
 	var once sync.Once
@@ -217,12 +231,12 @@ func (r *Registry) Begin(j Job) (end func()) {
 // derive makes a flow job of root known from a script job's variables,
 // unless it is known already. It takes the script job's run, which is the
 // run that holds that flow job too, unless a dispatch placed the script
-// job's run in another run's tree.
-func (r *Registry) derive(id, root, path, run string) {
+// job's run in another run's tree, and the script job's host.
+func (r *Registry) derive(id, root, path, run string, host Host) {
 	if id == "" || r.jobs[id] != nil {
 		return
 	}
-	r.jobs[id] = &regJob{job: Job{ID: id, Kind: JobFlow, Root: root, Path: path, Run: run}, derived: true}
+	r.jobs[id] = &regJob{job: Job{ID: id, Kind: JobFlow, Root: root, Path: path, Run: run, Host: host}, derived: true}
 	r.addToTree(root, id)
 }
 
@@ -293,12 +307,12 @@ func (r *Registry) sweep(root string) {
 }
 
 // retire keeps j, a job whose tree has ended, among the ended jobs, by its
-// kind, root and path only: without its Env, its run and its View, so that
-// no ended run stays reachable from the registry. It forgets the oldest
-// ones beyond keep. Called with mu held.
+// kind, root, path and workspace only: without its Env, its run and its
+// View, so that no ended run stays reachable from the registry. It forgets
+// the oldest ones beyond keep. Called with mu held.
 func (r *Registry) retire(j Job) {
 	r.seq++
-	r.ended[j.ID] = endedJob{kind: j.Kind, root: j.Root, path: j.Path, seq: r.seq}
+	r.ended[j.ID] = endedJob{kind: j.Kind, root: j.Root, path: j.Path, workspace: j.Host.Workspace, seq: r.seq}
 	r.order = append(r.order, endedRef{id: j.ID, seq: r.seq})
 	for len(r.ended) > r.keep || len(r.order) > 2*r.keep {
 		old := r.order[0]
@@ -319,7 +333,7 @@ func (r *Registry) Job(id string) (Job, bool, bool) {
 		if !ok {
 			return Job{}, false, false
 		}
-		return Job{ID: id, Kind: k.kind, Root: k.root, Path: k.path}, false, true
+		return Job{ID: id, Kind: k.kind, Root: k.root, Path: k.path, Host: Host{Workspace: k.workspace}}, false, true
 	}
 	live := e.live > 0
 	if e.derived {
@@ -468,6 +482,16 @@ func (noJobs) Job(string) (Job, bool, bool) { return Job{}, false, false }
 // ErrFlowJobNotFound is the API's answer to a flow user state write whose
 // job is not a live flow job (WA-14): 404 `Not found: Flow job not found`.
 var ErrFlowJobNotFound = &Error{Variant: "NotFound", Message: "Flow job not found"}
+
+// JobScope returns the workspace scope of the job id names, live or ended:
+// the Workspace of its Host, "" for a job whose runtime and run set none
+// (ADR 0007, a workspace per run); and false when the registry does not
+// know the job. A job of another scope is as unknown to a caller of this
+// one.
+func (s *Services) JobScope(id string) (string, bool) {
+	j, _, ok := s.jobs().Job(id)
+	return j.Host.Workspace, ok
+}
 
 // RootJob answers getRootJobId (WA-14, WA-V1): the effective root of the
 // job id names, and false when the registry does not know it.

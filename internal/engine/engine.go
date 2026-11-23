@@ -524,6 +524,11 @@ type RunRequest struct {
 	// inside them. It is called once per invocation, from the goroutine
 	// that launches it.
 	Around func(Site) []int
+	// Host is the run's own identity: each field it sets replaces
+	// Config.Host's, for the environment of the run's jobs and their
+	// registration (platform.Job.Host); zero means Config.Host. A run of
+	// one runtime can so be in a workspace of its own (ADR 0007).
+	Host platform.Host
 	// Started, when not nil, is called once the run exists, before it
 	// starts anything, with the run's context and handle:
 	// what serves the run outside its hooks, such as its own platform
@@ -646,6 +651,7 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	r := newRun(e, f, id, hooks, exec, rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)), clock, jitter, cancel)
+	r.host = e.host.Override(req.Host)
 	ctx = context.WithValue(ctx, settlementKey{}, r.settle)
 	r.around = req.Around
 	if req.Platform != nil {
@@ -675,7 +681,7 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	// (JE-38), a subflow's included: a top-level flow, with no parent, its
 	// own effective root, at the flow's path; or a dispatched one's, with
 	// the links its dispatch sent.
-	r.flowJobEnv = platform.Identity{JobID: id, FlowJobID: req.ParentJob, RootFlowJobID: req.RootJob, RootJobID: r.rootID, FlowPath: req.ParentPath, JobPath: f.Path, Token: platform.NewToken(), Start: clock.Now()}.Env(e.host)
+	r.flowJobEnv = platform.Identity{JobID: id, FlowJobID: req.ParentJob, RootFlowJobID: req.RootJob, RootJobID: r.rootID, FlowPath: req.ParentPath, JobPath: f.Path, Token: platform.NewToken(), Start: clock.Now()}.Env(r.host)
 	// The run is a flow job of the job registry while it runs, in its
 	// effective root's tree, so that its steps' root lookups, reads with
 	// a job id, job reads and flow user state find it (ADR 0007, D3,
@@ -684,7 +690,7 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	if req.Started != nil {
 		req.Started(ctx, r)
 	}
-	endJob := e.platform.JobRegistry().Begin(platform.Job{ID: id, Kind: platform.JobFlow, Root: r.rootID, Path: f.Path, Run: id, View: runView{r}})
+	endJob := e.platform.JobRegistry().Begin(platform.Job{ID: id, Kind: platform.JobFlow, Root: r.rootID, Path: f.Path, Run: id, View: runView{r}, Host: r.host})
 	r.run(ctx)
 	r.mu.Lock()
 	r.rootEnd = &flowEnd{status: r.trace.Status, result: r.trace.Result}

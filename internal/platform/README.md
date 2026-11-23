@@ -49,7 +49,7 @@ names the departure among its
 
 | File | What it holds |
 |---|---|
-| `identity.go` | Job identity: `Identity`, `Host`, `DefaultHost`, `StatePath`, `ObjectPath`, `NewToken` |
+| `identity.go` | Job identity: `Identity`, `Host`, `Host.Override`, `DefaultHost`, `StatePath`, `ObjectPath`, `NewToken` |
 | `services.go` | `Services`, the service interfaces, the records `Resource` and `Variable`, `Store`, the chains, `LocalSecrets`, `Providers` |
 | `data.go` | `LoadData`: a bundle's `data/` directory as a `Store` |
 | `readcache.go` | `ReadCache`, a run's read cache |
@@ -91,6 +91,7 @@ Every exported name, grouped by concern. "Engine", "facade", "`wl`" and
 |---|---|---|---|
 | `Identity`, `Identity.Env` | struct, method | One invocation's job identity, and its job variables ([Job identity](#job-identity)) | engine, `wltest` |
 | `Host`, `DefaultHost` | struct, variable | The host configuration and its defaults ([Host configuration](#host-configuration)) | engine, `wltest` |
+| `Host.Override` | method | A run's own host configuration over the runtime's: each field that the run sets replaces the runtime's | engine |
 | `StatePath`, `ObjectPath` | functions | `WM_STATE_PATH` and `WM_OBJECT_PATH` | `Identity.Env` |
 | `NewToken` | function | A fresh `WM_TOKEN` | engine, `wltest` |
 | `APIEnv` | function | The variables an interpolated read with a job id resolves `$WM_*` strings from ([Contract (b)](#contract-b-the-interpolated-read)) | engine, the package |
@@ -117,7 +118,7 @@ Every exported name, grouped by concern. "Engine", "facade", "`wl`" and
 | `JobView` | interface | Renders a live run's job records | engine implements it |
 | `FlowUserState`, `FlowUserStateLister`, `UserStates`, `NewUserStates` | interfaces, struct, constructor | Flow user state and its local default | the package; hosts implement `FlowUserState` |
 | `JobLookup` | function type | Finds the job an interpolated read names | facade |
-| `Services.Registry`, `JobRegistry`, `RootJob`, `JobEnv`, `ReadJobEnv`, `GetJob`, `GetJobArgs`, `FlowUserState`, `FlowUserStates`, `SetFlowUserState` | methods | The lookups ([Lookups](#lookups)) and the job reads | engine, facade, `wltest` (`JobRegistry`); `Services.Registry` only inside the package |
+| `Services.Registry`, `JobRegistry`, `RootJob`, `JobEnv`, `ReadJobEnv`, `GetJob`, `GetJobArgs`, `FlowUserState`, `FlowUserStates`, `SetFlowUserState`, `JobScope` | methods | The lookups ([Lookups](#lookups)) and the job reads | engine, facade, `wltest` (`JobRegistry`); `Services.Registry` only inside the package |
 
 ### Objects, dispatch and results
 
@@ -218,6 +219,10 @@ takes `DefaultHost`'s value, and a zero `PermissionedAs` is
 | `PermissionedAs` | `WM_PERMISSIONED_AS` | `u/<username>` |
 | `BaseURL` | `WM_BASE_URL` | `http://localhost:3000`, the stock client's own default for an unset `WM_BASE_URL` ([WA-1](../../docs/semantics/client-api.md#wa-1)) |
 | `WorkerGroup` | `WM_WORKER_GROUP` | `default`, the group of the reference configuration's one worker ([OR-29](../../docs/semantics/oracle.md#or-29)); windmill-lite has no worker groups |
+
+A run may carry its own `Host`: `Host.Override` lays the fields that it
+sets over the runtime's, field by field, so a run that sets only a
+username keeps the runtime's `PermissionedAs` when that is set.
 
 The default workspace, username, email and `WM_PERMISSIONED_AS` are
 windmill-lite's placeholders, not Windmill's values. A comparison with the
@@ -508,6 +513,10 @@ Its local default, `Registry`, keeps each `Job`: its id, its kind
 ([WA-V1](../../docs/semantics/client-api.md#wa-v1)), its runnable path and,
 for a script job, its job variables.
 
+A job also keeps `Job.Host`, its run's configured host configuration. Its
+`Workspace` is the job's workspace scope: `""` when neither the runtime nor
+the run set one.
+
 ### What the registry keeps
 
 - **Who registers what.** The engine registers each flow run it starts,
@@ -520,6 +529,9 @@ for a script job, its job variables.
   The script job's parent flow, innermost flow scope and root become known
   with it, as flow jobs of its root that are live while the root is, unless
   the engine registered them first.
+- **A job's workspace scope.** A job registered with no `Host` takes the
+  `Host` of the run that its `Run` names. The jobs that a script job brings
+  into the registry take the script job's.
 - **How long.** A job is live until it ends, and stays known while its root
   lives, so a step's job can be looked up after it ended. Once the root has
   ended, the registry keeps only what the next items say, and the tree's
@@ -527,9 +539,9 @@ for a script job, its job variables.
 - **A step abandoned at the run's end** stays live until it ends, and the
   scopes it runs in stay known with it. A step that times out is abandoned, not killed (a
   [named deviation](../../docs/design/0001-equivalence-contract.md#5-named-deviations)).
-- **Ended jobs.** `Registry` keeps the id, kind, root and path of each job of
-  an ended tree, without a script job's variables, so the root lookup still
-  answers for it. It keeps the latest 4096 such jobs, and forgets older
+- **Ended jobs.** `Registry` keeps the id, kind, root, path and workspace
+  scope of each job of an ended tree, without a script job's variables, so
+  the root lookup still answers for it in its workspace. It keeps the latest 4096 such jobs, and forgets older
   ones, whose ids are then unknown. Registering a job again makes it live
   again.
 
@@ -545,6 +557,7 @@ windmill-lite bounds the memory by count instead.
 | `Services.JobEnv` | The job variables of a script job whose tree has not ended, the step ended or not | false otherwise; the ended jobs that the registry keeps have none |
 | `Services.ReadJobEnv` | The job that a resource read's `job_id` names: a live script job of the path's workspace, whose variables the read's `$WM_*` strings resolve from (`APIEnv`), as Windmill looks it up among the queued and running jobs ([WA-12](../../docs/semantics/client-api.md#wa-12)) | `Not found: Job not found at name <id>` (404) for an unknown id, an ended job or another workspace's job; `ErrNoJobVariables` for a live flow job |
 | `Services.JobRegistry` | The registry that the engine and the facade register with: `Jobs`, or the services' own | — |
+| `Services.JobScope` | The workspace scope of a known job, live or ended, for the facade's lookups in a workspace | false for an unknown id |
 
 ### Job reads of a live run
 
@@ -642,8 +655,11 @@ polls for them with a `JobResult`
 
 - **A `Dispatch`** holds the target (a script's or a flow's path, or a
   script's hash, by `DispatchKind`), the arguments, the query's
-  `parent_job`, `root_job`, `tag` and `scheduled_in_secs`, and the caller's
-  job variables.
+  `parent_job`, `root_job`, `tag` and `scheduled_in_secs`, and the
+  caller's job variables. Its `Host` is the caller's run's host
+  configuration, which the dispatched run takes.
+- **`Dispatcher.Result`** takes the caller's workspace scope, and answers
+  only for a job that a run of that scope dispatched.
 - **A `JobResult`** says whether the job has started and, once it has
   completed, whether it succeeded and its result as stored JSON text.
 - **A target that is not a root of the bundle** fails with
