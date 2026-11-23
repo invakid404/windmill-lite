@@ -92,17 +92,20 @@ form: `MAJOR.MINOR.PATCH` with an optional pre-release, such as
   PostgreSQL ports, and Windmill's Apache-2.0 OpenAPI files. It adds those
   of each Go module that `./cmd/windmill-lite` links, and Go's own. It fails
   when a Go module has no licence file.
-- **The source of an MPL-2.0 module.** When a Go module's own licence
-  grant is the Mozilla Public License 2.0, `notices` puts a source line
-  before its licence files. The line names the module and its version, its
-  archive on the Go module proxy, and its upstream repository, as section
-  3.2 of the licence asks of a work distributed in executable form.
-- **Which modules are under the MPL-2.0.** A licence file, `LICENSE`,
-  `LICENCE` or `COPYING` but not `NOTICE` or `PATENTS`, says so when the
-  licence's title is in its first five lines that are not blank, or when a
-  line is `SPDX-License-Identifier: MPL-2.0`. A module that only attributes
-  an MPL-2.0 component, in its `NOTICE` or further down its licence file,
-  gets no line.
+- **The source of an MPL-2.0 module.** For each module of `MPL_MODULES`,
+  the modules under the Mozilla Public License 2.0 that windmill-lite
+  takes, `notices` puts a source line before its licence files. The line
+  names the module and its version, its archive on the Go module proxy,
+  and its upstream repository, as section 3.2 of the licence asks of a
+  work distributed in executable form.
+- **The check of each module.** A module of `MPL_MODULES` must have a
+  licence file, `LICENSE`, `LICENCE` or `COPYING`, whose first five lines
+  that are not blank hold the licence's title or the line
+  `SPDX-License-Identifier: MPL-2.0`. Any other module whose licence files
+  mention the MPL fails `notices`, naming the files, so that a person
+  decides what the licence covers.
+- **`MPL_MODULES`** holds `github.com/hashicorp/go-plugin` and
+  `github.com/hashicorp/yamux`.
 - **The upstream repository.** On github.com, gitlab.com and bitbucket.org
   it is the module path's first three elements; elsewhere it is the module
   path, where `go get` finds the repository.
@@ -129,11 +132,12 @@ form: `MAJOR.MINOR.PATCH` with an optional pre-release, such as
   differ;
 - another checks that `notices` covers each third-party part of the engine;
 - both skip without `go`;
-- `MPLSourceTest` checks the source line on synthetic module directories.
-  An MPL-2.0 module gets the line, with the proxy's case encoding of its
-  path and version, in the whole output of `notices` too. Another licence
-  and an attributed MPL-2.0 component get none. The test does not depend
-  on which modules the engine links;
+- `MPLSourceTest` checks the source line on synthetic module directories,
+  each test with its own `MPL_MODULES`. A listed MPL-2.0 module gets the
+  line, with the proxy's case encoding of its path and version, in the
+  whole output of `notices` too. Another licence gets none. A listed
+  module under another licence fails, and so does an unlisted one that
+  mentions the MPL;
 - `ModeTest` checks `mode` for a tag, a pull request and a dispatch, each in
   this repository and in a fork.
 

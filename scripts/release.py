@@ -196,28 +196,35 @@ def go_modules() -> list[tuple[str, str, str]]:
     return sorted({tuple(line.split("\t")) for line in res.stdout.splitlines() if line})
 
 
+# The Go modules under the Mozilla Public License 2.0 that windmill-lite
+# takes, as Go module dependencies only. notices checks that a licence file
+# of each is the MPL-2.0, and refuses any other module whose licence files
+# mention the MPL, so that a person decides what that licence covers.
+MPL_MODULES = frozenset({"github.com/hashicorp/go-plugin", "github.com/hashicorp/yamux"})
+
 # A module's own licence grant: a licence file other than a notice or a
-# patent grant, which can name the licences of components a module only
-# attributes.
+# patent grant.
 _GRANT_FILE = re.compile(r"(?i)(licen[cs]e|copying)([.-].*)?")
 
 # The title of the Mozilla Public License 2.0, which its text starts with,
-# and the line that names it by its SPDX identifier.
+# the line that names it by its SPDX identifier, and any mention of the
+# licence.
 _MPL2_TITLE = re.compile(r"(?i)mozilla public license,?\s+version\s+2\.0")
-_MPL2_SPDX = re.compile(r"(?im)^\W*SPDX-License-Identifier:\s*MPL-2\.0\s*$")
+_MPL2_SPDX = re.compile(r"(?i)^\W*SPDX-License-Identifier:\s*MPL-2\.0\s*$")
+_MPL_MENTION = re.compile(r"(?i)mozilla public license|\bMPL-2\.0\b")
 
-# How many lines that are not blank the title may come after, such as a
-# copyright line.
+# How many lines that are not blank the title or the SPDX line may come
+# after, such as a copyright line.
 _TITLE_LINES = 5
 
 
 def is_mpl2(text: str) -> bool:
     """Returns whether a licence file is the Mozilla Public License 2.0:
-    its title is in its first lines that are not blank, or a line names it
-    by its SPDX identifier. A licence file that mentions the MPL further
-    down, such as for a component that it attributes, is not."""
+    its first lines that are not blank hold the licence's title or its SPDX
+    line. A licence file that names the MPL only further down, such as for a
+    component that it attributes, is not."""
     head = [line for line in text.splitlines() if line.strip()][:_TITLE_LINES]
-    return any(_MPL2_TITLE.search(line) for line in head) or bool(_MPL2_SPDX.search(text))
+    return any(_MPL2_TITLE.search(line) or _MPL2_SPDX.search(line) for line in head)
 
 # The code hosts whose module paths start with the repository's path, as
 # host/owner/repository.
@@ -253,15 +260,26 @@ def mpl_source(path: str, ver: str) -> str:
 
 def module_notice(path: str, ver: str, directory: str) -> str:
     """Returns the section of LICENSES.txt for the Go module path at
-    version ver, whose files are in directory: its licence files, after
-    the source line of a module whose own licence grant is the MPL-2.0."""
+    version ver, whose files are in directory: its licence files, after the
+    source line of a module of MPL_MODULES. It raises ReleaseError for a
+    module of MPL_MODULES that no licence file says is under the MPL-2.0,
+    and for any other module whose licence files mention the MPL."""
     found = sorted(p for p in pathlib.Path(directory).iterdir() if p.is_file() and _LICENSE_FILE.fullmatch(p.name))
     if not found:
         raise ReleaseError(f"Go module {path} {ver} has no licence file in {directory}")
     texts = [(p.name, p.read_text(encoding="utf-8")) for p in found]
     text = "\n\n".join(f"--- {name} ---\n\n{body}" for name, body in texts)
-    if any(_GRANT_FILE.fullmatch(name) and is_mpl2(body) for name, body in texts):
+    if path in MPL_MODULES:
+        if not any(_GRANT_FILE.fullmatch(name) and is_mpl2(body) for name, body in texts):
+            raise ReleaseError(f"Go module {path} {ver} is in MPL_MODULES, but no licence file of it is the Mozilla Public License 2.0")
         text = mpl_source(path, ver) + "\n\n" + text
+    else:
+        named = [name for name, body in texts if _MPL_MENTION.search(body)]
+        if named:
+            raise ReleaseError(
+                f"Go module {path} {ver} mentions the Mozilla Public License in {', '.join(named)}: "
+                "check what that licence covers, and add the module to MPL_MODULES if it is the module's own"
+            )
     return _section(f"Go module {path} {ver}", text)
 
 
