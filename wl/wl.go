@@ -142,17 +142,17 @@ type Options struct {
 	// value is one of the invocation's own job ids: its WM_JOB_ID or
 	// WM_ROOT_FLOW_JOB_ID as the engine set them, the values that the stock
 	// clients send. Every other part of the request stays as it was, a link
-	// to another value included. A request
+	// whose value is neither of the two included. A request
 	// to another origin, or one that the fetch view does not see, from a
 	// child process or a socket that the step opens, keeps its links.
-	// Each value is an http or https origin whose host is a DNS name of
-	// ASCII letters, digits, hyphens and underscores (not one that ends in
-	// a number, and no internationalised name), an IPv4 address in four
-	// decimal parts or an IPv6 address in brackets: what the harness's URL
-	// parser accepts and reads alike. Open refuses any other value, and one
-	// with a path other than "/", a query, a fragment or user information,
-	// naming its position, never the value. Empty, the default, names none.
-	// In host mode they apply to the host's steps.
+	// Each value is an http or https origin. Open refuses one with user
+	// information, a query, a fragment or a path other than "/", or whose
+	// host the harness's URL parser refuses or reads as another (an IPv4
+	// address it reads as the WHATWG URL Standard does), naming its
+	// position, never the value. An internationalised name goes to the
+	// harness, which maps it as that parser does, and leaves out one the
+	// parser refuses, since no request can go to it. Empty, the default,
+	// names none. In host mode they apply to the host's steps.
 	ForeignWindmillOrigins []string
 	// Host, when set, opens the runtime in host mode (ADR 0004 host mode,
 	// ADR 0009): its steps run in the host process that started it, which

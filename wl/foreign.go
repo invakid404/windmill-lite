@@ -7,20 +7,23 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // foreignOrigins checks Options.ForeignWindmillOrigins and returns them as
-// the welcomes carry them: each as scheme://host[:port], in lower case,
-// without the scheme's default port, and each once, in their first order,
-// so "https://Windmill.example.com:443/" names the origin that
-// "https://windmill.example.com" does.
+// the welcomes carry them: each as scheme://host[:port], with the ASCII
+// letters in lower case, without the scheme's default port, and each once,
+// in their first order, so "https://Windmill.example.com:443/" names the
+// origin that "https://windmill.example.com" does.
 //
-// The harness reads each origin with the URL parser that reads a request's
-// URL, the WHATWG URL Standard's, and stops on one it cannot read. So this
-// check accepts only what that parser accepts and reads the same way
-// (foreignOrigin), and refuses the rest here, where the host learns why. An
-// error names the value's position and the reason, never the value, which
-// can hold a secret in its user information or its query.
+// The harness compares origins as the WHATWG URL Standard's parser gives
+// them, the parser that reads a request's URL. This check refuses what that
+// parser refuses or reads as something else, wherever it can decide it
+// without the Unicode tables of internationalised names (foreignOrigin), so
+// the host learns why here. A name that only those tables reject reaches
+// the harness, which leaves it out: no request URL can have a host that the
+// parser rejects. An error names the value's position and the reason, never
+// the value, which can hold a secret in its user information or query.
 func foreignOrigins(list []string) ([]string, error) {
 	var out []string
 	for i, v := range list {
@@ -36,21 +39,16 @@ func foreignOrigins(list []string) ([]string, error) {
 }
 
 // foreignOrigin returns v in the welcome's form, or why it is refused. It
-// accepts an http or https URL with nothing after its host and port but an
-// optional "/", whose host is one of:
-//
-//   - a DNS name: labels of ASCII letters, digits, hyphens and underscores,
-//     none empty, the last not a number, which the URL parser would read as
-//     an IPv4 address, and none starting with "xn--", whose Punycode the URL
-//     parser checks by rules that this check does not have;
-//   - an IPv4 address in four decimal parts, without leading zeros;
-//   - an IPv6 address in brackets, without a zone.
-//
-// So an internationalised name is refused, in Unicode and in its xn-- form.
+// refuses a value that is not valid UTF-8, that holds a space, a control
+// character, "@", "?", "#", "%" or a backslash anywhere, whose scheme is not
+// http or https, that has a path other than "/" or a port above 65535, or
+// whose host foreignHost refuses.
 func foreignOrigin(v string) (string, string) {
 	switch {
-	case strings.ContainsFunc(v, func(r rune) bool { return r <= ' ' || r > '~' }):
-		return "", "it holds a space, a control character or a character outside ASCII"
+	case !utf8.ValidString(v):
+		return "", "it is not valid UTF-8"
+	case strings.ContainsFunc(v, func(r rune) bool { return r <= ' ' || r >= 0x7f && r <= 0x9f }):
+		return "", "it holds a space or a control character"
 	case strings.Contains(v, "@"):
 		return "", "it has user information"
 	case strings.Contains(v, "?"):
@@ -66,7 +64,7 @@ func foreignOrigin(v string) (string, string) {
 		return "", "it is not a URL"
 	case u.Scheme != "http" && u.Scheme != "https":
 		return "", "its scheme is not http or https"
-	case u.Opaque != "" || u.Host == "":
+	case u.Opaque != "" || u.Hostname() == "":
 		return "", "it has no host"
 	case u.Path != "" && u.Path != "/":
 		return "", "it has a path"
@@ -88,9 +86,22 @@ func foreignOrigin(v string) (string, string) {
 	return u.Scheme + "://" + host, ""
 }
 
+// forbiddenHost are the ASCII characters that the URL parser refuses in a
+// host name, beside the ones that foreignOrigin refuses everywhere.
+const forbiddenHost = "/:<>[]^|\x7f"
+
 // foreignHost returns the host h, as url.URL.Hostname gives it, in the
 // welcome's form, or why foreignOrigin refuses it; bracketed says that the
-// URL wrote it in brackets.
+// URL wrote it in brackets. As the URL parser does, it reads:
+//
+//   - a bracketed host as an IPv6 address, which may have no zone;
+//   - a host whose last label is a number (digits, or "0x" and hex digits)
+//     as an IPv4 address, in up to four parts of decimal, octal (a leading
+//     "0") or hex numbers (ipv4), refusing one that is not a valid address
+//     and giving the address's dotted form;
+//   - any other host as a name, with its ASCII letters in lower case and
+//     any other character kept: the harness maps an internationalised name,
+//     such as bücher.example, to its xn-- form.
 func foreignHost(h string, bracketed bool) (string, string) {
 	if bracketed {
 		a, err := netip.ParseAddr(h)
@@ -99,26 +110,102 @@ func foreignHost(h string, bracketed bool) (string, string) {
 		}
 		return "[" + a.String() + "]", ""
 	}
-	h = strings.ToLower(h)
-	labels := strings.Split(h, ".")
-	if last := labels[len(labels)-1]; last != "" && (strings.Trim(last, "0123456789") == "" || strings.HasPrefix(last, "0x") && strings.Trim(last[2:], "0123456789abcdef") == "") {
-		// The URL parser reads a host that ends in a number as an IPv4
-		// address, and refuses one that is not a valid address.
-		a, err := netip.ParseAddr(h)
-		if err != nil || !a.Is4() {
-			return "", "its host ends in a number and is not an IPv4 address in four decimal parts"
+	h = asciiLower(h)
+	if strings.ContainsAny(h, forbiddenHost) {
+		return "", "its host has a character that a host name cannot have"
+	}
+	if endsInNumber(h) {
+		a, ok := ipv4(h)
+		if !ok {
+			return "", "its host ends in a number and is not an IPv4 address"
 		}
 		return a.String(), ""
 	}
-	for _, l := range labels {
-		switch {
-		case l == "":
-			return "", "its host has an empty label"
-		case strings.Trim(l, "abcdefghijklmnopqrstuvwxyz0123456789-_") != "":
-			return "", "its host has a character other than an ASCII letter, a digit, a hyphen or an underscore"
-		case strings.HasPrefix(l, "xn--"):
-			return "", "its host has a label that starts with xn--"
+	return h, ""
+}
+
+// asciiLower returns s with its ASCII letters in lower case, and every other
+// character as it is.
+func asciiLower(s string) string {
+	return strings.Map(func(r rune) rune {
+		if 'A' <= r && r <= 'Z' {
+			return r + ('a' - 'A')
+		}
+		return r
+	}, s)
+}
+
+// hostLabels returns the dot-separated labels of h, without one empty last
+// label (a trailing dot) when there are others.
+func hostLabels(h string) []string {
+	labels := strings.Split(h, ".")
+	if len(labels) > 1 && labels[len(labels)-1] == "" {
+		labels = labels[:len(labels)-1]
+	}
+	return labels
+}
+
+// endsInNumber says whether the URL parser reads h as an IPv4 address: its
+// last label is all digits, or an IPv4 number (ipv4Number).
+func endsInNumber(h string) bool {
+	labels := hostLabels(h)
+	last := labels[len(labels)-1]
+	if last != "" && strings.Trim(last, "0123456789") == "" {
+		return true
+	}
+	_, ok := ipv4Number(last)
+	return ok
+}
+
+// ipv4 parses h as the URL parser parses an IPv4 address: up to four
+// numbers, each but the last at most 255, the last filling the remaining
+// bytes.
+func ipv4(h string) (netip.Addr, bool) {
+	labels := hostLabels(h)
+	if len(labels) > 4 {
+		return netip.Addr{}, false
+	}
+	nums := make([]uint64, len(labels))
+	for i, l := range labels {
+		n, ok := ipv4Number(l)
+		if !ok || i < len(labels)-1 && n > 255 {
+			return netip.Addr{}, false
+		}
+		nums[i] = n
+	}
+	v := nums[len(nums)-1]
+	if v >= 1<<(8*(5-len(nums))) {
+		return netip.Addr{}, false
+	}
+	for i, n := range nums[:len(nums)-1] {
+		v += n << (8 * (3 - i))
+	}
+	return netip.AddrFrom4([4]byte{byte(v >> 24), byte(v >> 16), byte(v >> 8), byte(v)}), true
+}
+
+// ipv4Number parses one part of an IPv4 address as the URL parser does:
+// "0x" and hex digits, "0" and octal digits, or decimal digits; "0x" alone
+// is 0. A value of 2^40 or more stays 2^40 or more, which no address takes.
+func ipv4Number(s string) (uint64, bool) {
+	if s == "" {
+		return 0, false
+	}
+	base := uint64(10)
+	switch {
+	case strings.HasPrefix(s, "0x"):
+		s, base = s[2:], 16
+	case len(s) > 1 && s[0] == '0':
+		s, base = s[1:], 8
+	}
+	var n uint64
+	for _, c := range s {
+		d := uint64(strings.IndexRune("0123456789abcdef", c))
+		if d >= base {
+			return 0, false
+		}
+		if n < 1<<40 {
+			n = n*base + d
 		}
 	}
-	return h, ""
+	return n, true
 }

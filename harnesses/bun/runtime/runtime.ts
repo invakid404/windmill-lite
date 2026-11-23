@@ -487,8 +487,7 @@ export class Runtime {
     }
     const c = m.config;
     const modes = this.opts.host ? ["warm"] : ["warm", "fresh"];
-    const foreign = foreignOrigins(c.foreign_windmill_origins ?? []);
-    if (m.proto !== PROTOCOL_VERSION || !modes.includes(c.module_state) || c.heartbeat_ms < 1 || c.max_message < 1 || foreign === undefined) {
+    if (m.proto !== PROTOCOL_VERSION || !modes.includes(c.module_state) || c.heartbeat_ms < 1 || c.max_message < 1) {
       this.diag(`windmill-lite harness: unusable welcome: proto ${m.proto}, config ${JSON.stringify(c)}`);
       this.stop(EXIT.rejected);
       return;
@@ -501,7 +500,9 @@ export class Runtime {
     setChildGroups(this.mode !== "fresh");
     setChildAnnouncer((id, pid, token) => this.announceChild(id, pid, token));
     this.facade = c.facade;
-    this.foreign = foreign;
+    this.foreign = foreignOrigins(c.foreign_windmill_origins ?? [], (i) =>
+      this.diag(`windmill-lite harness: foreign_windmill_origins[${i}] is not a URL that this runtime's URL parser reads, so no request can go to it; it is left out`),
+    );
     this.sender.maxMessage = c.max_message;
     this.assembler.maxMessage = c.max_message;
     this.startHeartbeat(c.heartbeat_ms);

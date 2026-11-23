@@ -182,20 +182,23 @@ in host mode:
 - It removes each `parent_job` and `root_job` query parameter whose value
   is one of the step's own job ids: its `WM_JOB_ID` or
   `WM_ROOT_FLOW_JOB_ID`, as the engine set them. The rest of the request
-  stays as the step sent it, and so does a link to the value of another job
-  variable, such as a parent that a dispatched script's dispatcher named.
+  stays as the step sent it, and so does a link whose value is neither of
+  those two, whichever variable the step took it from.
 - A request that does not go through `fetch` keeps its links, such as one
   from a child process or over a socket that the step opens.
 - `Open` compares origins as URLs do, so `https://Windmill.example.com:443/`
   names `https://windmill.example.com`.
-- `Open` accepts only what the harness's URL parser accepts and reads the
-  same way. The host must be a DNS name of ASCII letters, digits, hyphens
-  and underscores whose last label is not a number, an IPv4 address in four
-  decimal parts, or an IPv6 address in brackets. So an internationalised
-  name is refused, in Unicode and in its `xn--` form.
-- `Open` fails on any other value, and on one with a path, a query, a
-  fragment or user information. Its error names the value's position in
-  the list and the reason, never the value, which could hold a secret.
+- `Open` fails on a value with user information, a query, a fragment or a
+  path, or with a host that the harness's URL parser refuses or reads as
+  another. It reads a host that ends in a number as that parser does: as an
+  IPv4 address of up to four decimal, octal or hex parts, so `http://127.1`
+  names `http://127.0.0.1`.
+- `Open`'s error names the value's position in the list and the reason,
+  never the value, which could hold a secret.
+- An internationalised name, in Unicode or in its `xn--` form, reaches the
+  harness, whose URL parser maps it as it maps a request's URL. A name that
+  the parser refuses cannot be a request's host, so the harness leaves it
+  out of the list and writes a diagnostic line.
 
 The [platform interface ADR](../docs/design/0007-platform-interface.md#async-dispatch)
 gives the reason.

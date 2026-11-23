@@ -21,19 +21,22 @@ import (
 
 // TestForeignWindmillOrigins checks Options.ForeignWindmillOrigins as the
 // welcome carries it, through host mode's handshake: each origin in one
-// form (scheme and host in lower case, no default port, no trailing slash),
-// each once, in the order given; none without the option, so that the
-// welcome is today's. Open refuses every value that is not an origin which
-// the harness's URL parser accepts and reads the same way, such as an IPv4
-// address it would refuse, and refuses a host with engine_refused for it.
-// No refusal holds the value, which can carry a secret: the marker in the
-// refused values appears in no error and no handshake refusal.
+// form (ASCII letters in lower case, no default port, no trailing slash, an
+// IPv4 address in its dotted form), each once, in the order given; none
+// without the option, so that the welcome is today's. Open refuses a value
+// that the harness's URL parser refuses or reads as another, wherever that
+// does not take the tables of internationalised names: user information, a
+// query, a fragment (an empty one too), a path, an IPv4 address that the
+// parser refuses, a character that no host has. A host gets engine_refused
+// for it. No refusal holds the value, which can carry a secret: the marker
+// in the refused values appears in no error and no handshake refusal.
 func TestForeignWindmillOrigins(t *testing.T) {
 	dir := writeTestBundle(t, "test-engine", nil, nil)
 	work := t.TempDir()
 	// The origins in the forms of the cases' also_listed: duplicates, case,
 	// default ports, trailing slashes and colons, an underscore, a leading
-	// hyphen, IPv6.
+	// hyphen, IPv6, internationalised names, a trailing dot, IPv4 in short
+	// forms.
 	_, err, _, w := openHost(t, dir, Options{Host: &Host{Workdir: work}, ForeignWindmillOrigins: readForeignCases(t).AlsoListed}, work)
 	if err != nil {
 		t.Fatal(err)
@@ -41,6 +44,10 @@ func TestForeignWindmillOrigins(t *testing.T) {
 	want := []string{
 		"https://windmill.example.com", "http://127.0.0.1:8000", "http://[::1]", "http://[::1]:8080",
 		"https://a_b.example", "https://-a.example:8443", "http://1.2.3.4", "https://[::ffff:1.2.3.4]", "https://localhost:0",
+		// The harness maps bücher.example to xn--bcher-kva.example, and
+		// leaves xn--a.example out, which its URL parser refuses.
+		"https://xn--bcher-kva.example", "https://bücher.example", "https://example.com.", "http://127.0.0.1",
+		"https://127.0.0.1:8443", "https://1.2.3.4", "https://xn--a.example",
 	}
 	if w.Config == nil || !reflect.DeepEqual(w.Config.ForeignWindmillOrigins, want) {
 		t.Fatalf("welcome %+v, want the foreign origins %q", w.Config, want)
@@ -53,19 +60,20 @@ func TestForeignWindmillOrigins(t *testing.T) {
 		t.Fatalf("welcome without the option %+v, want no foreign origins", w.Config)
 	}
 	const marker = "s3cr3t-marker"
-	for _, bad := range []string{
+	secrets := []string{
+		"https://user:" + marker + "@windmill.example.com", "https://windmill.example.com/?token=" + marker,
+		"https://windmill.example.com/#" + marker, "https://windmill.example.com/" + marker, "https://" + marker + ".1",
+	}
+	for _, bad := range append([]string{
 		"", "windmill.example.com", "ftp://windmill.example.com", "https://", "https://:443",
 		"https://windmill.example.com/api", "https://windmill.example.com/?x=1", "https://windmill.example.com/#top",
 		"https://user@windmill.example.com", "https://windmill.example.com:65536", "https://windmill.example.com/?",
 		"https://windmill.example.com/#", "https://windmill.example.com#",
-		// The URL parser refuses these hosts, or reads them as another.
-		"http://999.999.999.999", "https://1.2.3", "https://01.2.3.4", "https://0x7f.0.0.1", "https://a.1", "https://a.0x1",
-		"https://xn--a.example", "https://xn--bcher-kva.example", "https://Bücher.example", "https://[fe80::1%25eth0]",
-		"https://a..b", "https://example.com.", "https://.example", "https://a!b.example", "https://a%2eb.example", "https://a b.example",
-		// Secrets in a refused value.
-		"https://user:" + marker + "@windmill.example.com", "https://windmill.example.com/?token=" + marker,
-		"https://windmill.example.com/#" + marker, "https://windmill.example.com/" + marker, "https://" + marker + ".1",
-	} {
+		// The URL parser refuses these hosts.
+		"http://999.999.999.999", "https://1.2.3.4.5", "https://256.0.0.1", "https://1.2.65536", "https://4294967296",
+		"https://0x100000000", "https://08.0.0.1", "https://1..2", "https://a.1", "https://a.0x1", "https://a.09",
+		"https://[fe80::1%25eth0]", "https://a%2eb.example", "https://a b.example", "https://a<b.example", "https://a\x01b.example",
+	}, secrets...) {
 		_, err := Open(dir, Options{EngineVersion: "test-engine", ForeignWindmillOrigins: []string{"https://ok.example.com", bad}})
 		if err == nil || !strings.Contains(err.Error(), "ForeignWindmillOrigins[1]") {
 			t.Errorf("%q: Open returned %v, want a refusal that names the option and the value's position", bad, err)
@@ -73,12 +81,16 @@ func TestForeignWindmillOrigins(t *testing.T) {
 			t.Errorf("%q: the refusal %q holds the value", bad, err)
 		}
 	}
-	_, err, _, w = openHost(t, dir, Options{Host: &Host{Workdir: work}, ForeignWindmillOrigins: []string{"https://user:" + marker + "@windmill.example.com"}}, work)
-	if err == nil || w.Reject == nil || w.Reject.Code != harness.RejectEngine || !strings.Contains(w.Reject.Message, "ForeignWindmillOrigins[0]") {
-		t.Fatalf("a host with user information in an origin: %v, welcome %+v; want engine_refused naming the option", err, w)
-	}
-	if strings.Contains(w.Reject.Message, marker) || strings.Contains(err.Error(), marker) {
-		t.Fatalf("the host's refusal %q or Open's error holds the value", w.Reject.Message)
+	// The host's refusal, for an empty fragment, an IPv4 address that the
+	// URL parser refuses, and the secrets.
+	for _, bad := range append([]string{"https://windmill.example.com/#", "http://999.999.999.999"}, secrets...) {
+		_, err, _, w = openHost(t, dir, Options{Host: &Host{Workdir: work}, ForeignWindmillOrigins: []string{bad}}, work)
+		if err == nil || w.Reject == nil || w.Reject.Code != harness.RejectEngine || !strings.Contains(w.Reject.Message, "ForeignWindmillOrigins[0]") {
+			t.Fatalf("a host with %q: %v, welcome %+v; want engine_refused naming the option", bad, err, w)
+		}
+		if strings.Contains(w.Reject.Message, marker) || strings.Contains(err.Error(), marker) {
+			t.Fatalf("the host's refusal %q or Open's error holds the value", w.Reject.Message)
+		}
 	}
 }
 
@@ -226,17 +238,19 @@ func buildForeignBundle(t *testing.T, bun, client string) (out, runtimeDir strin
 // TestHostForeignWindmillLinks in cmd/windmill-lite. Two loopback servers
 // stand in for real Windmill instances, and the option lists one of them,
 // in a form that the runtime normalises: in upper case, with a trailing
-// slash. Each case of testdata/foreign/cases.json runs a flow whose step
+// slash. It also lists the cases' also_listed, each of which the harness
+// processes must run with. Each case of testdata/foreign/cases.json runs a flow whose step
 // calls one of them, and checks the request that the server saw:
 //
 //   - With the option, a dispatch to the listed origin under
 //     /api/w/{workspace}/jobs/run/ carries neither of the step's own job
 //     ids, from the stock client (runScriptAsync, runFlow) or from a native
 //     step's fetch. runFlowAsync, which sends none by default, is
-//     unchanged. A parent that the step names itself stays, while its own
-//     root goes, and so does a parent that is the top of its run in a
-//     subflow, its WM_ROOT_JOB_ID. A request to the origin that is not
-//     listed, and one to the listed origin outside jobs/run/, keep both.
+//     unchanged. A parent that the step names itself stays while its own
+//     root goes. In a subflow, a parent that is the top of the step's run,
+//     its WM_ROOT_JOB_ID, differs from both of its ids: that parent stays,
+//     and its root goes. A request to the origin that is not listed, and
+//     one to the listed origin outside jobs/run/, keep both.
 //   - Without the option, the control, every request keeps what the step
 //     sent.
 //

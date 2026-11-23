@@ -634,18 +634,26 @@ test("a request the invocation leaves in flight is aborted at settlement, and a 
   }
 });
 
-test("the welcome's foreign Windmill origins compare as request origins do; a value that is not an http or https URL makes the welcome unusable", () => {
-  expect([...foreignOrigins(["https://[::ffff:1.2.3.4]", "HTTP://127.0.0.1:80/", "https://windmill.example.com:8443", "http://[::1]:80", "https://bücher.example"])!]).toEqual([
-    "https://[::ffff:102:304]",
+test("the welcome's foreign Windmill origins compare as request origins do; one that the URL parser refuses is left out", () => {
+  const dropped: number[] = [];
+  const got = foreignOrigins(
+    ["https://bücher.example", "HTTP://127.0.0.1:80/", "https://windmill.example.com:8443", "http://[::1]:80", "https://[::ffff:1.2.3.4]", "https://xn--a.example", "ftp://windmill.example.com", "windmill.example.com", "https://example.com."],
+    (i) => dropped.push(i),
+  );
+  expect([...got]).toEqual([
+    "https://xn--bcher-kva.example",
     "http://127.0.0.1",
     "https://windmill.example.com:8443",
     "http://[::1]",
-    "https://xn--bcher-kva.example",
+    "https://[::ffff:102:304]",
+    "https://example.com.",
   ]);
-  expect(new URL("https://[::ffff:1.2.3.4]/api/w/ws/jobs/run/p/f/x").origin).toBe("https://[::ffff:102:304]");
-  expect(foreignOrigins([])?.size).toBe(0);
-  expect(foreignOrigins(["https://ok.example", "windmill.example.com"])).toBeUndefined();
-  expect(foreignOrigins(["ftp://windmill.example.com"])).toBeUndefined();
+  expect(dropped).toEqual([5, 6, 7]);
+  // A request URL reads the host as the list does, and one that the parser
+  // refuses cannot be a request's: no request goes to a dropped origin.
+  expect(new URL("https://Bücher.example/api/w/ws/jobs/run/p/f/x").origin).toBe("https://xn--bcher-kva.example");
+  expect(() => new URL("https://xn--a.example/api/w/ws/jobs/run/p/f/x")).toThrow();
+  expect(foreignOrigins([]).size).toBe(0);
 });
 
 test("a request to a foreign Windmill under jobs/run/ loses only its links to the invocation's own job ids, and keeps every other byte", async () => {

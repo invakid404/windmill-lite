@@ -1069,6 +1069,7 @@ func TestHostWorkdirRefusedByEngine(t *testing.T) {
 		{"an origin of a real Windmill with user information", false, false, []string{"-foreign-windmill", "https://user:s3cr3t-marker@windmill.example.com"}, harness.RejectEngine, "", ""},
 		{"an origin of a real Windmill with a query", false, false, []string{"-foreign-windmill", "https://windmill.example.com/?token=s3cr3t-marker"}, harness.RejectEngine, "", ""},
 		{"an origin of a real Windmill whose host the harness refuses", false, false, []string{"-foreign-windmill", "http://999.999.999.999"}, harness.RejectEngine, "", ""},
+		{"an origin of a real Windmill with an empty fragment", false, false, []string{"-foreign-windmill", "https://windmill.example.com/#"}, harness.RejectEngine, "", ""},
 		{"a host plugin with a malformed selector", false, false, nil, harness.RejectPlugin, `{"intercept":[{"selector":{"flow":"f/host/echo"}}]}`, ""},
 		{"a usable host plugin", false, false, nil, "", `{"halt_before":[{"flow":"f/host/echo","module":"a"}]}`, ""},
 	} {

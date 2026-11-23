@@ -909,13 +909,17 @@ The fetch view:
   `/api/w/{workspace}/jobs/run/` loses each `parent_job` and `root_job`
   query parameter whose value is one of the invocation's own job ids. Those
   are the values of `WM_JOB_ID` and `WM_ROOT_FLOW_JOB_ID` in its `invoke`
-  frame, which the step's writes to its environment do not change. A link to
-  the value of another job variable stays.
+  frame, which the step's writes to its environment do not change. A link
+  whose value is neither of the two stays, whichever variable it came from.
 - That edit removes only those pairs from the query, and keeps every other
   byte of the URL. A `Request` is made again with its method, headers,
   body and signal. A native realm's `fetch` calls this view, so a native
   step's request gets the same edit. The welcome of every module state,
   `fresh` included, carries the origins.
+- The runtime reads each origin with the URL parser that reads a request's
+  URL, so an internationalised name matches in either spelling. It leaves
+  out an origin that the parser refuses, with a diagnostic line: no request
+  can go to a host that the parser refuses.
 
 The timer fence:
 

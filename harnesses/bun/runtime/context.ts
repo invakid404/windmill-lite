@@ -64,7 +64,8 @@ export type InvocationContext = {
  * ({@link https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-15 | WA-15}).
  * Only these count as the invocation's own job ids: another variable, such
  * as a dispatched script's WM_FLOW_JOB_ID, can hold a parent that its
- * dispatcher named, which a link to a real Windmill keeps. */
+ * dispatcher named, which a link to a real Windmill keeps unless its value
+ * is one of these two. */
 const JOB_ID_VARIABLES = ["WM_JOB_ID", "WM_ROOT_FLOW_JOB_ID"];
 
 /** The non-empty values of WM_JOB_ID and WM_ROOT_FLOW_JOB_ID in env. */
@@ -812,21 +813,25 @@ const NO_ORIGINS: ReadonlySet<string> = new Set();
 
 /** The origins of a welcome's foreign_windmill_origins, as the URL parser
  * that reads a request's URL gives them, so that the two compare equal:
- * the engine sends each in one form, but writes an IPv6 address such as
- * ::ffff:1.2.3.4 as Go does, and this parser gives ::ffff:102:304.
- * undefined when one is not an http or https URL. */
-export function foreignOrigins(list: readonly string[]): Set<string> | undefined {
+ * the engine sends each in one form, but leaves an internationalised name
+ * such as bücher.example as it is, and this parser gives
+ * xn--bcher-kva.example. A value that this parser refuses, or that is not
+ * an http or https URL, is left out, and dropped is called with its index:
+ * no request URL can have a host that the parser refuses, so it names no
+ * origin that a request can go to. */
+export function foreignOrigins(list: readonly string[], dropped: (index: number) => void = () => {}): Set<string> {
   const out = new Set<string>();
-  for (const o of list) {
+  list.forEach((o, i) => {
     let u: URL;
     try {
       u = new URL(o);
     } catch {
-      return undefined;
+      dropped(i);
+      return;
     }
-    if (u.protocol !== "http:" && u.protocol !== "https:") return undefined;
-    out.add(u.origin);
-  }
+    if (u.protocol !== "http:" && u.protocol !== "https:") dropped(i);
+    else out.add(u.origin);
+  });
   return out;
 }
 
