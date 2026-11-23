@@ -149,6 +149,16 @@ test("foreignWindmillOrigins passes each origin to the engine as a -foreign-wind
       const args = JSON.parse(await Bun.file(file).text()) as string[];
       expect(args.flatMap((a, i) => (a === "-foreign-windmill" ? [a, args[i + 1]] : []))).toEqual(want);
     }
+    // The flags are the values that connect() checked: a change that the
+    // caller makes to its array while connect() is pending reaches nothing.
+    rmSync(file, { force: true });
+    const shared = ["https://windmill.example.com"];
+    const pending = start({ foreignWindmillOrigins: shared });
+    shared[0] = "https://user:s3cr3t-marker@windmill.example.com";
+    shared.push("https://other.example");
+    expect(await pending).toBe("rejected");
+    const launched = JSON.parse(await Bun.file(file).text()) as string[];
+    expect(launched.flatMap((a, i) => (a === "-foreign-windmill" ? [a, launched[i + 1]] : []))).toEqual(["-foreign-windmill", "https://windmill.example.com"]);
     // A value that could hold a secret never reaches the engine's command
     // line, and no message repeats it.
     const marker = "s3cr3t-marker";

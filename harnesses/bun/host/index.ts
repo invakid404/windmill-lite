@@ -388,17 +388,21 @@ export async function connect(o: ConnectOptions): Promise<Host> {
       throw new HostError("options", `resourceStore's allowEviction is a boolean; got ${typeof store.allowEviction}`);
     }
   }
-  const foreign = o.foreignWindmillOrigins;
-  if (foreign !== undefined && !Array.isArray(foreign)) {
-    throw new HostError("options", `foreignWindmillOrigins is an array of origins, such as ["https://windmill.example.com"]; got ${foreign === null ? "null" : typeof foreign}`);
+  if (o.foreignWindmillOrigins !== undefined && !Array.isArray(o.foreignWindmillOrigins)) {
+    const got = o.foreignWindmillOrigins;
+    throw new HostError("options", `foreignWindmillOrigins is an array of origins, such as ["https://windmill.example.com"]; got ${got === null ? "null" : typeof got}`);
   }
-  // An origin has no user information, query or fragment, which could hold
-  // a secret: such a value is refused here, before it reaches the engine's
-  // command line, and no message repeats a value.
-  foreign?.forEach((origin, i) => {
+  // A copy, read once: the engine's flags are built from the values checked
+  // here, before connect() awaits anything, whatever the caller does to its
+  // array afterwards. An origin has no user information, query or fragment,
+  // which could hold a secret: such a value is refused here, before it
+  // reaches the engine's command line, and no message repeats a value.
+  const foreign = [...(o.foreignWindmillOrigins ?? [])];
+  foreign.forEach((origin, i) => {
     if (typeof origin !== "string") throw new HostError("options", `foreignWindmillOrigins[${i}] is a string; got ${origin === null ? "null" : typeof origin}`);
     if (/[@?#]/.test(origin)) throw new HostError("options", `foreignWindmillOrigins[${i}] is not an origin: it has user information, a query or a fragment`);
   });
+  const foreignFlags = foreign.flatMap((origin) => ["-foreign-windmill", origin]);
   // Without collect, false: a host with no trigger takes no idle check.
   const whenIdle = collect !== undefined && (collect.policy ?? DEFAULT_COLLECT_POLICY) === "idle";
   // The host's stderr as Bun has it: a step's context must never take a
@@ -443,7 +447,7 @@ export async function connect(o: ConnectOptions): Promise<Host> {
       ...["host", "--bundle", o.bundle, "--workdir", workdir, "--kill-after", `${killAfter}ms`],
       ...(o.readCache ? ["-read-cache"] : []),
       ...(o.skipArgsFile ? ["-skip-args-file"] : []),
-      ...(foreign ?? []).flatMap((origin) => ["-foreign-windmill", origin]),
+      ...foreignFlags,
       ...(store ? ["-resource-store", store.kind] : []),
       ...(store?.kind === "redis" && store.prefix !== undefined ? ["-redis-prefix", store.prefix] : []),
       ...(store?.kind === "redis" && store.allowEviction ? ["-redis-allow-eviction"] : []),
