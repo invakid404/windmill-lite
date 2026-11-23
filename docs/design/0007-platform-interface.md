@@ -88,9 +88,11 @@ as a subflow's flow job whose id it took from its flow's status:
 
 - The job read (`jobs_u/get/{id}`) answers for the jobs of a live run,
   with `success` and `result` once the job has completed
-  ([WA-19](../semantics/client-api.md#wa-19)). It answers 501 for a job
-  that windmill-lite canceled, a flow job that ended neither in a success
-  nor in a failure, and a flow with a preprocessor module.
+  ([WA-19](../semantics/client-api.md#wa-19)), for the records that the
+  oracle has recorded, and 501 for the others. These include a job that
+  windmill-lite canceled, a flow job that ended neither in a success nor in
+  a failure, a flow with a preprocessor module, and a flow whose provided
+  site waits for a sleep or a retry delay.
 - The result polls (`jobs_u/completed/get_result_maybe/{id}` and
   `get_result/{id}`) answer only for the runs that the dispatcher started.
   For another job that the job registry knows in the caller's workspace
@@ -336,7 +338,8 @@ The target must be a root of the bundle (the host contract of
 otherwise the dispatching step fails with `UnsupportedPlatformCall`,
 `dispatch target not in bundle: <path>`. A dispatched run starts at once:
 no default cap delays it, so a parent that waits for it cannot starve it
-([harness protocol](0004-harness-protocol.md); a host-set cap is D15).
+([harness protocol](0004-harness-protocol.md); a host-set cap is
+[D15](0001-equivalence-contract.md#5-named-deviations), a deviation).
 
 **windmill-lite's job ids stay local.** They name no job of any Windmill
 instance ([D3](0001-equivalence-contract.md#5-named-deviations)), so

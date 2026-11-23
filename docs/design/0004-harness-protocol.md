@@ -656,10 +656,14 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
   no pinned run holds it.
 - **Overlap** (planned). A replacement runs beside the process it replaces
   until that process leaves, which waits for its steps in flight and its
-  pinned runs. While one process leaves for a memory trigger, another that
-  trips keeps serving, and tainted processes leave beside them. So the
-  processes alive at once are the pool's maximum, one process leaving for a
-  memory trigger, and the tainted ones.
+  pinned runs. While one process leaves for a recycle trigger, memory or
+  module count alike, another that trips keeps serving.
+- So the processes alive at once are the pool's maximum, at most one
+  process leaving for a trigger, the tainted ones, and the surplus ones
+  that still serve pinned runs after their taint cleared.
+- A tainted or surplus process leaves once its pinned runs have ended, so a
+  host that pins runs bounds the number of such processes with the runs'
+  hard deadlines.
 - **Memory.** A threshold is sampled at heartbeats and is not a cap: a
   process can pass it between samples, and while it waits to leave. Nothing
   in windmill-lite bounds the bytes, so the container's memory limit is the
@@ -678,6 +682,9 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
   The engine keeps the account, so the budget holds across processes. A
   reservation past the budget throws in the step, and each reservation
   returns to the budget when the invocation that made it settles.
+- **A total for the runtime** (planned). A runtime may also set a total of
+  bytes that every run's reservations share, so a reservation must fit both
+  its run's budget and the runtime's total.
 - A shared process has no measure of one run's JavaScript heap, so a
   run's limits count only what the engine holds and what its steps
   reserve.

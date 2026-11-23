@@ -178,6 +178,7 @@ process.
 | `plugin_timeout_ms` | The bound of each hook call, to a host plugin or over the broker | 60000 |
 | `read_cache` | The read cache of each run ([D21](0001-equivalence-contract.md#5-named-deviations)) | off |
 | `pool` | A `warm` pool's size, cap, pinned runs, recycle triggers and warm start ([harness protocol](0004-harness-protocol.md#pooling-processes-the-engine-spawns)) | one process, no cap |
+| `result_polls_for_all_jobs` | Whether the result polls answer for every job of a live run that the job read answers for ([platform interface](0007-platform-interface.md#services)) | off |
 | `foreign_windmill_origins` | The origins of real Windmill instances, whose requests from steps lose windmill-lite's job ids ([platform interface](0007-platform-interface.md#async-dispatch)) | none |
 | `engine_recycle_rss` | The engine's own resident set, in bytes, at which it stops serving | off |
 | `drain_timeout_ms` | How long a drain lets the runs in flight go on | 60000 |
@@ -209,11 +210,13 @@ process.
   `0700` (`UnixSocketConfig.TempDir`). go-plugin then puts the plugin's
   socket and both sides' broker sockets in a directory of mode `0700`
   inside it, and `wl/plugin` removes the base directory once the plugin has
-  exited.
-- **The umask.** The command sets its own umask to `0077` before it serves,
-  so its sockets have no group or other permission. It starts each harness
-  process with the umask that it was started with, so steps see the umask
-  they see under `wl`.
+  exited or failed to start.
+- **What protects each socket.** The command sets its umask to `0077`
+  before it serves, so the engine's sockets have no group or other
+  permission. It starts each harness process with the umask that it was
+  started with, so steps see the umask they see under `wl`. The host's
+  broker sockets are made by the host process, under its own umask, so the
+  `0700` directories are what protect them.
 
 #### The Runner service
 
@@ -245,7 +248,7 @@ A `RunResult` holds:
 |---|---|
 | `id`, `status` | The run's id, and `success`, `failure`, `canceled`, `skipped`, `latched` or `halted` |
 | `result` | The final result in its stored form ([FX-36](../semantics/execution.md#fx-36)) |
-| `may_have_mutated` | Whether the launch of the first write-capable module was approved ([H3](0008-host-hooks.md#the-hooks)), in a failed or canceled run too. That step may have started even when it then failed before its code ran, so only `false` means that no write-capable step started |
+| `may_have_mutated` | Whether the launch of the first write-capable module was approved ([H3](0008-host-hooks.md#the-hooks)), in a failed or canceled run too. That step may have started even when it then failed before its code ran, so only `false` means that no write-capable step started. For a root script's run, whose writes windmill-lite cannot see, it is `true` once the script's invocation was sent |
 | `cancel_cause` | For a canceled run: `deadline`, `pre_write_deadline`, `canceled`, `closing` or `flow_timeout` |
 | `latched` | A latched run's error ([H5](0008-host-hooks.md#the-hooks)) |
 | `warnings`, `deviations` | The run's warnings, and the deviations of its trace |
@@ -259,16 +262,24 @@ A `RunResult` holds:
   names, with the JSON values embedded raw. So they are not proto3's JSON
   mapping, which would write a `bytes` field as base64
   ([harness protocol](0004-harness-protocol.md#messages)).
-- **Flow and script runs.** A root script's run takes `id`, `args`,
-  `deadline_ms`, `identity`, `run_data`, `pin` and the `trace` level
-  `none`. A request that sets any other field for a script refuses the run,
-  naming the field; a flow run takes every field.
+- **Flow and script runs.** A root script's run takes `id`, `kind`,
+  `path`, `args`, `deadline_ms`, `identity`, `run_data`, `pin` and the
+  `trace` level `none`. A request that sets any other field for a script
+  refuses the run, naming the field; a flow run takes every field.
+- **The first-write boundary.** Only a flow tells a write that may have
+  happened from one that did not, at its marked write-capable sites. A host
+  that classifies retries by that boundary runs a flow, not a root script.
 - **No field is ignored.** A request that sets a field which the engine
   does not serve refuses the run, naming the field, rather than running
   without it.
 - **Runs that do not start.** Every run that starts answers a `RunResult`,
   a failed, canceled or latched one included. A run that does not start
-  answers a gRPC error, as the list below gives.
+  answers a gRPC error, as the list below gives, with a detail
+  (`google.rpc.ErrorInfo`, domain `windmill-lite`, reason
+  `RUN_NOT_STARTED`) that marks the refusal as the engine's own.
+- **An unknown outcome.** Any other error, such as a lost connection or a
+  transport's `UNAVAILABLE`, does not say whether the run started, so the
+  host treats the run as one that may have mutated.
 
 | gRPC code | When |
 |---|---|
@@ -360,9 +371,13 @@ other than the pin built the bundle, and adds three fields:
 | `labels` | The configuration's labels |
 | `config_digest` | The SHA-256 of the configuration file |
 
-A host pins the engine executable by its SHA-256 with go-plugin's
-`SecureConfig`, which go-plugin checks before it starts the process. The
-host then compares `GetBuildInfo` with the release record that it ships, at
+A host pins the engine executable by its SHA-256. go-plugin takes exactly
+one of a command and a runner, and its `SecureConfig` checks the command's
+path, which is empty on the runner route. So `wl/plugin`'s runner checks
+the file that it is about to start, and starts it with go-plugin's
+handshake environment and the host's literal one.
+
+The host then compares `GetBuildInfo` with the release record that it ships, at
 least the bundle digest, the engine version, the Bun version, the labels
 and the configuration's digest, and refuses the process otherwise. The
 executable's digest is not in build information: a process cannot vouch for
@@ -379,16 +394,17 @@ its own file, and `SecureConfig` has already checked it.
 | `VersionedPlugins` | The plugin sets by `Runner` version, for both sides |
 | `RunnerPlugin` | The go-plugin plugin type. On the engine's side it registers the `Runner` server; on the host's it returns a `Client` |
 | `Client` | Typed calls: `BuildInfo`, `Run`, `Cancel` and `Health`. `Run` serves the run's Go hooks on the broker |
-| `ClientConfig` | go-plugin's client configuration for one launch: the executable and its configuration file, `SecureConfig` with the executable's SHA-256, gRPC only, a fresh private socket directory, a literal environment and the message limits |
+| `ClientConfig` | go-plugin's client configuration for one launch: the runner that checks the executable's SHA-256 and starts it with its configuration file, gRPC only, a fresh private socket directory, a literal environment and the message limits |
 | `Supervisor` | The optional supervisor ([The supervisor](#the-supervisor)) |
 
 `Client.Run` gives the run the earlier of two hard deadlines: the
 request's own, and the context's deadline less a margin for the reply (1 s
 by default). A context that has already ended starts no run.
 
-If the call still ends first, the host has no outcome, and `Client.Run`
-returns an error that says so: the host then treats the run as one that may
-have mutated. The margin must cover what the run does after its deadline,
+If the call ends without a result and without the engine's own refusal,
+for example at its deadline or on a lost connection, the host has no
+outcome. `Client.Run` then returns an error that says so, and the host
+treats the run as one that may have mutated. The margin must cover what the run does after its deadline,
 such as its host plugin's run-end hook, which may take up to
 `plugin_timeout_ms`.
 
@@ -402,7 +418,7 @@ generation, and routes the host's calls to the generation that serves.
 | Admission | Within the admission timeout, a new generation must answer health `SERVING`, then a `GetBuildInfo` equal to the pinned identity, the configuration's digest included, on every field that the host pins. Each call has its own deadline inside that timeout. Otherwise the supervisor stops the generation, and the launch counts as failed | 30 s |
 | Health poll | One `Check` at a time, each with a bound, whose returned status the supervisor reads: go-plugin's own ping discards it. The first answer other than `SERVING`, a timeout or an error withdraws the generation from new calls for good | every 1 s, each bounded by 1 s |
 | Drain | A withdrawn generation's calls in flight go on, up to the drain timeout plus a grace for the engine's own close, which cancels what is left and reports it. Then the supervisor stops the plugin | the engine's `drain_timeout_ms` plus 15 s |
-| Stop | go-plugin's `Kill` waits for its shutdown call with no deadline of its own, so the supervisor bounds it. Past the bound, it sends `SIGKILL` to the plugin's process itself, and the generation has exited once that process has | 5 s |
+| Stop | go-plugin's `Kill` waits for its shutdown call with no deadline of its own, so the supervisor bounds it. Past the bound, it sends `SIGKILL` through the process handle that its runner holds, since go-plugin's reattach data names no process on the runner route, and reaps that process | 5 s |
 | Restart | After an exit or a refused admission, the next launch waits an exponential backoff, which resets once a generation has served for a while | [gRPC's connection backoff](https://github.com/grpc/grpc/blob/master/doc/connection-backoff.md): 1 s, times 1.6, jitter 0.2, at most 120 s; reset after 60 s |
 | Recycle on memory | The engine's memory triggers make it stop serving, and the health poll then replaces the generation | the configuration's triggers |
 | Calls | `Call(ctx, fn)` runs `fn` with the serving generation's `Client`, and waits for one until `ctx` ends | — |
@@ -455,12 +471,17 @@ A hook takes the cheapest of three routes that serves it:
 - **Failures after the outcome.** A failed `onRunEnd` adds a warning, a
   failed `onRunSettled` is a diagnostic line, and a hook whose run has
   already ended latches nothing.
-- **Lifetime.** A run's hook calls can come after its `Run` call has
-  returned, until the run has settled (`onRunSettled`). So `Client` keeps a
-  run's hooks until that call or the generation's end, and refuses a new
-  run with the id of a run whose hooks it still holds. The broker
-  connection lives as long as the `Client`, so a run opens no listener of
-  its own.
+- **Registration.** `Client` gives a run without an id a fresh UUID, and
+  registers its hooks under that id before it sends the request, since
+  hook calls can come before the reply and after it. It refuses a new run
+  with the id of a run whose registration it still holds.
+- **Release.** `Client` drops a run's registration when the engine refuses
+  the run, when the engine reports that the run has settled, or when the
+  generation ends. The engine reports settlement with a release call on
+  the broker, which it sends whatever hooks the run declared. A hook call
+  for a dropped run answers an error that latches nothing.
+- **One listener.** The broker connection lives as long as the `Client`,
+  so a run opens no listener of its own.
 - **Providers on the broker.** A named provider that the configuration
   marks `broker` is answered by the hooks service of the run that reaches
   it, and a run that serves none latches there. So `wl.Open` still finds
