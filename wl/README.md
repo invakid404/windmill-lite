@@ -148,6 +148,7 @@ The zero value of each field is its default.
 | `Plugin` | The path of a [host plugin](../docs/glossary.md#host-plugin) module, which every `warm` harness process loads | None | To give [hooks](../docs/glossary.md#hook) in TypeScript ([Host plugins](#host-plugins)) |
 | `PluginTimeout` | How long each call to the host plugin waits for its reply | `DefaultPluginTimeout`, 60 s | To change that bound |
 | `ReadCache` | Gives each flow run a read cache: the run reads each of the host's and the bundle's resources and variables once, and answers its later reads from that read. A provider's error is not kept, so the next read asks again, and an update of a variable through the run drops its cached value ([the read cache](../internal/platform/README.md#the-read-cache)). A state that steps wrote to the `ResourceStore` is read again each time, so a run sees its latest value. | Off | When a run reads the same values often and need not see a change during the run |
+| `Identity` | The [job identity](#job-identity) of every job: its workspace, user and the instance's public URL | windmill-lite's placeholders, such as the workspace `windmill-lite` | To give steps the workspace and user that their code expects |
 | `Host` | Opens the runtime in [host mode](#host-mode) | Nil | Only for host mode |
 
 A `Variable` holds its `Value`, and `Secret` marks a secret. With
@@ -157,6 +158,33 @@ decrypts: a step that reads it fails as Windmill fails a secret that it
 cannot decrypt. A step can update a variable through Windmill's
 [job](../docs/glossary.md#job) API,
 and later runs of the runtime read the new value.
+
+### Job identity
+
+`Identity` sets the variables that a job's environment carries of its
+instance and user, and a run's `RunOptions.Identity` replaces the fields
+that it sets for that run
+([platform interface](../docs/design/0007-platform-interface.md#job-identity)).
+
+| Field | Job variables |
+|---|---|
+| `Workspace` | `WM_WORKSPACE`, `WM_ROOT_WORKSPACE` |
+| `Username` | `WM_USERNAME` |
+| `Email` | `WM_EMAIL`, `WM_END_USER_EMAIL` |
+| `PermissionedAs` | `WM_PERMISSIONED_AS`; empty means `u/<Username>` |
+| `BaseURL` | `WM_BASE_URL` |
+| `WorkerGroup` | `WM_WORKER_GROUP` |
+
+- **A job is in its run's workspace.** The job API accepts only that
+  workspace in a call's path, and answers `401` for another. A step finds
+  only the jobs of its workspace's runs: the jobs of another workspace's
+  runs answer as unknown ids, in the job reads, the root lookup, the result
+  polls and flow user state.
+- **The resource store** keys a run's entries under its workspace.
+- **A run that a step dispatches** takes the identity of the step's run.
+- **The JSON form**, which host mode uses, names the fields `workspace`,
+  `username`, `email`, `permissioned_as`, `base_url` and `worker_group`
+  (`DecodeIdentity`).
 
 `ReadCache` is a [deviation](../docs/glossary.md#deviation): Windmill reads
 a resource or variable again for each step and each call. The
@@ -236,9 +264,10 @@ its own reason and canceler.
 | `PreWriteDeadline` | A deadline that applies until the run's first write is approved ([Budgets](#budgets)) | None |
 | `Clock` | The clock of every sleep and retry delay: `wl.RealClock`, or a `*wl.RecordClock` that returns each wait at once | The real clock |
 | `Jitter` | The source of the retry jitter. `SeededJitter(seed)` fixes it. | One seeded with `Seed` |
+| `Identity` | The run's own [job identity](#job-identity): each field that it sets replaces the runtime's for this run's jobs | The runtime's |
 
-A script run uses only `Kind` and `ID`. The other fields apply to flow
-runs.
+A script run uses only `Kind`, `ID` and `Identity`. The other fields apply
+to flow runs.
 
 ### Result
 
@@ -625,6 +654,10 @@ with the engine's side of the protocol in
   `checkSelectorIn` checks their selectors as a plugin's are checked, and
   a selector that fails refuses the run, naming it, such as
   `the run's haltAfter[0]`.
+- **A run's identity.** A run frame's `identity` is the run's own
+  [job identity](#job-identity), decoded by `DecodeIdentity`. One that it
+  cannot decode, such as one with an unknown field, refuses the run with
+  the reason.
 - **Deadlines.** A frame without `deadline_ms` or `pre_write_deadline_ms`
   has no such deadline, and a root script's run takes only the hard one.
   `budgetDuration` converts either value:

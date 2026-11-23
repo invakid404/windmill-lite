@@ -114,7 +114,7 @@ step without failing the others.
 | `platform` | harness → engine | `id`, `inv` (invocation id), `method`, `url`, `headers`, `body` | an intercepted `fetch` to the platform facade ([platform interface](0007-platform-interface.md)) |
 | `platform_reply` | engine → harness | `id`, `status`, `headers`, `body` | its answer |
 | `host_call` / `host_reply` | engine → harness / back | `host_call`: `id`, `hook`, `run`, `site` (`""` for a hook of the run as a whole), `payload` (raw object); `host_reply`: `id`, then `payload` (raw object) or `error` (`code`: `plugin_error` or `unknown_hook`, `message`) | a host plugin hook ([host hooks](0008-host-hooks.md), §Host plugins) |
-| `run` / `run_done` / `run_cancel` | harness → engine / back / harness → engine | the fields that they share with `runner.proto`'s `RunRequest`, `RunResult` and `CancelRequest`, under the same names, JSON values raw ([host adapters](0009-host-adapters.md#the-runner-service)). `run`: `id`, `kind`, `path`, `args`, `intercept`, `write_capable`, `halt_before` and `halt_after` (raw arrays of selectors), `fatal_error_names`, `deadline_ms`, `pre_write_deadline_ms` and `clock` (`real` or `record`). `run_done`: `id`, then `status`, `result`, `may_have_mutated`, `warnings` (raw, each a `code` and a `message`), `latched` and `deviations`, or `error` for a run the engine did not start (`code`: `draining` or `refused`); then `cancel_cause`. `run_cancel`: `id`, `reason`, `canceler` | host mode: a harness that is also the host submits runs |
+| `run` / `run_done` / `run_cancel` | harness → engine / back / harness → engine | the fields that they share with `runner.proto`'s `RunRequest`, `RunResult` and `CancelRequest`, under the same names, JSON values raw ([host adapters](0009-host-adapters.md#the-runner-service)). `run`: `id`, `kind`, `path`, `args`, `intercept`, `write_capable`, `halt_before` and `halt_after` (raw arrays of selectors), `fatal_error_names`, `deadline_ms`, `pre_write_deadline_ms`, `clock` (`real` or `record`) and `identity`. `run_done`: `id`, then `status`, `result`, `may_have_mutated`, `warnings` (raw, each a `code` and a `message`), `latched` and `deviations`, or `error` for a run the engine did not start (`code`: `draining` or `refused`); then `cancel_cause`. `run_cancel`: `id`, `reason`, `canceler` | host mode: a harness that is also the host submits runs |
 | `run_settled` | engine → harness | `id` | host mode: one of the host's runs has settled, after its `run_done` (host mode item 5) |
 | `ping` / `pong` | either way | `id`; from a harness also `in_flight`, `abandoned`, `errors` (process-level errors no invocation owned), `lag_ms` (event-loop lag), `rss` | health; a harness also pings on its own every `heartbeat_ms` |
 | `part` | either way | `id`, `seq`, `last`, `chunk` | one piece of a message over 1 MiB |
@@ -1360,6 +1360,12 @@ after it, that release would read as a cancellation, and such a run as
   `write_capable`, and which end that run alone `halted`
   ([host hooks](0008-host-hooks.md) H8). The halts of a host plugin, in its
   hello, apply to every run of its host.
+- A `run` frame's `identity` is the run's own job identity, raw: an object
+  of the optional strings `workspace`, `username`, `email`,
+  `permissioned_as`, `base_url` and `worker_group`
+  ([platform interface](0007-platform-interface.md#job-identity)). Both
+  codecs check only that it is an object. The engine decodes it, and
+  refuses the run when it has another field or one that is not a string.
 - Host mode is tested end to end. The flow suite runs on a Bun host that
   embeds the SDK and runs the steps in its own process. The
   never-settling-step, watchdog, `watchdog/finite-cpu` and resource-release

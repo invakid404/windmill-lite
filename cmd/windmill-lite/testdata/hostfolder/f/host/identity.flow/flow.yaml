@@ -1,0 +1,5 @@
+summary: One step that returns its job identity
+value:
+  modules:
+    - id: a
+      value: {type: script, path: f/host/identity, input_transforms: {}}

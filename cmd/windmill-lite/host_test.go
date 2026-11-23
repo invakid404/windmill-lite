@@ -1372,6 +1372,59 @@ func TestHostScriptOutcomeWithDeadline(t *testing.T) {
 	}
 }
 
+// A host's connect identity reaches the engine (`windmill-lite host
+// -identity`) and every job's environment; a run's own identity, in its run
+// frame, replaces the fields it sets for that run; and an identity field
+// that is not a string refuses the run, which the host serves on after.
+func TestHostIdentity(t *testing.T) {
+	s := supervise(t, 30000, `WL_IDENTITY={"workspace":"ws-host","username":"host-user"}`)
+	for _, tc := range []struct {
+		name     string
+		identity any
+		want     string
+		refused  string
+	}{
+		{"connect's identity", nil, `{"workspace":"ws-host","username":"host-user","email":"windmill-lite@localhost"}`, ""},
+		{"a run's identity", map[string]any{"workspace": "ws-run", "email": "run@example.test"}, `{"workspace":"ws-run","username":"host-user","email":"run@example.test"}`, ""},
+		{"an identity field that is not a string", map[string]any{"workspace": 1}, "", "refused"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := map[string]any{"path": "f/host/identity", "args": map[string]any{}}
+			if tc.identity != nil {
+				body["identity"] = tc.identity
+			}
+			r, err := s.post("/run", body)
+			if tc.refused != "" {
+				if err != nil || r.Refused != tc.refused {
+					t.Fatalf("%+v, %v; want refused %s", r, err, tc.refused)
+				}
+				return
+			}
+			if err != nil || r.Status != "success" {
+				t.Fatalf("%+v, %v", r, err)
+			}
+			if ok, err := jsonEqualText(r.Result, []byte(tc.want)); err != nil || !ok {
+				t.Fatalf("the step's identity %s, want %s", r.Result, tc.want)
+			}
+		})
+	}
+	if g := s.generations(); g != 1 {
+		t.Fatalf("the host was restarted: %d generations", g)
+	}
+}
+
+// jsonEqualText reports whether two JSON texts hold equal values.
+func jsonEqualText(a, b []byte) (bool, error) {
+	var x, y any
+	if err := json.Unmarshal(a, &x); err != nil {
+		return false, err
+	}
+	if err := json.Unmarshal(b, &y); err != nil {
+		return false, err
+	}
+	return reflect.DeepEqual(x, y), nil
+}
+
 // A host runs a root script as a script job (WA-4), and gets a run that
 // does not start refused, with its reason.
 func TestHostScriptRun(t *testing.T) {

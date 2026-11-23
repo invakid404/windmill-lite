@@ -562,3 +562,59 @@ func TestBudgetDuration(t *testing.T) {
 		t.Fatalf("a run without deadlines: context deadline %v, pre-write deadline %v, %v", ok, opts.PreWriteDeadline, err)
 	}
 }
+
+// A run frame's identity is that run's own job identity: each field it
+// sets replaces the runtime's (Options.Identity) in the environment of the
+// run's steps, which the host gets in their invoke frames. An identity
+// with a field it does not know refuses that run, naming the field, and
+// the connection serves on.
+func TestHostRunIdentity(t *testing.T) {
+	dir := writeBundleOf(t, stepFlows, nil, "test-engine", nil, nil)
+	work := t.TempDir()
+	_, err, h, _ := openHost(t, dir, Options{Host: &Host{Workdir: work}, Identity: Identity{Workspace: "ws-runtime", Username: "rt-user"}}, work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, tc := range []struct {
+		identity          string
+		workspace, user   string
+		email, refusedFor string
+	}{
+		{"", "ws-runtime", "rt-user", "windmill-lite@localhost", ""},
+		{`,"identity":{"workspace":"ws-run","email":"run@example.test"}`, "ws-run", "rt-user", "run@example.test", ""},
+		{`,"identity":{"workspace":"ws-run","workspac":"x"}`, "", "", "", `unknown field "workspac"`},
+	} {
+		id := fmt.Sprintf("0b6d2a4e-5b5d-4f00-9c3e-%012d", i+1)
+		h.sendRaw(`{"t":"run","id":"` + id + `","kind":"flow","path":"f/t/step","args":{}` + tc.identity + `}`)
+		m := h.next()
+		for {
+			// The earlier run's run_settled may come first.
+			if _, ok := m.(harness.RunSettled); !ok {
+				break
+			}
+			m = h.next()
+		}
+		if tc.refusedFor != "" {
+			if d, ok := m.(harness.RunDone); !ok || d.Error == nil || d.Error.Code != harness.RunRefused || !strings.Contains(d.Error.Message, tc.refusedFor) {
+				t.Fatalf("run%s: %+v; want refused for %s", tc.identity, m, tc.refusedFor)
+			}
+			continue
+		}
+		inv, ok := m.(harness.Invoke)
+		if !ok || inv.Run != id {
+			t.Fatalf("run%s: %+v; want its step", tc.identity, m)
+		}
+		if e := inv.Env; e["WM_WORKSPACE"] != tc.workspace || e["WM_ROOT_WORKSPACE"] != tc.workspace || e["WM_USERNAME"] != tc.user || e["WM_EMAIL"] != tc.email {
+			t.Fatalf("run%s: the step's identity %s, %s, %s, %s; want %s, %s, %s", tc.identity, e["WM_WORKSPACE"], e["WM_ROOT_WORKSPACE"], e["WM_USERNAME"], e["WM_EMAIL"], tc.workspace, tc.user, tc.email)
+		}
+		h.send(harness.Result{ID: inv.ID, Outcome: harness.OutcomeOK, Body: jsonval.FromProducer([]byte(`1`)), Settled: true})
+		for {
+			if d, ok := h.next().(harness.RunDone); ok {
+				if d.ID != id || d.Status != StatusSuccess {
+					t.Fatalf("run%s: %+v", tc.identity, d)
+				}
+				break
+			}
+		}
+	}
+}

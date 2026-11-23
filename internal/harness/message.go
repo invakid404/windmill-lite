@@ -368,6 +368,8 @@ const (
 // milliseconds from the engine's receipt of the frame, nil when the frame
 // has none: a present value of 0 or less is a deadline that has passed, and
 // both codecs write it; Clock is ClockReal ("" too) or ClockRecord (H10).
+// Identity, if not zero, is a JSON object: the run's own job identity
+// (ADR 0007), which wl decodes (wl.DecodeIdentity).
 type RunRequest struct {
 	ID                 string
 	Kind               string
@@ -381,6 +383,7 @@ type RunRequest struct {
 	DeadlineMS         *int64
 	PreWriteDeadlineMS *int64
 	Clock              string
+	Identity           jsonval.Value
 }
 
 // RunDone is a run's outcome, answering a RunRequest with the same id.
@@ -752,6 +755,9 @@ func (m RunRequest) appendPayload(b []byte) ([]byte, error) {
 	if m.Clock != "" {
 		e.str("clock", m.Clock)
 	}
+	if !m.Identity.IsZero() {
+		e.raw("identity", m.Identity.Producer())
+	}
 	return e.end()
 }
 
@@ -1108,6 +1114,11 @@ func Decode(payload []byte) (Message, error) {
 			r.Clock = d.str("clock")
 			if r.Clock != ClockReal && r.Clock != ClockRecord && derr == nil {
 				d.fail(CodeBadField, "run clock %q", r.Clock)
+			}
+		}
+		if d.present("identity") {
+			if r.Identity = d.raw("identity"); derr == nil && !isObject(r.Identity) {
+				d.fail(CodeBadField, "run identity is not an object")
 			}
 		}
 		m = r

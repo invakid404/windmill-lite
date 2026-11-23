@@ -280,6 +280,9 @@ the harness protocol design record lists the fields of `run`, `run_done`,
   `halt_before` and `halt_after`, which the record describes under its
   consequences. `run_done` writes `may_have_mutated`
   only when it is true.
+- **A run's identity.** `RunRequest.Identity` is the run frame's raw
+  `identity`, which both codecs require to be an object; `wl` decodes its
+  fields.
 - **Ids.** The run's `id` is its id in the engine, so every `invoke` of
   the run carries it as `run`.
 - **The hello.** A host's hello names its working directory as `workdir`,

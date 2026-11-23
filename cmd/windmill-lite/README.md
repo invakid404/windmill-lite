@@ -331,6 +331,7 @@ The host that starts it passes:
 | `-redis-prefix`, `-redis-allow-eviction` | As for `run` | As for `run` | The Redis store's key prefix, and its start on an evicting policy |
 | `-read-cache` | None | Off | Each run keeps the answer of its first read of a host's or bundle's resource or variable, and answers its later reads of that path from it. An error is not kept, and a variable that a step updates and a stored state are read again ([the read cache](../../internal/platform/README.md#the-read-cache)). Windmill reads each time, so this is a named [deviation](../../docs/glossary.md#deviation) of the [equivalence contract](../../docs/design/0001-equivalence-contract.md#5-named-deviations). |
 | `-skip-args-file` | None | Off | The host states that its own code never reads `args.json`. Then, for a bundle none of whose scripts can read it, the engine writes no `args.json` for a step. |
+| `-identity` | A file | None: windmill-lite's placeholders | The job identity of every job, a JSON object of the optional strings `workspace`, `username`, `email`, `permissioned_as`, `base_url` and `worker_group` ([job identity](../../wl/README.md#job-identity)). A run frame's `identity` replaces the fields that it sets for that run. |
 | `-quickjs-only` | None | Off | As for `run`: the Go evaluator of expressions is off |
 | `-cpuprofile` | A file | None | Writes a CPU profile of the engine to the file ([Profiling](#profiling)) |
 
@@ -340,7 +341,7 @@ The engine refuses the host in the handshake, with one of these codes:
 |---|---|
 | `workdir_not_writable` | `--workdir` is not a directory that the engine can write. |
 | `workdir_mismatch` | `--workdir` is not the directory that the host's hello names. |
-| `engine_refused` | The bundle does not open, another engine version built it, or a file of `-variables`, `-resources` or `-cpuprofile` does not open. Or the resource store does not start: `-resource-store` names a store other than `memory` or `redis`, or the Redis store fails as for `run`. The message gives the reason. |
+| `engine_refused` | The bundle does not open, another engine version built it, or a file of `-variables`, `-resources`, `-identity` or `-cpuprofile` does not open, or the `-identity` file is not an identity. Or the resource store does not start: `-resource-store` names a store other than `memory` or `redis`, or the Redis store fails as for `run`. The message gives the reason. |
 
 The other codes of the handshake, such as `version_mismatch`, are the
 host SDK's errors
@@ -464,7 +465,7 @@ gives the setup.
 |---|---|
 | `testdata/hostfolder/` | A synthetic sync folder and its host contract (`contract.yaml`). The tests build it once with `bundle.Build`. |
 | `testdata/hostlib/` | `tenant.ts`, a host-provided module outside the sync folder. It is the `relative_path` of a codebases entry, whose script `f/hostout/read.ts` imports it. |
-| `testdata/host/` | `host.ts`, a Bun host that embeds the SDK and registers its instances of the folder's host-provided modules. It serves its callers over HTTP on a Unix socket, and submits each run inside the caller's tenant scope. With `WL_SKIP_ARGS_FILE=1`, it connects with `skipArgsFile`. |
+| `testdata/host/` | `host.ts`, a Bun host that embeds the SDK and registers its instances of the folder's host-provided modules. It serves its callers over HTTP on a Unix socket, and submits each run inside the caller's tenant scope. With `WL_SKIP_ARGS_FILE=1`, it connects with `skipArgsFile`, and with `WL_IDENTITY` set to a JSON object, with that `identity`. |
 | `testdata/haltfolder/`, `testdata/halthost/` | A two-step flow `f/repro/prefix`, and a Bun host that `bun run` starts, for `TestHostRunHalts` |
 | `testdata/memhost/` | A Bun host for the memory tests: it answers its resident set and peak (`/rss`) and the outcome of runs that it submits (`/run`) |
 | `testdata/memory/` | `closure.package.json` and `closure.bun.lock`, which pin the packages of `TestModuleMemoryClosure`'s closure |
@@ -503,6 +504,7 @@ How these tests run:
 | `TestHostPassedDeadline` | A deadline that has already passed, which the SDK sends as 0 for a negative one, ends only its run, canceled with its cause: the hard deadline of a flow and of a root script, and a flow's pre-write deadline. The next run succeeds, and the host is never restarted. |
 | `TestHostScriptOutcomeWithDeadline` | A root script's run that fails on its own, before its step or in it, ends `failure` with no cause, though its deadline is far off. A run past its deadline ends `canceled`, cause `deadline`, and one that the host cancels, with no deadline, cause `canceled`. Every run keeps its stored failure value: its own error, before its job or in it, or the killed job's `ExecutionErr` when the cancellation stopped its job. |
 | `TestHostScriptRun` | A root script runs as a script job. A run of no target is refused. |
+| `TestHostIdentity` | The SDK's connect `identity` reaches every job's environment, through `-identity`, in `f/host/identity`. A run's own `identity` replaces the fields it sets for that run. An identity field that is not a string refuses the run. The host is never restarted. |
 | `TestHostLazyImportCycle` | Two host-provided modules, whose cycle closes only through an `import()` inside a function, build. The root script `f/host/lazy_cycle.ts` reads both through their shims, gets `["ab", "ab"]` from the host's instances, and each module loads once in the process. |
 | `TestHostFacade` | A step reads a variable of the bundle through the job API, at the `BASE_URL` that its invocation carries. |
 | `TestHostRecycleModules` | The modules recycle trigger trips once a second module loads, in `health()` and `onRecycle`. |

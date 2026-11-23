@@ -297,6 +297,7 @@ sees them.
 | `readCache` | `boolean` | `false` | Each run keeps the answer of its first read of a host's or bundle's resource or variable, the plugin's `resource` and `variable` hooks included, and answers its later reads of that path from it. An error is not kept, and a variable that a step updates and a stored state are read again ([the read cache](../../internal/platform/README.md#the-read-cache)). Windmill reads them for each job, so this is a named deviation of the [equivalence contract](../../docs/design/0001-equivalence-contract.md#5-named-deviations). |
 | `resourceStore` | `{ kind: "memory" }` or `{ kind: "redis"; url: string; prefix?: string; allowEviction?: boolean }` | `{ kind: "memory" }` | The store of the resources that steps write through the job API, such as the stock client's state ([The resource store](#the-resource-store)). Available from version 0.4.0. |
 | `skipArgsFile` | `boolean` | `false` | States that the host's own code, its plugin included, never reads `args.json`. For a bundle none of whose scripts can read it, the engine then writes none. |
+| `identity` | `Identity` | windmill-lite's placeholders, such as the workspace `windmill-lite` | The job identity of every job ([Job identity](#job-identity)) |
 | `recycle` | `{ rss?: number; samples?: number; modules?: number; retired?: { max: number; count: () => number } }` | None | Recycle triggers ([Recycle a host](#recycle-a-host)) |
 | `onRecycle` | `(reason: string) => void` | None | Called once, with the first trigger that trips |
 | `collect` | `{ rss: number; cooldown?: number; policy?: "idle" \| "heartbeat"; quiet?: number }` | None | A full garbage collection at a soft mark on the resident set ([Collect garbage](#collect-garbage)). Available from version 0.3.0. |
@@ -323,6 +324,32 @@ that steps write, such as the stock client's state
 - **Refusals:** `connect()` refuses any other kind, and a `redis` store
   without a `url`, with `options`. An engine that cannot start the store
   refuses the host with `engine_refused`, and the message gives the reason.
+
+### Job identity
+
+An `Identity`, a type that `windmill-lite/bun` exports, sets what a job's
+environment carries of its instance and user
+([wl](../../wl/README.md#job-identity)). Each field is an optional string:
+
+| Field | Job variables |
+|---|---|
+| `workspace` | `WM_WORKSPACE`, `WM_ROOT_WORKSPACE` |
+| `username` | `WM_USERNAME` |
+| `email` | `WM_EMAIL`, `WM_END_USER_EMAIL` |
+| `permissionedAs` | `WM_PERMISSIONED_AS`; none means `u/<username>` |
+| `baseUrl` | `WM_BASE_URL` |
+| `workerGroup` | `WM_WORKER_GROUP` |
+
+- **A job is in its run's workspace.** A step finds only the jobs of its
+  workspace's runs; the jobs of a run of another workspace answer as
+  unknown ids.
+- **Connect's identity** reaches the engine as a file that `-identity`
+  names, which `connect()` removes once the engine has answered.
+- **A run's identity** goes in its run frame, as `identity`, with the
+  fields in snake case (`permissioned_as`).
+- **Refusals:** an identity that is not an object, has another field, or
+  a field that is not a string, refuses the run with a `HostError`
+  `refused` before any frame, or fails `connect()` with `options`.
 
 ### The Host
 
@@ -356,6 +383,7 @@ gives each hook's rules.
 | `deadlineMs` | `number` | None | The run's hard deadline, in ms from its submission. The run ends `canceled`, with `cancelCause` `deadline`, and steps that it left running are abandoned. |
 | `preWriteDeadlineMs` | `number` | None | Ends the run `canceled`, with `cancelCause` `pre_write_deadline`, if it passes before the first write is approved |
 | `clock` | `"real"` or `"record"` | `"real"` | `"record"` returns every sleep and retry delay at once, and the run's deviations then say so |
+| `identity` | `Identity` | Connect's | The run's own job identity: each field that it sets replaces connect's for this run's jobs ([Job identity](#job-identity)) |
 | `signal` | `AbortSignal` | None | Cancels the run when it aborts |
 | `onSettled` | `() => void` | None | Called once every invocation of the run has settled, after its outcome, which may be never. Release here the resources that an abandoned step may still use. It runs in the run's scope, outside every invocation. |
 
