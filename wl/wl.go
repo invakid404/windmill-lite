@@ -132,6 +132,22 @@ type Options struct {
 	// variable a step updates is read again. Off by default; the trace of
 	// a run with it lists D21.
 	ReadCache bool
+	// ForeignWindmillOrigins are the origins of real Windmill instances
+	// that steps call through their own client, such as
+	// "https://windmill.example.com" (ADR 0007, async dispatch).
+	// windmill-lite's job ids name no job there. So on a step's request
+	// to one of these origins under /api/w/{workspace}/jobs/run/, where
+	// the stock clients dispatch a script or a flow, the harness's fetch
+	// view removes each parent_job and root_job query parameter whose
+	// value is one of the invocation's own job ids: its WM_JOB_ID,
+	// WM_FLOW_JOB_ID, WM_ROOT_FLOW_JOB_ID or WM_ROOT_JOB_ID as the engine
+	// set them. Every other part of the request stays as it was. A request
+	// to another origin, or one that the fetch view does not see, from a
+	// child process or a socket that the step opens, keeps its links.
+	// Each value is an http or https origin: Open refuses one with a path
+	// other than "/", a query, a fragment or user information. Empty, the
+	// default, names none. In host mode they apply to the host's steps.
+	ForeignWindmillOrigins []string
 	// Host, when set, opens the runtime in host mode (ADR 0004 host mode,
 	// ADR 0009): its steps run in the host process that started it, which
 	// submits the runs. The bundle must then be a directory, which the
@@ -212,6 +228,9 @@ type Runtime struct {
 	services  *platform.Services
 	dispatch  *engine.Dispatcher
 	readCache bool // Options.ReadCache
+	// foreign is Options.ForeignWindmillOrigins as the welcomes carry
+	// them (foreignOrigins).
+	foreign []string
 	// memoryStore says that the runtime's resource store keeps its entries
 	// in memory, which its runs' traces list as D24.
 	memoryStore bool
@@ -313,6 +332,9 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 		if opts.ModuleState != "" && opts.ModuleState != ModuleStateWarm {
 			return nil, fmt.Errorf("wl: host mode runs warm (ADR 0006), not %s", opts.ModuleState)
 		}
+	}
+	if rt.foreign, err = foreignOrigins(opts.ForeignWindmillOrigins); err != nil {
+		return nil, err
 	}
 	// Harness processes run in directories of their own, so every path
 	// they see is absolute.
@@ -503,6 +525,7 @@ func (rt *Runtime) harness(opts Options) (*harness.Pool, error) {
 			Path: path, Args: args, WorkRoot: work, Kind: string(ir.ClassBun), Runtime: harness.PinnedBun,
 			Bundle: rt.digest, EngineVersion: rt.version,
 			Diagnostics: opts.Diagnostics, Facade: rt.PlatformOrigin(), Platform: rt.fac.Platform(),
+			ForeignWindmillOrigins: rt.foreign,
 		},
 	})
 }

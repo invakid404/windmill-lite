@@ -111,6 +111,12 @@ type ProcessConfig struct {
 	// go over loopback TCP to an origin that listens.
 	Facade   string
 	Platform PlatformHandler
+	// ForeignWindmillOrigins are the origins of real Windmill instances
+	// that the welcome names, in any module state: the harness's fetch
+	// view drops the invocation's own job ids from a step's dispatch
+	// there (WelcomeConfig.ForeignWindmillOrigins). nil names none, and
+	// the welcome then has no such field.
+	ForeignWindmillOrigins []string
 
 	// ExpectPlugin, when not nil, is the host plugin declaration the
 	// harness's hello must carry, byte for byte: a pool sets it for the
@@ -646,6 +652,8 @@ func (p *Process) handshake(ctx context.Context, timeout time.Duration) error {
 		ModuleState: string(p.cfg.ModuleState),
 		HeartbeatMS: int(max(p.heartbeat/time.Millisecond, 1)),
 		MaxMessage:  p.maxMessage,
+		// A fresh process's fetch view applies them too.
+		ForeignWindmillOrigins: p.cfg.ForeignWindmillOrigins,
 	}
 	if p.cfg.ModuleState != engine.ModuleStateFresh {
 		// Only a warm or host-mode process intercepts; a fresh one is

@@ -122,6 +122,42 @@ test("connect extracts the bundle's codebase assets into the working directory b
   }
 });
 
+// foreignWindmillOrigins: the engine is started with one -foreign-windmill
+// flag for each origin, in their order, and without the flag when the
+// option is left out; a value that is not an array of strings is refused
+// before the engine starts. The engine checks each origin itself
+// (TestHostForeignWindmillLinks in cmd/windmill-lite runs the real one).
+test("foreignWindmillOrigins passes each origin to the engine as a -foreign-windmill flag", async () => {
+  const dir = tempDir("wl-host-foreign-");
+  writeFileSync(join(dir, "manifest.json"), "{}");
+  const file = join(dir, "args.json");
+  const back = process.cwd();
+  process.chdir(dir);
+  process.env.WL_TEST_ARGS_FILE = file;
+  try {
+    const start = (o: Partial<ConnectOptions>) =>
+      code(connect({ engine: process.execPath, engineArgs: [join(import.meta.dir, "argsengine.ts")], bundle: dir, workdir: dir, diag: () => {}, ...o }));
+    for (const [o, want] of [
+      [{ foreignWindmillOrigins: ["https://windmill.example.com", "http://127.0.0.1:8000"] }, ["-foreign-windmill", "https://windmill.example.com", "-foreign-windmill", "http://127.0.0.1:8000"]],
+      [{ foreignWindmillOrigins: [] }, []],
+      [{}, []],
+    ] as [Partial<ConnectOptions>, string[]][]) {
+      rmSync(file, { force: true });
+      expect(await start(o)).toBe("rejected");
+      const args = JSON.parse(await Bun.file(file).text()) as string[];
+      expect(args.flatMap((a, i) => (a === "-foreign-windmill" ? [a, args[i + 1]] : []))).toEqual(want);
+    }
+    for (const bad of ["https://windmill.example.com", [1], { origin: "https://windmill.example.com" }, null]) {
+      rmSync(file, { force: true });
+      expect(await start({ foreignWindmillOrigins: bad as unknown as string[] })).toBe("options");
+      expect(await Bun.file(file).exists()).toBe(false);
+    }
+  } finally {
+    delete process.env.WL_TEST_ARGS_FILE;
+    process.chdir(back);
+  }
+});
+
 // resourceStore: the engine is started with -resource-store and the kind,
 // and without the flag when the option is left out; kind "redis" adds
 // -redis-prefix and -redis-allow-eviction when given, and passes the URL

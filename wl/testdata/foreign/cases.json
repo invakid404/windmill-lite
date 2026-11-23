@@ -1,0 +1,161 @@
+{
+  "title": "A step's own calls to a real Windmill: the parent_job and root_job that each request carries without and with the foreign Windmill origins",
+  "note": "Read by TestForeignWindmillLinks (wl) and TestHostForeignWindmillLinks (cmd/windmill-lite). A loopback server stands in for each real Windmill: it answers a dispatch under /jobs/run/ with dispatch_id as text, the result poll with a completed job whose result is flow_result, and any other request with []. listed says whether the request goes to the origin that the option names. sent is the request's parent_job and root_job as the step sends it, which the server sees without the option, and got what it sees with it: job is the step's WM_JOB_ID, root its WM_ROOT_FLOW_JOB_ID, other the parent other_parent that the step names itself, and an empty string an absent parameter. request is the first request that the call makes, requests how many it makes, params the other query parameters of the first, and out what the step read.",
+  "dispatch_id": "0193c1e0-0000-7000-8000-00000000f00d",
+  "flow_result": "remote",
+  "other_parent": "0193c1e0-0000-7000-8000-0000000000aa",
+  "cases": [
+    {
+      "name": "stock client runScriptAsync",
+      "flow": "f/foreign/client",
+      "call": "runScriptAsync",
+      "listed": true,
+      "sent": [
+        "job",
+        "root"
+      ],
+      "got": [
+        "",
+        ""
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/api/w/windmill-lite/jobs/run/p/f/remote/script",
+        "body": "{\"x\":1}"
+      },
+      "requests": 1,
+      "params": {
+        "tag": "t1"
+      },
+      "out": "0193c1e0-0000-7000-8000-00000000f00d"
+    },
+    {
+      "name": "native step fetch",
+      "flow": "f/foreign/native",
+      "listed": true,
+      "sent": [
+        "job",
+        "root"
+      ],
+      "got": [
+        "",
+        ""
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/api/w/windmill-lite/jobs/run/p/f/remote/script",
+        "body": "{\"x\":1}"
+      },
+      "requests": 1,
+      "out": "0193c1e0-0000-7000-8000-00000000f00d"
+    },
+    {
+      "name": "stock client runFlow",
+      "flow": "f/foreign/client",
+      "call": "runFlow",
+      "listed": true,
+      "sent": [
+        "job",
+        "root"
+      ],
+      "got": [
+        "",
+        ""
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/api/w/windmill-lite/jobs/run/f/f/remote/flow",
+        "body": "{\"x\":1}"
+      },
+      "requests": 2,
+      "out": "remote"
+    },
+    {
+      "name": "stock client runFlowAsync sends none",
+      "flow": "f/foreign/client",
+      "call": "runFlowAsync",
+      "listed": true,
+      "sent": [
+        "",
+        ""
+      ],
+      "got": [
+        "",
+        ""
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/api/w/windmill-lite/jobs/run/f/f/remote/flow",
+        "body": "{\"x\":1}"
+      },
+      "requests": 1,
+      "out": "0193c1e0-0000-7000-8000-00000000f00d"
+    },
+    {
+      "name": "a parent that is not the step's own job",
+      "flow": "f/foreign/client",
+      "call": "otherParent",
+      "listed": true,
+      "sent": [
+        "other",
+        "root"
+      ],
+      "got": [
+        "other",
+        ""
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/api/w/windmill-lite/jobs/run/p/f/remote/script",
+        "body": "{\"x\":1}"
+      },
+      "requests": 1,
+      "out": "0193c1e0-0000-7000-8000-00000000f00d"
+    },
+    {
+      "name": "an origin that is not listed",
+      "flow": "f/foreign/client",
+      "call": "runScriptAsync",
+      "listed": false,
+      "sent": [
+        "job",
+        "root"
+      ],
+      "got": [
+        "job",
+        "root"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/api/w/windmill-lite/jobs/run/p/f/remote/script",
+        "body": "{\"x\":1}"
+      },
+      "requests": 1,
+      "params": {
+        "tag": "t1"
+      },
+      "out": "0193c1e0-0000-7000-8000-00000000f00d"
+    },
+    {
+      "name": "a path outside jobs/run",
+      "flow": "f/foreign/client",
+      "call": "outsideRun",
+      "listed": true,
+      "sent": [
+        "job",
+        "root"
+      ],
+      "got": [
+        "job",
+        "root"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/api/w/windmill-lite/jobs/list",
+        "body": ""
+      },
+      "requests": 1,
+      "out": []
+    }
+  ]
+}

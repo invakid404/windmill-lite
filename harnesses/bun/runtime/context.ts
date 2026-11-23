@@ -52,7 +52,26 @@ export type InvocationContext = {
   /** Latches text on the invocation's run (H5, wl.latch); throws once the
    * engine no longer waits for the invocation. */
   latch?: (text: string) => void;
+  /** The invocation's own job ids, as its invoke frame set them
+   * (jobIdsOf): a request to a foreign Windmill loses each link to one of
+   * them (installFetch). A step's later writes to its environment do not
+   * change them. */
+  jobIds?: ReadonlySet<string>;
 };
+
+/** The variables of an invocation's environment that hold its job ids,
+ * which windmill-lite gives and no Windmill instance knows. */
+const JOB_ID_VARIABLES = ["WM_JOB_ID", "WM_FLOW_JOB_ID", "WM_ROOT_FLOW_JOB_ID", "WM_ROOT_JOB_ID"];
+
+/** The non-empty values of the job-id variables in env. */
+export function jobIdsOf(env: Record<string, unknown>): ReadonlySet<string> {
+  const ids = new Set<string>();
+  for (const k of JOB_ID_VARIABLES) {
+    const v = env[k];
+    if (typeof v === "string" && v !== "") ids.add(v);
+  }
+  return ids;
+}
 
 /** The registry that work started in the caller's context registers in,
  * if any: none outside every invocation, in a process scope, or while a
@@ -596,7 +615,11 @@ export type RequestOf = new (input: string | URL | Request, init?: RequestInit) 
 // installed them last, so a host that reconnects counts its errors and
 // sends its facade calls on its current connection.
 let fetchRoute:
-  | { origin: () => string | undefined; call: (c: PlatformCall, signal: AbortSignal) => Promise<PlatformAnswer> }
+  | {
+      origin: () => string | undefined;
+      call: (c: PlatformCall, signal: AbortSignal) => Promise<PlatformAnswer>;
+      foreign: () => ReadonlySet<string>;
+    }
   | undefined;
 let errorRoute: ((kind: string, e: unknown, promise?: unknown) => void) | undefined;
 let fetchInstalled = false;
@@ -620,14 +643,19 @@ function settledAbort(): DOMException {
  *   body's transfer has ended (observeTransfer), and aborted with an
  *   AbortError if the invocation settles first, which also fails a body
  *   still being read. The response is Bun's own.
+ * - A request made in an invocation's context to one of the foreign
+ *   origins, real Windmill instances, loses the links to the invocation's
+ *   own job ids first (withoutLocalLinks): those ids name no job there
+ *   (ADR 0007, async dispatch).
  *
- * origin() is read per call, because the welcome names the facade after
- * this is installed. */
+ * origin() and foreign() are read per call, because the welcome names the
+ * facade and the foreign origins after this is installed. */
 export function installFetch(
   origin: () => string | undefined,
   call: (c: PlatformCall, signal: AbortSignal) => Promise<PlatformAnswer>,
+  foreign: () => ReadonlySet<string> = () => NO_ORIGINS,
 ) {
-  fetchRoute = { origin, call };
+  fetchRoute = { origin, call, foreign };
   if (fetchInstalled) return;
   fetchInstalled = true;
   const inner = globalThis.fetch;
@@ -637,6 +665,7 @@ export function installFetch(
     const inv = invocations.getStore();
     const own = init?.signal ?? (input instanceof Request ? input.signal : undefined);
     if (facade === undefined || originOf(input) !== facade) {
+      if (inv?.jobIds !== undefined) input = withoutLocalLinks(input, route.foreign(), inv.jobIds) ?? input;
       const work = inv?.work;
       if (work === undefined) return inner(input, init);
       const fence = new AbortController();
@@ -773,6 +802,77 @@ function observeReads(res: Response, end: () => void) {
       return c;
     },
   });
+}
+
+const NO_ORIGINS: ReadonlySet<string> = new Set();
+
+/** The origins of a welcome's foreign_windmill_origins, as the URL parser
+ * that reads a request's URL gives them, so that the two compare equal:
+ * the engine sends each in one form, but its parser leaves a host such as
+ * bücher.example as it is, and this one gives xn--bcher-kva.example.
+ * undefined when one is not an http or https URL. */
+export function foreignOrigins(list: readonly string[]): Set<string> | undefined {
+  const out = new Set<string>();
+  for (const o of list) {
+    let u: URL;
+    try {
+      u = new URL(o);
+    } catch {
+      return undefined;
+    }
+    if (u.protocol !== "http:" && u.protocol !== "https:") return undefined;
+    out.add(u.origin);
+  }
+  return out;
+}
+
+/** The path of Windmill's API under which the stock clients dispatch a
+ * script or a flow, with parent_job and root_job in the query
+ * ({@link https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-15 | WA-15}). */
+const DISPATCH_PATH = /^\/api\/w\/[^/]+\/jobs\/run\//;
+
+/** The query parameters that link a dispatched job to its parent and its
+ * root. */
+const LINKS = new Set(["parent_job", "root_job"]);
+
+/** The request without its links to the invocation's own job ids: when
+ * input goes to one of the foreign origins (each a URL's origin) under
+ * DISPATCH_PATH, each parent_job and root_job query parameter whose value
+ * is one of ids is removed. Only those parameters go: every other byte of
+ * the URL stays, and a Request keeps its method, headers, body and signal.
+ * undefined when nothing is removed, so the request goes out as it came. */
+function withoutLocalLinks(input: string | URL | Request, foreign: ReadonlySet<string>, ids: ReadonlySet<string>): string | URL | Request | undefined {
+  if (foreign.size === 0 || ids.size === 0) return undefined;
+  let url: URL;
+  try {
+    url = new URL(input instanceof Request ? input.url : String(input));
+  } catch {
+    return undefined;
+  }
+  if (url.search === "" || !foreign.has(url.origin) || !DISPATCH_PATH.test(url.pathname)) return undefined;
+  const pairs = url.search.slice(1).split("&");
+  const kept = pairs.filter((pair) => !isLocalLink(pair, ids));
+  if (kept.length === pairs.length) return undefined;
+  url.search = kept.join("&");
+  if (input instanceof Request) return new (Request as RequestOf)(url.href, input as unknown as RequestInit);
+  return input instanceof URL ? url : url.href;
+}
+
+/** Whether one name=value pair of a query is a link to one of ids. Names
+ * and values are read as a form decodes them, as a server reads them. */
+function isLocalLink(pair: string, ids: ReadonlySet<string>): boolean {
+  const eq = pair.indexOf("=");
+  if (!LINKS.has(formDecode(eq < 0 ? pair : pair.slice(0, eq)))) return false;
+  return ids.has(eq < 0 ? "" : formDecode(pair.slice(eq + 1)));
+}
+
+function formDecode(s: string): string {
+  const spaced = s.replaceAll("+", " ");
+  try {
+    return decodeURIComponent(spaced);
+  } catch {
+    return spaced;
+  }
 }
 
 function originOf(input: string | URL | Request): string | undefined {

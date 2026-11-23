@@ -71,7 +71,7 @@ const FIELDS: Record<string, readonly string[]> = {
 const NESTED: Record<string, readonly string[]> = {
   harness: ["kind", "version"],
   caps: ["fetch", "native", "fresh", "host"],
-  config: ["module_state", "heartbeat_ms", "max_message", "facade"],
+  config: ["module_state", "heartbeat_ms", "max_message", "facade", "foreign_windmill_origins"],
   reject: ["code", "message"],
   error: ["code", "message"],
 };
@@ -265,6 +265,7 @@ export function decode(payload: Uint8Array): Message {
         checkField(m.t, m, "config", "object");
         checkNested(m.t, m, "config", { module_state: "string", heartbeat_ms: "int", max_message: "int" });
         if (m.config.facade != null) checkField(m.t, m.config, "facade", "string");
+        if (m.config.foreign_windmill_origins != null) checkField(m.t, m.config, "foreign_windmill_origins", "strings");
       } else if (m.reject != null) {
         checkField(m.t, m, "reject", "object");
         checkNested(m.t, m, "reject", { code: "string", message: "string" });

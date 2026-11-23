@@ -528,6 +528,27 @@
       "payload": "{\"t\":\"welcome\",\"proto\":1,\"engine\":\"0.0.0\",\"bundle\":\"sha256:00ff\",\"config\":{\"module_state\":\"warm\",\"heartbeat_ms\":1000,\"max_message\":536870912,\"facade\":\"http://127.0.0.1:40123\"}}"
     },
     {
+      "case": "welcome-config-foreign-windmill",
+      "title": "a welcome that names foreign Windmill origins lists them, in their order, after the facade origin",
+      "message": {
+        "t": "welcome",
+        "proto": 1,
+        "engine": "0.0.0",
+        "bundle": "sha256:00ff",
+        "config": {
+          "foreign_windmill_origins": [
+            "https://windmill.example.com",
+            "http://127.0.0.1:8000"
+          ],
+          "facade": "http://127.0.0.1:40123",
+          "module_state": "warm",
+          "heartbeat_ms": 1000,
+          "max_message": 536870912
+        }
+      },
+      "payload": "{\"t\":\"welcome\",\"proto\":1,\"engine\":\"0.0.0\",\"bundle\":\"sha256:00ff\",\"config\":{\"module_state\":\"warm\",\"heartbeat_ms\":1000,\"max_message\":536870912,\"facade\":\"http://127.0.0.1:40123\",\"foreign_windmill_origins\":[\"https://windmill.example.com\",\"http://127.0.0.1:8000\"]}}"
+    },
+    {
       "case": "platform",
       "title": "an intercepted fetch to the facade, attributed to its invocation; header names are data, sorted; the body's bytes travel as padded base64",
       "message": {
@@ -1684,6 +1705,22 @@
       "title": "the facade origin is a string",
       "frames": [
         "{\"t\":\"welcome\",\"proto\":1,\"engine\":\"e\",\"bundle\":\"b\",\"config\":{\"module_state\":\"warm\",\"heartbeat_ms\":1,\"max_message\":1024,\"facade\":1}}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "welcome-foreign-windmill-not-array",
+      "title": "the foreign Windmill origins are an array",
+      "frames": [
+        "{\"t\":\"welcome\",\"proto\":1,\"engine\":\"e\",\"bundle\":\"b\",\"config\":{\"module_state\":\"warm\",\"heartbeat_ms\":1,\"max_message\":1024,\"foreign_windmill_origins\":\"https://windmill.example.com\"}}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "welcome-foreign-windmill-not-strings",
+      "title": "each foreign Windmill origin is a string",
+      "frames": [
+        "{\"t\":\"welcome\",\"proto\":1,\"engine\":\"e\",\"bundle\":\"b\",\"config\":{\"module_state\":\"warm\",\"heartbeat_ms\":1,\"max_message\":1024,\"foreign_windmill_origins\":[\"https://windmill.example.com\",1]}}"
       ],
       "error": "bad_field"
     }

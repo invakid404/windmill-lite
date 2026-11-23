@@ -1,0 +1,11 @@
+summary: A native step that dispatches on a real Windmill with fetch
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        path: f/foreign/fetch
+        input_transforms:
+          base:
+            type: javascript
+            expr: flow_input.base

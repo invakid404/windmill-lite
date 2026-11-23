@@ -108,6 +108,18 @@ export type ConnectOptions = {
    * mode item 7). Otherwise every invocation's file is written, as
    * Windmill's worker writes it. */
   skipArgsFile?: boolean;
+  /** The origins of real Windmill instances that the host's steps call
+   * through their own client, such as "https://windmill.example.com";
+   * none by default. windmill-lite's job ids name no job there. So on a
+   * step's request to one of them under /api/w/{workspace}/jobs/run/,
+   * where the stock clients dispatch a script or a flow, the harness
+   * removes each parent_job and root_job query parameter whose value is
+   * one of the step's own job ids (ADR 0007, async dispatch). Every other
+   * part of the request stays as it was, and a request that does not go
+   * through fetch, from a child process or a socket, keeps its links. The
+   * engine gets them as -foreign-windmill flags, and refuses the host
+   * (engine_refused) when one is not an http or https origin. */
+  foreignWindmillOrigins?: string[];
   /** Recycle triggers (none by default): health() reports the first that
    * trips, and onRecycle is called once with it ("rss", "modules" or
    * "retired"). A host that sees one drains and exits, and its supervisor
@@ -373,6 +385,10 @@ export async function connect(o: ConnectOptions): Promise<Host> {
       throw new HostError("options", `resourceStore's allowEviction is a boolean; got ${typeof store.allowEviction}`);
     }
   }
+  const foreign = o.foreignWindmillOrigins;
+  if (foreign !== undefined && !(Array.isArray(foreign) && foreign.every((x) => typeof x === "string"))) {
+    throw new HostError("options", `foreignWindmillOrigins is an array of origins, such as ["https://windmill.example.com"]; got ${JSON.stringify(foreign)}`);
+  }
   // Without collect, false: a host with no trigger takes no idle check.
   const whenIdle = collect !== undefined && (collect.policy ?? DEFAULT_COLLECT_POLICY) === "idle";
   // The host's stderr as Bun has it: a step's context must never take a
@@ -417,6 +433,7 @@ export async function connect(o: ConnectOptions): Promise<Host> {
       ...["host", "--bundle", o.bundle, "--workdir", workdir, "--kill-after", `${killAfter}ms`],
       ...(o.readCache ? ["-read-cache"] : []),
       ...(o.skipArgsFile ? ["-skip-args-file"] : []),
+      ...(foreign ?? []).flatMap((origin) => ["-foreign-windmill", origin]),
       ...(store ? ["-resource-store", store.kind] : []),
       ...(store?.kind === "redis" && store.prefix !== undefined ? ["-redis-prefix", store.prefix] : []),
       ...(store?.kind === "redis" && store.allowEviction ? ["-redis-allow-eviction"] : []),

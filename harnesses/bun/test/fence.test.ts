@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import {
+  foreignOrigins,
   installChildProcesses,
   installEnvView,
   installFetch,
@@ -20,6 +21,7 @@ import {
   InvocationLog,
   InvocationResources,
   invocations,
+  jobIdsOf,
   setChildAnnouncer,
   setChildGroups,
   shadow,
@@ -629,6 +631,97 @@ test("a request the invocation leaves in flight is aborted at settlement, and a 
     expect(calls).toEqual([]);
   } finally {
     server.stop(true);
+  }
+});
+
+test("the welcome's foreign Windmill origins compare as request origins do; a value that is not an http or https URL makes the welcome unusable", () => {
+  expect([...foreignOrigins(["https://bücher.example", "HTTP://127.0.0.1:80/", "https://windmill.example.com:8443", "http://[::1]:80"])!]).toEqual([
+    "https://xn--bcher-kva.example",
+    "http://127.0.0.1",
+    "https://windmill.example.com:8443",
+    "http://[::1]",
+  ]);
+  expect(new URL("https://bücher.example/api/w/ws/jobs/run/p/f/x").origin).toBe("https://xn--bcher-kva.example");
+  expect(foreignOrigins([])?.size).toBe(0);
+  expect(foreignOrigins(["https://ok.example", "windmill.example.com"])).toBeUndefined();
+  expect(foreignOrigins(["ftp://windmill.example.com"])).toBeUndefined();
+});
+
+test("a request to a foreign Windmill under jobs/run/ loses only its links to the invocation's own job ids, and keeps every other byte", async () => {
+  const seen: string[] = [];
+  const server = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch: async (req) => {
+      const u = new URL(req.url);
+      seen.push(`${req.method} ${u.pathname}${u.search} ${req.headers.get("content-type")} ${await req.text()}`);
+      return u.pathname.endsWith("/hang") ? new Promise<Response>(() => {}) : new Response("ok");
+    },
+  });
+  const base = server.url.origin;
+  const other = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: (req) => (seen.push(`other ${new URL(req.url).search}`), new Response("ok")) });
+  installFetch(
+    () => undefined,
+    async () => ({ status: 501, headers: {} }),
+    () => new Set([base]),
+  );
+  try {
+    const env = { WM_JOB_ID: "job-1", WM_FLOW_JOB_ID: "flow-1", WM_ROOT_FLOW_JOB_ID: "root-1", WM_ROOT_JOB_ID: "", WM_WORKSPACE: "ws" };
+    const c = { ...context(env), jobIds: jobIdsOf(env) };
+    expect([...c.jobIds].sort()).toEqual(["flow-1", "job-1", "root-1"]);
+    const run = `${base}/api/w/ws/jobs/run`;
+    const send = (input: string | URL | Request, init?: RequestInit) => invocations.run(c, () => fetch(input as string, init).then((r) => r.text()));
+    // A string: only the two links go; every other pair keeps its bytes.
+    await send(`${run}/p/f/x?tag=a%20b+c&parent_job=job-1&scheduled_in_secs=1&root_job=root-1&x=`);
+    // A URL whose query holds only links loses its query.
+    await send(new URL(`${run}/f/f/y?parent_job=job-1&root_job=flow-1`));
+    // A Request keeps its method, headers and body, a streamed one too, and
+    // its signal.
+    const body = new ReadableStream({ start: (s) => (s.enqueue(new TextEncoder().encode('{"x":1}')), s.close()) });
+    await send(new Request(`${run}/p/f/x?root_job=root-1&parent_job=job-1`, { method: "POST", headers: { "content-type": "application/json" }, body, duplex: "half" } as RequestInit));
+    // The Request made again keeps the signal: its abort ends the request.
+    const abort = new AbortController();
+    const hung = invocations.run(c, () => fetch(new Request(`${run}/p/f/hang?parent_job=job-1`, { signal: abort.signal })).then(() => "answered", (e) => e.name));
+    await Bun.sleep(20);
+    abort.abort();
+    expect(await hung).toBe("AbortError");
+    // Names and values are read as a form decodes them.
+    await send(`${run}/p/f/x?parent%5Fjob=job%2D1&root+job=root-1`);
+    // A parent that is not the invocation's, and an empty one, stay.
+    await send(`${run}/p/f/x?parent_job=job-2&root_job=&parent_job=job-1`);
+    // The ids are the ones the invocation was given: a step's write to
+    // its environment changes neither them nor what is kept.
+    await invocations.run(c, () => {
+      process.env.WM_JOB_ID = "job-3";
+    });
+    await send(`${run}/p/f/x?parent_job=job-3&root_job=root-1`);
+    // Outside jobs/run/, on another origin, and outside every invocation,
+    // a request goes out as it came.
+    await send(`${base}/api/w/ws/jobs/list?parent_job=job-1`);
+    await send(`${base}/api/w/ws/jobs/run_wait_result/p/f/x?parent_job=job-1`);
+    await send(`${other.url.origin}/api/w/ws/jobs/run/p/f/x?parent_job=job-1`);
+    await fetch(`${run}/p/f/x?parent_job=job-1`).then((r) => r.text());
+    expect(seen).toEqual([
+      "GET /api/w/ws/jobs/run/p/f/x?tag=a%20b+c&scheduled_in_secs=1&x= null ",
+      "GET /api/w/ws/jobs/run/f/f/y null ",
+      'POST /api/w/ws/jobs/run/p/f/x application/json {"x":1}',
+      "GET /api/w/ws/jobs/run/p/f/hang null ",
+      "GET /api/w/ws/jobs/run/p/f/x?root+job=root-1 null ",
+      "GET /api/w/ws/jobs/run/p/f/x?parent_job=job-2&root_job= null ",
+      "GET /api/w/ws/jobs/run/p/f/x?parent_job=job-3 null ",
+      "GET /api/w/ws/jobs/list?parent_job=job-1 null ",
+      "GET /api/w/ws/jobs/run_wait_result/p/f/x?parent_job=job-1 null ",
+      "other ?parent_job=job-1",
+      "GET /api/w/ws/jobs/run/p/f/x?parent_job=job-1 null ",
+    ]);
+    c.resources.settle();
+  } finally {
+    installFetch(
+      () => undefined,
+      async () => ({ status: 501, headers: {} }),
+    );
+    server.stop(true);
+    other.stop(true);
   }
 });
 

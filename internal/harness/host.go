@@ -57,6 +57,9 @@ type HostConfig struct {
 	// facade's origin as BASE_URL instead.
 	Facade   string
 	Platform PlatformHandler
+	// ForeignWindmillOrigins is as in ProcessConfig: the host's welcome
+	// names them, and its fetch view applies them to its steps' requests.
+	ForeignWindmillOrigins []string
 	// Workdir is the working directory the host passed to the engine,
 	// which must be a writable directory and the host's own working
 	// directory, the workdir of its hello (ADR 0004, the shared-process
@@ -273,6 +276,8 @@ func AttachHost(ctx context.Context, cfg HostConfig) (*Process, error) {
 		Diagnostics:      cfg.Diagnostics,
 		Facade:           cfg.Facade,
 		Platform:         cfg.Platform,
+
+		ForeignWindmillOrigins: cfg.ForeignWindmillOrigins,
 	})
 	if err != nil {
 		cfg.Conn.Close()
