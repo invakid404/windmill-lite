@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -214,8 +215,9 @@ func buildForeignBundle(t *testing.T, bun, client string) (out, runtimeDir strin
 //     ids, from the stock client (runScriptAsync, runFlow) or from a native
 //     step's fetch. runFlowAsync, which sends none by default, is
 //     unchanged. A parent that the step names itself stays, while its own
-//     root goes. A request to the origin that is not listed, and one to the
-//     listed origin outside jobs/run/, keep both.
+//     root goes, and so does a parent that is the top of its run in a
+//     subflow, its WM_ROOT_JOB_ID. A request to the origin that is not
+//     listed, and one to the listed origin outside jobs/run/, keep both.
 //   - Without the option, the control, every request keeps what the step
 //     sent.
 //
@@ -271,8 +273,8 @@ func checkForeignCase(t *testing.T, cases foreignCases, i int, on bool, result j
 	t.Helper()
 	c := cases.Cases[i]
 	var step struct {
-		Job, Root string
-		Out       json.RawMessage
+		Job, Root, Top string
+		Out            json.RawMessage
 	}
 	if err := json.Unmarshal(result, &step); err != nil || step.Job == "" || step.Root == "" {
 		t.Fatalf("the step's result %s: %v", result, err)
@@ -296,7 +298,10 @@ func checkForeignCase(t *testing.T, cases foreignCases, i int, on bool, result j
 	if on {
 		want = c.Got
 	}
-	value := map[string]string{"job": step.Job, "root": step.Root, "other": cases.OtherParent, "": ""}
+	value := map[string]string{"job": step.Job, "top": step.Top, "root": step.Root, "other": cases.OtherParent, "": ""}
+	if slices.Contains(c.Sent[:], "top") && (step.Top == "" || step.Top == step.Root || step.Top == step.Job) {
+		t.Fatalf("the top of the step's run %q is empty, its root or its job: the case shows nothing", step.Top)
+	}
 	for j, name := range []string{"parent_job", "root_job"} {
 		got, present := r.Query.Get(name), r.Query.Has(name)
 		if w := value[want[j]]; got != w || present != (w != "") {

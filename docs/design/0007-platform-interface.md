@@ -361,9 +361,10 @@ handles a request to a real Windmill:
 - On a request from a step, a native step's included, to one of them under
   `/api/w/{workspace}/jobs/run/`, the harness's `fetch` view removes each
   `parent_job` and `root_job` query parameter whose value is one of the
-  invocation's own job ids. Those are its `WM_JOB_ID`, `WM_FLOW_JOB_ID`,
-  `WM_ROOT_FLOW_JOB_ID` and `WM_ROOT_JOB_ID`, as the engine set them; the
-  rest of the request stays as the step sent it.
+  invocation's own job ids. Those are its `WM_JOB_ID` and
+  `WM_ROOT_FLOW_JOB_ID` as the engine set them, the values that the stock
+  clients send. The rest of the request stays as the step sent it, a link
+  to another value included.
 - A request that windmill-lite does not handle keeps them. That is one to
   an origin that the setting does not name, one made outside the `fetch`
   view (by a child process or a socket that the step opens), and every

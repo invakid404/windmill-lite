@@ -1,6 +1,6 @@
 {
   "title": "A step's own calls to a real Windmill: the parent_job and root_job that each request carries without and with the foreign Windmill origins",
-  "note": "Read by TestForeignWindmillLinks (wl) and TestHostForeignWindmillLinks (cmd/windmill-lite). A loopback server stands in for each real Windmill: it answers a dispatch under /jobs/run/ with dispatch_id as text, the result poll with a completed job whose result is flow_result, and any other request with []. listed says whether the request goes to the origin that the option names. sent is the request's parent_job and root_job as the step sends it, which the server sees without the option, and got what it sees with it: job is the step's WM_JOB_ID, root its WM_ROOT_FLOW_JOB_ID, other the parent other_parent that the step names itself, and an empty string an absent parameter. request is the first request that the call makes, requests how many it makes, params the other query parameters of the first, and out what the step read.",
+  "note": "Read by TestForeignWindmillLinks (wl) and TestHostForeignWindmillLinks (cmd/windmill-lite). A loopback server stands in for each real Windmill: it answers a dispatch under /jobs/run/ with dispatch_id as text, the result poll with a completed job whose result is flow_result, and any other request with []. listed says whether the request goes to the origin that the option names. sent is the request's parent_job and root_job as the step sends it, which the server sees without the option, and got what it sees with it: job is the step's WM_JOB_ID, root its WM_ROOT_FLOW_JOB_ID, top its WM_ROOT_JOB_ID, other the parent other_parent that the step names itself, and an empty string an absent parameter. request is the first request that the call makes, requests how many it makes, params the other query parameters of the first, and out what the step read.",
   "dispatch_id": "0193c1e0-0000-7000-8000-00000000f00d",
   "flow_result": "remote",
   "other_parent": "0193c1e0-0000-7000-8000-0000000000aa",
@@ -102,6 +102,27 @@
       ],
       "got": [
         "other",
+        ""
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/api/w/windmill-lite/jobs/run/p/f/remote/script",
+        "body": "{\"x\":1}"
+      },
+      "requests": 1,
+      "out": "0193c1e0-0000-7000-8000-00000000f00d"
+    },
+    {
+      "name": "a parent that is the top of the step's run, in a subflow",
+      "flow": "f/foreign/nested",
+      "call": "topParent",
+      "listed": true,
+      "sent": [
+        "top",
+        "root"
+      ],
+      "got": [
+        "top",
         ""
       ],
       "request": {

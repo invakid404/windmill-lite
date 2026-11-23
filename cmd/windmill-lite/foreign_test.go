@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -136,8 +137,8 @@ func TestHostForeignWindmillLinks(t *testing.T) {
 						t.Fatalf("%+v, %v\n%s", r, err, s.gen(0).log())
 					}
 					var step struct {
-						Job, Root string
-						Out       json.RawMessage
+						Job, Root, Top string
+						Out            json.RawMessage
 					}
 					if err := json.Unmarshal(r.Result, &step); err != nil || step.Job == "" || step.Root == "" {
 						t.Fatalf("the step's result %s: %v", r.Result, err)
@@ -163,7 +164,10 @@ func TestHostForeignWindmillLinks(t *testing.T) {
 					if on {
 						links = c.Got
 					}
-					value := map[string]string{"job": step.Job, "root": step.Root, "other": cases.OtherParent, "": ""}
+					value := map[string]string{"job": step.Job, "top": step.Top, "root": step.Root, "other": cases.OtherParent, "": ""}
+					if slices.Contains(c.Sent[:], "top") && (step.Top == "" || step.Top == step.Root || step.Top == step.Job) {
+						t.Fatalf("the top of the step's run %q is empty, its root or its job: the case shows nothing", step.Top)
+					}
 					for j, name := range []string{"parent_job", "root_job"} {
 						got, present := q.Query.Get(name), q.Query.Has(name)
 						if w := value[links[j]]; got != w || present != (w != "") {

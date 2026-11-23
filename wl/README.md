@@ -180,9 +180,10 @@ in host mode:
   Windmill's dispatch, that goes through the harness's `fetch`, a native
   step's included.
 - It removes each `parent_job` and `root_job` query parameter whose value
-  is one of the step's own job ids: its `WM_JOB_ID`, `WM_FLOW_JOB_ID`,
-  `WM_ROOT_FLOW_JOB_ID` or `WM_ROOT_JOB_ID`, as the engine set them. The
-  rest of the request stays as the step sent it.
+  is one of the step's own job ids: its `WM_JOB_ID` or
+  `WM_ROOT_FLOW_JOB_ID`, as the engine set them. The rest of the request
+  stays as the step sent it, and so does a link to the value of another job
+  variable, such as a parent that a dispatched script's dispatcher named.
 - A request that does not go through `fetch` keeps its links, such as one
   from a child process or over a socket that the step opens.
 - `Open` compares origins as URLs do, so `https://Windmill.example.com:443/`

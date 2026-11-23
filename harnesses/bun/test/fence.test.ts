@@ -649,13 +649,19 @@ test("the welcome's foreign Windmill origins compare as request origins do; a va
 
 test("a request to a foreign Windmill under jobs/run/ loses only its links to the invocation's own job ids, and keeps every other byte", async () => {
   const seen: string[] = [];
+  // Resolved once the server has recorded the request that it never
+  // answers, so the abort below comes after the request reached it.
+  let hangSeen!: () => void;
+  const hanging = new Promise<void>((resolve) => (hangSeen = resolve));
   const server = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
     fetch: async (req) => {
       const u = new URL(req.url);
       seen.push(`${req.method} ${u.pathname}${u.search} ${req.headers.get("content-type")} ${await req.text()}`);
-      return u.pathname.endsWith("/hang") ? new Promise<Response>(() => {}) : new Response("ok");
+      if (!u.pathname.endsWith("/hang")) return new Response("ok");
+      hangSeen();
+      return new Promise<Response>(() => {});
     },
   });
   const base = server.url.origin;
@@ -666,15 +672,22 @@ test("a request to a foreign Windmill under jobs/run/ loses only its links to th
     () => new Set([base]),
   );
   try {
-    const env = { WM_JOB_ID: "job-1", WM_FLOW_JOB_ID: "flow-1", WM_ROOT_FLOW_JOB_ID: "root-1", WM_ROOT_JOB_ID: "", WM_WORKSPACE: "ws" };
+    const env = { WM_JOB_ID: "job-1", WM_FLOW_JOB_ID: "flow-1", WM_ROOT_FLOW_JOB_ID: "root-1", WM_ROOT_JOB_ID: "top-1", WM_WORKSPACE: "ws" };
     const c = { ...context(env), jobIds: jobIdsOf(env) };
-    expect([...c.jobIds].sort()).toEqual(["flow-1", "job-1", "root-1"]);
+    // The two ids that the stock clients send; an empty one is none.
+    expect([...c.jobIds].sort()).toEqual(["job-1", "root-1"]);
+    expect([...jobIdsOf({ WM_JOB_ID: "job-1", WM_ROOT_FLOW_JOB_ID: "" })]).toEqual(["job-1"]);
     const run = `${base}/api/w/ws/jobs/run`;
     const send = (input: string | URL | Request, init?: RequestInit) => invocations.run(c, () => fetch(input as string, init).then((r) => r.text()));
     // A string: only the two links go; every other pair keeps its bytes.
     await send(`${run}/p/f/x?tag=a%20b+c&parent_job=job-1&scheduled_in_secs=1&root_job=root-1&x=`);
     // A URL whose query holds only links loses its query.
-    await send(new URL(`${run}/f/f/y?parent_job=job-1&root_job=flow-1`));
+    await send(new URL(`${run}/f/f/y?parent_job=job-1&root_job=root-1`));
+    // A link to another of the invocation's job variables stays: such a
+    // value can be a parent that the job's dispatcher named.
+    await send(`${run}/f/f/y?parent_job=flow-1&root_job=top-1`);
+    // A kept pair that starts with "?" keeps its name.
+    await send(`${run}/p/f/x?parent_job=job-1&?tag=keep`);
     // A Request keeps its method, headers and body, a streamed one too, and
     // its signal.
     const body = new ReadableStream({ start: (s) => (s.enqueue(new TextEncoder().encode('{"x":1}')), s.close()) });
@@ -682,7 +695,7 @@ test("a request to a foreign Windmill under jobs/run/ loses only its links to th
     // The Request made again keeps the signal: its abort ends the request.
     const abort = new AbortController();
     const hung = invocations.run(c, () => fetch(new Request(`${run}/p/f/hang?parent_job=job-1`, { signal: abort.signal })).then(() => "answered", (e) => e.name));
-    await Bun.sleep(20);
+    await hanging;
     abort.abort();
     expect(await hung).toBe("AbortError");
     // Names and values are read as a form decodes them.
@@ -704,6 +717,8 @@ test("a request to a foreign Windmill under jobs/run/ loses only its links to th
     expect(seen).toEqual([
       "GET /api/w/ws/jobs/run/p/f/x?tag=a%20b+c&scheduled_in_secs=1&x= null ",
       "GET /api/w/ws/jobs/run/f/f/y null ",
+      "GET /api/w/ws/jobs/run/f/f/y?parent_job=flow-1&root_job=top-1 null ",
+      "GET /api/w/ws/jobs/run/p/f/x??tag=keep null ",
       'POST /api/w/ws/jobs/run/p/f/x application/json {"x":1}',
       "GET /api/w/ws/jobs/run/p/f/hang null ",
       "GET /api/w/ws/jobs/run/p/f/x?root+job=root-1 null ",

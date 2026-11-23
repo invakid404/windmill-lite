@@ -59,11 +59,15 @@ export type InvocationContext = {
   jobIds?: ReadonlySet<string>;
 };
 
-/** The variables of an invocation's environment that hold its job ids,
- * which windmill-lite gives and no Windmill instance knows. */
-const JOB_ID_VARIABLES = ["WM_JOB_ID", "WM_FLOW_JOB_ID", "WM_ROOT_FLOW_JOB_ID", "WM_ROOT_JOB_ID"];
+/** The variables of an invocation's environment whose values the stock
+ * clients send as parent_job and root_job
+ * ({@link https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-15 | WA-15}).
+ * Only these count as the invocation's own job ids: another variable, such
+ * as a dispatched script's WM_FLOW_JOB_ID, can hold a parent that its
+ * dispatcher named, which a link to a real Windmill keeps. */
+const JOB_ID_VARIABLES = ["WM_JOB_ID", "WM_ROOT_FLOW_JOB_ID"];
 
-/** The non-empty values of the job-id variables in env. */
+/** The non-empty values of WM_JOB_ID and WM_ROOT_FLOW_JOB_ID in env. */
 export function jobIdsOf(env: Record<string, unknown>): ReadonlySet<string> {
   const ids = new Set<string>();
   for (const k of JOB_ID_VARIABLES) {
@@ -853,7 +857,9 @@ function withoutLocalLinks(input: string | URL | Request, foreign: ReadonlySet<s
   const pairs = url.search.slice(1).split("&");
   const kept = pairs.filter((pair) => !isLocalLink(pair, ids));
   if (kept.length === pairs.length) return undefined;
-  url.search = kept.join("&");
+  // The setter takes one leading "?" as the delimiter, so it gets its own:
+  // a kept pair that starts with "?" keeps it.
+  url.search = kept.length === 0 ? "" : "?" + kept.join("&");
   if (input instanceof Request) return new (Request as RequestOf)(url.href, input as unknown as RequestInit);
   return input instanceof URL ? url : url.href;
 }

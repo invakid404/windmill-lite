@@ -139,9 +139,10 @@ type Options struct {
 	// to one of these origins under /api/w/{workspace}/jobs/run/, where
 	// the stock clients dispatch a script or a flow, the harness's fetch
 	// view removes each parent_job and root_job query parameter whose
-	// value is one of the invocation's own job ids: its WM_JOB_ID,
-	// WM_FLOW_JOB_ID, WM_ROOT_FLOW_JOB_ID or WM_ROOT_JOB_ID as the engine
-	// set them. Every other part of the request stays as it was. A request
+	// value is one of the invocation's own job ids: its WM_JOB_ID or
+	// WM_ROOT_FLOW_JOB_ID as the engine set them, the values that the stock
+	// clients send. Every other part of the request stays as it was, a link
+	// to another value included. A request
 	// to another origin, or one that the fetch view does not see, from a
 	// child process or a socket that the step opens, keeps its links.
 	// Each value is an http or https origin: Open refuses one with a path
