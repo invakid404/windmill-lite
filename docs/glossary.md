@@ -254,6 +254,16 @@ An unmodified image of Windmill Community Edition at the
 behaviour that windmill-lite must match
 ([differential testing ADR](design/0011-differential-testing.md)).
 
+### pinned run
+
+A [run](#run) that keeps one `warm` harness process: every invocation and
+host-plugin call of the run goes to the process that served its first, so
+a [host plugin](#host-plugin) can keep state for the run there. It is a
+planned option of the warm pool
+([harness protocol ADR](design/0004-harness-protocol.md#pooling-processes-the-engine-spawns)).
+
+**Not:** sticky run.
+
 ### pinned version
 
 Windmill v1.862.0: the release that the
