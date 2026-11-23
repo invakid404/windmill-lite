@@ -81,7 +81,7 @@ bundle's. `wl`'s tests build manifests of their own, and those of
 
 | Name | Kind | What it does |
 |---|---|---|
-| `Manifest`, `Engine`, `Bundlers`, `HostModuleEntry` | structs | `manifest.json` and its parts ([The manifest and the bundle digest](#the-manifest-and-the-bundle-digest)) |
+| `Manifest`, `Engine`, `Bundlers`, `HostModuleEntry`, `PluginEntry` | structs | `manifest.json` and its parts ([The manifest and the bundle digest](#the-manifest-and-the-bundle-digest)) |
 | `ParseManifest`, `Manifest.Canonical` | func, method | Read a manifest, refusing any that is not canonical; write one |
 | `Canonicalize`, `Digest` | funcs | The canonical form of JSON text; `sha256:` and 64 hex digits |
 | `ModeDeviations`, `SharedCodeDeviation` | func, const | The deviations of another module-state mode; `"D18"` |
@@ -92,7 +92,7 @@ bundle's. `wl`'s tests build manifests of their own, and those of
 
 | Name | Kind | What it does | Who calls it |
 |---|---|---|---|
-| `BuildBun`, `BunConfig`, `BunResult`, `BunScript`, `HostModule` | func, structs | The Bun build helper's build of Bun scripts and host-provided modules ([BuildBun](#buildbun)) | `Build`, `wltest`, tests |
+| `BuildBun`, `BunConfig`, `BunResult`, `BunScript`, `HostModule`, `BunPlugin`, `PluginMeta` | func, structs | The Bun build helper's build of Bun scripts, host-provided modules and the host plugin ([BuildBun](#buildbun)) | `Build`, `wltest`, tests |
 | `BuildCodebase`, `CodebaseConfig`, `CodebaseResult`, `CodebaseScript`, `CodebaseHostModule` | func, structs | esbuild's build of codebase scripts ([Codebase scripts](#codebase-scripts)) | `Build`, `wltest`, tests |
 | `CodebaseSettings`, `ParseCodebaseSettings`, `CodebaseSettings.CLIOptions`, `CodebaseSettings.CLIBundle` | struct, func, methods | A `codebases` entry, and the CLI's own build of it | `Build`, the CLI parity check |
 | `BuildEsbuildHostModules`, `EsbuildHostConfig`, `EsbuildHostModule`, `EsbuildHostResult`, `OutsideID` | func, structs, func | The host-provided modules that esbuild builds ([Modules that esbuild builds](#modules-that-esbuild-builds)) | `Build` |
@@ -142,10 +142,12 @@ A bundle is a directory, or the same tree as one `.wlb` archive:
 | `scripts/bun/closures/<id>.cjs`, `<id>.mjs` | With shared code, each build group's closure; an ES module for an ES module codebase group |
 | `scripts/bun/<id>.shared.mjs`, `<id>.shared.cjs` | With shared code, each script's shared-layout module, beside its per-script bundle |
 | `scripts/bun/provided/<id>.mjs`, `provided/shims/<id>.mjs` | Each host-provided module's bundled copy and shim, named by its script path, or `outside/<n>/<path>` for a module outside the folder |
+| `plugins/<id>.mjs` | The host plugin that the host contract's `plugin` field names, named by its script path, with every host-provided module resolved to its shim |
 | `data/resources.json`, `data/resource_types.json`, `data/variables.json` | Every resource and resource type that the folder keeps, and every variable but secrets. Each file is an object keyed by path (a resource type by name), with the record of [internal/syncfolder](../syncfolder/README.md) |
 
-- **No host plugin.** A bundle holds no host plugin; a host gives its
-  plugin when it runs the bundle.
+- **At most one host plugin.** A bundle holds the host plugin that its
+  host contract names, if any. Without one, a host gives its plugin when
+  it runs the bundle.
 - **No secret.** A secret variable is never written. Its value in a folder
   is ciphertext (or plain text, with `plainSecrets`), and the host supplies
   secrets.
@@ -166,6 +168,7 @@ A bundle is a directory, or the same tree as one `.wlb` archive:
 | `deviations` | The deviations in effect (below) |
 | `contract` | The host contract compiled against; with none, every flow and script of the folder is a root |
 | `host_modules` | The host-provided modules, `key` and `id`, in registration order: a module after the modules that it imports |
+| `plugin` | The host plugin, when the contract names one: `key`, its path in the contract, and `file`, its bundle's path, whose digest `files` holds |
 | `harness_runtimes` | By harness class, the `TreeDigest` of the harness runtime that the bundle was built for |
 | `sources` | The digest of every file of the sync folder that the build read, by its path from the sync root ([Sources](#sources)) |
 | `files` | The digest of every other file of the bundle |
@@ -275,6 +278,11 @@ These are not inputs:
       script, and for the listed modules that are neither codebase scripts
       nor outside the folder. Every `.ts` script of the folder is
       available to workspace imports.
+      - **The host plugin** (`BunConfig.Plugin`) is built here too: the
+        contract's `plugin` must be the file of a Bun script of the folder
+        that is not a codebase script (`unsupported_feature` otherwise).
+        Its source and the scripts that its bundle inlined join the
+        sources.
    2. `BuildEsbuildHostModules`, for the other listed modules.
    3. `BuildCodebase`, for the codebase scripts, each with the settings of
       the `codebases` entry that selects it
@@ -831,6 +839,9 @@ module of a bundle with the
 2. **Build.** The helper bundles the host-provided copies and every script.
    A copy resolves its imports of a module that it imports lazily and
    registers before to that module's late shim, which the request carries.
+   It bundles the host plugin, when there is one, into `plugins/<id>.mjs`,
+   with every host-provided module resolved to its shim, so the plugin and
+   the steps share each module's instance in a process.
 3. **Checks and metadata.** `BuildBun` checks each copy's exports against
    its scan (`host_module_exports_differ`), and records the workspace
    scripts that each copy inlined. It writes `scripts/bun/<id>.meta.json`,
@@ -1027,6 +1038,7 @@ finding with a case file is a case, or is listed in `deferred.json`.
 | `outside_test.go` | `TestBuildOutsideHostModule`, `TestOutsideID` | A codebase script that imports, from outside the folder, a module that holds an `AsyncLocalStorage` store, listed by its path from the sync root: the manifest, the copy, the shim and the script's metadata. The script then runs with the host's own instance registered, inside and outside the host's scope, and with the bundled copy. `TestOutsideID` checks the ids | `WL_BUN` for the first |
 | `hostmodules_test.go` | `TestCodebaseHostModulesKeepBuildTime`, `BenchmarkCodebaseHostModules` | Six codebase scripts that import a package of 400 modules, without and with a listed module. The test fails when the build with one listed takes more than three times the plain build plus 300 ms, each the best of three runs; the benchmark times both | |
 | `hostmodules_test.go` | `TestHostModulesKeepLoadEffects` | One folder built without and with host-provided modules, each step run in a process of its own with every copy registered. The steps see the same load effects (`sideEffects: false` packages and directories, outside modules listed or not, a listed module's Bun copy, a Bun script with a lock), but for one difference: a listed module that a step imports without using | `WL_BUN` |
+| `plugin_test.go` | `TestBundleDigestCoversPlugin`, `TestBuildPluginProblems` | A host contract that names a plugin: the manifest records it, and `files` and `sources` hold its bundle's and its source's digests. Another plugin source changes the bundle digest, and `Verify` refuses a plugin changed after the build. A plugin that is not a Bun script of the folder is refused, named | `WL_BUN` |
 | `verify_test.go` | `TestVerify`, `TestVerifyArchiveEntries`, `TestWriteArchive`, `TestExtract`, `TestParseManifest`, `TestTreeDigest`, `TestCanonicalize`, `TestManifestDeviations`, `TestFoldKey` | A changed, extra or missing file; a symbolic link; a forgery whose own manifest matches. Archive entries that repeat or escape; directory entries that collide with a file, lie below one, or that the bundle does not have. Links below a harness runtime's directory, the canonical form, `ModeDeviations` both ways, and the case-folding key against `strings.EqualFold`. An extracted archive verifies with the archive's digest, and a non-empty directory is refused | |
 | `env_test.go`, `shim_test.go` | `TestEnvRewriteGolden`, `TestShimGolden`, `TestLateShimGolden`, `TestShimBehaviour`, `TestEnvRewriteFormats`, `TestShimRefusals` | The define tables, the support module, generated shims and late shims, pinned in `testdata/`; shims run on Bun; the rewrite per format; the shim's refusals | `WL_BUN` for `TestShimBehaviour` |
 | `loadorder_test.go` | `TestLoadTimeHostModules`, `TestHostModuleOrder`, `TestHostModuleOrderWithoutLazyCycles`, `TestLazyImports` | Which imports of listed modules are lazy; the order, with its late imports and cycle errors. 6,000 random lists of up to 8 modules: each without lazy cycles gets the order that counting every import gives. The helper's `lazy` request on `import()` calls in functions, at top level and in class bodies, with literal and folded specifiers | `WL_BUN` for the last |

@@ -64,6 +64,10 @@ type Manifest struct {
 	// HostModules are the host-provided modules (D12) in registration
 	// order: a module after the modules it imports.
 	HostModules []HostModuleEntry `json:"host_modules"`
+	// Plugin is the host plugin that the host contract names, bundled into
+	// its File, plugins/<id>.mjs, which Files covers, so the bundle digest
+	// covers it; nil when the contract names none.
+	Plugin *PluginEntry `json:"plugin,omitempty"`
 	// HarnessRuntimes holds, by harness class, the digest of the harness
 	// runtime the bundle was built for (TreeDigest of its directory).
 	HarnessRuntimes map[string]string `json:"harness_runtimes"`
@@ -106,6 +110,13 @@ type Bundlers struct {
 type HostModuleEntry struct {
 	Key string `json:"key"`
 	ID  string `json:"id"`
+}
+
+// PluginEntry is the bundle's host plugin: its module path in the host
+// contract, and its bundle's path in the bundle.
+type PluginEntry struct {
+	Key  string `json:"key"`
+	File string `json:"file"`
 }
 
 // Canonical returns the manifest's canonical encoding, the bytes of

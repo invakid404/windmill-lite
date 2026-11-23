@@ -193,6 +193,25 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 		}
 		hosts = append(hosts, HostModule{ID: p, Key: key, Path: p, File: s.File, Lock: lockText(s.Lock)})
 	}
+	// The host plugin: a Bun script of the folder, which the helper bundles
+	// with the steps' shims of the host-provided modules (ADR 0004, host
+	// plugins).
+	var plugin *BunPlugin
+	if key := prog.Contract.Plugin; key != "" {
+		item := "plugin " + key
+		p, ok := byFile[key]
+		switch {
+		case !ok:
+			problems = append(problems, ItemProblem{item, Problem{ProblemUnsupportedFeature,
+				"unsupported: plugin " + key + ": it is not the file of a Bun script of the folder"}})
+		case scripts[p].Codebase != nil:
+			problems = append(problems, ItemProblem{item, Problem{ProblemUnsupportedFeature,
+				"unsupported: plugin " + key + ": it is a codebase script; a plugin is bundled as a script with a lock is"}})
+		default:
+			s := scripts[p]
+			plugin = &BunPlugin{ID: p, Key: key, Path: p, File: s.File, Lock: lockText(s.Lock)}
+		}
+	}
 	files := map[string]string{}
 	for p, s := range scripts {
 		files[p] = s.File
@@ -246,7 +265,7 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 	bres, err := BuildBun(ctx, BunConfig{
 		Bun: cfg.Bun, Helper: cfg.Helper, AllowBunMismatch: cfg.AllowBunMismatch,
 		Folder: root, Out: stage, Work: cfg.Work,
-		Scripts: files, Entries: entries, HostModules: hosts,
+		Scripts: files, Entries: entries, HostModules: hosts, Plugin: plugin,
 		Env: cfg.Env, Diagnostics: cfg.Diagnostics, Timeout: cfg.Timeout,
 		SharedCode: cfg.SharedCode,
 	})
@@ -365,6 +384,16 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 			return nil, err
 		}
 	}
+	if plugin != nil {
+		if err := addScriptSources(src, scripts, plugin.Path); err != nil {
+			return nil, err
+		}
+		for _, p := range bres.Plugin.Imports {
+			if err := src.add(files[p]); err != nil {
+				return nil, err
+			}
+		}
+	}
 	// What esbuild read from the folder, and the assets' sources in it.
 	// Packages and files outside the folder reach the bundle only through
 	// the modules and assets the manifest digests.
@@ -444,6 +473,9 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 	}
 	for _, id := range bres.HostModuleOrder {
 		m.HostModules = append(m.HostModules, HostModuleEntry{Key: bres.HostModules[id].Key, ID: id})
+	}
+	if plugin != nil {
+		m.Plugin = &PluginEntry{Key: plugin.Key, File: path.Join("plugins", plugin.ID+".mjs")}
 	}
 	// The modules esbuild builds after the Bun build's, which never import
 	// them.

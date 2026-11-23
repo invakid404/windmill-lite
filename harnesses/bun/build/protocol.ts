@@ -59,6 +59,17 @@ export type EntryRequest = {
   bundle?: string;
 };
 
+// The host plugin that the host contract names (build only): a module of
+// the folder, by its Windmill path and its file, and the dependency set it
+// installs from.
+export type PluginRequest = {
+  id: string;
+  key: string;
+  path: string;
+  file: string;
+  deps?: string;
+};
+
 export type Request = {
   version: 1;
   // scan: the host-provided modules' exports; build: every module; parse:
@@ -81,6 +92,8 @@ export type Request = {
   env_binding: string;
   host_modules: HostModuleRequest[];
   entries: EntryRequest[];
+  // The build op also bundles the host plugin into plugins/<id>.mjs.
+  plugin?: PluginRequest;
   // The build op also builds the shared layout (ADR 0013).
   shared_code?: boolean;
   // The kept op: closure bundles, by id, whose kept imports it reports.
@@ -111,12 +124,23 @@ export type EntryResult = {
   meta: Record<string, unknown>;
 };
 
+export type PluginResult = {
+  error?: Problem;
+  // The host-provided modules it imports, which resolve to their shims, the
+  // npm packages its own source imports, and the workspace scripts it
+  // inlined, by Windmill path.
+  host_modules?: string[];
+  packages?: string[];
+  imports?: string[];
+};
+
 export type Response = {
   version: 1;
   bun_version: string;
   error?: Problem;
   host_modules: Record<string, HostModuleResult>;
   entries: Record<string, EntryResult>;
+  plugin?: PluginResult;
   // The closures of shared code the build op wrote to <work>/closures, and
   // by closure the name of its parameter that dependency code reads as
   // import.meta.
