@@ -324,7 +324,8 @@ for the services `""`, `plugin` and `windmill_lite.v1.Runner`.
 `GetBuildInfo` returns what `wl`'s `BuildInfo` holds: the bundle digest,
 the engine, Bun and esbuild versions, the harness runtimes' digests, the
 module state, shared code, the host contract and the deviations
-([packaging](0010-packaging.md#build-identity)). It adds three fields:
+([packaging](0010-packaging.md#build-identity)). It also says whether a Bun
+other than the pin built the bundle, and adds three fields:
 
 | Field | Value |
 |---|---|
@@ -433,7 +434,7 @@ warm start. A request's `pin` and `limits` set one run's affinity and
 limits. Their rules are the pool's
 ([harness protocol](0004-harness-protocol.md#pooling-processes-the-engine-spawns)):
 a pinned run keeps one process, a process that trips a recycle trigger is
-replaced, and a run that passes a limit fails alone.
+replaced, and a run's limits act on that run alone.
 
 #### Licence and notices
 

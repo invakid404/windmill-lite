@@ -828,3 +828,5 @@ WA-1 to WA-6, WA-8, WA-9, WA-11, WA-12, WA-14 to WA-16, WA-19, WA-30,
 WA-31, WA-40 to WA-42, WA-50, WA-51, WA-V1 to WA-V5, FX-5, FX-40, FX-46,
 WR-22, JE-20, JE-42, JE-43, SY-11, OR-5, OR-10, LIC-1, Q-OF-7, Q-WA-3,
 Q-WA-10, and the client table of client-api.md.
+
+FX-39, for flows that suspend until notified.
