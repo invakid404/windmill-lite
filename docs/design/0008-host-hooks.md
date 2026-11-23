@@ -18,7 +18,8 @@ the flow could turn into data.
 directory, and run data that a host attaches for plugins to read as
 `wl.run.data` (H11). Platform calls that a plugin hook makes outside an
 [invocation](../glossary.md#invocation) are refused, not attributed to its
-site.
+site. Go callbacks over go-plugin's broker, for a host that runs the engine
+as a go-plugin plugin, are planned too.
 
 ## Context
 
@@ -118,6 +119,18 @@ declines.
   run's host scope and can call any code in the bundle. Platform calls it
   makes are attributed to the site it is serving
   ([platform interface](0007-platform-interface.md)).
+- **Go callbacks over the go-plugin broker** (planned), for a Go host that
+  runs the engine as a plugin
+  ([host adapters](0009-host-adapters.md#hooks-across-the-plugin-boundary)).
+  The host serves a run's hooks on a broker connection with a host plugin's
+  declaration, and the engine calls them with a `host_call`'s hook names and
+  payloads. Their errors and timeouts latch the run as a plugin's do, and
+  `around`, which runs inside the harness process, is not offered there.
+- **Settings in the run** need no callback. A run's static interceptions
+  (H1), write-capable selectors (H3), deadlines (H4), fatal error names
+  (H7), halts (H8) and clock (H10) travel in host mode's `run` frame and in
+  the go-plugin adapter's `RunRequest`. A host gives a hook as a callback
+  only when it computes the answer while the run proceeds.
 - **The payload of a `host_call`** (amendment) is JSON whose escapes may
   differ from `encoding/json`'s; the values a plugin's `JSON.parse` reads
   are the same.

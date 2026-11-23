@@ -71,7 +71,7 @@ adapters are planned ([host adapters](0009-host-adapters.md)).
 | [Module state](0006-module-state.md) | Two modes: `fresh` (a process per invocation, Windmill-equivalent) and `warm` (default: one module instance per script for the process lifetime, `globalThis` shared), plus host-provided modules as the one shared exception; `shared` left out of the first edition, and shared code added by [shared module code](0013-shared-module-code.md). |
 | [Platform interface](0007-platform-interface.md) | Go service interfaces with local defaults and host replacements; one interpolation walker with three modes and a host secret layer; a facade reached by intercepted `fetch` (warm) or per-invocation tokens (`fresh`), never by a shared token; unsupported routes fail with `UnsupportedPlatformCall`; hybrid dispatch built behind interfaces, its remote adapter held for a licence decision. |
 | [Host hooks](0008-host-hooks.md) | Thirteen hooks with typed selectors, as Go callbacks or TypeScript host plugins (declared up front, called over `host_call`, with `around` wrappers; a plugin's error or timeout latches the run); step code's `wl.latch` and `wl.signal`; mandatory host-provided call sites that fail closed; scopes reach steps through host-provided modules; seams defined in the first engine milestone. |
-| [Host adapters](0009-host-adapters.md) | The `wl` Go library is the only engine API. Adapters, in order: go-plugin, a Bun host SDK, plain gRPC, HTTP, CLI. Typed client methods are generated from Windmill schemas over a generic wire, bound to the bundle digest. A Bun host installs the SDK from the npm package `windmill-lite`, whose version is the engine's, or vendors it with the harness runtime it imports and checks the copy's provenance. The SDK's test entry, `windmill-lite/bun/testing`, runs a function as one invocation and settles it with the runtime's own settlement, on Bun or Node. |
+| [Host adapters](0009-host-adapters.md) | The `wl` Go library is the only engine API, and the adapters are go-plugin, a Bun host SDK, plain gRPC, HTTP and a CLI. Under go-plugin the engine binary is the plugin: it serves `windmill_lite.v1.Runner`, `wl/plugin` launches, pins and supervises it, and hooks cross as request settings, a bundled host plugin or Go callbacks on the broker. Typed clients are generated from Windmill schemas. A Bun host installs the SDK from npm or vendors it. |
 | [Packaging](0010-packaging.md) | A bundle with a manifest of digests, tied to one exact engine version; a Bun build helper on the pinned Bun `1.4.3`; host-provided modules through a registry (D12), registered in the order of their load-time imports, with one shim generator and one define table and support module for both bundlers; a bundle digest in every handshake, trace and build-info call; a single executable; an OCI image written without Docker; a `verify` command. |
 | [Differential testing](0011-differential-testing.md) | The oracle harness as the reference designs it, in public CI only; a typed, injective site-path encoding that also separates repeated module ids; `record`, `check` and `diff` in three configurations; only context-free cases lifted into one-step flows; a stub mode on the oracle and then on windmill-lite; benchmarks, a bounded-pool benchmark and run spans. |
 | [Layout and milestones](0012-layout-and-milestones.md) | `wl/` and its packages `wl/plugin`, `wl/storetest` and `wl/redisstore` as the only public Go packages, components under `internal/`, and the npm package `windmill-lite` rooted at `harnesses/`. 56 milestones, each one pull request, whose "needs merged" covers everything their exit gates need. A contracts milestone comes first, then a walking skeleton on the pinned Bun, and oracle recordings in batches, each before the milestone it gates, with a manifest that can name each run's gate. |
@@ -337,14 +337,33 @@ reading that the code had taken, the code follows the answer.
   - Until it is decided, a script that must let its children finish runs
     `fresh`, which does what Windmill does
     ([harness protocol](0004-harness-protocol.md#the-shared-process-failure-model)).
+- **A halt that ends only a subflow.** A halt ends the whole run
+  ([host hooks](0008-host-hooks.md#the-hooks) H8), so a flow that wraps a
+  subflow cannot halt it at a module and go on to shape what it read. A
+  host maps the halted run's trace instead.
+  - The question: should a hook end a by-path subflow early, with the
+    results so far, and let its parent continue?
+- **A first-write signal from step code.** The first-write signal (H3)
+  fires when the first write-capable step launches. A step that reads its
+  sources before its first write is counted as written from its start.
+  - The question: should step code report its own first write, for
+    example through the step API (`wl`), with H3's launch as the fallback?
+- **A host provider's answers across runs.** The read cache serves one run
+  ([D21](0001-equivalence-contract.md#5-named-deviations)), so a host that
+  reads its values from an API pays a read per path in every run.
+  - The question: should a cache of a provider's answers, with a time limit
+    and keyed by a scope that the run names, serve later runs too? A value
+    changed at its source would then reach runs only after the limit: a
+    deviation of its own.
 
 ## Recording requests
 
 These requests ask for observations that the reference cannot settle from
 the source. Most need a running Windmill, the [oracle](../glossary.md#oracle);
 a few optional checks need only PostgreSQL or the expression evaluator. They
-are requests, not design decisions. All but one come from the semantics team;
-the build team made one, which the oracle has recorded.
+are requests, not design decisions, and all but two come from the semantics
+team. The build team made the other two: one that the oracle has recorded,
+and the result polls for a job that a flow created, which is open.
 
 Each oracle request becomes a [fixture](../glossary.md#fixture) recorded in
 the session it names, or is deferred with its reason in a recording batch's
@@ -801,6 +820,30 @@ Each request here is made by a Bun driver step with `fetch` and its own
     caught `ApiError`'s `status`, `statusText` and `body`. The recording of
     WA-16/d kept only the message, `Internal Server Error`, which fixes the
     status at 500 but not CE's text.
+- **The result polls for a job that a flow created**
+  ([WA-V2](../semantics/client-api.md#wa-v2),
+  [WA-19](../semantics/client-api.md#wa-19)), in the two-worker session, so
+  that the driver runs while a sibling still runs. The build team asks for
+  it: the result polls are to answer for every job of a live run
+  ([platform interface](0007-platform-interface.md#services)).
+  - Deploy `f/x/fails`, `[x: bun: throw new Error("e")]`, and run by path
+    `[a: bun: return {"k": [1, 2.50]}, c: flow f/x/fails
+    (continue_on_error: true), p: branchall(parallel: true, branches:
+    [[w: bun: waits 3 s, returns 1], [d: the driver]])]`.
+  - The driver reads the root flow's job (its `WM_ROOT_JOB_ID`), then
+    `p`'s first child flow for `w`, through `GET /api/w/<ws>/jobs_u/get/<id>`,
+    to find the jobs of `a`, `c` and `w` in `flow_status.modules`.
+  - For each of the three jobs it calls
+    `GET /api/w/<ws>/jobs_u/completed/get_result_maybe/<id>`, the same with
+    `?get_started=true`, and `GET /api/w/<ws>/jobs_u/completed/get_result/<id>`.
+  - Predicted from the rules of the polls and the job read: `a` completed,
+    with `success` `true` and its result, and `c`'s flow job completed,
+    with `success` `false` and the subflow's error as its result. The
+    running `w` answers the unfinished nulls, `started` `true` when asked,
+    and `get_result`'s 404
+    `Not found: Completed Job not found at name <id><loc>`.
+  - Not predicted: the spelling of a result in the body, compact or with
+    the spaces of `jsonb`'s text output, which the job read uses.
 
 #### Optional checks outside the equivalence contract
 

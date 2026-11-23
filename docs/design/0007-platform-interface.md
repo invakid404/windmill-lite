@@ -23,7 +23,13 @@ default `fail` policy a step that called an unsupported route fails with
   deletion, generated object keys and presigning, which answer 501;
 - the job routes other than the root lookup, the job reads, flow user
   state, dispatch, the result polls and the flow restart, which answer 501
-  too.
+  too;
+- the result polls for a job of a live run that the dispatcher did not
+  start (§Services);
+- the settings of the job identity in `wl` and in the go-plugin adapter
+  (§Job identity);
+- removing windmill-lite's job ids from a step's own dispatch to a real
+  Windmill (§Async dispatch).
 
 ## Context
 
@@ -76,6 +82,70 @@ them, per runtime or per run ([host hooks](0008-host-hooks.md)).
 | `Jobs` | `jobs_u/get_root_job_id/{id}`, `jobs_u/get/{id}`, `jobs_u/get_args/{id}` | answers from the run registry for windmill-lite ids ([D3](0001-equivalence-contract.md#5-named-deviations), job ids that are windmill-lite's own): the root lookup for a live or an ended job, the job reads for a job of a live run (D22 for an ended one) | core |
 | `ResultCache` | none (engine-internal, `cache_ttl`) | per process (D4); the key and TTL rules of [FX-40](../semantics/execution.md#fx-40) | core; later (S3-aware argument hashing) |
 | `Resume` | `jobs/resume_urls` | none: a step that asks gets `UnsupportedPlatformCall`; a host provider may return `{approvalPage, resume, cancel}` | core (call shape, provider interface); out (resuming, since `suspend` is rejected) |
+
+**A sibling's outcome.** A step can read another job of its own run, such
+as a subflow's flow job whose id it took from its flow's status:
+
+- The job read (`jobs_u/get/{id}`) answers for the jobs of a live run,
+  with `success` and `result` once the job has completed
+  ([WA-19](../semantics/client-api.md#wa-19)).
+- The result polls (`jobs_u/completed/get_result_maybe/{id}` and
+  `get_result/{id}`) answer only for the runs that the dispatcher started,
+  and 501 for any other job of windmill-lite's. They are planned to answer
+  for every job of a live run from the run registry, with the shapes of
+  [WA-V2](../semantics/client-api.md#wa-v2) and WA-19, and for a job of an
+  ended run as the job read does
+  ([D22](0001-equivalence-contract.md#5-named-deviations)).
+- A provided site has no job, so a step that reads its outcome gets it
+  from a provider too
+  ([host hooks](0008-host-hooks.md#patterns-built-from-the-hooks)).
+- The exact answers for a job that a flow created wait for a recording
+  ([recording requests](README.md#recording-requests)).
+
+**Where a run's resources and variables come from.** A read takes the
+first answer of these sources, in this order:
+
+1. the run's own values: a Go host's `RunPlatform` (H13), or the
+   `resources` and `variables` of a go-plugin `RunRequest` (planned);
+2. the host plugin's `resource` and `variable` providers, and those of a
+   go-plugin host's hooks service on the broker (planned);
+3. the runtime's host values, `wl`'s `Options.Resources` and `Variables`,
+   which the go-plugin adapter's configuration fills;
+4. the bundle's `data/`;
+5. for a resource, the resource store's entries.
+
+With the read cache on
+([D21](0001-equivalence-contract.md#5-named-deviations)), a run's later
+reads of a path take its first read's answer. A source that reads a real
+Windmill's API is the proxied platform of hybrid dispatch (§Hybrid dispatch
+to a real Windmill), which waits for the decision named there. A host's own
+provider may read any source that the host chooses.
+
+**Flows that suspend until notified**, such as a step that waits for a
+semaphore that another job releases. windmill-lite runs no `suspend`: the
+loader refuses one that a run can reach, unless every path to it passes
+through a mandatory host-provided call site
+([IR, loader and validation](0002-ir-and-loader.md#host-contract-and-mandatory-host-provided-call-sites),
+[FX-39](../semantics/execution.md#fx-39)).
+
+The decision for such a flow is a declared stand-in. The host contract
+makes the call site of the subflow that suspends a provided site, whose
+provider gives the result that the subflow would give once notified. The
+provider is a static value, a host plugin's provider or, under go-plugin, a
+provider on the broker, so a host that admits work per tenant can make its
+own admission the stand-in
+([host hooks](0008-host-hooks.md#patterns-built-from-the-hooks)).
+
+Rejected for such flows:
+
+- **Not supported, documented, alone.** A host could then not run a flow
+  that waits on such a semaphore at all, although every other step of it
+  runs here.
+- **A polling wait in the engine.** It would rebuild Windmill's durable
+  suspend and resume, which the
+  [equivalence contract](0001-equivalence-contract.md#3-out-of-scope)
+  leaves out, and a run would hold its harness process and its deadline
+  while it polls.
 
 ### One interpolation walker, three modes
 
@@ -219,6 +289,13 @@ and [WA-4](../semantics/client-api.md#wa-4):
   since no schedule or CI test starts a job and windmill-lite keeps no
   script hashes ([WA-V10](../semantics/client-api.md#wa-v10)).
 
+**The identity's settings** (planned). A runtime option is planned to set
+this host configuration once, for the job environment, the facade's check
+of a call's workspace and the resource store's key alike. Until then `wl`
+sets none of it, so every job reads windmill-lite's placeholders, such as
+`WM_WORKSPACE` `windmill-lite`. The go-plugin adapter's configuration
+carries the option, and a go-plugin `RunRequest` may set it for one run.
+
 `FlowUserState` keys on the effective root; `getRootJobId` answers from the
 run registry. A host can override the environment of an invocation
 ([host hooks](0008-host-hooks.md)), for example to keep `WM_JOB_ID` unset for code
@@ -231,18 +308,33 @@ arguments, and the optional `parent_job`, `root_job`, `scheduled_in_secs` and
 `tag` ([WA-6](../semantics/client-api.md#wa-6), client table). The default
 dispatcher runs the target from the bundle as a separate run and returns its
 UUID as `text/plain`; `waitJob` and `getResultMaybe` answer for it with
-Windmill's shapes ([WA-V2](../semantics/client-api.md#wa-v2)). The target
-must be a root of the bundle (the host contract of
+Windmill's shapes ([WA-V2](../semantics/client-api.md#wa-v2)).
+
+The target must be a root of the bundle (the host contract of
 [IR, loader and validation](0002-ir-and-loader.md#host-contract-and-mandatory-host-provided-call-sites));
 otherwise the dispatching step fails with `UnsupportedPlatformCall`,
 `dispatch target not in bundle: <path>`. A dispatched run starts at once:
 no default cap delays it, so a parent that waits for it cannot starve it
-([harness protocol](0004-harness-protocol.md); a host-set cap is D15). A host
-dispatcher may route elsewhere, for example to a real Windmill, and decides
-whether parent and root links naming windmill-lite ids are sent on. Code
-that bypasses the facade and posts to a real Windmill itself is outside the
-dispatcher's reach; a host that runs such code strips the links in its own
-`fetch` wrapper.
+([harness protocol](0004-harness-protocol.md); a host-set cap is D15).
+
+**windmill-lite's job ids stay local.** They name no job of any Windmill
+instance ([D3](0001-equivalence-contract.md#5-named-deviations)), so
+nothing that reaches a real Windmill from a run carries them as
+`parent_job` or `root_job`:
+
+- A dispatcher that routes a step's dispatch to a real Windmill, and the
+  steps that hybrid dispatch runs remotely (§Hybrid dispatch to a real
+  Windmill), send neither link. A host's own dispatcher that routes there
+  drops them too.
+- A step's own client call to a real Windmill bypasses the facade, and the
+  stock clients add `parent_job` from `WM_JOB_ID` and `root_job` from
+  `WM_ROOT_FLOW_JOB_ID` ([WA-15](../semantics/client-api.md#wa-15)). A
+  runtime setting that names such a Windmill's origins is planned. On a
+  step's request to one of them, the harness's `fetch` view then removes a
+  `parent_job` or `root_job` query parameter whose value is one of the
+  invocation's own job ids.
+- Until then, a host that runs such code removes the links in its own
+  `fetch` wrapper.
 
 ### Hybrid dispatch to a real Windmill
 
