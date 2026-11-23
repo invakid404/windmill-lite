@@ -345,8 +345,9 @@ for the services `""`, `plugin` and `windmill_lite.v1.Runner`.
   A start that fails writes its reason to standard error, which go-plugin
   passes to the host's logger, and exits with status 1.
 - **What starts a drain:** `SIGTERM`; the engine's resident set at or over
-  `engine_recycle_rss` on two consecutive samples, taken every second; or a
-  warm pool that cannot start a harness process. A harness process that
+  `engine_recycle_rss` on two consecutive samples, taken every second; a
+  warm pool that cannot start a harness process; or the bound on the tokens
+  that `GetRun` answered `gone` for. A harness process that
   grows or is tainted is replaced inside the pool, so it does not end the
   engine.
 - **A drain** refuses new runs and lets the runs in flight go on for up to
@@ -489,9 +490,14 @@ A hook takes the cheapest of three routes that serves it:
   growing interval while the engine answers `held` or the lookup fails. It
   drops the registration at `gone`, and the caller's result does not change.
 - **A final `gone`.** The engine remembers each token it has answered
-  `gone` for, for the life of the process, and refuses a later `Run` that
-  carries it. So a request that arrives after the lookup never starts a run
-  whose hooks the client has dropped.
+  `gone` for, and refuses a later `Run` that carries it. So a request that
+  arrives after the lookup never starts a run whose hooks the client has
+  dropped.
+- **A bound on those tokens.** The engine keeps at most 65,536 of them. At
+  that number it stops serving and drains, as when a recycle trigger trips,
+  so no process that still takes runs forgets a token. A delayed request of
+  that process ends with its connection, and the next generation starts with
+  none.
 - **One listener.** The broker connection lives as long as the `Client`,
   so a run opens no listener of its own.
 - **Providers on the broker.** A named provider that the configuration
