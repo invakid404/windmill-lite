@@ -196,9 +196,28 @@ def go_modules() -> list[tuple[str, str, str]]:
     return sorted({tuple(line.split("\t")) for line in res.stdout.splitlines() if line})
 
 
-# A licence text that is the Mozilla Public License 2.0, by its title or
-# its SPDX identifier.
-_MPL2 = re.compile(r"(?i)mozilla public license,?\s+version\s+2\.0|\bMPL-2\.0\b")
+# A module's own licence grant: a licence file other than a notice or a
+# patent grant, which can name the licences of components a module only
+# attributes.
+_GRANT_FILE = re.compile(r"(?i)(licen[cs]e|copying)([.-].*)?")
+
+# The title of the Mozilla Public License 2.0, which its text starts with,
+# and the line that names it by its SPDX identifier.
+_MPL2_TITLE = re.compile(r"(?i)mozilla public license,?\s+version\s+2\.0")
+_MPL2_SPDX = re.compile(r"(?im)^\W*SPDX-License-Identifier:\s*MPL-2\.0\s*$")
+
+# How many lines that are not blank the title may come after, such as a
+# copyright line.
+_TITLE_LINES = 5
+
+
+def is_mpl2(text: str) -> bool:
+    """Returns whether a licence file is the Mozilla Public License 2.0:
+    its title is in its first lines that are not blank, or a line names it
+    by its SPDX identifier. A licence file that mentions the MPL further
+    down, such as for a component that it attributes, is not."""
+    head = [line for line in text.splitlines() if line.strip()][:_TITLE_LINES]
+    return any(_MPL2_TITLE.search(line) for line in head) or bool(_MPL2_SPDX.search(text))
 
 # The code hosts whose module paths start with the repository's path, as
 # host/owner/repository.
@@ -235,13 +254,13 @@ def mpl_source(path: str, ver: str) -> str:
 def module_notice(path: str, ver: str, directory: str) -> str:
     """Returns the section of LICENSES.txt for the Go module path at
     version ver, whose files are in directory: its licence files, after
-    the source line of an MPL-2.0 module."""
+    the source line of a module whose own licence grant is the MPL-2.0."""
     found = sorted(p for p in pathlib.Path(directory).iterdir() if p.is_file() and _LICENSE_FILE.fullmatch(p.name))
     if not found:
         raise ReleaseError(f"Go module {path} {ver} has no licence file in {directory}")
     texts = [(p.name, p.read_text(encoding="utf-8")) for p in found]
     text = "\n\n".join(f"--- {name} ---\n\n{body}" for name, body in texts)
-    if any(_MPL2.search(body) for _, body in texts):
+    if any(_GRANT_FILE.fullmatch(name) and is_mpl2(body) for name, body in texts):
         text = mpl_source(path, ver) + "\n\n" + text
     return _section(f"Go module {path} {ver}", text)
 

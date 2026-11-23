@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 _spec = importlib.util.spec_from_file_location(
     "release", pathlib.Path(__file__).with_name("release.py")
@@ -213,6 +214,45 @@ class MPLSourceTest(unittest.TestCase):
             text = release.module_notice("github.com/example/mit", "v1.0.0", self.module(d, "mit", {"LICENSE": self.MIT, "NOTICE": "Mozilla Firefox users, take note\n"}))
         self.assertNotIn("Source Code Form", text)
         self.assertIn(self.MIT, text)
+
+    def test_an_attributed_mpl_component_gets_no_source_line(self) -> None:
+        """A module under another licence that attributes an MPL-2.0
+        component, in its NOTICE or further down its LICENSE, is not itself
+        under the MPL."""
+        attribution = (
+            "\n\nThis product includes the component x, which is available under the\n"
+            "Mozilla Public License, version 2.0 (SPDX: MPL-2.0).\n"
+        )
+        apache = "Apache License\nVersion 2.0, January 2004\nhttp://www.apache.org/licenses/\n\nTERMS AND CONDITIONS\n"
+        with tempfile.TemporaryDirectory() as d:
+            text = release.module_notice("github.com/example/apache", "v1.2.0", self.module(d, "apache", {
+                "LICENSE": apache + "\n" * 3 + "\n".join(f"Section {i}." for i in range(10)) + attribution,
+                "NOTICE": "Example\nCopyright 2026 Example" + attribution + "SPDX-License-Identifier: MPL-2.0\n",
+            }))
+        self.assertNotIn("Source Code Form", text)
+        self.assertIn("SPDX-License-Identifier: MPL-2.0", text)
+
+    @unittest.skipUnless(shutil.which("go"), "needs the go command")
+    def test_notices_carry_the_source_line(self) -> None:
+        """The notices of a release name the source of an MPL-2.0 module that
+        the engine links, here a synthetic one that module discovery
+        returns."""
+        with tempfile.TemporaryDirectory() as d:
+            mpl = self.module(d, "mpl", {"LICENSE": self.MPL})
+            mit = self.module(d, "mit", {"LICENSE": self.MIT})
+            modules = [("github.com/example/mpl", "v1.0.0", mpl), ("github.com/example/mit", "v1.1.0", mit)]
+            with mock.patch.object(release, "go_modules", return_value=modules):
+                text = release.notices()
+        source = (
+            "Source Code Form: the source of github.com/example/mpl v1.0.0 is available under the "
+            "Mozilla Public License 2.0 from https://proxy.golang.org/github.com/example/mpl/@v/v1.0.0.zip "
+            "and from its upstream repository https://github.com/example/mpl."
+        )
+        mpl_section = text.index("Go module github.com/example/mpl v1.0.0\n")
+        mit_section = text.index("Go module github.com/example/mit v1.1.0\n")
+        self.assertEqual(text.count(source), 1)
+        self.assertTrue(mpl_section < text.index(source) < mit_section, "the line is not in the MPL module's section")
+        self.assertIn("Go (the standard library and runtime)", text)
 
     def test_a_module_without_a_licence_file_fails(self) -> None:
         with tempfile.TemporaryDirectory() as d, self.assertRaises(release.ReleaseError):
