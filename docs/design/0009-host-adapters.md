@@ -483,11 +483,15 @@ A hook takes the cheapest of three routes that serves it:
   when the generation ends. The engine sends that call whatever hooks the
   run declared. A hook call that names no held registration answers an
   error that latches nothing.
-- **Reconciliation.** A refusal or a release call can be lost. So when a
-  `Run` call ends without an outcome, and for any registration older than
-  its run's hard deadline plus `plugin_timeout_ms`, `Client` asks `GetRun`,
-  and drops the registration once the engine no longer holds the run. The
-  caller's unknown outcome stays unknown either way.
+- **Reconciliation.** A refusal or a release call can be lost. So after
+  every `Run` call ends, whatever its outcome, `Client` asks `GetRun` for
+  that registration, at first after `plugin_timeout_ms` and then with a
+  growing interval while the engine answers `held` or the lookup fails. It
+  drops the registration at `gone`, and the caller's result does not change.
+- **A final `gone`.** The engine remembers each token it has answered
+  `gone` for, for the life of the process, and refuses a later `Run` that
+  carries it. So a request that arrives after the lookup never starts a run
+  whose hooks the client has dropped.
 - **One listener.** The broker connection lives as long as the `Client`,
   so a run opens no listener of its own.
 - **Providers on the broker.** A named provider that the configuration

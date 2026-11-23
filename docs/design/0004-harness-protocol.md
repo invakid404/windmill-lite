@@ -663,10 +663,13 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
   ended. Without a bound their number has no limit, since a replacement can
   start while earlier processes still finish their work and their pins.
 - **A bound on live processes** (planned). With `max_live` set, the pool
-  starts no process while that many are alive, and new unpinned
-  invocations wait, as at a full cap. A replacement then waits for a
-  leaving process to exit, which a tainted one does within the recycle
-  timeout once no pinned run holds it.
+  starts no process while that many are alive. Routing does not change: an
+  invocation goes at once to a serving process that can take it, and waits
+  only when none can and the process it needs cannot start.
+- A leaving process first waits until no pinned run holds it and no
+  invocation is active in it. Then it drains within the recycle timeout, and
+  its slot frees once its exit is observed. `max_live` below the pool's
+  maximum refuses to open, since the pool could not reach its size.
 - **Memory.** A threshold is sampled at heartbeats and is not a cap: a
   process can pass it between samples, and while it waits to leave. So the
   container's memory limit is the one hard bound on bytes. A host sizes it
