@@ -31,7 +31,9 @@ A release is the tag "v" + the version. The release workflow
                                 binary must carry into <out>: the
                                 Unlicense, the third-party files of this
                                 repository that the engine contains, the
-                                licences of the Go modules it links, and
+                                licences of the Go modules it links, with
+                                where to get the source of each module
+                                under the Mozilla Public License 2.0, and
                                 Go's own
 
 Every command checks the version's form first: MAJOR.MINOR.PATCH with an
@@ -194,6 +196,56 @@ def go_modules() -> list[tuple[str, str, str]]:
     return sorted({tuple(line.split("\t")) for line in res.stdout.splitlines() if line})
 
 
+# A licence text that is the Mozilla Public License 2.0, by its title or
+# its SPDX identifier.
+_MPL2 = re.compile(r"(?i)mozilla public license,?\s+version\s+2\.0|\bMPL-2\.0\b")
+
+# The code hosts whose module paths start with the repository's path, as
+# host/owner/repository.
+_REPO_HOSTS = ("github.com", "gitlab.com", "bitbucket.org")
+
+
+def _escape(s: str) -> str:
+    """Returns s in the module proxy's case encoding: each capital letter
+    becomes "!" and the letter in lower case."""
+    return re.sub(r"[A-Z]", lambda m: "!" + m.group().lower(), s)
+
+
+def upstream(path: str) -> str:
+    """Returns the address of the repository of the Go module at path: the
+    repository's own path on a known code host, and otherwise the module
+    path, where `go get` finds the repository."""
+    parts = path.split("/")
+    if parts[0] in _REPO_HOSTS and len(parts) >= 3:
+        return "https://" + "/".join(parts[:3])
+    return "https://" + path
+
+
+def mpl_source(path: str, ver: str) -> str:
+    """Returns the line that tells a recipient of the engine where to get
+    the Source Code Form of an MPL-2.0 module, as section 3.2 of the
+    licence asks of a work distributed in executable form."""
+    return (
+        f"Source Code Form: the source of {path} {ver} is available under the "
+        f"Mozilla Public License 2.0 from https://proxy.golang.org/{_escape(path)}/@v/{_escape(ver)}.zip "
+        f"and from its upstream repository {upstream(path)}."
+    )
+
+
+def module_notice(path: str, ver: str, directory: str) -> str:
+    """Returns the section of LICENSES.txt for the Go module path at
+    version ver, whose files are in directory: its licence files, after
+    the source line of an MPL-2.0 module."""
+    found = sorted(p for p in pathlib.Path(directory).iterdir() if p.is_file() and _LICENSE_FILE.fullmatch(p.name))
+    if not found:
+        raise ReleaseError(f"Go module {path} {ver} has no licence file in {directory}")
+    texts = [(p.name, p.read_text(encoding="utf-8")) for p in found]
+    text = "\n\n".join(f"--- {name} ---\n\n{body}" for name, body in texts)
+    if any(_MPL2.search(body) for _, body in texts):
+        text = mpl_source(path, ver) + "\n\n" + text
+    return _section(f"Go module {path} {ver}", text)
+
+
 def notices() -> str:
     """Returns the licence texts that a binary of the engine must carry."""
     out = [_section("windmill-lite (Unlicense)", (REPO / "LICENSE").read_text(encoding="utf-8"))]
@@ -201,11 +253,7 @@ def notices() -> str:
         text = "\n\n".join(f"--- {f} ---\n\n{(REPO / f).read_text(encoding='utf-8')}" for f in files)
         out.append(_section(title, text))
     for path, ver, directory in go_modules():
-        found = sorted(p for p in pathlib.Path(directory).iterdir() if p.is_file() and _LICENSE_FILE.fullmatch(p.name))
-        if not found:
-            raise ReleaseError(f"Go module {path} {ver} has no licence file in {directory}")
-        text = "\n\n".join(f"--- {p.name} ---\n\n{p.read_text(encoding='utf-8')}" for p in found)
-        out.append(_section(f"Go module {path} {ver}", text))
+        out.append(module_notice(path, ver, directory))
     goroot = pathlib.Path(subprocess.run(["go", "env", "GOROOT"], capture_output=True, text=True, check=True).stdout.strip())
     # Go's own distribution keeps LICENSE and PATENTS in GOROOT; a package
     # manager such as Homebrew may move them one level up.

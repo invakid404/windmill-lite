@@ -174,5 +174,50 @@ class NoticesTest(unittest.TestCase):
         self.assertIn("Go (the standard library and runtime)", text)
 
 
+class MPLSourceTest(unittest.TestCase):
+    """The notice of a Go module under the Mozilla Public License 2.0 says
+    where its source is, as section 3.2 of the licence asks of a work
+    distributed in executable form. The modules are synthetic, so the test
+    does not depend on which modules the engine links."""
+
+    MPL = "Copyright (c) 2026 Example\n\nMozilla Public License, version 2.0\n\n1. Definitions\n"
+    MIT = "MIT License\n\nCopyright (c) 2026 Example\n\nPermission is hereby granted, free of charge, ...\n"
+
+    def module(self, d: str, name: str, files: dict[str, str]) -> str:
+        directory = pathlib.Path(d) / name
+        directory.mkdir()
+        for file, text in files.items():
+            (directory / file).write_text(text, encoding="utf-8")
+        return str(directory)
+
+    def test_notices_mpl_source(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            text = release.module_notice("github.com/Example/MPL-Thing/v2", "v2.1.0-RC.1", self.module(d, "mpl", {"LICENSE": self.MPL}))
+        source = (
+            "Source Code Form: the source of github.com/Example/MPL-Thing/v2 v2.1.0-RC.1 is available under the "
+            "Mozilla Public License 2.0 from https://proxy.golang.org/github.com/!example/!m!p!l-!thing/v2/@v/v2.1.0-!r!c.1.zip "
+            "and from its upstream repository https://github.com/Example/MPL-Thing.\n"
+        )
+        self.assertIn("Go module github.com/Example/MPL-Thing/v2 v2.1.0-RC.1\n", text)
+        self.assertIn(source, text)
+        self.assertIn(self.MPL, text)
+        self.assertLess(text.index(source), text.index("--- LICENSE ---"))
+
+    def test_an_spdx_identifier_names_the_mpl(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            text = release.module_notice("example.com/x/mpl", "v0.3.0", self.module(d, "mpl", {"LICENSE": "SPDX-License-Identifier: MPL-2.0\n"}))
+        self.assertIn("from https://proxy.golang.org/example.com/x/mpl/@v/v0.3.0.zip and from its upstream repository https://example.com/x/mpl.", text)
+
+    def test_other_licences_get_no_source_line(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            text = release.module_notice("github.com/example/mit", "v1.0.0", self.module(d, "mit", {"LICENSE": self.MIT, "NOTICE": "Mozilla Firefox users, take note\n"}))
+        self.assertNotIn("Source Code Form", text)
+        self.assertIn(self.MIT, text)
+
+    def test_a_module_without_a_licence_file_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as d, self.assertRaises(release.ReleaseError):
+            release.module_notice("github.com/example/none", "v1.0.0", self.module(d, "none", {"README.md": "no licence\n"}))
+
+
 if __name__ == "__main__":
     unittest.main()
