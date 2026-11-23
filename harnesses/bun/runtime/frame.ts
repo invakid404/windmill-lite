@@ -97,15 +97,17 @@ function value(v: unknown, nestedOrder?: readonly string[]): string {
   throw new ProtocolError("bad_field", `cannot encode ${typeof v}`);
 }
 
-/** Fields of a protocol object that an empty array leaves out, as Go
- * leaves them out: an empty list means none. */
-const OMITTED_WHEN_EMPTY = new Set(["foreign_windmill_origins"]);
+/** Lists of a protocol object that are absent when null or empty, as Go
+ * reads and writes them: an empty list means none. */
+const ABSENT_WHEN_EMPTY = new Set(["foreign_windmill_origins"]);
 
 /** Whether field k of a protocol object, of value v, is written and kept
- * when decoded: a null field counts as absent, as in Go, and so does an
- * empty OMITTED_WHEN_EMPTY array. */
+ * when decoded: a field that is undefined is not, and neither is an
+ * ABSENT_WHEN_EMPTY list that is null or empty. Every other field keeps the
+ * codec's rules as they are. */
 function present(k: string, v: unknown): boolean {
-  return v !== undefined && v !== null && !(OMITTED_WHEN_EMPTY.has(k) && Array.isArray(v) && v.length === 0);
+  if (ABSENT_WHEN_EMPTY.has(k)) return v != null && !(Array.isArray(v) && v.length === 0);
+  return v !== undefined;
 }
 
 /** Boolean fields written only when true, as Go writes them. */

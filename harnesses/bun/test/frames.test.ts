@@ -115,6 +115,16 @@ test("an empty or null foreign_windmill_origins decodes to the ordinary welcome"
   }
 });
 
+// Outside foreign_windmill_origins, a null field of a protocol object keeps
+// the codec's rules: a null facade is kept when decoded, and the encoder
+// refuses it.
+test("a null facade keeps the codec's rules for null fields", () => {
+  const m = decode(enc.encode('{"t":"welcome","proto":1,"engine":"e","bundle":"b","config":{"module_state":"warm","heartbeat_ms":1,"max_message":1024,"facade":null}}'));
+  expect(Object.hasOwn(m.config, "facade")).toBe(true);
+  expect(m.config.facade).toBeNull();
+  expect(() => encodeText(outgoing(m))).toThrow(ProtocolError);
+});
+
 /** readAll, with the stream pushed size bytes at a time. */
 function readPieces(bytes: Uint8Array, size: number, maxFrame = MAX_FRAME, maxMessage = DEFAULT_MAX_MESSAGE): Message[] {
   const r = new FrameReader(maxFrame);
