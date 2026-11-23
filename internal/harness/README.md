@@ -267,6 +267,15 @@ the harness protocol design record lists the fields of `run`, `run_done`,
 - **Go types.** `RunRequest` is a `run` frame and `RunDone` a `run_done`.
   A `run_done` for a run that did not start carries a `RunError` with
   `RunDraining` or `RunRefused` as its code, and no `status`.
+- **Deadlines.** `RunRequest.DeadlineMS` and `PreWriteDeadlineMS` are
+  `nil` when the frame has no such field. Any integer that the frame rules
+  allow decodes, and both codecs write a present value again, 0 and
+  negative ones included: a value of 0 or less is a deadline that has
+  passed, which the engine's `Run` ends alone.
+- **Cancellation.** `RunDone.CancelCause` is a canceled run's cause, which
+  `run_done` writes last as `cancel_cause`. A `run_cancel` may carry
+  `reason` and `canceler`, which the cancellation's error names. An empty
+  `cancel_cause`, `reason` or `canceler` counts as absent, in both codecs.
 - **Fields that the message table does not list.** `run` also carries
   `halt_before` and `halt_after`, which the record describes under its
   consequences. `run_done` writes `may_have_mutated`
@@ -691,9 +700,10 @@ As for a spawned harness ([The handshake](#the-handshake)), plus:
 
 - **Runs.** Each `run` frame starts `HostConfig.Run` on a goroutine of its
   own, with a context that `run_cancel` ends with the cause
-  `engine.CancelCanceled`. What it returns goes back as `run_done`, and
-  `run_settled` follows when its `Settled` channel closes. Its invocations
-  go to the same `Process`.
+  `engine.CancelCanceled`, or an `*engine.Cancellation` of its `reason`
+  and `canceler` when it has either. What it returns goes back as
+  `run_done`, and `run_settled` follows when its `Settled` channel closes.
+  Its invocations go to the same `Process`.
 - **A host's invocations** carry `HostConfig.Facade` as `BASE_URL` in their
   `env`, since the host was not spawned with the base environment
   ([WA-2](../../docs/semantics/client-api.md#wa-2)). Their arguments go to

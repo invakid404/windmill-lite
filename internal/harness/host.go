@@ -86,10 +86,11 @@ type HostConfig struct {
 	// Run serves one run the host submitted, on a goroutine of its own,
 	// and returns its outcome; the ID of what it returns is set from the
 	// request. ctx ends when the host cancels the run (with cause
-	// engine.CancelCanceled) or the connection ends. Invocations of the
-	// run go to p, which implements engine.StepExecutor. What it returns
-	// goes back as run_done; when its Settled closes, a run_settled
-	// follows.
+	// engine.CancelCanceled, or an *engine.Cancellation when its
+	// run_cancel names a reason or a canceler) or the connection ends.
+	// Invocations of the run go to p, which implements
+	// engine.StepExecutor. What it returns goes back as run_done; when its
+	// Settled closes, a run_settled follows.
 	Run func(ctx context.Context, p *Process, r RunRequest) RunDone
 
 	// getppid and signal stand in for the system calls in tests.

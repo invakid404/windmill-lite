@@ -123,8 +123,8 @@ type PluginRun struct {
 	HaltBefore         []string `json:"halt_before"`
 	HaltAfter          []string `json:"halt_after"`
 	FatalErrorNames    []string `json:"fatal_error_names"`
-	DeadlineMS         int      `json:"deadline_ms"`
-	PreWriteDeadlineMS int      `json:"pre_write_deadline_ms"`
+	DeadlineMS         *int     `json:"deadline_ms"`
+	PreWriteDeadlineMS *int     `json:"pre_write_deadline_ms"`
 	Clock              string   `json:"clock"`
 }
 
@@ -138,11 +138,18 @@ type PluginExpect struct {
 	Warnings       []string        `json:"warnings"`
 	NotRan         []string        `json:"not_ran"`
 	Deviations     []string        `json:"deviations"`
+	CancelCause    string          `json:"cancel_cause"`
 }
 
 // PluginLog is the code of the warning in which a case plugin's onRunEnd
 // reports its log of the run, as a JSON array of strings.
 const PluginLog = "plugin_log"
+
+// PluginTrace is the code of the warning in which the TypeScript case
+// plugin's onRunEnd reports what the run's trace showed it, as a JSON
+// object: ran, the sites whose job ran, and cancel_cause, the run's cause
+// of cancellation, "" for none.
+const PluginTrace = "plugin_trace"
 
 // ReadSettlement reads a case plugin's report file: the runs its
 // onRunSettled heard of, and those of them that settled while one of their
@@ -211,7 +218,7 @@ func LoadPluginFile(path string) (*PluginFile, error) {
 			if r.Expect.Status == "" {
 				return nil, fmt.Errorf("%s: case %s: %s: expect.status is required", path, c.ID, where)
 			}
-			if r := r.Run; r.Clock != "" && r.Clock != "real" && r.Clock != "record" || r.DeadlineMS < 0 || r.PreWriteDeadlineMS < 0 {
+			if r := r.Run; r.Clock != "" && r.Clock != "real" && r.Clock != "record" || negative(r.DeadlineMS) || negative(r.PreWriteDeadlineMS) {
 				return nil, fmt.Errorf("%s: case %s: %s: a clock that is real or record, and deadlines that are not negative", path, c.ID, where)
 			}
 		}
@@ -225,6 +232,9 @@ func LoadPluginFile(path string) (*PluginFile, error) {
 	}
 	return &f, nil
 }
+
+// negative reports whether an optional number is present and below 0.
+func negative(n *int) bool { return n != nil && *n < 0 }
 
 // FlowPath is the path of the case's flow in the folder.
 func (c PluginCase) FlowPath() string { return "f/plugins/" + c.ID }
@@ -282,10 +292,13 @@ type PluginOutcome struct {
 	Latched        string
 	Warnings       []struct{ Code, Message string }
 	// Ran holds, for each site the trace has a record of, whether a job
-	// ran for it.
+	// ran for it; nil for a runner without the run's trace, whose plugin
+	// must then report the sites in its PluginTrace warning.
 	Ran map[string]bool
 	// Deviations are the run's run-time deviations (H7, H10).
 	Deviations []string
+	// CancelCause is why a canceled run was canceled, "" otherwise.
+	CancelCause string
 }
 
 // Check compares the outcome of the case's run with its expectations and
@@ -315,14 +328,43 @@ func (e PluginExpect) Check(o PluginOutcome) []string {
 	}
 	var log []string
 	var codes []string
+	ran := o.Ran
 	for _, w := range o.Warnings {
-		if w.Code == PluginLog {
+		switch w.Code {
+		case PluginLog:
 			if err := json.Unmarshal([]byte(w.Message), &log); err != nil {
 				diffs = append(diffs, "the plugin's log is not a JSON array of strings: "+w.Message)
 			}
 			continue
+		case PluginTrace:
+			// The plugin's onRunEnd got the run's cause; and a runner
+			// without the run's trace, in host mode, takes the sites that
+			// ran from the plugin's. Both fields are required: an empty
+			// array of sites is a report, a missing one is not.
+			var seen struct {
+				Ran         *[]string `json:"ran"`
+				CancelCause *string   `json:"cancel_cause"`
+			}
+			if err := json.Unmarshal([]byte(w.Message), &seen); err != nil || seen.Ran == nil || seen.CancelCause == nil {
+				diffs = append(diffs, "the plugin's trace report is not an object of ran, an array, and cancel_cause, a string: "+w.Message)
+				continue
+			}
+			if *seen.CancelCause != o.CancelCause {
+				diffs = append(diffs, fmt.Sprintf("the plugin's onRunEnd saw cancel_cause %q, the run has %q", *seen.CancelCause, o.CancelCause))
+			}
+			if o.Ran == nil {
+				ran = map[string]bool{}
+				for _, s := range *seen.Ran {
+					ran[s] = true
+				}
+			}
+			continue
 		}
 		codes = append(codes, w.Code)
+	}
+	if ran == nil {
+		// A runner without the run's trace relies on the plugin's report.
+		diffs = append(diffs, "no record of the sites that ran: the runner has no trace, and the plugin sent no "+PluginTrace)
 	}
 	if e.Log != nil && !slices.Equal(log, e.Log) {
 		diffs = append(diffs, fmt.Sprintf("log %q, want %q", log, e.Log))
@@ -333,12 +375,18 @@ func (e PluginExpect) Check(o PluginOutcome) []string {
 		}
 	}
 	for _, s := range e.NotRan {
-		if o.Ran[s] {
+		if ran[s] {
 			diffs = append(diffs, fmt.Sprintf("site %s ran a job, want none", s))
 		}
 	}
 	if e.Deviations != nil && !slices.Equal(o.Deviations, e.Deviations) {
 		diffs = append(diffs, fmt.Sprintf("deviations %q, want %q", o.Deviations, e.Deviations))
+	}
+	if e.CancelCause != "" && o.CancelCause != e.CancelCause {
+		diffs = append(diffs, fmt.Sprintf("cancel_cause %q, want %q", o.CancelCause, e.CancelCause))
+	}
+	if o.Status != "canceled" && o.CancelCause != "" {
+		diffs = append(diffs, fmt.Sprintf("cancel_cause %q of a run that is not canceled, want none", o.CancelCause))
 	}
 	return diffs
 }

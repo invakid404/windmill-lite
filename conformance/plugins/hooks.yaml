@@ -40,18 +40,25 @@
 # Every plugin also answers onRunEnd (H9) with the warning plugin_log,
 # whose message is its log of the run, as JSON, and the runs that settled
 # so far (plugin_settled) and settled while one of their hooks still ran
-# (plugin_settled_early): every case's run must settle, none early.
+# (plugin_settled_early): every case's run must settle, none early. The
+# TypeScript plugin also answers with plugin_trace, what the run's trace
+# showed it: the sites whose job ran, which not_ran checks in host mode,
+# where the report is required, and the cause of a cancellation, which must
+# be the run's.
 # provided: the case's host-provided sites: [{module, provider}].
 # run: the run's own hooks and budgets, which a Go host gives in
 #   RunOptions and a TypeScript host in its run frame:
 #   write_capable: [module ids] (H3); halt_before / halt_after: [module
 #   ids] (H8); fatal_error_names: [names] (H7);
 #   deadline_ms, pre_write_deadline_ms: the hard and pre-write deadlines,
-#   from the run's start (H4); clock: real or record (H10)
+#   from the run's start (H4), 0 for one that has already passed; clock:
+#   real or record (H10)
 # expect: status; may_have_mutated; result (the run's result); latched (a text the latched
 # error contains); log; warnings (codes besides plugin_log); not_ran
 # (sites with no job); deviations (the run's run-time deviations, D24 among
-# them: every runner uses its runtime's default memory resource store).
+# them: every runner uses its runtime's default memory resource store);
+# cancel_cause (why a canceled run was canceled; a run that is not
+# canceled never has one).
 # then: more runs of the case's flow, after its run, each a run and an
 #   expect as above: on the same runtime, and in host mode on the same
 #   connection, so a run's own hooks must not reach them.
@@ -399,7 +406,7 @@ cases:
         - {id: b, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
     plugin: {}
     run: {write_capable: [b], pre_write_deadline_ms: 300}
-    expect: {status: canceled, may_have_mutated: false, not_ran: ["m:b"]}
+    expect: {status: canceled, may_have_mutated: false, not_ran: ["m:b"], cancel_cause: pre_write_deadline}
 
   - id: run_deadline
     spec: [H4]
@@ -410,7 +417,22 @@ cases:
         - {id: b, value: {type: script, path: f/plugins/echo, input_transforms: {}}}
     plugin: {}
     run: {deadline_ms: 300}
-    expect: {status: canceled, not_ran: ["m:b"]}
+    expect: {status: canceled, not_ran: ["m:b"], cancel_cause: deadline}
+
+  # A hard deadline that has passed when the run arrives ends that run
+  # alone, before its first module; the flow's later run, in host mode on
+  # the same connection, runs whole.
+  - id: run_deadline_passed
+    spec: [H4]
+    title: a hard deadline that has already passed ends the run canceled before its first module, and only that run
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/echo, input_transforms: {x: {type: static, value: 1}}}}
+    plugin: {observe: true}
+    run: {deadline_ms: 0}
+    expect: {status: canceled, may_have_mutated: false, log: [], not_ran: ["m:a"], cancel_cause: deadline}
+    then:
+      - expect: {status: success, result: {x: 1, y: null, tenant: null}, log: ["start:m:a", "end:m:a:success"]}
 
   # A run's own halts (H8) are that run's alone: the flow's later run, on
   # the same runtime and in host mode on the same connection, runs past

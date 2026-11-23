@@ -527,8 +527,9 @@ func (p *plugin) tracePayload(hook string, t *Trace) map[string]any {
 // traceSummaryJSON is a run's trace without its per-step parts: the run's
 // own fields (its id, bundle, module state, shared code, status, the
 // origin of its result, whether it may have mutated, whether it was
-// cached, its latch), its warnings and its deviations; not its result,
-// its records, its child flows, its spans or its platform calls.
+// cached, its latch, the cause of its cancellation), its warnings and its
+// deviations; not its result, its records, its child flows, its spans or
+// its platform calls.
 func traceSummaryJSON(t *Trace) map[string]any {
 	ws := []any{}
 	for _, w := range t.Warnings {
@@ -543,6 +544,9 @@ func traceSummaryJSON(t *Trace) map[string]any {
 	}
 	if t.Latched != nil {
 		m["latched"] = t.Latched.Error()
+	}
+	if t.CancelCause != "" {
+		m["cancel_cause"] = t.CancelCause
 	}
 	return m
 }
