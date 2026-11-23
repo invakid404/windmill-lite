@@ -1,9 +1,22 @@
 {
   "title": "A step's own calls to a real Windmill: the parent_job and root_job that each request carries without and with the foreign Windmill origins",
-  "note": "Read by TestForeignWindmillLinks (wl) and TestHostForeignWindmillLinks (cmd/windmill-lite). A loopback server stands in for each real Windmill: it answers a dispatch under /jobs/run/ with dispatch_id as text, the result poll with a completed job whose result is flow_result, and any other request with []. listed says whether the request goes to the origin that the option names. sent is the request's parent_job and root_job as the step sends it, which the server sees without the option, and got what it sees with it: job is the step's WM_JOB_ID, root its WM_ROOT_FLOW_JOB_ID, top its WM_ROOT_JOB_ID, other the parent other_parent that the step names itself, and an empty string an absent parameter. request is the first request that the call makes, requests how many it makes, params the other query parameters of the first, and out what the step read.",
+  "note": "Read by TestForeignWindmillLinks (wl) and TestHostForeignWindmillLinks (cmd/windmill-lite). A loopback server stands in for each real Windmill: it answers a dispatch under /jobs/run/ with dispatch_id as text, the result poll with a completed job whose result is flow_result, and any other request with []. listed says whether the request goes to the origin that the option names. sent is the request's parent_job and root_job as the step sends it, which the server sees without the option, and got what it sees with it: job is the step's WM_JOB_ID, root its WM_ROOT_FLOW_JOB_ID, top its WM_ROOT_JOB_ID, other the parent other_parent that the step names itself, and an empty string an absent parameter. With the option, also_listed are listed too: origins in forms that wl accepts and puts in one form, each of which the harness's URL parser must accept. request is the first request that the call makes, requests how many it makes, params the other query parameters of the first, and out what the step read.",
   "dispatch_id": "0193c1e0-0000-7000-8000-00000000f00d",
   "flow_result": "remote",
   "other_parent": "0193c1e0-0000-7000-8000-0000000000aa",
+  "also_listed": [
+    "HTTPS://Windmill.Example.com:443/",
+    "http://127.0.0.1:8000",
+    "https://windmill.example.com",
+    "http://[::1]:80",
+    "https://windmill.example.com:0443",
+    "http://[::1]:8080/",
+    "https://A_b.example",
+    "https://-a.example:8443",
+    "http://1.2.3.4:",
+    "https://[::FFFF:1.2.3.4]:443",
+    "https://localhost:0"
+  ],
   "cases": [
     {
       "name": "stock client runScriptAsync",

@@ -187,8 +187,15 @@ in host mode:
 - A request that does not go through `fetch` keeps its links, such as one
   from a child process or over a socket that the step opens.
 - `Open` compares origins as URLs do, so `https://Windmill.example.com:443/`
-  names `https://windmill.example.com`. It fails on a value that is not an
-  `http` or `https` origin, such as one with a path.
+  names `https://windmill.example.com`.
+- `Open` accepts only what the harness's URL parser accepts and reads the
+  same way. The host must be a DNS name of ASCII letters, digits, hyphens
+  and underscores whose last label is not a number, an IPv4 address in four
+  decimal parts, or an IPv6 address in brackets. So an internationalised
+  name is refused, in Unicode and in its `xn--` form.
+- `Open` fails on any other value, and on one with a path, a query, a
+  fragment or user information. Its error names the value's position in
+  the list and the reason, never the value, which could hold a secret.
 
 The [platform interface ADR](../docs/design/0007-platform-interface.md#async-dispatch)
 gives the reason.

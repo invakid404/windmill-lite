@@ -145,9 +145,14 @@ type Options struct {
 	// to another value included. A request
 	// to another origin, or one that the fetch view does not see, from a
 	// child process or a socket that the step opens, keeps its links.
-	// Each value is an http or https origin: Open refuses one with a path
-	// other than "/", a query, a fragment or user information. Empty, the
-	// default, names none. In host mode they apply to the host's steps.
+	// Each value is an http or https origin whose host is a DNS name of
+	// ASCII letters, digits, hyphens and underscores (not one that ends in
+	// a number, and no internationalised name), an IPv4 address in four
+	// decimal parts or an IPv6 address in brackets: what the harness's URL
+	// parser accepts and reads alike. Open refuses any other value, and one
+	// with a path other than "/", a query, a fragment or user information,
+	// naming its position, never the value. Empty, the default, names none.
+	// In host mode they apply to the host's steps.
 	ForeignWindmillOrigins []string
 	// Host, when set, opens the runtime in host mode (ADR 0004 host mode,
 	// ADR 0009): its steps run in the host process that started it, which

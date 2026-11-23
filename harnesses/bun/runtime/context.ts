@@ -812,8 +812,8 @@ const NO_ORIGINS: ReadonlySet<string> = new Set();
 
 /** The origins of a welcome's foreign_windmill_origins, as the URL parser
  * that reads a request's URL gives them, so that the two compare equal:
- * the engine sends each in one form, but its parser leaves a host such as
- * bücher.example as it is, and this one gives xn--bcher-kva.example.
+ * the engine sends each in one form, but writes an IPv6 address such as
+ * ::ffff:1.2.3.4 as Go does, and this parser gives ::ffff:102:304.
  * undefined when one is not an http or https URL. */
 export function foreignOrigins(list: readonly string[]): Set<string> | undefined {
   const out = new Set<string>();

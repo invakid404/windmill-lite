@@ -341,7 +341,7 @@ The engine refuses the host in the handshake, with one of these codes:
 |---|---|
 | `workdir_not_writable` | `--workdir` is not a directory that the engine can write. |
 | `workdir_mismatch` | `--workdir` is not the directory that the host's hello names. |
-| `engine_refused` | The bundle does not open, another engine version built it, or a file of `-variables`, `-resources` or `-cpuprofile` does not open. Or the resource store does not start: `-resource-store` names a store other than `memory` or `redis`, or the Redis store fails as for `run`. Or a `-foreign-windmill` value is not an `http` or `https` origin. The message gives the reason. |
+| `engine_refused` | The bundle does not open, another engine version built it, or a file of `-variables`, `-resources` or `-cpuprofile` does not open. Or the resource store does not start: `-resource-store` names a store other than `memory` or `redis`, or the Redis store fails as for `run`. Or a `-foreign-windmill` value is not an origin that [wl accepts](../../wl/README.md#job-ids-on-a-real-windmill). The message gives the reason, and never repeats a `-foreign-windmill` value. |
 
 The other codes of the handshake, such as `version_mismatch`, are the
 host SDK's errors
@@ -498,6 +498,7 @@ How these tests run:
 | `TestHostCodebaseAsset` | The codebase script `f/hostcb/cb_asset.ts` reads its asset, which the SDK extracted into the host's working directory, by a relative path and beside its module. It also reads the `args.json` that the engine wrote there. |
 | `TestHostWorkdirRefusedBySDK` | The SDK refuses to connect with `workdir_mismatch` for a directory other than the host's own, and with `workdir_not_writable` for a read-only one. |
 | `TestHostWorkdirRefusedByEngine` | The test plays the host: it starts `windmill-lite host` with a socket pair as file descriptor 3, and none as 4. It checks the welcome in the host's own working directory and the refusals `workdir_mismatch` and `workdir_not_writable`. It checks `engine_refused` for a bad bundle or store: an unknown store, or Redis without `WL_REDIS_URL`, unreachable, or with a bad URL, never showing its password. A malformed plugin selector gets `plugin_mismatch`; a usable one is welcomed. |
+| `TestHostWorkdirRefusedByEngine`, origins of a real Windmill | It checks `engine_refused` for a `-foreign-windmill` origin with user information or a query, or whose host the harness's URL parser refuses. Neither the refusal nor the engine's output shows the origin. |
 | `TestHostDrain` | `drain` refuses a new run (`draining`), and waits for the run in flight, which completes. The host lives on. |
 | `TestHostDrainAfterALargeOutcome` | A drain that starts while a run with a 3 MiB outcome is in flight (`f/host/big`) ends only after that run's caller has its whole outcome. |
 | `TestHostRunSettled` | A step that its timeout abandons runs on: the run's outcome comes at about 1 s, and its `onSettled` at about 1.5 s, in the run's own tenant scope. A run that abandons nothing settles with its outcome. |

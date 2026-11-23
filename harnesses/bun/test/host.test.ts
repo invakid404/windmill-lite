@@ -124,9 +124,11 @@ test("connect extracts the bundle's codebase assets into the working directory b
 
 // foreignWindmillOrigins: the engine is started with one -foreign-windmill
 // flag for each origin, in their order, and without the flag when the
-// option is left out; a value that is not an array of strings is refused
-// before the engine starts. The engine checks each origin itself
-// (TestHostForeignWindmillLinks in cmd/windmill-lite runs the real one).
+// option is left out. A value that is not an array of strings, and an
+// origin with user information, a query or a fragment, are refused before
+// the engine starts, without repeating the value. The engine checks each
+// origin itself (TestHostForeignWindmillLinks in cmd/windmill-lite runs the
+// real one).
 test("foreignWindmillOrigins passes each origin to the engine as a -foreign-windmill flag", async () => {
   const dir = tempDir("wl-host-foreign-");
   writeFileSync(join(dir, "manifest.json"), "{}");
@@ -147,9 +149,37 @@ test("foreignWindmillOrigins passes each origin to the engine as a -foreign-wind
       const args = JSON.parse(await Bun.file(file).text()) as string[];
       expect(args.flatMap((a, i) => (a === "-foreign-windmill" ? [a, args[i + 1]] : []))).toEqual(want);
     }
-    for (const bad of ["https://windmill.example.com", [1], { origin: "https://windmill.example.com" }, null]) {
+    // A value that could hold a secret never reaches the engine's command
+    // line, and no message repeats it.
+    const marker = "s3cr3t-marker";
+    for (const bad of [
+      "https://windmill.example.com",
+      [1],
+      { origin: "https://windmill.example.com" },
+      null,
+      [`https://user:${marker}@windmill.example.com`],
+      ["https://windmill.example.com", `https://windmill.example.com/?token=${marker}`],
+      [`https://windmill.example.com/#${marker}`],
+      [marker, null],
+    ]) {
       rmSync(file, { force: true });
-      expect(await start({ foreignWindmillOrigins: bad as unknown as string[] })).toBe("options");
+      let message = "";
+      const got = await connect({
+        engine: process.execPath,
+        engineArgs: [join(import.meta.dir, "argsengine.ts")],
+        bundle: dir,
+        workdir: dir,
+        diag: () => {},
+        foreignWindmillOrigins: bad as unknown as string[],
+      }).then(
+        () => "connected",
+        (e) => {
+          message = (e as Error).message;
+          return (e as { code?: string }).code;
+        },
+      );
+      expect(got).toBe("options");
+      expect(message.includes(marker)).toBe(false);
       expect(await Bun.file(file).exists()).toBe(false);
     }
   } finally {

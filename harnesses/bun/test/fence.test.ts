@@ -635,13 +635,14 @@ test("a request the invocation leaves in flight is aborted at settlement, and a 
 });
 
 test("the welcome's foreign Windmill origins compare as request origins do; a value that is not an http or https URL makes the welcome unusable", () => {
-  expect([...foreignOrigins(["https://bücher.example", "HTTP://127.0.0.1:80/", "https://windmill.example.com:8443", "http://[::1]:80"])!]).toEqual([
-    "https://xn--bcher-kva.example",
+  expect([...foreignOrigins(["https://[::ffff:1.2.3.4]", "HTTP://127.0.0.1:80/", "https://windmill.example.com:8443", "http://[::1]:80", "https://bücher.example"])!]).toEqual([
+    "https://[::ffff:102:304]",
     "http://127.0.0.1",
     "https://windmill.example.com:8443",
     "http://[::1]",
+    "https://xn--bcher-kva.example",
   ]);
-  expect(new URL("https://bücher.example/api/w/ws/jobs/run/p/f/x").origin).toBe("https://xn--bcher-kva.example");
+  expect(new URL("https://[::ffff:1.2.3.4]/api/w/ws/jobs/run/p/f/x").origin).toBe("https://[::ffff:102:304]");
   expect(foreignOrigins([])?.size).toBe(0);
   expect(foreignOrigins(["https://ok.example", "windmill.example.com"])).toBeUndefined();
   expect(foreignOrigins(["ftp://windmill.example.com"])).toBeUndefined();

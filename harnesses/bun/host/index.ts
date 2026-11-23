@@ -116,9 +116,12 @@ export type ConnectOptions = {
    * removes each parent_job and root_job query parameter whose value is
    * one of the step's own job ids (ADR 0007, async dispatch). Every other
    * part of the request stays as it was, and a request that does not go
-   * through fetch, from a child process or a socket, keeps its links. The
-   * engine gets them as -foreign-windmill flags, and refuses the host
-   * (engine_refused) when one is not an http or https origin. */
+   * through fetch, from a child process or a socket, keeps its links.
+   * connect() refuses (options) a value with user information, a query or
+   * a fragment before it starts the engine. The engine gets the rest as
+   * -foreign-windmill flags, and refuses the host (engine_refused) when
+   * one is not an origin that wl accepts. Neither refusal repeats the
+   * value. */
   foreignWindmillOrigins?: string[];
   /** Recycle triggers (none by default): health() reports the first that
    * trips, and onRecycle is called once with it ("rss", "modules" or
@@ -386,9 +389,16 @@ export async function connect(o: ConnectOptions): Promise<Host> {
     }
   }
   const foreign = o.foreignWindmillOrigins;
-  if (foreign !== undefined && !(Array.isArray(foreign) && foreign.every((x) => typeof x === "string"))) {
-    throw new HostError("options", `foreignWindmillOrigins is an array of origins, such as ["https://windmill.example.com"]; got ${JSON.stringify(foreign)}`);
+  if (foreign !== undefined && !Array.isArray(foreign)) {
+    throw new HostError("options", `foreignWindmillOrigins is an array of origins, such as ["https://windmill.example.com"]; got ${foreign === null ? "null" : typeof foreign}`);
   }
+  // An origin has no user information, query or fragment, which could hold
+  // a secret: such a value is refused here, before it reaches the engine's
+  // command line, and no message repeats a value.
+  foreign?.forEach((origin, i) => {
+    if (typeof origin !== "string") throw new HostError("options", `foreignWindmillOrigins[${i}] is a string; got ${origin === null ? "null" : typeof origin}`);
+    if (/[@?#]/.test(origin)) throw new HostError("options", `foreignWindmillOrigins[${i}] is not an origin: it has user information, a query or a fragment`);
+  });
   // Without collect, false: a host with no trigger takes no idle check.
   const whenIdle = collect !== undefined && (collect.policy ?? DEFAULT_COLLECT_POLICY) === "idle";
   // The host's stderr as Bun has it: a step's context must never take a

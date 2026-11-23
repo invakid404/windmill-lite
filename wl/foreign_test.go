@@ -23,26 +23,25 @@ import (
 // welcome carries it, through host mode's handshake: each origin in one
 // form (scheme and host in lower case, no default port, no trailing slash),
 // each once, in the order given; none without the option, so that the
-// welcome is today's. Open refuses a value that is not an http or https
-// origin, and refuses a host with engine_refused for it.
+// welcome is today's. Open refuses every value that is not an origin which
+// the harness's URL parser accepts and reads the same way, such as an IPv4
+// address it would refuse, and refuses a host with engine_refused for it.
+// No refusal holds the value, which can carry a secret: the marker in the
+// refused values appears in no error and no handshake refusal.
 func TestForeignWindmillOrigins(t *testing.T) {
 	dir := writeTestBundle(t, "test-engine", nil, nil)
 	work := t.TempDir()
-	_, err, _, w := openHost(t, dir, Options{Host: &Host{Workdir: work}, ForeignWindmillOrigins: []string{
-		"HTTPS://Windmill.Example.com:443/",
-		"http://127.0.0.1:8000",
-		"https://windmill.example.com",
-		"http://[::1]:80",
-		"https://windmill.example.com:0443",
-		"http://[::1]:8080/",
-		"https://Bücher.example",
-	}}, work)
+	// The origins in the forms of the cases' also_listed: duplicates, case,
+	// default ports, trailing slashes and colons, an underscore, a leading
+	// hyphen, IPv6.
+	_, err, _, w := openHost(t, dir, Options{Host: &Host{Workdir: work}, ForeignWindmillOrigins: readForeignCases(t).AlsoListed}, work)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The harness reads a host such as bücher.example as its URL parser
-	// does, as xn--bcher-kva.example, as it reads a request's URL.
-	want := []string{"https://windmill.example.com", "http://127.0.0.1:8000", "http://[::1]", "http://[::1]:8080", "https://bücher.example"}
+	want := []string{
+		"https://windmill.example.com", "http://127.0.0.1:8000", "http://[::1]", "http://[::1]:8080",
+		"https://a_b.example", "https://-a.example:8443", "http://1.2.3.4", "https://[::ffff:1.2.3.4]", "https://localhost:0",
+	}
 	if w.Config == nil || !reflect.DeepEqual(w.Config.ForeignWindmillOrigins, want) {
 		t.Fatalf("welcome %+v, want the foreign origins %q", w.Config, want)
 	}
@@ -53,27 +52,43 @@ func TestForeignWindmillOrigins(t *testing.T) {
 	if w.Config == nil || w.Config.ForeignWindmillOrigins != nil {
 		t.Fatalf("welcome without the option %+v, want no foreign origins", w.Config)
 	}
+	const marker = "s3cr3t-marker"
 	for _, bad := range []string{
 		"", "windmill.example.com", "ftp://windmill.example.com", "https://", "https://:443",
 		"https://windmill.example.com/api", "https://windmill.example.com/?x=1", "https://windmill.example.com/#top",
 		"https://user@windmill.example.com", "https://windmill.example.com:65536", "https://windmill.example.com/?",
+		"https://windmill.example.com/#", "https://windmill.example.com#",
+		// The URL parser refuses these hosts, or reads them as another.
+		"http://999.999.999.999", "https://1.2.3", "https://01.2.3.4", "https://0x7f.0.0.1", "https://a.1", "https://a.0x1",
+		"https://xn--a.example", "https://xn--bcher-kva.example", "https://Bücher.example", "https://[fe80::1%25eth0]",
+		"https://a..b", "https://example.com.", "https://.example", "https://a!b.example", "https://a%2eb.example", "https://a b.example",
+		// Secrets in a refused value.
+		"https://user:" + marker + "@windmill.example.com", "https://windmill.example.com/?token=" + marker,
+		"https://windmill.example.com/#" + marker, "https://windmill.example.com/" + marker, "https://" + marker + ".1",
 	} {
-		if _, err := Open(dir, Options{EngineVersion: "test-engine", ForeignWindmillOrigins: []string{"https://ok.example.com", bad}}); err == nil || !strings.Contains(err.Error(), "ForeignWindmillOrigins") {
-			t.Errorf("%q: Open returned %v, want a refusal that names the option", bad, err)
+		_, err := Open(dir, Options{EngineVersion: "test-engine", ForeignWindmillOrigins: []string{"https://ok.example.com", bad}})
+		if err == nil || !strings.Contains(err.Error(), "ForeignWindmillOrigins[1]") {
+			t.Errorf("%q: Open returned %v, want a refusal that names the option and the value's position", bad, err)
+		} else if strings.Contains(err.Error(), marker) {
+			t.Errorf("%q: the refusal %q holds the value", bad, err)
 		}
 	}
-	_, err, _, w = openHost(t, dir, Options{Host: &Host{Workdir: work}, ForeignWindmillOrigins: []string{"https://windmill.example.com/api"}}, work)
-	if err == nil || w.Reject == nil || w.Reject.Code != harness.RejectEngine || !strings.Contains(w.Reject.Message, "ForeignWindmillOrigins") {
-		t.Fatalf("a host with a path in an origin: %v, welcome %+v; want engine_refused naming the option", err, w)
+	_, err, _, w = openHost(t, dir, Options{Host: &Host{Workdir: work}, ForeignWindmillOrigins: []string{"https://user:" + marker + "@windmill.example.com"}}, work)
+	if err == nil || w.Reject == nil || w.Reject.Code != harness.RejectEngine || !strings.Contains(w.Reject.Message, "ForeignWindmillOrigins[0]") {
+		t.Fatalf("a host with user information in an origin: %v, welcome %+v; want engine_refused naming the option", err, w)
+	}
+	if strings.Contains(w.Reject.Message, marker) || strings.Contains(err.Error(), marker) {
+		t.Fatalf("the host's refusal %q or Open's error holds the value", w.Reject.Message)
 	}
 }
 
 // foreignCases is testdata/foreign/cases.json, whose note says what each
 // field means.
 type foreignCases struct {
-	DispatchID  string `json:"dispatch_id"`
-	FlowResult  string `json:"flow_result"`
-	OtherParent string `json:"other_parent"`
+	DispatchID  string   `json:"dispatch_id"`
+	FlowResult  string   `json:"flow_result"`
+	OtherParent string   `json:"other_parent"`
+	AlsoListed  []string `json:"also_listed"`
 	Cases       []struct {
 		Name, Flow, Call string
 		Listed           bool
@@ -158,9 +173,13 @@ func windmillClientOrSkip(t *testing.T) string {
 		}
 		t.Skip("WL_WINDMILL_CLIENT is not set")
 	}
-	pkg, err := os.ReadFile(filepath.Join(client, "node_modules", "windmill-client", "package.json"))
-	if err != nil || !strings.Contains(string(pkg), `"version": "1.862.0"`) {
-		t.Fatalf("WL_WINDMILL_CLIENT must hold windmill-client 1.862.0: %v", err)
+	var pkg struct{ Version string }
+	b, err := os.ReadFile(filepath.Join(client, "node_modules", "windmill-client", "package.json"))
+	if err == nil {
+		err = json.Unmarshal(b, &pkg)
+	}
+	if err != nil || pkg.Version != "1.862.0" {
+		t.Fatalf("WL_WINDMILL_CLIENT must hold windmill-client 1.862.0, not %q: %v", pkg.Version, err)
 	}
 	return client
 }
@@ -235,7 +254,10 @@ func TestForeignWindmillLinks(t *testing.T) {
 			opts := Options{Bun: bun, HarnessRuntime: runtimeDir, ModuleState: mode}
 			if on {
 				name = mode + "/with the option"
-				opts.ForeignWindmillOrigins = []string{strings.ToUpper(listed.URL) + "/"}
+				// Each origin that Open accepts must be one that the
+				// harness's URL parser accepts: one it refused would stop
+				// every harness process at its welcome.
+				opts.ForeignWindmillOrigins = append([]string{strings.ToUpper(listed.URL) + "/"}, cases.AlsoListed...)
 			}
 			t.Run(name, func(t *testing.T) {
 				rt, err := Open(out, opts)

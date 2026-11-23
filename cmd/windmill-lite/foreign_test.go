@@ -24,9 +24,10 @@ import (
 const foreignDir = "../../wl/testdata/foreign"
 
 type foreignCases struct {
-	DispatchID  string `json:"dispatch_id"`
-	FlowResult  string `json:"flow_result"`
-	OtherParent string `json:"other_parent"`
+	DispatchID  string   `json:"dispatch_id"`
+	FlowResult  string   `json:"flow_result"`
+	OtherParent string   `json:"other_parent"`
+	AlsoListed  []string `json:"also_listed"`
 	Cases       []struct {
 		Name, Flow, Call string
 		Listed           bool
@@ -120,7 +121,9 @@ func TestHostForeignWindmillLinks(t *testing.T) {
 	for _, on := range []bool{true, false} {
 		name, env := "without the option", "WL_FOREIGN_WINDMILL="
 		if on {
-			name, env = "with the option", "WL_FOREIGN_WINDMILL="+strings.ToUpper(listed.URL)+"/"
+			// The cases' also_listed too: each must be an origin that the
+			// host's URL parser accepts, or the host stops at its welcome.
+			name, env = "with the option", "WL_FOREIGN_WINDMILL="+strings.Join(append([]string{strings.ToUpper(listed.URL) + "/"}, cases.AlsoListed...), " ")
 		}
 		t.Run(name, func(t *testing.T) {
 			s := superviseHost(t, []string{host}, bundlePath, 30000, env)
