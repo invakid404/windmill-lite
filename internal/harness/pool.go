@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -49,8 +50,10 @@ type PoolConfig struct {
 	// nor Cap, LagThreshold, RecycleTimeout, MaxLive or Recycle.
 	Min, Max int
 	// Cap bounds the invocations in flight per process (deviation D15);
-	// zero means no cap, the default. Abandoned invocations never count.
-	// The engine records D15 in the run trace when a cap is set.
+	// zero means no cap, the default. Abandoned invocations never count,
+	// and neither do host calls (HostCall, Plugin), which a step can wait
+	// for, though they keep a leaving process from draining. The pool's
+	// user records D15 in the run trace when a cap is set (wl does).
 	Cap int
 	// LagThreshold is the event-loop lag past which a process counts as
 	// busy (a CPU-bound step): new invocations go elsewhere, and the pool
@@ -76,8 +79,11 @@ type PoolConfig struct {
 	Recycle RecycleTriggers
 
 	// observe, when not nil, is told of the pool's events (poolEvent)
-	// under its lock, so it must not call the pool. Tests set it.
-	observe func(poolEvent)
+	// under its lock, so it must not call the pool. admitting, when not
+	// nil, is called with each process that has started, before the pool
+	// takes its lock to admit it. Tests set them.
+	observe   func(poolEvent)
+	admitting func(*Process)
 }
 
 // RecycleTriggers say when a warm pool replaces a process that is still
@@ -100,15 +106,17 @@ type RecycleTriggers struct {
 	// means DefaultRecycleSamples. A health report is a harness's
 	// heartbeat ping or its pong to the engine's ping.
 	Samples int
-	// Modules is how many distinct scripts a process may run; the first
-	// invocation of one more still runs there, and then the process trips.
-	// Zero turns it off.
+	// Modules is how many distinct scripts a process may run, counted from
+	// the invocations dispatched to it; the first invocation of one more
+	// still runs there, and then the process trips. Invocations picked for
+	// it before it trips still run there too. Zero turns it off.
 	Modules int
 }
 
 // poolEvent is something a pool did, which PoolConfig.observe is told.
 type poolEvent struct {
-	// kind is "spawn" (a process starts to spawn), "exit" (the exit of a
+	// kind is "spawn" (a process starts to spawn), "failed" (a spawn
+	// failed, and its process, if any, has exited), "exit" (the exit of a
 	// member is observed), "drain" (a leaving member starts to drain) or
 	// "wait" (an invocation waits for a process).
 	kind string
@@ -161,8 +169,12 @@ type Pool struct {
 }
 
 type member struct {
-	p      *Process
+	p *Process
+	// active counts what the engine waits for in the process: invocations
+	// and host calls. steps counts the invocations alone, which the cap
+	// bounds.
 	active int
+	steps  int
 	// tainted: it has unsettled abandoned invocations. surplus: its taint
 	// cleared while the pool already had Max processes serving without it.
 	// Either way it takes no new invocations and leaves once idle.
@@ -175,9 +187,6 @@ type member struct {
 	// invocations and leaves once idle.
 	tripped   bool
 	recycling bool
-	// scripts are the distinct scripts the engine sent it, counted only
-	// with RecycleTriggers.Modules set.
-	scripts map[string]struct{}
 }
 
 func (m *member) inService() bool {
@@ -227,6 +236,7 @@ func NewPool(cfg PoolConfig) (*Pool, error) {
 	if !pl.isFresh() {
 		pl.cfg.Process.notify = pl.processChanged
 		pl.cfg.Process.rssLimit = cfg.Recycle.RSS
+		pl.cfg.Process.countScripts = cfg.Recycle.Modules > 0
 	}
 	return pl, nil
 }
@@ -319,7 +329,7 @@ func (pl *Pool) Execute(ctx context.Context, inv engine.Invocation) (engine.Step
 		return pl.executeFresh(ctx, inv)
 	}
 	for {
-		m, err := pl.acquire(ctx, inv.Run, inv.Script)
+		m, err := pl.acquire(ctx, inv.Run, true)
 		if err != nil {
 			inv.Report.Settled(engine.SettleNotStarted)
 			return engine.StepOutcome{}, err
@@ -327,7 +337,7 @@ func (pl *Pool) Execute(ctx context.Context, inv engine.Invocation) (engine.Step
 		// The slot is freed as soon as the engine stops waiting for the
 		// invocation, before its Reporter learns the outcome, or else here.
 		var once sync.Once
-		release := func(unavailable bool) { once.Do(func() { pl.release(m, unavailable) }) }
+		release := func(unavailable bool) { once.Do(func() { pl.release(m, unavailable, true) }) }
 		out, d, err := m.p.exec(ctx, inv, func() { release(false) })
 		unavailable := d == notDispatched && errors.Is(err, errUnavailable)
 		release(unavailable)
@@ -406,9 +416,9 @@ func (pl *Pool) executeFresh(ctx context.Context, inv engine.Invocation) (engine
 	return out, err
 }
 
-// acquire picks a process for an invocation of run, of script ("" for a
-// host call), and counts the invocation as active in it.
-func (pl *Pool) acquire(ctx context.Context, run, script string) (*member, error) {
+// acquire picks a process for run's invocation (step) or host call, and
+// counts it as active in the process; release ends it.
+func (pl *Pool) acquire(ctx context.Context, run string, step bool) (*member, error) {
 	var spawnErr error
 	for {
 		pl.mu.Lock()
@@ -420,18 +430,14 @@ func (pl *Pool) acquire(ctx context.Context, run, script string) (*member, error
 		if spawnErr == nil {
 			pl.fillLocked()
 		}
-		m, lagging := pl.pickLocked(run)
+		m, lagging := pl.pickLocked(run, step)
 		canSpawn := spawnErr == nil && pl.inServiceLocked()+pl.starting < pl.cfg.Max && pl.roomLocked()
 		if m != nil && (!lagging || !canSpawn) {
 			m.active++
-			pl.affinity.set(run, m)
-			if pl.cfg.Recycle.Modules > 0 && script != "" {
-				if m.scripts == nil {
-					m.scripts = map[string]struct{}{}
-				}
-				m.scripts[script] = struct{}{}
-				pl.reviewLocked(m)
+			if step {
+				m.steps++
 			}
+			pl.affinity.set(run, m)
 			pl.mu.Unlock()
 			return m, nil
 		}
@@ -468,12 +474,13 @@ func (pl *Pool) acquire(ctx context.Context, run, script string) (*member, error
 	}
 }
 
-// pickLocked returns the best process for an invocation of run, and
-// whether it lags. Only serving, untainted processes under the cap are
-// candidates.
-func (pl *Pool) pickLocked(run string) (*member, bool) {
+// pickLocked returns the best process for an invocation of run (step) or
+// a host call of run, and whether it lags. Only serving, untainted
+// processes are candidates, and for an invocation only those under the
+// cap.
+func (pl *Pool) pickLocked(run string, step bool) (*member, bool) {
 	usable := func(m *member) bool {
-		return m.inService() && (pl.cfg.Cap == 0 || m.active < pl.cfg.Cap)
+		return m.inService() && (!step || pl.cfg.Cap == 0 || m.steps < pl.cfg.Cap)
 	}
 	lags := func(m *member) bool { return pl.cfg.LagThreshold > 0 && m.p.Lag() > pl.cfg.LagThreshold }
 	if a, ok := pl.affinity.get(run); ok && usable(a) && !lags(a) {
@@ -549,12 +556,25 @@ func (pl *Pool) spawnLocked() *spawnAttempt {
 
 func (pl *Pool) spawn(att *spawnAttempt) {
 	p, err := Spawn(context.Background(), att.cfg)
+	if err == nil && pl.cfg.admitting != nil {
+		pl.cfg.admitting(p)
+	}
+	if err == nil && !pl.declares(p) {
+		// It began to start before the pool recorded the declaration, so
+		// its handshake could not hold it to it (ExpectPlugin). It still
+		// counts as starting until it has exited.
+		p.Kill()
+		<-p.Done()
+		err = errors.New("harness: the process declared another host plugin than the pool's first process with one")
+	}
 	pl.mu.Lock()
 	pl.starting--
-	att.err = err
-	if err == nil && pl.plugin == nil && !p.Hello().Plugin.IsZero() {
-		pl.plugin = slices.Clone(p.Hello().Plugin.Producer())
+	if err == nil && !pl.closed && p.hasExited() {
+		// Its exit came before this admission, and found no member to
+		// remove: admitted, it would hold a place in the pool for good.
+		err = errors.New("harness: the process exited right after its handshake")
 	}
+	att.err = err
 	if err == nil {
 		if pl.closed {
 			// Close may have stopped waiting for this start already; it waits
@@ -575,6 +595,7 @@ func (pl *Pool) spawn(att *spawnAttempt) {
 	} else {
 		// The caller that wanted this process gets err; a replacement
 		// nobody waits for is only logged, and the next Execute tries again.
+		pl.observeLocked("failed", nil)
 		pl.diag().line("windmill-lite: harness pool: starting a process failed: " + err.Error())
 	}
 	if pl.spawning == att {
@@ -585,11 +606,31 @@ func (pl *Pool) spawn(att *spawnAttempt) {
 	pl.mu.Unlock()
 }
 
-// release ends an Execute on m. A process found not serving is leaving the
-// pool (it is dying or draining), so it is not picked again.
-func (pl *Pool) release(m *member, unavailable bool) {
+// declares records the host plugin declaration of the first process that
+// started with one, and reports whether p's declaration is the recorded
+// one, byte for byte, as a handshake with ExpectPlugin checks it.
+func (pl *Pool) declares(p *Process) bool {
+	pl.mu.Lock()
+	defer pl.mu.Unlock()
+	d := p.Hello().Plugin
+	if pl.plugin == nil {
+		if !d.IsZero() {
+			pl.plugin = slices.Clone(d.Producer())
+		}
+		return true
+	}
+	return bytes.Equal(d.Producer(), pl.plugin)
+}
+
+// release ends an acquire of m: an invocation (step) or a host call. A
+// process found not serving is leaving the pool (it is dying or draining),
+// so it is not picked again.
+func (pl *Pool) release(m *member, unavailable, step bool) {
 	pl.mu.Lock()
 	m.active--
+	if step {
+		m.steps--
+	}
 	if unavailable {
 		m.retiring = true
 	}
@@ -675,7 +716,7 @@ func (pl *Pool) reviewLocked(m *member) {
 // trippedLocked reports whether m has reached a recycle trigger.
 func (pl *Pool) trippedLocked(m *member) bool {
 	r := pl.cfg.Recycle
-	return (r.RSS > 0 && m.p.rssStreak() >= r.Samples) || (r.Modules > 0 && len(m.scripts) > r.Modules)
+	return (r.RSS > 0 && m.p.rssStreak() >= r.Samples) || (r.Modules > 0 && m.p.scriptCount() > r.Modules)
 }
 
 func (pl *Pool) broadcastLocked() {

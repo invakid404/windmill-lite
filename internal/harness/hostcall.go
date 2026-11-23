@@ -140,13 +140,13 @@ func (pl *Pool) HostCall(ctx context.Context, hook, run, site string, payload js
 		return jsonval.Value{}, errors.New("harness: a fresh pool has no process to ask a host plugin")
 	}
 	for {
-		m, err := pl.acquire(ctx, run, "")
+		m, err := pl.acquire(ctx, run, false)
 		if err != nil {
 			return jsonval.Value{}, err
 		}
 		out, err := m.p.HostCall(ctx, hook, run, site, payload)
 		unavailable := errors.Is(err, errUnavailable)
-		pl.release(m, unavailable)
+		pl.release(m, unavailable, false)
 		if unavailable {
 			continue
 		}
@@ -161,10 +161,10 @@ func (pl *Pool) Plugin(ctx context.Context) (jsonval.Value, error) {
 	if pl.isFresh() {
 		return jsonval.Value{}, nil
 	}
-	m, err := pl.acquire(ctx, "", "")
+	m, err := pl.acquire(ctx, "", false)
 	if err != nil {
 		return jsonval.Value{}, err
 	}
-	defer pl.release(m, false)
+	defer pl.release(m, false, false)
 	return m.p.Hello().Plugin, nil
 }

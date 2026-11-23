@@ -275,6 +275,41 @@ func TestWlPoolOptions(t *testing.T) {
 	})
 }
 
+// A step's own call to the host plugin does not count toward the cap:
+// with Cap 1 and one process, a step that reads a resource that the plugin
+// provides, and waits for it, gets it, rather than waiting for its own
+// slot until the plugin call times out.
+func TestPoolCapLeavesPluginCalls(t *testing.T) {
+	bun := bunOrSkip(t)
+	step, _ := json.Marshal("export async function main() {\n" +
+		"  const r = await fetch(`${process.env.BASE_URL}/api/w/${process.env.WM_WORKSPACE}/resources/get_value_interpolated/u/t/r`," +
+		" { headers: { Authorization: `Bearer ${process.env.WM_TOKEN}` } });\n" +
+		"  if (!r.ok) throw new Error(\"read: \" + r.status);\n" +
+		"  return await r.json();\n}\n")
+	out, runtimeDir := buildBunBundle(t, bun, map[string]string{
+		"wmill.yaml": "defaultTs: bun\n",
+		"f/t/res.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"rawscript","language":"bun",` +
+			`"content":` + string(step) + `,"input_transforms":{}}}]}}`,
+	})
+	plugin := filepath.Join(t.TempDir(), "plugin.ts")
+	src := `export default { resource: (path: string) => path === "u/t/r" ? { type: "object", value: { x: 1 } } : undefined };`
+	if err := os.WriteFile(plugin, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, PluginTimeout: 5 * time.Second, Pool: PoolOptions{Cap: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	res, err := rt.Run(context.Background(), "f/t/res", json.RawMessage(`{}`), RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != StatusSuccess || string(res.Result) != `{"x":1}` {
+		t.Fatalf("%s %s, latched %v; want the plugin's resource", res.Status, res.Result, res.Latched)
+	}
+}
+
 // waitLag waits until the pool's process pid lags past d.
 func waitLag(t *testing.T, rt *Runtime, pid int, d time.Duration) {
 	t.Helper()

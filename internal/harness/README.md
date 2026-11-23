@@ -741,8 +741,10 @@ hooks ([harnesses/bun](../../harnesses/bun/README.md#host-plugins)).
 - **The handshake.** `ProcessConfig.ExpectPlugin` holds a process to a
   declaration, byte for byte, else `plugin_mismatch` (`RejectPlugin`). A
   `Pool` records the declaration of the first process that starts with
-  one. It holds each spawn that begins after that to the recorded
-  declaration, and does not compare spawns already under way.
+  one, and holds each spawn that begins after that to it.
+- **Spawns under way** when the pool records the declaration are compared
+  when the pool admits them. One whose declaration differs is killed, and
+  its start fails.
 - **Host mode.** `HostConfig.Check` is the engine's own check of the hello,
   before the welcome. The runtime refuses there a host whose declaration it
   cannot use.
@@ -797,7 +799,8 @@ directory of its own, and exits once it has reported the outcome.
   used only when no other process can take the invocation and none can be
   started.
 - **The cap.** `Cap` bounds the invocations in flight per process;
-  abandoned ones do not count. There is none by default; a host-set cap is
+  abandoned ones do not count, and neither do host calls, which a step can
+  wait for. Host calls still keep a leaving process from draining. There is none by default; a host-set cap is
   a [named deviation](../../docs/design/0001-equivalence-contract.md#5-named-deviations).
 - **Freeing a slot.** A finished or abandoned invocation frees its slot
   before its Reporter hears of it, an abandoned one before `Execute`
@@ -817,13 +820,17 @@ directory of its own, and exits once it has reported the outcome.
   replacements up to `Min` before the Reporters of its invocations hear
   `Settled(process_exited)`. A failed start is logged, and retried by the
   next `Execute`.
+- **An early exit.** A process that exits before the pool admits it is a
+  failed start, so it holds no place in the pool.
 - **The RSS trigger.** `Recycle.RSS` trips a process whose health reports
   give an `rss` of at least that many bytes `Recycle.Samples` times in a
   row (2 by default). A health report is a heartbeat `ping` or a `pong`.
   Zero turns it off.
-- **The module trigger.** `Recycle.Modules` trips a process once it has
-  been sent invocations of more distinct scripts than that; the invocation
-  of the one more still runs there. Zero turns it off.
+- **The module trigger.** `Recycle.Modules` trips a process once the
+  invocations dispatched to it ran more distinct scripts than that; the
+  invocation of the one more still runs there, and so do invocations
+  picked for it before it tripped. An invocation that was never sent does
+  not count. Zero turns it off.
 - **Leaving for a trigger.** A process that trips stays tripped. It takes
   no new invocations, does not count toward `Max`, and the pool starts its
   replacement up to `Min` at once. It drains once nothing that the engine
@@ -893,7 +900,7 @@ and `WL_REQUIRE_BUN` set ([docs/ci.md](../../docs/ci.md#the-go-jobs)).
 | `reap_linux_test.go` | Reaping, with the test binary as a child subreaper, on Linux ([below](#what-the-bun-tests-check)) | Linux; `WL_BUN` for all but `TestFreshLandedKillReapsALaterOrphan` |
 | `childgroup_test.go` | Child groups on a fake process table: their identity, the guardian and its tokens (`hasGuardArg`), undecided looks, ending once, release, `groupMembersOf`; the reaping rules (`TestReapChildGroups`); a real guardian, the test's own child, reaped once the watcher releases its group (`TestReviewOwnedGuardianReaped`) | `WL_BUN` for `TestBunWarm*` |
 | `fake_test.go` | A fake harness, for what Bun cannot be made to do on demand ([below](#what-the-fake-harness-tests-check)) | |
-| `pool_test.go` | A warm pool's settings on the fake harness of mode `pool`, whose invocations the tests hold and whose drains they hold. The pool's own events (spawns begun, exits observed, drains begun, waits) give the order. `MaxLive` with a taint (`TestPoolMaxLive`), routing to a started process (`TestPoolMaxLiveRouting`), a leaver that waits for its work (`TestPoolLeavingWaitsForWork`), and the RSS and module triggers (`TestPoolRecycleOnRSS`, `TestPoolRecycleOnModules`) | |
+| `pool_test.go` | A warm pool's settings on the fake harness of mode `pool`, whose invocations and drains the tests hold; the pool's own events (spawns begun and failed, exits observed, drains begun, waits) give the order. The tests are listed [below](#what-the-pool-tests-check) | |
 | `qwa4_test.go` | That concurrent invocations each see their own `WM_*` environment variables ([Q-WA-4](../../docs/semantics/client-api.md#q-wa-4), [WA-31](../../docs/semantics/client-api.md#wa-31)) | `WL_BUN`, `WL_WINDMILL_CLIENT` |
 | `retain_test.go` | `TestSerialKeepsNoCallItRan`: an invocation's call queue (`serial`) keeps no function that it has run, so what they closed over becomes unreachable | |
 | `bench_test.go` | The microbenchmarks ([Microbenchmarks](#microbenchmarks)), `TestTimesHook` and `TestBenchEcho` | `WL_BUN` for the Bun parts |
@@ -998,6 +1005,17 @@ unattributed warning, and a signature that did not parse. Others hold:
 - **What `reap_linux_test.go` asserts:** each guardian and child that the
   engine adopted is reaped, the descendant before its group ends, and no
   zombie of the test process is left.
+
+#### What the pool tests check
+
+| Test | What it checks |
+|---|---|
+| `TestPoolMaxLive`, `TestPoolMaxLiveRouting` | `MaxLive` with a taint, and routing to a started process |
+| `TestPoolLeavingWaitsForWork` | A leaver that waits for its work before it drains |
+| `TestPoolRecycleOnRSS`, `TestPoolRecycleOnModules`, `TestPoolModulesCountDispatchedScripts` | The RSS and module triggers |
+| `TestPoolCapLeavesHostCalls` | Host calls beside a full cap |
+| `TestPoolEarlyExitNotAdmitted` | A process that exits before its admission |
+| `TestPoolPluginDeclarationsAgree` | Two initial processes with different plugin declarations |
 
 #### What the fake-harness tests check
 

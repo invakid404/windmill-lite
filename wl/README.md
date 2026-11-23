@@ -179,7 +179,7 @@ refuses a `Pool` that is not zero there.
 | Field | What it sets | Default |
 |---|---|---|
 | `Min`, `Max` | How many processes the pool keeps serving, and how many may serve. A process that is tainted, because an abandoned step of its own still runs, or that leaves for a recycle trigger, does not count toward `Max`. | 1 and 1 |
-| `Cap` | The steps in flight in each process | No cap |
+| `Cap` | The steps in flight in each process. A step's calls to the host plugin do not count. | No cap |
 | `LagThreshold` | The event-loop lag past which a process is busy with a CPU-bound step: the next step goes to another process, which starts if the pool is below `Max`. A negative value turns this off. | 250 ms |
 | `RecycleTimeout` | How long a leaving process may drain, after its last step in flight, before it is killed | 5 s |
 | `Recycle.RSS`, `Recycle.Samples` | A process whose heartbeats report a resident set of `RSS` bytes or more `Samples` times in a row is replaced | Off; 2 heartbeats |
@@ -699,5 +699,5 @@ build helper's dependencies, and skip without them unless
 | `outside_test.go` | A bundle whose host contract lists two modules outside the [sync folder](../docs/glossary.md#sync-folder), without a host | Yes |
 | `plugincases_test.go` | The cases of `conformance/plugins/hooks.yaml`, through the TypeScript case plugin and through Go callbacks built from the same plugins | Yes |
 | `store_test.go` | `Options.ResourceStore` on real steps (`TestResourceStoreOnBun`): two runtimes that share a memory store, one with its own, a failing store's warning, and `D24` in the trace; a run id in flight refused (`TestRunIDInFlight`). Without Bun: `Close` releasing its own store while readers use it (`TestCloseReleasesItsOwnStore`), and a late answer kept from a later run of the same id (`TestLateAnswerAcrossIDReuse`) | Yes, but for the last two |
-| `pool_test.go` | `Options.Pool`. Without Bun: `Open`'s refusals in `fresh` and host mode (`TestPoolOptionsRefusedFresh`) and of `MaxLive` below `Max` (`TestPoolMaxLiveBelowMax`), and `D15` in the trace. On real steps: a second process for a step beside a CPU-bound one and under `Cap`, the module and RSS triggers (`TestWlPoolOptions`), and the warm start (`TestWarmStart`) | Yes, but for the refusals and `D15` |
+| `pool_test.go` | `Options.Pool`. Without Bun: `Open`'s refusals in `fresh` and host mode (`TestPoolOptionsRefusedFresh`) and of `MaxLive` below `Max` (`TestPoolMaxLiveBelowMax`), and `D15` in the trace. On real steps: a second process for a step beside a CPU-bound one and under `Cap`, the module and RSS triggers (`TestWlPoolOptions`), the warm start (`TestWarmStart`), and a step that reads a plugin's resource under `Cap: 1` (`TestPoolCapLeavesPluginCalls`) | Yes, but for the refusals and `D15` |
 | `example_test.go` | Compiles the README's example | No |

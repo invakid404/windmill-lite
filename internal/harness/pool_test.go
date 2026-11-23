@@ -23,17 +23,24 @@ import (
 // An invocation's arguments may name a file to create once it starts
 // (started), a file to wait for before it answers (hold), and a resident
 // set to report in a heartbeat ping just before its result (rss); its
-// result is {"pid": <the pid of its process>}. It ignores cancels, so an
-// abandoned invocation runs on until its hold file exists. It sends no
-// heartbeat of its own. It answers a drain with bye and exits: at once, or,
-// while the file hold-drains exists in the directory WL_FAKE_CTL, once
-// release-<pid> exists there too.
+// result is {"pid": <the pid of its process>}, and so is its answer to a
+// host_call. It ignores cancels, so an abandoned invocation runs on until
+// its hold file exists. It sends no heartbeat of its own. It answers a drain
+// with bye and exits: at once, or, while the file hold-drains exists in the
+// directory WL_FAKE_CTL, once release-<pid> exists there too. The first
+// process that finds the file exit-after-welcome there takes it and exits
+// at once.
 func poolFake(send func(Message), recv func() Message, pid int) int {
 	ctl := os.Getenv("WL_FAKE_CTL")
 	exists := func(f string) bool { _, err := os.Stat(f); return err == nil }
+	if ctl != "" && os.Rename(filepath.Join(ctl, "exit-after-welcome"), filepath.Join(ctl, "exit-after-welcome.taken")) == nil {
+		return 0
+	}
 	var beats atomic.Int64
 	for {
 		switch m := recv().(type) {
+		case HostCall:
+			send(HostReply{ID: m.ID, Payload: jsonval.FromProducer(fmt.Appendf(nil, `{"pid":%d}`, pid))})
 		case Invoke:
 			go func() {
 				var a struct {
@@ -66,8 +73,8 @@ func poolFake(send func(Message), recv func() Message, pid int) int {
 
 // poolLog records a pool's events (PoolConfig.observe) and the test's own
 // notes in one order, and counts the processes alive by those events: each
-// spawn that the pool begins counts until it observes the exit of a
-// process. maxLive is the most that were alive at once.
+// spawn that the pool begins counts until it fails or the pool observes the
+// exit of its process. maxLive is the most that were alive at once.
 type poolLog struct {
 	mu      sync.Mutex
 	events  []string
@@ -86,6 +93,9 @@ func (l *poolLog) observe(ev poolEvent) {
 		l.live++
 		l.maxLive = max(l.maxLive, l.live)
 		l.addLocked("spawn")
+	case "failed":
+		l.live--
+		l.addLocked("failed")
 	case "exit", "drain":
 		if ev.kind == "exit" {
 			l.live--
@@ -177,15 +187,16 @@ func (l *poolLog) before(a string, na int, b string, nb int) bool {
 	return i >= 0 && j >= 0 && i < j
 }
 
-// fakePool returns a warm pool of fake harnesses in mode pool, the pool's
-// control directory and its event log. The fake sends no heartbeat of its
-// own, so the watchdog and lag routing are off.
-func fakePool(t *testing.T, cfg PoolConfig) (*Pool, string, *poolLog) {
+// fakePool returns a warm pool of fake harnesses in mode pool, with env
+// added to their environment, the pool's control directory and its event
+// log. The fake sends no heartbeat of its own, so the watchdog and lag
+// routing are off.
+func fakePool(t *testing.T, cfg PoolConfig, env ...string) (*Pool, string, *poolLog) {
 	t.Helper()
 	pc, _ := fakeConfig(t, "pool")
 	// Made before the pool, so it outlives the pool's close.
 	ctl := t.TempDir()
-	pc.Env = append(pc.Env, "WL_FAKE_CTL="+ctl)
+	pc.Env = append(append(pc.Env, "WL_FAKE_CTL="+ctl), env...)
 	pc.KillAfter = WatchdogOff
 	cfg.Process = pc
 	cfg.LagThreshold = -1
@@ -523,4 +534,124 @@ func TestPoolRecycleOnModules(t *testing.T) {
 		t.Fatalf("a process that ran three scripts with Modules 2 got a new invocation")
 	}
 	log.waitFor(t, "", fmt.Sprintf("drain %d", a))
+}
+
+// The module trigger counts only the scripts dispatched to a process: an
+// invocation of a new script that the pool picked a process for, but that
+// was never sent, because its context had ended, does not count.
+func TestPoolModulesCountDispatchedScripts(t *testing.T) {
+	pool, _, _ := fakePool(t, PoolConfig{Max: 1, Recycle: RecycleTriggers{Modules: 1}})
+	a := fakeRun(t, pool, "s1", nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := pool.Execute(ctx, fakeInvocation("s2", nil)); !errors.Is(err, context.Canceled) {
+		t.Fatalf("an invocation whose context had ended: %v", err)
+	}
+	if got := fakeRun(t, pool, "s1", nil); got != a {
+		t.Fatalf("an invocation that was never sent counted toward Modules: went to %d, want %d", got, a)
+	}
+	// The second script dispatched still runs there; then the process trips.
+	if got := fakeRun(t, pool, "s2", nil); got != a {
+		t.Fatalf("went to %d, want %d", got, a)
+	}
+	if got := fakeRun(t, pool, "s1", nil); got == a {
+		t.Fatal("a process that ran two scripts with Modules 1 got a new invocation")
+	}
+}
+
+// A host call does not count toward the cap: with Cap 1 and the one
+// process's step slot taken, a step's own call to the host plugin, which
+// the step waits for, still goes to that process at once. The cap still
+// bounds invocations.
+func TestPoolCapLeavesHostCalls(t *testing.T) {
+	pool, ctl, log := fakePool(t, PoolConfig{Max: 1, Cap: 1}, "WL_FAKE_PLUGIN=same")
+	h := startHeld(t, pool, ctl, "h")
+	log.note("host call")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := pool.HostCall(ctx, "resource", "run-h", "", jsonval.FromProducer([]byte(`{"path":"u/t/r"}`)))
+	if err != nil {
+		t.Fatalf("a host call beside a step at the cap: %v", err)
+	}
+	var r struct{ PID int }
+	if json.Unmarshal(out.Producer(), &r) != nil || r.PID == 0 {
+		t.Fatalf("reply %s", out.Producer())
+	}
+	if evs := log.after("host call"); slices.Contains(evs, "wait") {
+		t.Fatalf("the host call waited for the cap: %q", evs)
+	}
+	log.note("second step")
+	w := goRun(pool, "s", nil)
+	log.waitFor(t, "second step", "wait")
+	notReturned(t, w, "a second invocation under Cap 1")
+	h.release(t)
+	if r := <-h.done; pidOfOutcome(t, r.out, r.err) == 0 {
+		t.Fatal("the held step failed")
+	}
+	if got := wait(t, w); got != r.PID {
+		t.Fatalf("the second invocation went to %d, want %d", got, r.PID)
+	}
+}
+
+// A process whose exit comes before the pool admits it is not admitted: it
+// would hold a place in the pool for good. The test holds the admission
+// until the first process, which exits right after its handshake, has
+// exited. With Max = MaxLive = 1, the start that made it fails, and the
+// next invocation runs in a new process.
+func TestPoolEarlyExitNotAdmitted(t *testing.T) {
+	var first atomic.Bool
+	pc, _ := fakeConfig(t, "pool")
+	ctl := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ctl, "exit-after-welcome"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pc.Env = append(pc.Env, "WL_FAKE_CTL="+ctl)
+	pc.KillAfter = WatchdogOff
+	log := newPoolLog()
+	pool := newPool(t, PoolConfig{Process: pc, Max: 1, MaxLive: 1, LagThreshold: -1, observe: log.observe,
+		admitting: func(p *Process) {
+			if first.CompareAndSwap(false, true) {
+				<-p.Done()
+			}
+		}})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := pool.Start(ctx); err == nil || !strings.Contains(err.Error(), "exited right after its handshake") {
+		t.Fatalf("Start with a process that exited before its admission: %v", err)
+	}
+	if n := len(pool.Stats()); n != 0 {
+		t.Fatalf("%d members after the early exit: %+v", n, pool.Stats())
+	}
+	fakeRun(t, pool, "s", nil)
+	if live, most := log.stats(); live != 1 || most > 1 || len(pool.Stats()) != 1 {
+		t.Fatalf("%d alive (at most %d) by the pool's events, %d members, with MaxLive 1: %q", live, most, len(pool.Stats()), log.after(""))
+	}
+}
+
+// Processes that started at once, before the pool recorded a host plugin
+// declaration, are each held to the first declaration at their admission:
+// of two initial processes whose declarations differ, only the first is
+// admitted, and every member answers the same hooks.
+func TestPoolPluginDeclarationsAgree(t *testing.T) {
+	pool, _, log := fakePool(t, PoolConfig{Min: 2, Max: 2}, "WL_FAKE_PLUGIN=pid")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err := pool.Start(ctx)
+	if err == nil || !strings.Contains(err.Error(), "another host plugin") {
+		t.Fatalf("Start with two declarations: %v", err)
+	}
+	// Start begins both spawns at once, before either is admitted.
+	if evs := log.after(""); len(evs) < 2 || evs[0] != "spawn" || evs[1] != "spawn" {
+		t.Fatalf("the test needs the two initial spawns first: %q", evs)
+	}
+	pool.mu.Lock()
+	var decls []string
+	for _, m := range pool.members {
+		decls = append(decls, string(m.p.Hello().Plugin.Producer()))
+	}
+	recorded := string(pool.plugin)
+	pool.mu.Unlock()
+	if len(decls) != 1 || decls[0] != recorded {
+		t.Fatalf("members declare %q; the pool recorded %q", decls, recorded)
+	}
 }

@@ -125,12 +125,16 @@ type ProcessConfig struct {
 	// the Reporters of the invocations in it hear Settled(process_exited).
 	// So the pool's rules have run by the time a Reporter is told. The pool
 	// sets it. With rssLimit set it is also called after each health
-	// report, on the connection's reader, before the next frame is read.
+	// report, on the connection's reader, before the next frame is read;
+	// with countScripts set, after an invocation of a script new to the
+	// process is dispatched, before exec waits for its outcome.
 	notify func(*Process)
 	// rssLimit, when positive, makes the process count the health reports
-	// in a row whose rss reaches it (rssStreak), for a pool's recycle
-	// trigger. The pool sets it.
-	rssLimit int64
+	// in a row whose rss reaches it (rssStreak), and countScripts the
+	// distinct scripts of the invocations dispatched to it (scriptCount),
+	// for a pool's recycle triggers. The pool sets them.
+	rssLimit     int64
+	countScripts bool
 	// killLines bounds the goroutines that write kill lines; nil means
 	// runtimeKillLines, which every process in the program shares. Tests
 	// set their own.
@@ -274,7 +278,8 @@ type Process struct {
 	pingSeq    uint64
 	pings      map[string]chan *Health
 	health     *Health
-	rssOver    int // health reports in a row whose rss reached cfg.rssLimit
+	rssOver    int                 // health reports in a row whose rss reached cfg.rssLimit
+	scripts    map[string]struct{} // the scripts dispatched, with cfg.countScripts
 	bye        bool
 	ending     bool      // the reader stopped or the process exited
 	holding    bool      // a fresh result waits for the process group (WR-55)
@@ -1815,8 +1820,20 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 	p.invs[inv.ID] = e
 	p.served = p.served || fresh
 	p.inFlight++
+	newScript := false
+	if _, seen := p.scripts[inv.Script]; p.cfg.countScripts && !seen {
+		// Counted in dispatch order, as the invokes are queued.
+		if p.scripts == nil {
+			p.scripts = map[string]struct{}{}
+		}
+		p.scripts[inv.Script] = struct{}{}
+		newScript = true
+	}
 	p.mu.Unlock()
 	p.conn.flush()
+	if newScript && p.cfg.notify != nil {
+		p.cfg.notify(p)
+	}
 
 	select {
 	case r := <-e.outcome:
@@ -2263,6 +2280,14 @@ func (p *Process) rssStreak() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.rssOver
+}
+
+// scriptCount returns how many distinct scripts the invocations dispatched
+// to the process ran, when ProcessConfig.countScripts is set.
+func (p *Process) scriptCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.scripts)
 }
 
 // Health returns the last health the harness reported, or nil.

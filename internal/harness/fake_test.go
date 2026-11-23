@@ -152,6 +152,16 @@ func fakeHarness(mode string) int {
 	if mode == "plugin" {
 		hello.Plugin = jsonval.FromProducer([]byte(`{"on_module_start":true}`))
 	}
+	if mode == "pool" {
+		// WL_FAKE_PLUGIN gives the declaration: one for every process
+		// (same), or one of each process's own (pid).
+		switch os.Getenv("WL_FAKE_PLUGIN") {
+		case "same":
+			hello.Plugin = jsonval.FromProducer([]byte(`{"on_module_start":true}`))
+		case "pid":
+			hello.Plugin = jsonval.FromProducer(fmt.Appendf(nil, `{"on_module_start":true,"pid":%d}`, pid))
+		}
+	}
 	send(hello)
 	w := recv().(Welcome)
 	if w.Reject != nil {
