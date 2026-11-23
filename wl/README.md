@@ -251,6 +251,7 @@ runs.
 | `Trace` | For a flow, the [trace](../docs/glossary.md#trace): for each call site what happened and why, with timings, and the platform calls that the steps made before the run ended. Each call is a `PlatformCall`: the step's site; the request's method, path and query, without its headers or body; the route that it matched, empty when none did; and the answer's status. `nil` for a script. |
 | `Warnings` | The run's warnings, such as an error that no step owns, or the work that a step left behind when it settled. Each is a `Warning` with a code and a message, and no warning changes the run's status. |
 | `Latched` | For a `latched` run, the error that was latched |
+| `CancelCause` | For a `canceled` run, why it was canceled (table below); empty otherwise |
 
 | Status | Constant | Meaning |
 |---|---|---|
@@ -260,6 +261,17 @@ runs.
 | `skipped` | `StatusSkipped` | A step's early stop with `skip_if_stopped` ended the flow. |
 | `latched` | `StatusLatched` | A hook, a provider, a step or the engine [latched](../docs/glossary.md#latch) an error. `Latched` holds it. |
 | `halted` | `StatusHalted` | A halt hook ended the run. |
+
+A canceled run's `CancelCause` names one cause. Every cause keeps the
+status `canceled` and Windmill's `Canceled` error in `Result`.
+
+| Cause | Constant | What canceled the run |
+|---|---|---|
+| `deadline` | `CauseDeadline` | Its context's deadline passed. |
+| `pre_write_deadline` | `CausePreWriteDeadline` | `RunOptions.PreWriteDeadline` passed before the first write was approved. |
+| `canceled` | `CauseCanceled` | Its context ended otherwise, such as with a `*wl.Cancellation` cause. |
+| `closing` | `CauseClosing` | `Close` canceled it. |
+| `flow_timeout` | `CauseFlowTimeout` | The flow's own wall-clock limit passed ([FX-52](../docs/semantics/execution.md#fx-52)). |
 
 ## Hooks
 
@@ -358,8 +370,8 @@ iteration, sleep and retry delay.
 
 | Setting | What it limits | What happens when it trips |
 |---|---|---|
-| The run's context (`ctx`) | The whole run: its cancellation and its hard deadline | The run ends `canceled`. |
-| `RunOptions.PreWriteDeadline` | The time before the run's first write is approved | The run ends `canceled`, and its context's cause is `ErrPreWriteDeadline`. After the approval, the deadline no longer applies. |
+| The run's context (`ctx`) | The whole run: its cancellation and its hard deadline | The run ends `canceled`, with `CancelCause` `deadline` at the deadline. |
+| `RunOptions.PreWriteDeadline` | The time before the run's first write is approved | The run ends `canceled`, with `CancelCause` `pre_write_deadline`, and its context's cause is `ErrPreWriteDeadline`. After the approval, the deadline no longer applies. |
 | `Hooks.WriteCapable` and `Hooks.BeforeFirstWrite` | The first write: the first job of a write-capable site, or a write-capable subflow call | An error from `BeforeFirstWrite` vetoes the write and latches the run. Parallel launches wait for that one verdict. After an approval, `Result.MayHaveMutated` is `true`, also in a failed run. |
 | `Hooks.FatalErrorNames` | The error names that skip retries, `continue_on_error`, `skip_failures` and `skip_failure` | The run latches with a `*FatalError`, and the trace lists `H7`. |
 | `RunOptions.Clock` set to a `*wl.RecordClock` | The time of sleeps and retry delays | Each wait is recorded and returns at once, and the trace lists `H10`. |
@@ -529,7 +541,7 @@ This section is for contributors who change `wl`.
 | File | Contents |
 |---|---|
 | `wl.go` | `Options`, `Resource`, `Variable`, `ResultCache`, `ResourceStore`, `MemoryResourceStore`, `NewMemoryResourceStore`, `Runtime`, `Open`, `BuildInfo`, `PlatformOrigin`, `Close`, `Version`, and `ErrUnsupported`, `ErrEngineVersion`, `ErrClosed` |
-| `run.go` | `RunOptions`, `RunPlatform`, `Result`, `Run`; the clock and jitter types; `ErrPreWriteDeadline`, `ErrRunInFlight`; the trace types, which alias the engine's; the executor that collects each run's platform calls |
+| `run.go` | `RunOptions`, `RunPlatform`, `Result`, `Run`; the causes of a canceled run; the clock and jitter types; `ErrPreWriteDeadline`, `ErrRunInFlight`; the trace types, which alias the engine's; the executor that collects each run's platform calls |
 | `hooks.go` | `Hooks` and the types of their callbacks, `Selector`, `Site`, `FatalError` and the selector and provider errors; selector matching, and the adapter to the engine's hook interface |
 | `host.go` | `Host`, `Runtime.Done`, `Host.Refuse`, `HandshakeError` and the reject codes: host mode, its handshake, and the runs that it serves |
 | `plugin.go` | `DefaultPluginTimeout`, `ErrHostCallTimeout`, `HostCallError`: host plugins, their declaration as `Hooks` and `Providers`, their resources and variables, `around`, and the merge of a run's hooks with the plugin's |
@@ -595,15 +607,24 @@ with the engine's side of the protocol in
   The run's invocations go back to the host, which runs them in the scope
   that it captured when it submitted the run.
 - **Outcomes.** `run_done` carries the status, the stored result,
-  `may_have_mutated`, the warnings and the trace's deviations.
-  `run_settled` follows once the run has settled. A run that `Run`
-  refuses goes back as `refused`, or `draining` once `Close` has begun.
+  `may_have_mutated`, the warnings, the trace's deviations and, for a
+  canceled run, `cancel_cause`. `run_settled` follows once the run has
+  settled. A run that `Run` refuses goes back as `refused`, or `draining`
+  once `Close` has begun.
 - **A run's own hooks.** `hostBudgets` turns a run frame's write-capable
   selectors, halts and fatal error names into the run's own hooks, ahead
-  of the plugin's, with its pre-write deadline, record clock and hard
-  deadline. `checkSelectorIn` checks their selectors as a plugin's are
-  checked, and a selector that fails refuses the run, naming it, such as
+  of the plugin's, with its pre-write deadline and record clock;
+  `hostDeadline` bounds the run's context by its hard deadline.
+  `checkSelectorIn` checks their selectors as a plugin's are checked, and
+  a selector that fails refuses the run, naming it, such as
   `the run's haltAfter[0]`.
+- **Deadlines.** A frame without `deadline_ms` or `pre_write_deadline_ms`
+  has no such deadline, and a root script's run takes only the hard one.
+  `budgetDuration` converts either value:
+  - 0 or less has passed: it ends that run alone before its first module,
+    with the cause `deadline` or `pre_write_deadline`;
+  - above 9,223,372,036,854 ms, the longest `time.Duration`, it counts as
+    that duration.
 - **Drain and end.** A host's `drain` is answered on the harness side:
   later runs are refused `draining`, and `bye` follows once no run is in
   flight. When the host's connection ends, `Done` closes, and the runs in
@@ -650,7 +671,8 @@ build helper's dependencies, and skip without them unless
 | `wl_test.go` | `Open`, `Run`, `BuildInfo` and `Close` on hand-written bundles that need no harness. It covers archives, data directories, the host's variables, every refusal of `Open` and `Run`, cancellation, `Close` during runs, and a late platform call that still reaches its run. | No |
 | `hooks_test.go` | Every hook without Bun: interceptions, rewrites, observers, halts, run-end hooks, latches, selector checks, providers and their errors, per-run variables and the resolver | No |
 | `hookcases_test.go` | The latch-precedence cases of `conformance/hooks`, through the public hooks | No |
-| `host_test.go` | Host mode on a socketpair: the welcome, `run_done` and `run_settled`, refused runs, drain, `Close`, every refusal in the handshake, and per-run halts (`TestHostRunHalts`) | No |
+| `host_test.go` | Host mode on a socketpair: the welcome, `run_done` and `run_settled`, refused runs, drain, `Close`, every refusal in the handshake, and per-run halts (`TestHostRunHalts`). Deadlines that have passed, which end only their run (`TestHostExpiredDeadlineEndsOnlyItsRun`), the conversion of both deadlines (`TestBudgetDuration`), and a `run_cancel`'s reason and canceler (`TestHostRunCancelReason`) | No |
+| `cause_test.go` | The cause of a canceled run (`TestRunCancelCause`): a deadline, a passed pre-write deadline, a cancellation, `Close` and a flow's own limit. A root script's run past its deadline (`TestScriptRunCancelCause`) needs Bun | No, but for the script |
 | `plugin_test.go` | Host plugins without Bun: refusals, the declaration's checks, providers, `host_call`s, timeouts, `mergeHooks`, settlement (`TestPluginCallsHoldSettlement`) and the run-end trace detail (`TestPluginTraceDetail`) | No |
 | `payload_test.go` | The payload encoding against `json.Marshal` (`TestPayloadSplice`) | No |
 | `settled_test.go` | The run-settlement hooks | No |

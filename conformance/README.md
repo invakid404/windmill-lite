@@ -838,7 +838,8 @@ The cases cover:
   site, and an `around` wrapper around a step;
 - the errors, declines and timeouts that latch a run;
 - fatal error names from the plugin or from the run, the run's deadlines,
-  and a run's own hooks and budgets as the run carries them;
+  one that has already passed included, the cause that a canceled run
+  names, and a run's own hooks and budgets as the run carries them;
 - settlement: a run settles only once its hooks and providers finish; and
   later runs of a flow (`then`);
 - step code's `wl.latch` and `wl.signal`.

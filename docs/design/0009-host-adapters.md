@@ -67,8 +67,7 @@ only engine API. In outline:
    - Run data and a per-run module-state override are planned. Until then
      `wl.Options.ModuleState` sets the override once per runtime, since one
      harness pool and one engine hold one mode.
-   - A canceled run's result is planned to name its cause, such as its
-     deadline
+   - A canceled run's result names its cause, such as its deadline
      ([harness protocol](0004-harness-protocol.md#cancellation-and-deadlines)).
 3. `runtime.BuildInfo()` reports the bundle digest, engine and harness
    versions, the Bun version, the host contract and the deviations in effect.
@@ -228,7 +227,7 @@ The engine serves `windmill_lite.v1.Runner`, which
 |---|---|
 | `GetBuildInfo` | Returns the build identity ([Build identity and pinning](#build-identity-and-pinning)) |
 | `Run` | Runs a flow or a root script of the bundle to its end, as `Runtime.Run` does, and returns its outcome: one unary call per run |
-| `Cancel` | Cancels a run in flight by its id, with a reason and a canceler, which the run's `Canceled` error names ([FX-38](../semantics/execution.md#fx-38)). Host mode's `run_cancel` is planned to carry the same two fields |
+| `Cancel` | Cancels a run in flight by its id, with a reason and a canceler, which the run's `Canceled` error names ([FX-38](../semantics/execution.md#fx-38)). Host mode's `run_cancel` carries the same two fields |
 | `GetRun` | Says whether the engine still holds the run of a hooks registration, by its id and token: in flight, or ended and not yet released ([Hooks across the plugin boundary](#hooks-across-the-plugin-boundary)) |
 
 A `RunRequest` holds:

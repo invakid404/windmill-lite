@@ -19,9 +19,7 @@ itself.
 - the pool's settings in `wl`, pinned runs, recycle triggers and limits per
   run (§Pooling);
 - a host plugin built into the bundle, and run data in its processes
-  (§Host plugins);
-- the named cause of a canceled run, and host-mode deadlines that have
-  already passed (§Cancellation and deadlines).
+  (§Host plugins).
 
 ## Context
 
@@ -116,7 +114,7 @@ step without failing the others.
 | `platform` | harness → engine | `id`, `inv` (invocation id), `method`, `url`, `headers`, `body` | an intercepted `fetch` to the platform facade ([platform interface](0007-platform-interface.md)) |
 | `platform_reply` | engine → harness | `id`, `status`, `headers`, `body` | its answer |
 | `host_call` / `host_reply` | engine → harness / back | `host_call`: `id`, `hook`, `run`, `site` (`""` for a hook of the run as a whole), `payload` (raw object); `host_reply`: `id`, then `payload` (raw object) or `error` (`code`: `plugin_error` or `unknown_hook`, `message`) | a host plugin hook ([host hooks](0008-host-hooks.md), §Host plugins) |
-| `run` / `run_done` / `run_cancel` | harness → engine / back / harness → engine | the fields that they share with `runner.proto`'s `RunRequest`, `RunResult` and `CancelRequest`, under the same names, JSON values raw ([host adapters](0009-host-adapters.md#the-runner-service)). `run`: `id`, `kind`, `path`, `args`, `intercept`, `write_capable`, `halt_before` and `halt_after` (raw arrays of selectors), `fatal_error_names`, `deadline_ms`, `pre_write_deadline_ms` and `clock` (`real` or `record`). `run_done`: `id`, then `status`, `result`, `may_have_mutated`, `warnings` (raw, each a `code` and a `message`), `latched` and `deviations`, or `error` for a run the engine did not start (`code`: `draining` or `refused`). `run_cancel`: `id` | host mode: a harness that is also the host submits runs |
+| `run` / `run_done` / `run_cancel` | harness → engine / back / harness → engine | the fields that they share with `runner.proto`'s `RunRequest`, `RunResult` and `CancelRequest`, under the same names, JSON values raw ([host adapters](0009-host-adapters.md#the-runner-service)). `run`: `id`, `kind`, `path`, `args`, `intercept`, `write_capable`, `halt_before` and `halt_after` (raw arrays of selectors), `fatal_error_names`, `deadline_ms`, `pre_write_deadline_ms` and `clock` (`real` or `record`). `run_done`: `id`, then `status`, `result`, `may_have_mutated`, `warnings` (raw, each a `code` and a `message`), `latched` and `deviations`, or `error` for a run the engine did not start (`code`: `draining` or `refused`); then `cancel_cause`. `run_cancel`: `id`, `reason`, `canceler` | host mode: a harness that is also the host submits runs |
 | `run_settled` | engine → harness | `id` | host mode: one of the host's runs has settled, after its `run_done` (host mode item 5) |
 | `ping` / `pong` | either way | `id`; from a harness also `in_flight`, `abandoned`, `errors` (process-level errors no invocation owned), `lag_ms` (event-loop lag), `rss` | health; a harness also pings on its own every `heartbeat_ms` |
 | `part` | either way | `id`, `seq`, `last`, `chunk` | one piece of a message over 1 MiB |
@@ -1026,36 +1024,39 @@ flow's failure module still runs once, and the flow ends canceled.
 
 **A deadline ends only its run.** A run's hard deadline, and its pre-write
 deadline until the first write is approved, end that run alone, `canceled`,
-as a cancellation does in item 3. Other runs and the harness processes go
-on, and so, once the host-mode rule below is built, does a host's
-connection. A deadline that has passed when the run arrives ends it before
-its first module, as `wl` ends a flow run whose pre-write deadline is past.
+as a cancellation does in item 3. Other runs, the harness processes and a
+host's connection go on. A deadline that has passed when the run arrives
+ends it before its first module, as `wl` ends a flow run whose pre-write
+deadline is past.
 
-**Expired deadlines in host mode** (planned). Until then, a `run` frame
-whose `deadline_ms` or `pre_write_deadline_ms` is 0 or negative fails to
-decode. That protocol error ends the connection, and with it every run of
-the host and the engine (§Transport and framing item 3).
+**Expired deadlines in host mode.** Each of `deadline_ms` and
+`pre_write_deadline_ms` is optional, and its absence means no deadline.
+Both codecs keep whether it is present and write a present 0. A present
+value of 0 or less is a deadline that has passed, and one above the longest
+duration that the engine holds, about 292 years, counts as that duration.
 
-The planned rule: each field is optional, and its absence means no
-deadline. Both codecs keep whether it is present and write a present 0. A
-present value of 0 or less is a deadline that has passed, and one above
-the longest duration that the engine holds, about 292 years, counts as that
-duration.
+No budget fails to decode, since a protocol error would end the
+connection, and with it every run of the host and the engine (§Transport
+and framing item 3).
 
 The host SDK sends a rest rounded up to whole milliseconds and at least 0.
 It refuses, itself, a rest that is not a finite number or that is above
 2^53 − 1 ms, the frame rules' largest integer, so no budget that a host
 gives it can end the connection.
 
-**The cause** (planned). A canceled run's outcome names why it was
-canceled: `deadline`, `pre_write_deadline`, `canceled` (the host's
-cancellation, or the end of the call that carried the run), `closing` (the
-runtime closes) or `flow_timeout` (the flow's own limit). `wl`'s `Result`
-carries it, and so do host mode's `run_done` and the `Runner`'s
-`RunResult`, as `cancel_cause`
+**The cause.** A canceled run's outcome names why it was canceled:
+`deadline`, `pre_write_deadline`, `canceled` (the host's cancellation, or
+the end of the call that carried the run), `closing` (the runtime closes)
+or `flow_timeout` (the flow's own limit). `wl`'s `Result` carries it as
+`CancelCause`, and host mode's `run_done` as `cancel_cause`, the name that
+the planned `Runner`'s `RunResult` gives it too
 ([host adapters](0009-host-adapters.md#deadlines-and-outcomes)). The
 status stays Windmill's `canceled`, and so does the `Canceled` error in the
 result.
+
+A host's `run_cancel` may carry a `reason` and a `canceler`, which that
+error then names ([FX-38](../semantics/execution.md#fx-38)); without them
+it names Windmill's defaults. Its cause is `canceled` either way.
 
 ## Consequences
 
