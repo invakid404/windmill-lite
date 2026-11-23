@@ -159,6 +159,8 @@ func fakeHarness(mode string) int {
 	}
 	heartbeat := time.Duration(w.Config.HeartbeatMS) * time.Millisecond
 	switch mode {
+	case "pool":
+		return poolFake(send, recv, pid)
 	case "plugin":
 		// Answers every host_call with the hook it was for.
 		for {
@@ -983,6 +985,11 @@ func TestPoolConfigValidation(t *testing.T) {
 		"key disagrees":       {Process: cfg, Key: Key{Class: "bun"}},
 		"unknown module mode": {Process: cfg, Key: Key{ModuleState: "shared"}},
 		"modes disagree":      {Process: func() ProcessConfig { c := cfg; c.ModuleState = engine.ModuleStateWarm; return c }(), Key: Key{ModuleState: engine.ModuleStateFresh}},
+		"max live below max":  {Process: cfg, Max: 2, MaxLive: 1},
+		"negative max live":   {Process: cfg, MaxLive: -1},
+		"negative rss":        {Process: cfg, Recycle: RecycleTriggers{RSS: -1}},
+		"negative samples":    {Process: cfg, Recycle: RecycleTriggers{RSS: 1, Samples: -1}},
+		"negative modules":    {Process: cfg, Recycle: RecycleTriggers{Modules: -1}},
 	} {
 		if _, err := NewPool(pc); err == nil {
 			t.Errorf("%s: no error", name)
@@ -990,6 +997,10 @@ func TestPoolConfigValidation(t *testing.T) {
 	}
 	// The key may leave the class and runtime to the process template.
 	if _, err := NewPool(PoolConfig{Process: cfg}); err != nil {
+		t.Fatal(err)
+	}
+	// MaxLive may equal Max, the default of one included.
+	if _, err := NewPool(PoolConfig{Process: cfg, MaxLive: 1}); err != nil {
 		t.Fatal(err)
 	}
 }

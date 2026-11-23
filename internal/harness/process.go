@@ -124,8 +124,13 @@ type ProcessConfig struct {
 	// its Reporter hears of either, and once the process has exited, before
 	// the Reporters of the invocations in it hear Settled(process_exited).
 	// So the pool's rules have run by the time a Reporter is told. The pool
-	// sets it.
+	// sets it. With rssLimit set it is also called after each health
+	// report, on the connection's reader, before the next frame is read.
 	notify func(*Process)
+	// rssLimit, when positive, makes the process count the health reports
+	// in a row whose rss reaches it (rssStreak), for a pool's recycle
+	// trigger. The pool sets it.
+	rssLimit int64
 	// killLines bounds the goroutines that write kill lines; nil means
 	// runtimeKillLines, which every process in the program shares. Tests
 	// set their own.
@@ -269,6 +274,7 @@ type Process struct {
 	pingSeq    uint64
 	pings      map[string]chan *Health
 	health     *Health
+	rssOver    int // health reports in a row whose rss reached cfg.rssLimit
 	bye        bool
 	ending     bool      // the reader stopped or the process exited
 	holding    bool      // a fresh result waits for the process group (WR-55)
@@ -722,6 +728,7 @@ func (p *Process) handleMessage(m Message) error {
 	var calls []func()
 	var drive bool
 	var err error
+	var sampled bool // a health report the pool counts arrived
 	switch m := m.(type) {
 	case Result:
 		target, calls, drive, err = p.onResult(m)
@@ -735,17 +742,13 @@ func (p *Process) handleMessage(m Message) error {
 		// A pong that cannot be sent means the conn is closing, which the
 		// reader reports on its own.
 		p.conn.send(Pong{ID: m.ID})
-		if m.Health != nil {
-			p.health = m.Health
-		}
+		sampled = p.noteHealthLocked(m.Health)
 	case Pong:
 		if ch, ok := p.pings[m.ID]; ok {
 			delete(p.pings, m.ID)
 			ch <- m.Health
 		}
-		if m.Health != nil {
-			p.health = m.Health
-		}
+		sampled = p.noteHealthLocked(m.Health)
 	case Bye:
 		p.bye = true
 	case PlatformRequest:
@@ -768,6 +771,10 @@ func (p *Process) handleMessage(m Message) error {
 		err = protoErr(CodeUnexpected, "%s from a harness", m.Type())
 	}
 	p.mu.Unlock()
+	if sampled && p.cfg.notify != nil {
+		// The pool applies its recycle trigger to each report in turn.
+		p.cfg.notify(p)
+	}
 	switch {
 	case target == nil:
 	case drive:
@@ -2230,6 +2237,32 @@ func (p *Process) Load() (inFlight, abandoned int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.inFlight, p.abandoned
+}
+
+// noteHealthLocked records a health report, if h is one, and reports
+// whether the pool's recycle trigger counts it (ProcessConfig.rssLimit).
+func (p *Process) noteHealthLocked(h *Health) bool {
+	if h == nil {
+		return false
+	}
+	p.health = h
+	if p.cfg.rssLimit <= 0 {
+		return false
+	}
+	if h.RSS >= p.cfg.rssLimit {
+		p.rssOver++
+	} else {
+		p.rssOver = 0
+	}
+	return true
+}
+
+// rssStreak returns how many health reports in a row had an rss of at
+// least ProcessConfig.rssLimit, up to the last one.
+func (p *Process) rssStreak() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.rssOver
 }
 
 // Health returns the last health the harness reported, or nil.

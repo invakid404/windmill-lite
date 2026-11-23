@@ -57,7 +57,7 @@ the code.
 | `host.go` | `AttachHost`, `HostConn`, `HostChildren`, `CheckWorkdir`: host mode on the engine's side |
 | `hostcall.go` | `Process.HostCall`, `Pool.HostCall`, `Pool.Plugin`, `HostCallError`, `ErrNoPlugin`: a harness's host plugin |
 | `target_linux.go`, `target_other.go` | What host mode's watchdog signals: a pidfd of the host on Linux, kill(2) elsewhere |
-| `pool.go` | `Pool`: routing, lag, the cap, tainting and recycling, replacement, `Close` |
+| `pool.go` | `Pool`: routing, lag, the cap, tainting and recycling, recycle triggers, the bound on live processes, replacement, `Close` |
 | `util.go` | The log tail, diagnostics lines and the kill-line budget, the recent settled invocations, the `serial` call queue, the stdout and stderr line writer, signal names |
 | `timings.go` | `SetTimesHook`, `InvocationTimes`: each invocation's clock readings, for benchmarks |
 | `doc.go` | The package comment |
@@ -70,7 +70,8 @@ the code.
 |---|---|---|---|
 | `Spawn`, `ProcessConfig` | func, struct | Starts a harness process and shakes hands with it | `Pool`, `wltest` (`ProcessConfig` also through `PoolConfig.Process` in `wl`) |
 | `Process` | struct | One harness process or one host connection. `Execute` runs an invocation; `HostCall` asks its plugin; `Drain`, `Kill`, `Done`, `Bye`, `ExitStatus`; `Ping`, `Health`, `Hello`, `Lag`, `Load`, `Silence`, `PID`, `Dir` | `Pool`, `wl`, `wltest` |
-| `NewPool`, `PoolConfig`, `Pool` | func, struct, struct | A set of processes for one `Key`: `Execute`, `Start`, `Close`, `Stats`, `HostCall`, `Plugin` | `wl` |
+| `NewPool`, `PoolConfig`, `Pool` | func, struct, struct | A set of processes for one `Key`: `Execute`, `Start`, `Close`, `Stats`, `HostCall`, `Plugin`. `PoolConfig.CheckSettings` checks its size, cap, bound on live processes and recycle triggers as `NewPool` does | `wl` |
+| `RecycleTriggers` | struct | `PoolConfig.Recycle`: the resident set and the count of distinct scripts that replace a warm process ([Warm pools](#warm-pools)) | `wl` |
 | `Key` | struct | What a pool serves: harness class, runtime pin, dependency set, module-state mode | `wl` |
 | `ProcessStats` | struct | One process's figures in `Pool.Stats` | tests |
 | `Health` | struct | A harness's health, from its heartbeat `ping` or a `pong` | tests |
@@ -79,7 +80,7 @@ the code.
 | `BunCommand` | func | The command line that starts the Bun harness runtime on a bundle | `wl`, `wltest` |
 | `PinnedBun`, `ProtocolVersion` | const | `1.4.3`; `1` | `PinnedBun`: `wl`, `internal/bundle`, `wltest`. `ProtocolVersion`: the handshake, tests |
 | `DefaultKillAfter`, `WatchdogOff`, `DefaultHandshakeTimeout`, `DefaultRecentLate` | const | 30 s; −1 (no watchdog); 10 s; 4,096 | `ProcessConfig`'s defaults; `windmill-lite host` (`DefaultKillAfter`), `wl`'s host mode (`WatchdogOff`) |
-| `DefaultLagThreshold`, `DefaultRecycleTimeout` | const | 250 ms; 5 s | `PoolConfig` defaults |
+| `DefaultLagThreshold`, `DefaultRecycleTimeout`, `DefaultRecycleSamples` | const | 250 ms; 5 s; 2 | `PoolConfig` defaults |
 | `ArgsFile` | const | `args.json` ([The arguments file](#the-arguments-file)) | `Process`, tests |
 | `TailLength` | const | 600: the characters of an invocation's log kept for its tail | the package's own log tail; no other package reads it (`engine.TailLength` is the engine's) |
 | `ErrPoolClosed` | var | `Execute` after `Close` | tests |
@@ -789,8 +790,8 @@ directory of its own, and exits once it has reported the outcome.
 
 ### Warm pools
 
-- **Size.** `Min` and `Max` default to 1. `Start` spawns `Min` processes;
-  otherwise the first `Execute` does.
+- **Size.** `Min` and `Max` default to 1. `Start` spawns `Min` processes
+  and returns once `Min` serve; otherwise the first `Execute` spawns them.
 - **Routing.** The process that the run used last, then the least-loaded
   one. A process whose lag exceeds `LagThreshold` (250 ms by default) is
   used only when no other process can take the invocation and none can be
@@ -816,6 +817,25 @@ directory of its own, and exits once it has reported the outcome.
   replacements up to `Min` before the Reporters of its invocations hear
   `Settled(process_exited)`. A failed start is logged, and retried by the
   next `Execute`.
+- **The RSS trigger.** `Recycle.RSS` trips a process whose health reports
+  give an `rss` of at least that many bytes `Recycle.Samples` times in a
+  row (2 by default). A health report is a heartbeat `ping` or a `pong`.
+  Zero turns it off.
+- **The module trigger.** `Recycle.Modules` trips a process once it has
+  been sent invocations of more distinct scripts than that; the invocation
+  of the one more still runs there. Zero turns it off.
+- **Leaving for a trigger.** A process that trips stays tripped. It takes
+  no new invocations, does not count toward `Max`, and the pool starts its
+  replacement up to `Min` at once. It drains once nothing that the engine
+  waits for is in flight in it.
+- **One at a time.** One process leaves for a trigger at a time. Another
+  that trips meanwhile keeps serving, and starts to leave once the exit of
+  the first is observed.
+- **The bound on live processes.** With `MaxLive` set, the pool starts no
+  process while `MaxLive` are alive: members of every kind until their exit
+  is observed, and spawns under way. Routing does not change, so an
+  invocation waits only when no member can take it and the start that it
+  needs is blocked. `NewPool` refuses `MaxLive` below `Max`.
 - **Close.** It refuses new invocations, and waits for those in flight
   until its context ends. Then it drains every process, including one that
   finishes starting afterwards.
@@ -826,7 +846,9 @@ The tests that run the real Bun harness need the pinned Bun, and the
 protocol's shared cases are in
 [conformance/protocol](../../conformance/README.md). The codec tests, the
 fake-harness tests (with their pool tests) and `TestPoolHostCall` need
-nothing else; the warm pool rules are tested on Bun (`TestBunPool*`).
+nothing else. The warm pool rules are tested on Bun (`TestBunPool*`), and
+the bound on live processes and the recycle triggers on the fake harness
+(`pool_test.go`).
 
 ### Run the tests
 
@@ -854,7 +876,7 @@ and `WL_REQUIRE_BUN` set ([docs/ci.md](../../docs/ci.md#the-go-jobs)).
 | `WL_BUN` | The path of a Bun 1.4.3 executable | Every test that runs the real Bun harness: `bun_test.go`, `exchange_test.go`, `children_test.go`, `reap_linux_test.go` (all but `TestFreshLandedKillReapsALaterOrphan`), `qwa4_test.go`, the `TestBunWarm*` tests of `childgroup_test.go`, `TestTimesHook`, `TestBenchEcho`; and `BenchmarkHarnessCodec` and `BenchmarkTransport`, which fail rather than skip | The test skips, or fails when `WL_REQUIRE_BUN` is set |
 | `WL_WINDMILL_CLIENT` | A directory whose `node_modules` holds `windmill-client@1.862.0` | `qwa4_test.go` | The test skips, or fails when `WL_REQUIRE_BUN` is set |
 | `WL_REQUIRE_BUN` | Any non-empty value | All of the above | Missing tools skip their tests |
-| `WL_FAKE_HARNESS`, `WL_SUBREAPER`, `WL_WAIT_ALL`, `WL_DRIP_CHILD` | Set by the tests and their fixture steps (`spawn-waitall` sets `WL_WAIT_ALL`), when they re-run the test binary as a fake harness, a subreaper, a process that waits for all its children, or a child that keeps writing | `fake_test.go`, `reap_linux_test.go`, `children_test.go` | Not for you to set |
+| `WL_FAKE_HARNESS`, `WL_FAKE_CTL`, `WL_SUBREAPER`, `WL_WAIT_ALL`, `WL_DRIP_CHILD` | Set by the tests and their fixture steps (`spawn-waitall` sets `WL_WAIT_ALL`), when they re-run the test binary as a fake harness, a subreaper, a process that waits for all its children, or a child that keeps writing. `WL_FAKE_CTL` is a fake harness's control directory | `fake_test.go`, `pool_test.go`, `reap_linux_test.go`, `children_test.go` | Not for you to set |
 
 ### Test files
 
@@ -871,6 +893,7 @@ and `WL_REQUIRE_BUN` set ([docs/ci.md](../../docs/ci.md#the-go-jobs)).
 | `reap_linux_test.go` | Reaping, with the test binary as a child subreaper, on Linux ([below](#what-the-bun-tests-check)) | Linux; `WL_BUN` for all but `TestFreshLandedKillReapsALaterOrphan` |
 | `childgroup_test.go` | Child groups on a fake process table: their identity, the guardian and its tokens (`hasGuardArg`), undecided looks, ending once, release, `groupMembersOf`; the reaping rules (`TestReapChildGroups`); a real guardian, the test's own child, reaped once the watcher releases its group (`TestReviewOwnedGuardianReaped`) | `WL_BUN` for `TestBunWarm*` |
 | `fake_test.go` | A fake harness, for what Bun cannot be made to do on demand ([below](#what-the-fake-harness-tests-check)) | |
+| `pool_test.go` | A warm pool's settings on the fake harness of mode `pool`, whose invocations the tests hold and whose drains they hold. The pool's own events (spawns begun, exits observed, drains begun, waits) give the order. `MaxLive` with a taint (`TestPoolMaxLive`), routing to a started process (`TestPoolMaxLiveRouting`), a leaver that waits for its work (`TestPoolLeavingWaitsForWork`), and the RSS and module triggers (`TestPoolRecycleOnRSS`, `TestPoolRecycleOnModules`) | |
 | `qwa4_test.go` | That concurrent invocations each see their own `WM_*` environment variables ([Q-WA-4](../../docs/semantics/client-api.md#q-wa-4), [WA-31](../../docs/semantics/client-api.md#wa-31)) | `WL_BUN`, `WL_WINDMILL_CLIENT` |
 | `retain_test.go` | `TestSerialKeepsNoCallItRan`: an invocation's call queue (`serial`) keeps no function that it has run, so what they closed over becomes unreachable | |
 | `bench_test.go` | The microbenchmarks ([Microbenchmarks](#microbenchmarks)), `TestTimesHook` and `TestBenchEcho` | `WL_BUN` for the Bun parts |

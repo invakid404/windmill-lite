@@ -26,6 +26,7 @@ type Key struct {
 const (
 	DefaultLagThreshold   = 250 * time.Millisecond
 	DefaultRecycleTimeout = 5 * time.Second
+	DefaultRecycleSamples = 2
 	defaultAffinity       = 4096
 	// freshExitGrace is how long a fresh process may outlive the outcome
 	// of its invocation before it is killed: the harness exits right after
@@ -45,7 +46,7 @@ type PoolConfig struct {
 	// share one event loop. Processes that are tainted or being recycled
 	// do not count toward Max: they are leaving the pool. A fresh pool
 	// starts one process per invocation and keeps none, so it uses neither,
-	// nor Cap, LagThreshold or RecycleTimeout.
+	// nor Cap, LagThreshold, RecycleTimeout, MaxLive or Recycle.
 	Min, Max int
 	// Cap bounds the invocations in flight per process (deviation D15);
 	// zero means no cap, the default. Abandoned invocations never count.
@@ -56,9 +57,62 @@ type PoolConfig struct {
 	// starts another process if it is below Max. Zero means
 	// DefaultLagThreshold; a negative value turns lag routing off.
 	LagThreshold time.Duration
-	// RecycleTimeout bounds the drain of a tainted process before it is
-	// killed; zero means DefaultRecycleTimeout.
+	// RecycleTimeout bounds the drain of a leaving process (tainted,
+	// surplus or recycled) before it is killed; zero means
+	// DefaultRecycleTimeout. The drain starts once nothing the engine
+	// waits for is in flight in the process.
 	RecycleTimeout time.Duration
+	// MaxLive bounds the processes alive at once, each counted from the
+	// start of its spawn until its exit is observed: serving, starting,
+	// tainted, recycled, surplus or draining. The pool starts no process
+	// while MaxLive are alive. Routing does not change: an invocation goes
+	// at once to a serving process that can take it, and waits only when
+	// none can and the process it needs cannot start. Zero means no bound;
+	// a bound below Max is refused, since the pool could not reach its
+	// size.
+	MaxLive int
+	// Recycle are the triggers that replace a process before it dies
+	// (ADR 0004 §Pooling); their zero values turn them off.
+	Recycle RecycleTriggers
+
+	// observe, when not nil, is told of the pool's events (poolEvent)
+	// under its lock, so it must not call the pool. Tests set it.
+	observe func(poolEvent)
+}
+
+// RecycleTriggers say when a warm pool replaces a process that is still
+// serving. A process trips a trigger when its heartbeats report a resident
+// set of RSS bytes or more Samples times in a row, or once the engine has
+// sent it invocations of more than Modules distinct scripts, whose modules
+// it keeps loaded.
+//
+// A process that trips takes no new invocations, a replacement starts
+// beside it outside Max, and it leaves once nothing the engine waits for
+// is in flight in it. One process leaves for a trigger at a time: another
+// that trips meanwhile keeps serving, and leaves after the first has
+// exited. A threshold measures and does not cap: a process can pass it
+// between two heartbeats, and while it waits to leave.
+type RecycleTriggers struct {
+	// RSS is the resident set size, in bytes, that trips the trigger; zero
+	// turns it off.
+	RSS int64
+	// Samples is how many health reports in a row must reach RSS; zero
+	// means DefaultRecycleSamples. A health report is a harness's
+	// heartbeat ping or its pong to the engine's ping.
+	Samples int
+	// Modules is how many distinct scripts a process may run; the first
+	// invocation of one more still runs there, and then the process trips.
+	// Zero turns it off.
+	Modules int
+}
+
+// poolEvent is something a pool did, which PoolConfig.observe is told.
+type poolEvent struct {
+	// kind is "spawn" (a process starts to spawn), "exit" (the exit of a
+	// member is observed), "drain" (a leaving member starts to drain) or
+	// "wait" (an invocation waits for a process).
+	kind string
+	p    *Process // exit and drain
 }
 
 // ErrPoolClosed is returned by Execute after Close.
@@ -80,6 +134,10 @@ var ErrPoolClosed = errors.New("harness: pool closed")
 //     in flight in it, so no unrelated step is killed.
 //   - A process that dies, or that the watchdog kills, fails its in-flight
 //     invocations as escaped and is replaced up to Min.
+//   - A process that trips a recycle trigger (PoolConfig.Recycle) takes no
+//     new invocations, and is drained and replaced once nothing else is in
+//     flight in it.
+//   - With MaxLive set, no process starts while that many are alive.
 type Pool struct {
 	cfg PoolConfig
 
@@ -97,6 +155,9 @@ type Pool struct {
 	// started with one; a spawn that begins after it is recorded must
 	// carry the same declaration. nil until then.
 	plugin []byte
+	// recycler is the member that leaves for a recycle trigger, until its
+	// exit is observed; nil when none does.
+	recycler *member
 }
 
 type member struct {
@@ -109,9 +170,19 @@ type member struct {
 	surplus  bool
 	retiring bool
 	gone     bool
+	// tripped: a recycle trigger tripped, which stays so. recycling: it
+	// holds the pool's recycle slot (Pool.recycler), takes no new
+	// invocations and leaves once idle.
+	tripped   bool
+	recycling bool
+	// scripts are the distinct scripts the engine sent it, counted only
+	// with RecycleTriggers.Modules set.
+	scripts map[string]struct{}
 }
 
-func (m *member) inService() bool { return !m.tainted && !m.surplus && !m.retiring && !m.gone }
+func (m *member) inService() bool {
+	return !m.tainted && !m.surplus && !m.retiring && !m.gone && !m.recycling
+}
 
 type spawnAttempt struct {
 	done chan struct{}
@@ -148,14 +219,25 @@ func NewPool(cfg PoolConfig) (*Pool, error) {
 	if cfg.Key.ModuleState != engine.ModuleStateWarm && cfg.Key.ModuleState != engine.ModuleStateFresh {
 		return nil, fmt.Errorf("harness: unknown module-state mode %q", cfg.Key.ModuleState)
 	}
+	if err := cfg.CheckSettings(); err != nil {
+		return nil, err
+	}
+	cfg.withDefaults()
+	pl := &Pool{cfg: cfg, changed: make(chan struct{}), affinity: runMap{limit: defaultAffinity}, fresh: map[*Process]struct{}{}}
+	if !pl.isFresh() {
+		pl.cfg.Process.notify = pl.processChanged
+		pl.cfg.Process.rssLimit = cfg.Recycle.RSS
+	}
+	return pl, nil
+}
+
+// withDefaults gives the zero settings their defaults.
+func (cfg *PoolConfig) withDefaults() {
 	if cfg.Max == 0 {
 		cfg.Max = 1
 	}
 	if cfg.Min == 0 {
 		cfg.Min = 1
-	}
-	if cfg.Min < 0 || cfg.Max < 1 || cfg.Min > cfg.Max || cfg.Cap < 0 {
-		return nil, fmt.Errorf("harness: pool needs 0 <= min <= max, max >= 1 and cap >= 0 (min %d, max %d, cap %d)", cfg.Min, cfg.Max, cfg.Cap)
 	}
 	if cfg.LagThreshold == 0 {
 		cfg.LagThreshold = DefaultLagThreshold
@@ -163,38 +245,65 @@ func NewPool(cfg PoolConfig) (*Pool, error) {
 	if cfg.RecycleTimeout == 0 {
 		cfg.RecycleTimeout = DefaultRecycleTimeout
 	}
-	pl := &Pool{cfg: cfg, changed: make(chan struct{}), affinity: runMap{limit: defaultAffinity}, fresh: map[*Process]struct{}{}}
-	if !pl.isFresh() {
-		pl.cfg.Process.notify = pl.processChanged
+	if cfg.Recycle.Samples == 0 {
+		cfg.Recycle.Samples = DefaultRecycleSamples
 	}
-	return pl, nil
+}
+
+// CheckSettings checks the settings that size a warm pool and recycle its
+// processes, after their defaults, as NewPool does: 0 <= Min <= Max,
+// Max >= 1, Cap >= 0, MaxLive zero or at least Max, and no negative
+// recycle trigger.
+func (cfg PoolConfig) CheckSettings() error {
+	cfg.withDefaults()
+	switch {
+	case cfg.Min < 0 || cfg.Max < 1 || cfg.Min > cfg.Max || cfg.Cap < 0:
+		return fmt.Errorf("harness: pool needs 0 <= min <= max, max >= 1 and cap >= 0 (min %d, max %d, cap %d)", cfg.Min, cfg.Max, cfg.Cap)
+	case cfg.MaxLive < 0:
+		return fmt.Errorf("harness: pool's MaxLive %d is negative", cfg.MaxLive)
+	case cfg.MaxLive > 0 && cfg.MaxLive < cfg.Max:
+		return fmt.Errorf("harness: pool's MaxLive %d is below its Max %d: the pool could not reach its size", cfg.MaxLive, cfg.Max)
+	case cfg.Recycle.RSS < 0 || cfg.Recycle.Samples < 0 || cfg.Recycle.Modules < 0:
+		return fmt.Errorf("harness: pool's recycle triggers cannot be negative (RSS %d, Samples %d, Modules %d)",
+			cfg.Recycle.RSS, cfg.Recycle.Samples, cfg.Recycle.Modules)
+	}
+	return nil
 }
 
 func (pl *Pool) isFresh() bool { return pl.cfg.Key.ModuleState == engine.ModuleStateFresh }
 
-// Start spawns the pool's Min processes and waits for their handshakes. A
-// fresh pool starts none ahead.
+// Start spawns the pool's Min processes and waits until Min serve, those
+// that others started included. It returns the error of a start it made
+// that failed. A fresh pool starts none ahead.
 func (pl *Pool) Start(ctx context.Context) error {
 	if pl.isFresh() {
 		return nil
 	}
-	pl.mu.Lock()
-	var atts []*spawnAttempt
-	for pl.inServiceLocked()+pl.starting < pl.cfg.Min && !pl.closed {
-		atts = append(atts, pl.spawnLocked())
-	}
-	pl.mu.Unlock()
-	for _, a := range atts {
-		select {
-		case <-a.done:
-			if a.err != nil {
-				return a.err
+	var mine []*spawnAttempt
+	for {
+		for _, a := range mine {
+			select {
+			case <-a.done:
+				if a.err != nil {
+					return a.err
+				}
+			default:
 			}
+		}
+		pl.mu.Lock()
+		if pl.closed || pl.inServiceLocked() >= pl.cfg.Min {
+			pl.mu.Unlock()
+			return nil
+		}
+		mine = append(mine, pl.fillLocked()...)
+		ch := pl.changed
+		pl.mu.Unlock()
+		select {
+		case <-ch:
 		case <-ctx.Done():
 			return context.Cause(ctx)
 		}
 	}
-	return nil
 }
 
 // Execute implements engine.StepExecutor.
@@ -210,7 +319,7 @@ func (pl *Pool) Execute(ctx context.Context, inv engine.Invocation) (engine.Step
 		return pl.executeFresh(ctx, inv)
 	}
 	for {
-		m, err := pl.acquire(ctx, inv.Run)
+		m, err := pl.acquire(ctx, inv.Run, inv.Script)
 		if err != nil {
 			inv.Report.Settled(engine.SettleNotStarted)
 			return engine.StepOutcome{}, err
@@ -297,7 +406,9 @@ func (pl *Pool) executeFresh(ctx context.Context, inv engine.Invocation) (engine
 	return out, err
 }
 
-func (pl *Pool) acquire(ctx context.Context, run string) (*member, error) {
+// acquire picks a process for an invocation of run, of script ("" for a
+// host call), and counts the invocation as active in it.
+func (pl *Pool) acquire(ctx context.Context, run, script string) (*member, error) {
 	var spawnErr error
 	for {
 		pl.mu.Lock()
@@ -306,14 +417,21 @@ func (pl *Pool) acquire(ctx context.Context, run string) (*member, error) {
 			return nil, ErrPoolClosed
 		}
 		// The first Execute establishes the minimum, as Start would.
-		for spawnErr == nil && pl.inServiceLocked()+pl.starting < pl.cfg.Min {
-			pl.spawnLocked()
+		if spawnErr == nil {
+			pl.fillLocked()
 		}
 		m, lagging := pl.pickLocked(run)
-		canSpawn := spawnErr == nil && pl.inServiceLocked()+pl.starting < pl.cfg.Max
+		canSpawn := spawnErr == nil && pl.inServiceLocked()+pl.starting < pl.cfg.Max && pl.roomLocked()
 		if m != nil && (!lagging || !canSpawn) {
 			m.active++
 			pl.affinity.set(run, m)
+			if pl.cfg.Recycle.Modules > 0 && script != "" {
+				if m.scripts == nil {
+					m.scripts = map[string]struct{}{}
+				}
+				m.scripts[script] = struct{}{}
+				pl.reviewLocked(m)
+			}
 			pl.mu.Unlock()
 			return m, nil
 		}
@@ -321,6 +439,7 @@ func (pl *Pool) acquire(ctx context.Context, run string) (*member, error) {
 			pl.spawnLocked()
 		}
 		att, ch := pl.spawning, pl.changed
+		pl.observeLocked("wait", nil)
 		pl.mu.Unlock()
 		if att == nil && spawnErr != nil {
 			return nil, spawnErr
@@ -388,7 +507,32 @@ func (pl *Pool) inServiceLocked() int {
 	return n
 }
 
+// roomLocked reports whether MaxLive lets another process start: every
+// member counts until its exit is observed, and so does every spawn under
+// way.
+func (pl *Pool) roomLocked() bool {
+	return pl.cfg.MaxLive == 0 || len(pl.members)+pl.starting < pl.cfg.MaxLive
+}
+
+// fillLocked starts processes until Min serve or are starting, as far as
+// MaxLive lets it, and returns the attempts it made. A closed pool starts
+// none.
+func (pl *Pool) fillLocked() []*spawnAttempt {
+	var atts []*spawnAttempt
+	for !pl.closed && pl.inServiceLocked()+pl.starting < pl.cfg.Min && pl.roomLocked() {
+		atts = append(atts, pl.spawnLocked())
+	}
+	return atts
+}
+
+func (pl *Pool) observeLocked(kind string, p *Process) {
+	if pl.cfg.observe != nil {
+		pl.cfg.observe(poolEvent{kind: kind, p: p})
+	}
+}
+
 func (pl *Pool) spawnLocked() *spawnAttempt {
+	pl.observeLocked("spawn", nil)
 	att := &spawnAttempt{done: make(chan struct{}), cfg: pl.cfg.Process}
 	// A spawn that begins after the pool has recorded a host plugin
 	// declaration is held to it; spawns already under way are not.
@@ -473,11 +617,19 @@ func (pl *Pool) processChanged(p *Process) {
 		if p.hasExited() {
 			m.gone = true
 			pl.members = append(pl.members[:i], pl.members[i+1:]...)
-			if !pl.closed {
-				for pl.inServiceLocked()+pl.starting < pl.cfg.Min {
-					pl.spawnLocked()
+			pl.observeLocked("exit", p)
+			if pl.recycler == m {
+				// The recycle slot frees at the observed exit; the next
+				// process that tripped meanwhile takes it.
+				pl.recycler = nil
+				for _, o := range pl.members {
+					if o.tripped && o.inService() {
+						pl.reviewLocked(o)
+						break
+					}
 				}
 			}
+			pl.fillLocked()
 		} else {
 			pl.reviewLocked(m)
 		}
@@ -487,7 +639,8 @@ func (pl *Pool) processChanged(p *Process) {
 }
 
 // reviewLocked applies the taint rules of ADR 0004 §Cancellation item 4,
-// and keeps a process whose taint cleared from taking the pool past Max.
+// keeps a process whose taint cleared from taking the pool past Max, and
+// applies the recycle triggers.
 func (pl *Pool) reviewLocked(m *member) {
 	if m.retiring || m.gone {
 		return
@@ -502,15 +655,27 @@ func (pl *Pool) reviewLocked(m *member) {
 		m.surplus = pl.inServiceLocked()+pl.starting >= pl.cfg.Max
 		m.tainted = false
 	}
-	if (m.tainted || m.surplus) && m.active == 0 {
+	if !m.tripped && pl.trippedLocked(m) {
+		m.tripped = true
+	}
+	if m.tripped && m.inService() && pl.recycler == nil {
+		// It leaves for its trigger now; a replacement starts beside it.
+		m.recycling = true
+		pl.recycler = m
+		pl.fillLocked()
+	}
+	if (m.tainted || m.surplus || m.recycling) && m.active == 0 {
 		m.retiring = true
-		if !pl.closed {
-			for pl.inServiceLocked()+pl.starting < pl.cfg.Min {
-				pl.spawnLocked()
-			}
-		}
+		pl.fillLocked()
+		pl.observeLocked("drain", m.p)
 		go drainWithin(m.p, pl.cfg.RecycleTimeout)
 	}
+}
+
+// trippedLocked reports whether m has reached a recycle trigger.
+func (pl *Pool) trippedLocked(m *member) bool {
+	r := pl.cfg.Recycle
+	return (r.RSS > 0 && m.p.rssStreak() >= r.Samples) || (r.Modules > 0 && len(m.scripts) > r.Modules)
 }
 
 func (pl *Pool) broadcastLocked() {
