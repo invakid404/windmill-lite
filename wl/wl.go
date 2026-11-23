@@ -90,8 +90,9 @@ type Options struct {
 	ResourceStore ResourceStore
 	// Diagnostics receives the harness processes' output that no step
 	// owns, and the engine's diagnostics about them; nil means os.Stderr.
-	// The runtime serializes its writes, so it need not be safe for
-	// concurrent use.
+	// With a Pool that is not zero, several processes can write at once,
+	// so the runtime serializes its writes, still calling the writer's
+	// WriteString when it has one.
 	Diagnostics io.Writer
 	// ExpressionSlots is the number of evaluation slots of the runtime's
 	// expression engine; zero means its default (ADR 0003).
@@ -368,9 +369,11 @@ func Version() string {
 // bundle's program. The facade serves them to its steps.
 func Open(path string, opts Options) (_ *Runtime, err error) {
 	rt := &Runtime{version: opts.EngineVersion, readCache: opts.ReadCache, capped: opts.Pool.Cap > 0}
-	if opts.Diagnostics != nil {
+	if opts.Diagnostics != nil && opts.Pool != (PoolOptions{}) {
 		// The harness processes, the pool and the host plugin's calls write
-		// to it from goroutines of their own.
+		// to it from goroutines of their own, and the pool settings let
+		// several processes live at once. Without them the writer is called
+		// as it always has been.
 		opts.Diagnostics = &lockedWriter{w: opts.Diagnostics}
 	}
 	rt.stop, rt.cancelStop = context.WithCancelCause(context.Background())
@@ -633,6 +636,14 @@ func (l *lockedWriter) Write(b []byte) (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.w.Write(b)
+}
+
+// WriteString passes the text on as io.WriteString does, so the host's
+// own WriteString is still the one called.
+func (l *lockedWriter) WriteString(s string) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return io.WriteString(l.w, s)
 }
 
 // noHarness is the executor of a bundle with no step: nothing reaches it.

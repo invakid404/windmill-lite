@@ -153,13 +153,27 @@ func fakeHarness(mode string) int {
 		hello.Plugin = jsonval.FromProducer([]byte(`{"on_module_start":true}`))
 	}
 	if mode == "pool" {
-		// WL_FAKE_PLUGIN gives the declaration: one for every process
-		// (same), or one of each process's own (pid).
+		// The first process that finds fail-start in WL_FAKE_CTL takes it
+		// and exits before its hello. WL_FAKE_PLUGIN gives the declaration:
+		// one for every process (same), one of each process's own (pid), or
+		// none for the first process that takes no-plugin and the same for
+		// the others (first-none).
+		ctl := os.Getenv("WL_FAKE_CTL")
+		take := func(name string) bool {
+			return ctl != "" && os.Rename(filepath.Join(ctl, name), filepath.Join(ctl, name+".taken")) == nil
+		}
+		if take("fail-start") {
+			return 9
+		}
 		switch os.Getenv("WL_FAKE_PLUGIN") {
 		case "same":
 			hello.Plugin = jsonval.FromProducer([]byte(`{"on_module_start":true}`))
 		case "pid":
 			hello.Plugin = jsonval.FromProducer(fmt.Appendf(nil, `{"on_module_start":true,"pid":%d}`, pid))
+		case "first-none":
+			if !take("no-plugin") {
+				hello.Plugin = jsonval.FromProducer([]byte(`{"on_module_start":true}`))
+			}
 		}
 	}
 	send(hello)

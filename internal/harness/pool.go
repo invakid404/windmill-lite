@@ -49,11 +49,12 @@ type PoolConfig struct {
 	// starts one process per invocation and keeps none, so it uses neither,
 	// nor Cap, LagThreshold, RecycleTimeout, MaxLive or Recycle.
 	Min, Max int
-	// Cap bounds the invocations in flight per process (deviation D15);
-	// zero means no cap, the default. Abandoned invocations never count,
-	// and neither do host calls (HostCall, Plugin), which a step can wait
-	// for, though they keep a leaving process from draining. The pool's
-	// user records D15 in the run trace when a cap is set (wl does).
+	// Cap bounds the invocations in flight per process; zero means no cap,
+	// the default. A cap is one of the named deviations of ADR 0001, which
+	// the pool's user lists in each run's trace (wl does). Abandoned
+	// invocations never count, and neither do host calls (HostCall,
+	// Plugin), which a step can wait for, though they keep a leaving
+	// process from draining.
 	Cap int
 	// LagThreshold is the event-loop lag past which a process counts as
 	// busy (a CPU-bound step): new invocations go elsewhere, and the pool
@@ -123,7 +124,8 @@ type poolEvent struct {
 	p    *Process // exit and drain
 }
 
-// ErrPoolClosed is returned by Execute and Start after Close.
+// ErrPoolClosed is returned by Execute after Close, and by a warm pool's
+// Start.
 var ErrPoolClosed = errors.New("harness: pool closed")
 
 // Pool runs invocations on a set of spawned harness processes. It
@@ -159,10 +161,19 @@ type Pool struct {
 	affinity runMap
 	// fresh holds a fresh pool's processes until they exit.
 	fresh map[*Process]struct{}
-	// plugin is the host plugin declaration of the first process that
-	// started with one; a spawn that begins after it is recorded must
-	// carry the same declaration. nil until then.
-	plugin []byte
+	// plugin is the host plugin declaration that a spawn beginning after
+	// it is recorded must carry (ExpectPlugin); nil while there is none.
+	// A pool without settings records the first declaration a started
+	// process carries. A pool with settings (opted) records, as declared,
+	// what the first process it admits carries, a declaration or none, and
+	// admits only processes that agree with it.
+	plugin   []byte
+	declared bool
+	// opted says that the pool's user set one of its settings (Min, Max,
+	// Cap, LagThreshold, RecycleTimeout, MaxLive, Recycle). Only then do
+	// the admission checks apply and the pool serialize its diagnostics:
+	// a pool without settings behaves as it always has.
+	opted bool
 	// recycler is the member that leaves for a recycle trigger, until its
 	// exit is observed; nil when none does. owed counts the replacements
 	// of members that left for a trigger, which start as soon as MaxLive
@@ -200,6 +211,9 @@ type spawnAttempt struct {
 	done chan struct{}
 	err  error
 	cfg  ProcessConfig // the process's, as the pool held it when it began
+	// owed: it is the replacement of a member that left for a recycle
+	// trigger, which is owed again if it fails.
+	owed bool
 }
 
 // NewPool returns a pool; processes start on the first Execute, or on
@@ -234,18 +248,27 @@ func NewPool(cfg PoolConfig) (*Pool, error) {
 	if err := cfg.CheckSettings(); err != nil {
 		return nil, err
 	}
+	opted := cfg.opted()
 	cfg.withDefaults()
-	if pc.Diagnostics != nil {
-		// Every process of the pool, and the pool itself, write to it.
+	if opted && pc.Diagnostics != nil {
+		// Every process of the pool, and the pool itself, write to it, and
+		// the settings let several processes live at once.
 		pc.Diagnostics = &syncWriter{w: pc.Diagnostics}
 	}
-	pl := &Pool{cfg: cfg, changed: make(chan struct{}), affinity: runMap{limit: defaultAffinity}, fresh: map[*Process]struct{}{}}
+	pl := &Pool{cfg: cfg, opted: opted, changed: make(chan struct{}), affinity: runMap{limit: defaultAffinity}, fresh: map[*Process]struct{}{}}
 	if !pl.isFresh() {
 		pl.cfg.Process.notify = pl.processChanged
 		pl.cfg.Process.rssLimit = cfg.Recycle.RSS
 		pl.cfg.Process.countScripts = cfg.Recycle.Modules > 0
 	}
 	return pl, nil
+}
+
+// opted reports whether any of the settings that a pool's user chooses is
+// set, before the defaults.
+func (cfg PoolConfig) opted() bool {
+	return cfg.Min != 0 || cfg.Max != 0 || cfg.Cap != 0 || cfg.LagThreshold != 0 || cfg.RecycleTimeout != 0 ||
+		cfg.MaxLive != 0 || cfg.Recycle != (RecycleTriggers{})
 }
 
 // withDefaults gives the zero settings their defaults.
@@ -290,9 +313,11 @@ func (cfg PoolConfig) CheckSettings() error {
 func (pl *Pool) isFresh() bool { return pl.cfg.Key.ModuleState == engine.ModuleStateFresh }
 
 // Start spawns the pool's Min processes and waits until Min serve, those
-// that others started included. It returns the error of a start it made
-// that failed, and ErrPoolClosed once Close has begun. A fresh pool starts
-// none ahead.
+// that others started included, and live: a member whose process exited
+// before its admission, which a pool without settings admits, is removed
+// first. It returns the error of a start it made that failed. A warm
+// pool's Start returns ErrPoolClosed once Close has begun; a fresh pool
+// starts none ahead, and its Start returns nil.
 func (pl *Pool) Start(ctx context.Context) error {
 	if pl.isFresh() {
 		return nil
@@ -313,6 +338,7 @@ func (pl *Pool) Start(ctx context.Context) error {
 			pl.mu.Unlock()
 			return ErrPoolClosed
 		}
+		pl.pruneExitedLocked()
 		if pl.inServiceLocked() >= pl.cfg.Min {
 			pl.mu.Unlock()
 			return nil
@@ -442,6 +468,9 @@ func (pl *Pool) acquire(ctx context.Context, run string, step bool) (*member, er
 		if spawnErr == nil {
 			pl.fillLocked()
 		}
+		// A dispatch that crossed a recycle threshold tells the pool after
+		// it is sent; no later pick may miss it.
+		pl.applyTriggersLocked()
 		m, lagging := pl.pickLocked(run, step)
 		canSpawn := spawnErr == nil && pl.inServiceLocked()+pl.starting < pl.cfg.Max && pl.roomLocked()
 		if m != nil && (!lagging || !canSpawn) {
@@ -513,6 +542,13 @@ func (pl *Pool) pickLocked(run string, step bool) (*member, bool) {
 	if best != nil {
 		return best, false
 	}
+	if bestLagging == nil && !step {
+		// A host call of a run whose step still runs in a process that is
+		// leaving for a recycle trigger: that step may be waiting for it.
+		if a, ok := pl.affinity.get(run); ok && a.recycling && !a.retiring && !a.gone {
+			return a, false
+		}
+	}
 	return bestLagging, bestLagging != nil
 }
 
@@ -545,7 +581,9 @@ func (pl *Pool) fillLocked() []*spawnAttempt {
 			pl.owed = 0
 			break
 		}
-		atts = append(atts, pl.spawnLocked())
+		att := pl.spawnLocked()
+		att.owed = true
+		atts = append(atts, att)
 		pl.owed--
 	}
 	for !pl.closed && pl.inServiceLocked()+pl.starting < pl.cfg.Min && pl.roomLocked() {
@@ -581,20 +619,13 @@ func (pl *Pool) spawn(att *spawnAttempt) {
 	if err == nil && pl.cfg.admitting != nil {
 		pl.cfg.admitting(p)
 	}
-	if err == nil && !pl.declares(p) {
-		// It began to start before the pool recorded the declaration, so
-		// its handshake could not hold it to it (ExpectPlugin). It still
-		// counts as starting until it has exited.
-		p.Kill()
-		<-p.Done()
-		err = errors.New("harness: the process declared another host plugin than the pool's first process with one")
-	}
 	pl.mu.Lock()
+	if err == nil && pl.opted && !pl.closed {
+		err = pl.admitLocked(p)
+	}
 	pl.starting--
-	if err == nil && !pl.closed && p.hasExited() {
-		// Its exit came before this admission, and found no member to
-		// remove: admitted, it would hold a place in the pool for good.
-		err = errors.New("harness: the process exited right after its handshake")
+	if err == nil && !pl.opted && pl.plugin == nil && !p.Hello().Plugin.IsZero() {
+		pl.plugin = slices.Clone(p.Hello().Plugin.Producer())
 	}
 	att.err = err
 	if err == nil {
@@ -610,6 +641,12 @@ func (pl *Pool) spawn(att *spawnAttempt) {
 			// The pool may have reached Max while this process started, by a
 			// taint that cleared; then the newcomer is the surplus one,
 			// which has no work to lose.
+			if pl.opted && !pl.declared {
+				pl.declared = true
+				if d := p.Hello().Plugin; !d.IsZero() {
+					pl.plugin = slices.Clone(d.Producer())
+				}
+			}
 			m := &member{p: p, surplus: pl.inServiceLocked() >= pl.cfg.Max}
 			pl.members = append(pl.members, m)
 			pl.reviewLocked(m)
@@ -619,6 +656,11 @@ func (pl *Pool) spawn(att *spawnAttempt) {
 		// nobody waits for is only logged, and the next Execute tries again.
 		pl.observeLocked("failed", nil)
 		pl.diag().line("windmill-lite: harness pool: starting a process failed: " + err.Error())
+		if att.owed && !pl.closed {
+			// The next acquire tries it again, not this failure: a command
+			// that keeps failing is not started in a loop.
+			pl.owed++
+		}
 	}
 	if pl.spawning == att {
 		pl.spawning = nil
@@ -628,20 +670,29 @@ func (pl *Pool) spawn(att *spawnAttempt) {
 	pl.mu.Unlock()
 }
 
-// declares records the host plugin declaration of the first process that
-// started with one, and reports whether p's declaration is the recorded
-// one, byte for byte, as a handshake with ExpectPlugin checks it.
-func (pl *Pool) declares(p *Process) bool {
-	pl.mu.Lock()
-	defer pl.mu.Unlock()
-	d := p.Hello().Plugin
-	if pl.plugin == nil {
-		if !d.IsZero() {
-			pl.plugin = slices.Clone(d.Producer())
-		}
-		return true
+// admitLocked applies a pool with settings' admission checks to p, a
+// process that has started, and returns why it cannot be admitted.
+//   - It must not have exited: its exit came before this admission and
+//     found no member to remove, so admitted it would hold a place in the
+//     pool for good.
+//   - Its host plugin declaration, or the absence of one, must be what the
+//     first admitted process carried, byte for byte, as ExpectPlugin checks
+//     a later spawn's handshake: it may have begun to start before that.
+//     One that differs is killed, and counts as starting until it has
+//     exited.
+func (pl *Pool) admitLocked(p *Process) error {
+	if p.hasExited() {
+		return errors.New("harness: the process exited right after its handshake")
 	}
-	return bytes.Equal(d.Producer(), pl.plugin)
+	d := p.Hello().Plugin
+	if !pl.declared || (d.IsZero() == (pl.plugin == nil) && bytes.Equal(d.Producer(), pl.plugin)) {
+		return nil
+	}
+	pl.mu.Unlock()
+	p.Kill()
+	<-p.Done()
+	pl.mu.Lock()
+	return errors.New("harness: the process's host plugin declaration differs from the pool's first process's")
 }
 
 // release ends an acquire of m: an invocation (step) or a host call. A
@@ -678,26 +729,64 @@ func (pl *Pool) processChanged(p *Process) {
 			continue
 		}
 		if p.hasExited() {
-			m.gone = true
-			pl.members = append(pl.members[:i], pl.members[i+1:]...)
-			pl.observeLocked("exit", p)
-			if pl.recycler == m {
-				// The recycle slot frees at the observed exit; the next
-				// process that tripped meanwhile takes it.
-				pl.recycler = nil
-				for _, o := range pl.members {
-					if o.tripped && o.inService() {
-						pl.reviewLocked(o)
-						break
-					}
-				}
-			}
-			pl.fillLocked()
+			pl.removeLocked(i)
 		} else {
 			pl.reviewLocked(m)
 		}
 		pl.broadcastLocked()
 		return
+	}
+}
+
+// removeLocked removes the member at i, whose exit is observed, and
+// replaces it up to Min.
+func (pl *Pool) removeLocked(i int) {
+	m := pl.members[i]
+	m.gone = true
+	pl.members = append(pl.members[:i], pl.members[i+1:]...)
+	pl.observeLocked("exit", m.p)
+	if pl.recycler == m {
+		// The recycle slot frees at the observed exit; the next process
+		// that tripped meanwhile takes it.
+		pl.recycler = nil
+		for _, o := range pl.members {
+			if o.tripped && o.inService() {
+				pl.reviewLocked(o)
+				break
+			}
+		}
+	}
+	pl.fillLocked()
+}
+
+// pruneExitedLocked removes the members whose process has exited and whose
+// exit no notify reports any more: a pool without settings admits a
+// process whose exit came first, as it always has.
+func (pl *Pool) pruneExitedLocked() {
+	removed := false
+	for i := 0; i < len(pl.members); {
+		if m := pl.members[i]; !m.gone && m.p.hasExited() {
+			pl.removeLocked(i)
+			removed = true
+			continue
+		}
+		i++
+	}
+	if removed {
+		pl.broadcastLocked()
+	}
+}
+
+// applyTriggersLocked applies the recycle triggers to every serving member
+// that has reached one and has not been reviewed since.
+func (pl *Pool) applyTriggersLocked() {
+	if pl.cfg.Recycle.RSS == 0 && pl.cfg.Recycle.Modules == 0 {
+		return
+	}
+	for _, m := range pl.members {
+		if !m.tripped && m.inService() && pl.trippedLocked(m) {
+			pl.reviewLocked(m)
+		}
 	}
 }
 

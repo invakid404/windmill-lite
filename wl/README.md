@@ -147,13 +147,13 @@ The zero value of each field is its default.
 | `Resources`, `Variables` | The host's resources and variables. They replace the bundle's at the same paths. | The bundle's `data/` | To give secrets, which a bundle never holds, and values that differ by deployment |
 | `Results` | The store of the results of steps that have a `cache_ttl` (a `ResultCache`) | One in memory for each runtime | To share cached results between runtimes |
 | `ResourceStore` | The store of the resources that steps write, such as the state of the stock client's `setState` ([The resource store](#the-resource-store)) | A new memory store for each runtime | To share them between runtimes, or to keep them in a store of the host's |
-| `Diagnostics` | Where the harness output that no step owns, and the engine's diagnostics about it, go. The runtime serializes its writes, so the writer need not be safe for concurrent use. | `os.Stderr` | To capture them |
+| `Diagnostics` | Where the harness output that no step owns, and the engine's diagnostics about it, go. With a `Pool` that is not zero, the runtime serializes its writes, so the writer need not be safe for concurrent use, and still calls its `WriteString`. | `os.Stderr` | To capture them |
 | `ExpressionSlots` | The number of evaluation slots of the expression engine | `min(GOMAXPROCS, 8)` | To change how many expressions can evaluate at once |
 | `QuickJSOnly` | Turns off the engine's Go evaluator of templates, arithmetic, comparisons and predicates over JSON values. Every expression that the shortcuts and the member paths do not answer then runs in QuickJS-ng. Nothing observable changes. | Off | To compare the two evaluators, or to rule the Go evaluator out when a result looks wrong |
 | `Providers` | The named providers of the bundle's [provided sites](../docs/glossary.md#provided-site) | None | When the host contract names providers ([Providers](#providers)) |
 | `Plugin` | The path of a [host plugin](../docs/glossary.md#host-plugin) module, which every `warm` harness process loads | None | To give [hooks](../docs/glossary.md#hook) in TypeScript ([Host plugins](#host-plugins)) |
 | `PluginTimeout` | How long each call to the host plugin waits for its reply | `DefaultPluginTimeout`, 60 s | To change that bound |
-| `Pool` | The pool of `warm` harness processes: its size, cap, lag threshold, recycle timeout, recycle triggers, bound on live processes and warm start ([The harness pool](#the-harness-pool)) | One process, no cap, started on the first step | To run CPU-bound steps beside others, to replace processes that grow, or to start processes before the first run |
+| `Pool` | The pool of `warm` harness processes: its size, cap, lag threshold, recycle timeout, recycle triggers, bound on live processes and warm start ([The harness pool](#the-harness-pool)) | One process, no cap, started on the first step or earlier for a host plugin | To run CPU-bound steps beside others, to replace processes that grow, or to start processes before the first run |
 | `ReadCache` | Gives each flow run a read cache: the run reads each of the host's and the bundle's resources and variables once, and answers its later reads from that read. A provider's error is not kept, so the next read asks again, and an update of a variable through the run drops its cached value ([the read cache](../internal/platform/README.md#the-read-cache)). A state that steps wrote to the `ResourceStore` is read again each time, so a run sees its latest value. | Off | When a run reads the same values often and need not see a change during the run |
 | `Host` | Opens the runtime in [host mode](#host-mode) | Nil | Only for host mode |
 
@@ -177,8 +177,9 @@ lists `D21`.
 harness processes, by the rules of the
 [harness protocol ADR](../docs/design/0004-harness-protocol.md#pooling-processes-the-engine-spawns).
 Its zero value keeps one process in service, with no cap, started on the
-first step. A `fresh` runtime and host mode have no pool, so `Open`
-refuses a `Pool` that is not zero there.
+first step or earlier for a host plugin ([Open](#open)). A `fresh` runtime
+and host mode have no pool, so `Open` refuses a `Pool` that is not zero
+there.
 
 | Field | What it sets | Default |
 |---|---|---|
@@ -703,5 +704,5 @@ build helper's dependencies, and skip without them unless
 | `outside_test.go` | A bundle whose host contract lists two modules outside the [sync folder](../docs/glossary.md#sync-folder), without a host | Yes |
 | `plugincases_test.go` | The cases of `conformance/plugins/hooks.yaml`, through the TypeScript case plugin and through Go callbacks built from the same plugins | Yes |
 | `store_test.go` | `Options.ResourceStore` on real steps (`TestResourceStoreOnBun`): two runtimes that share a memory store, one with its own, a failing store's warning, and `D24` in the trace; a run id in flight refused (`TestRunIDInFlight`). Without Bun: `Close` releasing its own store while readers use it (`TestCloseReleasesItsOwnStore`), and a late answer kept from a later run of the same id (`TestLateAnswerAcrossIDReuse`) | Yes, but for the last two |
-| `pool_test.go` | `Options.Pool`. Without Bun: `Open`'s refusals in `fresh` and host mode (`TestPoolOptionsRefusedFresh`) and of `MaxLive` below `Max` (`TestPoolMaxLiveBelowMax`), and the cap's entry in the trace. On real steps: a second process for a step beside a CPU-bound one and under `Cap`, the module and RSS triggers (`TestWlPoolOptions`), the warm start (`TestWarmStart`), and a step that reads a plugin's resource under `Cap: 1` (`TestPoolCapLeavesPluginCalls`) | Yes, but for the refusals and the trace |
+| `pool_test.go` | `Options.Pool`. Without Bun: `Open`'s refusals in `fresh` and host mode (`TestPoolOptionsRefusedFresh`) and of `MaxLive` below `Max` (`TestPoolMaxLiveBelowMax`), and the cap's entry in the trace. On real steps: a second process for a step beside a CPU-bound one and under `Cap`, the module and RSS triggers (`TestWlPoolOptions`), and the warm start (`TestWarmStart`). A step reads a plugin's resource under `Cap: 1` (`TestPoolCapLeavesPluginCalls`) and while its process leaves (`TestPoolRecyclingProcessServesPluginCalls`); zero settings call the diagnostics writer as before (`TestDiagnosticsZeroSettings`) | Yes, but for the refusals and the trace |
 | `example_test.go` | Compiles the README's example | No |

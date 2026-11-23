@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -303,22 +304,11 @@ func TestWlPoolOptions(t *testing.T) {
 // slot until the plugin call times out.
 func TestPoolCapLeavesPluginCalls(t *testing.T) {
 	bun := bunOrSkip(t)
-	step, _ := json.Marshal("export async function main() {\n" +
-		"  const r = await fetch(`${process.env.BASE_URL}/api/w/${process.env.WM_WORKSPACE}/resources/get_value_interpolated/u/t/r`," +
-		" { headers: { Authorization: `Bearer ${process.env.WM_TOKEN}` } });\n" +
-		"  if (!r.ok) throw new Error(\"read: \" + r.status);\n" +
-		"  return await r.json();\n}\n")
 	out, runtimeDir := buildBunBundle(t, bun, map[string]string{
-		"wmill.yaml": "defaultTs: bun\n",
-		"f/t/res.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"rawscript","language":"bun",` +
-			`"content":` + string(step) + `,"input_transforms":{}}}]}}`,
+		"wmill.yaml":             "defaultTs: bun\n",
+		"f/t/res.flow/flow.yaml": resourceFlow(t),
 	})
-	plugin := filepath.Join(t.TempDir(), "plugin.ts")
-	src := `export default { resource: (path: string) => path === "u/t/r" ? { type: "object", value: { x: 1 } } : undefined };`
-	if err := os.WriteFile(plugin, []byte(src), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, PluginTimeout: 5 * time.Second, Pool: PoolOptions{Cap: 1}})
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: resourcePlugin(t), PluginTimeout: 5 * time.Second, Pool: PoolOptions{Cap: 1}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,6 +319,136 @@ func TestPoolCapLeavesPluginCalls(t *testing.T) {
 	}
 	if res.Status != StatusSuccess || string(res.Result) != `{"x":1}` {
 		t.Fatalf("%s %s, latched %v; want the plugin's resource", res.Status, res.Result, res.Latched)
+	}
+}
+
+// resourceFlow is a flow whose one step reads the resource u/t/r through
+// the job API and returns it.
+func resourceFlow(t *testing.T) string {
+	t.Helper()
+	step, err := json.Marshal("export async function main() {\n" +
+		"  const r = await fetch(`${process.env.BASE_URL}/api/w/${process.env.WM_WORKSPACE}/resources/get_value_interpolated/u/t/r`," +
+		" { headers: { Authorization: `Bearer ${process.env.WM_TOKEN}` } });\n" +
+		"  if (!r.ok) throw new Error(\"read: \" + r.status);\n" +
+		"  return await r.json();\n}\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"rawscript","language":"bun",` +
+		`"content":` + string(step) + `,"input_transforms":{}}}]}}`
+}
+
+// resourcePlugin writes a host plugin that provides the resource u/t/r,
+// {"x": 1}, and returns its path.
+func resourcePlugin(t *testing.T) string {
+	t.Helper()
+	plugin := filepath.Join(t.TempDir(), "plugin.ts")
+	src := `export default { resource: (path: string) => path === "u/t/r" ? { type: "object", value: { x: 1 } } : undefined };`
+	if err := os.WriteFile(plugin, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return plugin
+}
+
+// A step whose dispatch tripped the module trigger, with Max = MaxLive = 1,
+// still gets the resource it reads from the host plugin: its process
+// leaves, no replacement can start before it exits, and the plugin call
+// goes to that process rather than waiting for one that serves.
+func TestPoolRecyclingProcessServesPluginCalls(t *testing.T) {
+	bun := bunOrSkip(t)
+	out, runtimeDir := buildBunBundle(t, bun, map[string]string{
+		"wmill.yaml":             "defaultTs: bun\n",
+		"f/t/res.flow/flow.yaml": resourceFlow(t),
+		"f/t/one.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"rawscript","language":"bun",` +
+			`"content":"export async function main() { return 1 }","input_transforms":{}}}]}}`,
+	})
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: resourcePlugin(t), PluginTimeout: 5 * time.Second,
+		Pool: PoolOptions{Max: 1, MaxLive: 1, Recycle: RecycleTriggers{Modules: 1}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	if res, err := rt.Run(context.Background(), "f/t/one", json.RawMessage(`{}`), RunOptions{}); err != nil || res.Status != StatusSuccess {
+		t.Fatalf("the first script: %+v, %v", res, err)
+	}
+	res, err := rt.Run(context.Background(), "f/t/res", json.RawMessage(`{}`), RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != StatusSuccess || string(res.Result) != `{"x":1}` {
+		t.Fatalf("%s %s, latched %v; want the plugin's resource", res.Status, res.Result, res.Latched)
+	}
+}
+
+// heldLines is a host's diagnostics writer that holds each WriteString of a
+// line with held in it until the test opens its gate, and reports each
+// Write of a line with wanted in it.
+type heldLines struct {
+	held, wanted string
+	holding      chan struct{} // closed once a held line waits
+	gate         chan struct{}
+	arrived      chan struct{} // closed once a wanted line is written
+	once, got    sync.Once
+}
+
+func (h *heldLines) WriteString(s string) (int, error) {
+	if strings.Contains(s, h.held) {
+		h.once.Do(func() { close(h.holding) })
+		<-h.gate
+	}
+	return len(s), nil
+}
+
+func (h *heldLines) Write(p []byte) (int, error) {
+	if strings.Contains(string(p), h.wanted) {
+		h.got.Do(func() { close(h.arrived) })
+	}
+	return len(p), nil
+}
+
+// With zero pool settings the runtime calls the host's diagnostics writer
+// as it always has: a harness process's line goes through the writer's
+// WriteString, and the runtime's own line, here a failed onRunSettled of
+// the host plugin, is not held behind it while the writer holds it.
+func TestDiagnosticsZeroSettings(t *testing.T) {
+	bun := bunOrSkip(t)
+	out, runtimeDir := poolBundle(t, bun)
+	plugin := filepath.Join(t.TempDir(), "plugin.ts")
+	src := "process.stderr.write(\"the plugin loaded\\n\");\n" +
+		"export default { onRunSettled: () => { throw new Error(\"settled hook failed\") } };\n"
+	if err := os.WriteFile(plugin, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := &heldLines{held: "the plugin loaded", wanted: "onRunSettled", holding: make(chan struct{}), gate: make(chan struct{}), arrived: make(chan struct{})}
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, Diagnostics: h})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	defer close(h.gate)
+	select {
+	case <-h.holding:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the plugin's line did not reach WriteString")
+	}
+	// The run ends with its plugin's onRunSettled, whose failure the
+	// runtime writes; a writer held behind the process's line would hold
+	// the run too.
+	ran := make(chan error, 1)
+	go func() {
+		res, err := rt.Run(context.Background(), "f/t/flow", json.RawMessage(`{}`), RunOptions{})
+		if err == nil && res.Status != StatusSuccess {
+			err = fmt.Errorf("the run ended %s", res.Status)
+		}
+		ran <- err
+	}()
+	select {
+	case <-h.arrived:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the runtime's line waited for the process's line")
+	}
+	if err := <-ran; err != nil {
+		t.Fatal(err)
 	}
 }
 

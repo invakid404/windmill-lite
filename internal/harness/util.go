@@ -65,6 +65,14 @@ func (s *syncWriter) Write(b []byte) (int, error) {
 	return s.w.Write(b)
 }
 
+// WriteString passes the line on as io.WriteString does, so a writer's
+// own WriteString is still the one called.
+func (s *syncWriter) WriteString(str string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return io.WriteString(s.w, str)
+}
+
 // maxPendingKillLines is how many kill lines may wait for their
 // diagnostics writers at once, across every process in the program.
 const maxPendingKillLines = 64

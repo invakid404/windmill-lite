@@ -83,7 +83,7 @@ the code.
 | `DefaultLagThreshold`, `DefaultRecycleTimeout`, `DefaultRecycleSamples` | const | 250 ms; 5 s; 2 | `PoolConfig` defaults |
 | `ArgsFile` | const | `args.json` ([The arguments file](#the-arguments-file)) | `Process`, tests |
 | `TailLength` | const | 600: the characters of an invocation's log kept for its tail | the package's own log tail; no other package reads it (`engine.TailLength` is the engine's) |
-| `ErrPoolClosed` | var | `Execute` and `Start` after `Close` | tests |
+| `ErrPoolClosed` | var | `Execute` after `Close`, and a warm pool's `Start` | tests |
 | `HandshakeError` | struct | The error of `Spawn` or `AttachHost` when the welcome rejects the hello | `wl` (host mode) |
 
 ### Host mode and host plugins
@@ -742,9 +742,11 @@ hooks ([harnesses/bun](../../harnesses/bun/README.md#host-plugins)).
   declaration, byte for byte, else `plugin_mismatch` (`RejectPlugin`). A
   `Pool` records the declaration of the first process that starts with
   one, and holds each spawn that begins after that to it.
-- **Spawns under way** when the pool records the declaration are compared
-  when the pool admits them. One whose declaration differs is killed, and
-  its start fails.
+- **In a pool with settings** ([Pools](#pools)), the first process that
+  the pool admits sets the declaration, or its absence. Each later
+  admission must carry the same, which also holds spawns that were under
+  way: one that differs is killed, and its start fails. A failed start
+  sets nothing.
 - **Host mode.** `HostConfig.Check` is the engine's own check of the hello,
   before the welcome. The runtime refuses there a host whose declaration it
   cannot use.
@@ -771,9 +773,17 @@ hooks ([harnesses/bun](../../harnesses/bun/README.md#host-plugins)).
 ## Pools
 
 A `Pool` serves one `Key`: a harness class, a runtime pin, a dependency set
-and a module-state mode. Its processes share `ProcessConfig.Diagnostics`,
-and the pool serializes their writes to it, so that writer need not be
-safe for concurrent use.
+and a module-state mode.
+
+- **Settings.** A pool with settings is one whose `PoolConfig` sets any of
+  `Min`, `Max`, `Cap`, `LagThreshold`, `RecycleTimeout`, `MaxLive` or
+  `Recycle`. Only such a pool applies the admission checks below and
+  serializes its diagnostics writer. A pool without settings behaves as it
+  always has.
+- **The diagnostics writer.** The processes of a pool with settings share
+  `ProcessConfig.Diagnostics`, and the pool serializes their writes to it,
+  so the writer need not be safe for concurrent use. It still calls the
+  writer's `WriteString`, as `io.WriteString` does.
 
 ### Fresh pools
 
@@ -795,8 +805,8 @@ directory of its own, and exits once it has reported the outcome.
 ### Warm pools
 
 - **Size.** `Min` and `Max` default to 1. `Start` spawns `Min` processes
-  and returns once `Min` serve, or `ErrPoolClosed` after `Close`; otherwise
-  the first `Execute` spawns them.
+  and returns once `Min` live processes serve, or `ErrPoolClosed` after
+  `Close`; otherwise the first `Execute` spawns them.
 - **Routing.** The process that the run used last, then the least-loaded
   one. A process whose lag exceeds `LagThreshold` (250 ms by default) is
   used only when no other process can take the invocation and none can be
@@ -823,23 +833,30 @@ directory of its own, and exits once it has reported the outcome.
   replacements up to `Min` before the Reporters of its invocations hear
   `Settled(process_exited)`. A failed start is logged, and retried by the
   next `Execute`.
-- **An early exit.** A process that exits before the pool admits it is a
-  failed start, so it holds no place in the pool.
+- **An early exit.** In a pool with settings, a process that exits before
+  the pool admits it is a failed start, so it holds no place in the pool.
+  A pool without settings admits it, as it always has, and `Start` removes
+  it.
 - **The RSS trigger.** `Recycle.RSS` trips a process whose health reports
   give an `rss` of at least that many bytes `Recycle.Samples` times in a
   row (2 by default). A health report is a heartbeat `ping` or a `pong`.
   Zero turns it off.
 - **The module trigger.** `Recycle.Modules` trips a process once the
-  invocations dispatched to it ran more distinct scripts than that; the
-  invocation of the one more still runs there, and so do invocations
-  picked for it before it tripped. An invocation that was never sent does
-  not count. Zero turns it off.
+  invocations dispatched to it ran more distinct scripts than that; an
+  invocation that was never sent does not count. Zero turns it off.
+- **Past the module threshold,** the invocation of the one more script
+  still runs there, and so do invocations picked for the process before
+  that one was dispatched. No later pick goes there.
 - **Leaving for a trigger.** A process that trips stays tripped. It takes
   no new invocations and does not count toward `Max`. It drains once
   nothing that the engine waits for is in flight in it.
+- **Its runs' host calls.** A host call of a run whose step still runs in
+  such a process goes there when no serving process can take it, since
+  the step may wait for the call.
 - **Its replacement** starts at once, beside it, also in a pool that has
   grown past `Min`. One that `MaxLive` holds back starts once a process
-  exits, unless the pool has reached `Max` by then.
+  exits, unless the pool has reached `Max` by then. A failed start of it
+  is tried again by the next `Execute` or host call.
 - **One at a time.** One process leaves for a trigger at a time. Another
   that trips meanwhile keeps serving, and starts to leave once the exit of
   the first is observed.
@@ -1020,9 +1037,14 @@ unattributed warning, and a signature that did not parse. Others hold:
 | `TestPoolRecycleOnRSS`, `TestPoolRecycleOnModules`, `TestPoolModulesCountDispatchedScripts` | The RSS trigger, from heartbeat pings and from pongs, and the module trigger |
 | `TestPoolRecycleReplacesAboveMin` | The replacement of a tripped process in a pool grown past `Min` |
 | `TestPoolCapLeavesHostCalls` | Host calls beside a full cap |
-| `TestPoolEarlyExitNotAdmitted` | A process that exits before its admission |
-| `TestPoolPluginDeclarationsAgree` | Two initial processes with different plugin declarations |
-| `TestPoolDiagnosticsSerialized` | Two processes that write to one writer that is not safe for concurrent use, at once: no race, every line whole |
+| `TestPoolEarlyExitNotAdmitted` | A process that exits before its admission, in a pool with settings |
+| `TestPoolEarlyExitZeroSettings`, `TestPoolStartWaitsForALiveProcess` | Without settings: the early exit admitted as before, and `Start` waiting for a live process |
+| `TestPoolPluginDeclarationsAgree`, `TestPoolPluginAbsenceIsTheBaseline`, `TestPoolFailedStartSetsNoDeclaration` | Two initial processes with different plugin declarations, a declaration after none, and a failed start that sets nothing |
+| `TestPoolDiagnosticsSerialized` | Two processes that write to one writer that is not safe for concurrent use, at once: no race, every line whole, through `WriteString` |
+| `TestPoolDiagnosticsZeroSettings` | Without settings: the writer's `WriteString` called as before, and one process's line not held behind another's |
+| `TestPoolModulesTripBeforeTheNextPick` | No pick after the dispatch that crossed the module threshold goes to that process |
+| `TestPoolOwedReplacementSurvivesAFailedStart` | A replacement whose first start fails is tried again |
+| `TestPoolRecyclingProcessServesItsRunsHostCalls` | A host call of a run whose step runs in a process leaving for a trigger |
 
 #### What the fake-harness tests check
 

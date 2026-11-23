@@ -749,7 +749,7 @@ func TestPoolPluginDeclarationsAgree(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	err := pool.Start(ctx)
-	if err == nil || !strings.Contains(err.Error(), "another host plugin") {
+	if err == nil || !strings.Contains(err.Error(), "declaration differs") {
 		t.Fatalf("Start with two declarations: %v", err)
 	}
 	// Start begins both spawns at once, before either is admitted.
@@ -768,11 +768,124 @@ func TestPoolPluginDeclarationsAgree(t *testing.T) {
 	}
 }
 
-// syncless is a writer that is not safe for concurrent use, as a host's
-// bytes.Buffer is not.
-type syncless struct{ b bytes.Buffer }
+// The absence of a declaration is the baseline too: when the first
+// process admitted declares no host plugin, a process that began to start
+// at the same time and declares one is not admitted. The test holds the
+// second admission until the first is done.
+func TestPoolPluginAbsenceIsTheBaseline(t *testing.T) {
+	pc, _ := fakeConfig(t, "pool")
+	ctl := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ctl, "no-plugin"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pc.Env = append(pc.Env, "WL_FAKE_CTL="+ctl, "WL_FAKE_PLUGIN=first-none")
+	pc.KillAfter = WatchdogOff
+	var pool *Pool
+	pool = newPool(t, PoolConfig{Process: pc, Min: 2, Max: 2, LagThreshold: -1, admitting: func(p *Process) {
+		if !p.Hello().Plugin.IsZero() {
+			waitFor(t, "the first admission", func() bool { return len(pool.Stats()) == 1 })
+		}
+	}})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := pool.Start(ctx); err == nil || !strings.Contains(err.Error(), "declaration differs") {
+		t.Fatalf("Start with a process with a declaration after one without: %v", err)
+	}
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	if len(pool.members) != 1 || !pool.members[0].p.Hello().Plugin.IsZero() || pool.plugin != nil {
+		t.Fatalf("%d members; the first declares %q, the pool recorded %q", len(pool.members), pool.members[0].p.Hello().Plugin.Producer(), pool.plugin)
+	}
+}
 
-func (s *syncless) Write(p []byte) (int, error) { return s.b.Write(p) }
+// A start that fails sets no baseline: when the first process, with one
+// declaration, exits before its admission, the next, with another, is
+// admitted.
+func TestPoolFailedStartSetsNoDeclaration(t *testing.T) {
+	pool, ctl, _ := fakePool(t, PoolConfig{Max: 1}, "WL_FAKE_PLUGIN=pid")
+	if err := os.WriteFile(filepath.Join(ctl, "exit-after-welcome"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var first atomic.Bool
+	pool.cfg.admitting = func(p *Process) {
+		if first.CompareAndSwap(false, true) {
+			<-p.Done()
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := pool.Start(ctx); err == nil || !strings.Contains(err.Error(), "exited right after its handshake") {
+		t.Fatalf("Start with an early exit: %v", err)
+	}
+	fakeRun(t, pool, "s", nil)
+}
+
+// With zero settings a pool admits a process whose exit came before its
+// admission, as it always has: a host plugin's declaration read from it
+// still answers, as when a runtime with a plugin opens.
+func TestPoolEarlyExitZeroSettings(t *testing.T) {
+	pc, _ := fakeConfig(t, "pool")
+	ctl := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ctl, "exit-after-welcome"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pc.Env = append(pc.Env, "WL_FAKE_CTL="+ctl, "WL_FAKE_PLUGIN=same")
+	pc.KillAfter = WatchdogOff
+	var first atomic.Bool
+	pool := newPool(t, PoolConfig{Process: pc, admitting: func(p *Process) {
+		if first.CompareAndSwap(false, true) {
+			<-p.Done()
+		}
+	}})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	decl, err := pool.Plugin(ctx)
+	if err != nil || string(decl.Producer()) != `{"on_module_start":true}` {
+		t.Fatalf("the declaration of a process that exited before its admission: %s, %v", decl.Producer(), err)
+	}
+}
+
+// Start waits for a live process: a member whose exit came before its
+// admission, which a pool without settings admits, is removed, and Start
+// returns once a live one serves.
+func TestPoolStartWaitsForALiveProcess(t *testing.T) {
+	pc, _ := fakeConfig(t, "pool")
+	ctl := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ctl, "exit-after-welcome"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pc.Env = append(pc.Env, "WL_FAKE_CTL="+ctl)
+	pc.KillAfter = WatchdogOff
+	var dead atomic.Int64
+	pool := newPool(t, PoolConfig{Process: pc, admitting: func(p *Process) {
+		if dead.CompareAndSwap(0, int64(p.PID())) {
+			<-p.Done()
+		}
+	}})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := pool.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	st := pool.Stats()
+	if len(st) != 1 || int64(st[0].PID) == dead.Load() {
+		t.Fatalf("after Start: %+v; the process that exited first is %d", st, dead.Load())
+	}
+}
+
+// syncless is a writer that is not safe for concurrent use, as a host's
+// bytes.Buffer is not. It records which of its methods are called.
+type syncless struct {
+	b             bytes.Buffer
+	writes, lines atomic.Int64
+}
+
+func (s *syncless) Write(p []byte) (int, error) { s.writes.Add(1); return s.b.Write(p) }
+
+func (s *syncless) WriteString(str string) (int, error) {
+	s.lines.Add(1)
+	return s.b.WriteString(str)
+}
 
 // A pool's processes share the host's diagnostics writer, and the pool
 // serializes their writes to it: two processes that write output that no
@@ -811,6 +924,9 @@ func TestPoolDiagnosticsSerialized(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Close has waited for both processes' output to end.
+	if out.writes.Load() != 0 || out.lines.Load() == 0 {
+		t.Fatalf("%d calls of Write and %d of WriteString; the pool calls WriteString, as io.WriteString does", out.writes.Load(), out.lines.Load())
+	}
 	text := out.b.String()
 	for _, pid := range pids {
 		for i := range lines {
@@ -818,5 +934,202 @@ func TestPoolDiagnosticsSerialized(t *testing.T) {
 				t.Fatalf("missing %q", want)
 			}
 		}
+	}
+}
+
+// gatedWriter holds each WriteString of a line of the process whose pid it
+// is given until the test opens its gate, and records the other lines.
+type gatedWriter struct {
+	hold    atomic.Int64
+	held    chan struct{} // closed once a held line waits
+	gate    chan struct{}
+	once    sync.Once
+	mu      sync.Mutex
+	others  []string
+	writes  atomic.Int64
+	arrived chan struct{} // closed once a line of another process arrives
+	other   sync.Once
+}
+
+func (g *gatedWriter) Write(p []byte) (int, error) { g.writes.Add(1); return len(p), nil }
+
+func (g *gatedWriter) WriteString(s string) (int, error) {
+	if strings.Contains(s, fmt.Sprintf("harness pid %d stderr:", g.hold.Load())) {
+		g.once.Do(func() { close(g.held) })
+		<-g.gate
+		return len(s), nil
+	}
+	g.mu.Lock()
+	g.others = append(g.others, s)
+	g.mu.Unlock()
+	if strings.Contains(s, "stderr: line") {
+		g.other.Do(func() { close(g.arrived) })
+	}
+	return len(s), nil
+}
+
+// With zero settings a pool calls the host's diagnostics writer as it
+// always has: through its WriteString, and without serializing processes
+// against each other. Two processes are alive here because a taint
+// replaced the first while the test holds its drain; while the writer
+// holds a line of the first, a line of the second still arrives.
+func TestPoolDiagnosticsZeroSettings(t *testing.T) {
+	pc, _ := fakeConfig(t, "pool")
+	ctl := t.TempDir()
+	pc.Env = append(pc.Env, "WL_FAKE_CTL="+ctl)
+	pc.KillAfter = WatchdogOff
+	g := &gatedWriter{held: make(chan struct{}), gate: make(chan struct{}), arrived: make(chan struct{})}
+	pc.Diagnostics = g
+	log := newPoolLog()
+	pool := newPool(t, PoolConfig{Process: pc, observe: log.observe})
+	t.Cleanup(func() {
+		g.once.Do(func() { close(g.held) })
+		select {
+		case <-g.gate:
+		default:
+			close(g.gate)
+		}
+		os.Remove(filepath.Join(ctl, "hold-drains"))
+	})
+	holdDrains(t, ctl)
+	a := fakeRun(t, pool, "s", nil)
+	g.hold.Store(int64(a))
+	// a's abandoned invocation prints a line once released; a drains, held.
+	hold := filepath.Join(ctl, "x.hold")
+	started := filepath.Join(ctl, "x.started")
+	t.Cleanup(func() { os.WriteFile(hold, nil, 0o600) })
+	ctx, cancel := context.WithCancelCause(context.Background())
+	go func() {
+		waitFile(t, started)
+		cancel(engine.CancelTimeout)
+	}()
+	if _, err := pool.Execute(ctx, fakeInvocation("abandoned", map[string]any{"started": started, "hold": hold, "print": 1})); !errors.Is(err, engine.CancelTimeout) {
+		t.Fatalf("abandoned invocation: %v", err)
+	}
+	log.waitFor(t, "", fmt.Sprintf("drain %d", a))
+	b := fakeRun(t, pool, "s", nil)
+	if b == a {
+		t.Fatal("the test needs a second process")
+	}
+	os.WriteFile(hold, nil, 0o600)
+	select {
+	case <-g.held:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the first process's line did not reach the writer")
+	}
+	fakeRun(t, pool, "s", map[string]any{"print": 1})
+	select {
+	case <-g.arrived:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the second process's line waited for the first process's write")
+	}
+	if g.writes.Load() != 0 {
+		t.Fatalf("Write called %d times; the pool calls WriteString", g.writes.Load())
+	}
+}
+
+// A module crossing reaches routing before any later pick: while the
+// dispatch that crossed the threshold has not told the pool yet (the test
+// holds that notice), a new invocation already goes to the replacement.
+func TestPoolModulesTripBeforeTheNextPick(t *testing.T) {
+	pool, _, _ := fakePool(t, PoolConfig{Max: 1, Recycle: RecycleTriggers{Modules: 1}})
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	notify := pool.cfg.Process.notify
+	pool.cfg.Process.notify = func(p *Process) {
+		if p.scriptCount() == 2 {
+			once.Do(func() {
+				close(entered)
+				<-release
+			})
+		}
+		notify(p)
+	}
+	a := fakeRun(t, pool, "s1", nil)
+	crossing := goRun(pool, "s2", nil)
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the crossing dispatch did not happen")
+	}
+	b := fakeRun(t, pool, "s1", nil)
+	close(release)
+	if got := wait(t, crossing); got != a {
+		t.Fatalf("the crossing invocation ran in %d, want %d", got, a)
+	}
+	if b == a {
+		t.Fatalf("an invocation picked after the crossing dispatch went to the tripped process %d", a)
+	}
+}
+
+// A replacement owed to a process that left for a trigger survives a
+// failed start: the next invocation tries it again. The pool is grown to
+// two processes as in TestPoolRecycleReplacesAboveMin; the first start of
+// the replacement fails before its handshake.
+func TestPoolOwedReplacementSurvivesAFailedStart(t *testing.T) {
+	pool, ctl, log := fakePool(t, PoolConfig{Min: 1, Max: 2, Cap: 2, Recycle: RecycleTriggers{RSS: 1000}})
+	h1 := startHeld(t, pool, ctl, "h1")
+	h2 := startHeld(t, pool, ctl, "h2")
+	h3 := startHeld(t, pool, ctl, "h3")
+	h2.release(t)
+	r2 := <-h2.done
+	a := pidOfOutcome(t, r2.out, r2.err)
+	if err := os.WriteFile(filepath.Join(ctl, "fail-start"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if got := fakeRun(t, pool, "s", map[string]any{"rss": 2000}); got != a {
+			t.Fatalf("a report went to %d, want %d", got, a)
+		}
+	}
+	log.waitFor(t, "", "failed")
+	log.note("next")
+	fakeRun(t, pool, "s", nil)
+	log.waitFor(t, "next", "spawn")
+	waitFor(t, "the replacement", func() bool { return len(pool.Stats()) == 3 })
+	h1.release(t)
+	h3.release(t)
+	for _, h := range []heldInvocation{h1, h3} {
+		r := <-h.done
+		pidOfOutcome(t, r.out, r.err)
+	}
+}
+
+// A host call of a run whose step still runs in a process that left for a
+// recycle trigger goes to that process, though it takes no new
+// invocations: with Max = MaxLive = 1 no replacement can start until it
+// exits, and the step may be waiting for the call. A new invocation still
+// waits.
+func TestPoolRecyclingProcessServesItsRunsHostCalls(t *testing.T) {
+	pool, ctl, log := fakePool(t, PoolConfig{Max: 1, MaxLive: 1, Recycle: RecycleTriggers{Modules: 1}}, "WL_FAKE_PLUGIN=same")
+	a := fakeRun(t, pool, "s1", nil)
+	started, hold := filepath.Join(ctl, "h.started"), filepath.Join(ctl, "h.hold")
+	t.Cleanup(func() { os.WriteFile(hold, nil, 0o600) })
+	inv := fakeInvocation("s2", map[string]any{"started": started, "hold": hold})
+	inv.Run = "run-held"
+	held := make(chan runResult, 1)
+	go func() {
+		out, err := execute(t, pool, inv, 30*time.Second)
+		held <- runResult{out, err}
+	}()
+	waitFile(t, started)
+	log.note("host call")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := pool.HostCall(ctx, "resource", "run-held", "", jsonval.FromProducer([]byte(`{"path":"u/t/r"}`)))
+	var r struct{ PID int }
+	if err != nil || json.Unmarshal(out.Producer(), &r) != nil || r.PID != a {
+		t.Fatalf("the held step's host call: %s, %v; want an answer from %d", out.Producer(), err, a)
+	}
+	log.note("next step")
+	w := goRun(pool, "s1", nil)
+	log.waitFor(t, "next step", "wait")
+	notReturned(t, w, "a new invocation while the only process leaves")
+	os.WriteFile(hold, nil, 0o600)
+	if r := <-held; pidOfOutcome(t, r.out, r.err) != a {
+		t.Fatalf("the held step ran elsewhere: %+v", r.out)
+	}
+	if got := wait(t, w); got == a {
+		t.Fatalf("the new invocation ran in the leaver %d", a)
 	}
 }
