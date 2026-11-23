@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -1334,35 +1335,38 @@ func TestHostPassedDeadline(t *testing.T) {
 // the engine finds before the step (an entrypoint that is not a name), and
 // one of the step (an entrypoint the script does not export). Its deadline
 // passing is a cancellation, with the cause deadline and the killed job's
-// error of a script job.
+// error, and so is the host's cancellation of a run with no deadline, with
+// the cause canceled. A script that fails before its job, its deadline
+// having passed, is canceled too, and keeps that failure as its result.
 func TestHostScriptOutcomeWithDeadline(t *testing.T) {
 	s := supervise(t, 30000)
+	const killed = "cancelled by unknown (reason: no reason given)"
 	for _, tc := range []struct {
 		name   string
-		args   map[string]any
+		body   map[string]any
 		status string
 		cause  string
+		// message is a text that the result's error message contains.
+		message string
 	}{
-		{"an entrypoint that is not a name", map[string]any{"ms": 5, "_ENTRYPOINT_OVERRIDE": "1x"}, "failure", ""},
-		{"an entrypoint the script does not export", map[string]any{"ms": 5, "_ENTRYPOINT_OVERRIDE": "nosuch"}, "failure", ""},
-		{"a step that outlives the deadline", map[string]any{"ms": 5000}, "canceled", "deadline"},
+		{"an entrypoint that is not a name", map[string]any{"args": map[string]any{"ms": 5, "_ENTRYPOINT_OVERRIDE": "1x"}, "deadlineMs": 30000}, "failure", "", "Invalid entrypoint override"},
+		{"an entrypoint the script does not export", map[string]any{"args": map[string]any{"ms": 5, "_ENTRYPOINT_OVERRIDE": "nosuch"}, "deadlineMs": 30000}, "failure", "", "nosuch function is missing"},
+		{"a step that outlives the deadline", map[string]any{"args": map[string]any{"ms": 5000}, "deadlineMs": 200}, "canceled", "deadline", killed},
+		{"the host's cancellation, with no deadline", map[string]any{"args": map[string]any{"ms": 5000}, "abortAfterMs": 200}, "canceled", "canceled", killed},
+		{"an entrypoint that is not a name, past the deadline", map[string]any{"args": map[string]any{"ms": 5, "_ENTRYPOINT_OVERRIDE": "1x"}, "deadlineMs": 0}, "canceled", "deadline", "Invalid entrypoint override"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			deadline := 30000
-			if tc.cause != "" {
-				deadline = 200
-			}
-			r, err := s.post("/run", map[string]any{"path": "f/host/sleep", "kind": "script", "args": tc.args, "deadlineMs": deadline})
+			body := map[string]any{"path": "f/host/sleep", "kind": "script"}
+			maps.Copy(body, tc.body)
+			r, err := s.post("/run", body)
 			if err != nil || r.Status != tc.status || r.CancelCause != tc.cause {
 				t.Fatalf("%+v, %v; want %s, cause %q", r, err, tc.status, tc.cause)
 			}
-			if tc.cause != "" {
-				var res struct {
-					Error struct{ Name, Message string } `json:"error"`
-				}
-				if json.Unmarshal(r.Result, &res) != nil || res.Error.Name != "ExecutionErr" || !strings.Contains(res.Error.Message, "cancelled by unknown (reason: no reason given)") {
-					t.Fatalf("result %s; want the killed job's ExecutionErr", r.Result)
-				}
+			var res struct {
+				Error struct{ Name, Message string } `json:"error"`
+			}
+			if json.Unmarshal(r.Result, &res) != nil || !strings.Contains(res.Error.Message, tc.message) || (tc.message == killed) != (res.Error.Name == "ExecutionErr" && strings.Contains(res.Error.Message, killed)) {
+				t.Fatalf("result %s; want an error whose message contains %q", r.Result, tc.message)
 			}
 		})
 	}

@@ -104,34 +104,57 @@ func TestRunCancelCause(t *testing.T) {
 	})
 }
 
-// A root script's run whose context has passed its deadline before it
-// starts ends canceled, with the cause deadline; its result stays the
-// killed job's error of a script job, not a flow's Canceled error.
+// A root script's run ends canceled when its context ends, with the
+// context's cause: one whose deadline has passed before it starts, with the
+// cause deadline, and one that its caller cancels while its step waits,
+// with the cause canceled. Its result stays the killed job's error of a
+// script job, which names the cancellation's reason and canceler, not a
+// flow's Canceled error. A run with time left that is not canceled names
+// no cause.
 func TestScriptRunCancelCause(t *testing.T) {
 	bun := bunOrSkip(t)
 	out, runtimeDir := buildBundle(t, bun)
-	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Variables: map[string]Variable{"u/t/v": {Value: "first"}}})
+	// f/t/set waits a minute after it reads "slow".
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Variables: map[string]Variable{"u/t/v": {Value: "slow"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rt.Close()
-	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
-	defer cancel()
-	res, err := rt.Run(ctx, "f/t/set", json.RawMessage(`{"v":"u/t/v"}`), RunOptions{Kind: KindScript})
-	if err != nil {
-		t.Fatal(err)
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+	waiting, cancelWaiting := context.WithCancelCause(context.Background())
+	defer cancelWaiting(nil)
+	time.AfterFunc(500*time.Millisecond, func() {
+		cancelWaiting(&Cancellation{Reason: "the tenant was suspended", Canceler: "tenant-admin"})
+	})
+	for _, tc := range []struct {
+		name   string
+		ctx    context.Context
+		cause  string
+		killed string
+	}{
+		{"a deadline that has passed", expired, CauseDeadline, "cancelled by unknown (reason: no reason given)"},
+		{"the caller's cancellation while the step waits", waiting, CauseCanceled, "cancelled by tenant-admin (reason: the tenant was suspended)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := rt.Run(tc.ctx, "f/t/set", json.RawMessage(`{"v":"u/t/v"}`), RunOptions{Kind: KindScript})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.Status != StatusCanceled || res.CancelCause != tc.cause {
+				t.Fatalf("status %s, cause %q (result %s); want canceled, cause %q", res.Status, res.CancelCause, res.Result, tc.cause)
+			}
+			var killed struct {
+				Error struct{ Name, Message string } `json:"error"`
+			}
+			if json.Unmarshal(res.Result, &killed) != nil || killed.Error.Name != "ExecutionErr" || !strings.Contains(killed.Error.Message, tc.killed) {
+				t.Fatalf("result %s; want the killed job's ExecutionErr, %q", res.Result, tc.killed)
+			}
+		})
 	}
-	if res.Status != StatusCanceled || res.CancelCause != CauseDeadline {
-		t.Fatalf("status %s, cause %q (result %s); want canceled, cause %q", res.Status, res.CancelCause, res.Result, CauseDeadline)
-	}
-	var killed struct {
-		Error struct{ Name, Message string } `json:"error"`
-	}
-	if json.Unmarshal(res.Result, &killed) != nil || killed.Error.Name != "ExecutionErr" || !strings.Contains(killed.Error.Message, "cancelled by unknown (reason: no reason given)") {
-		t.Fatalf("result %s; want the killed job's ExecutionErr", res.Result)
-	}
-	// The same script with time left runs.
-	if res, err := rt.Run(context.Background(), "f/t/set", json.RawMessage(`{"v":"u/t/v"}`), RunOptions{Kind: KindScript}); err != nil || res.Status != StatusSuccess || res.CancelCause != "" {
-		t.Fatalf("%+v, %v; want success with no cause", res, err)
+	// The same script with time left runs; the canceled run's step set the
+	// variable before it waited.
+	if res, err := rt.Run(context.Background(), "f/t/set", json.RawMessage(`{"v":"u/t/v"}`), RunOptions{Kind: KindScript}); err != nil || res.Status != StatusSuccess || res.CancelCause != "" || string(res.Result) != `"second"` {
+		t.Fatalf("%+v, %v; want success, \"second\", with no cause", res, err)
 	}
 }

@@ -293,7 +293,7 @@ type PluginOutcome struct {
 	Warnings       []struct{ Code, Message string }
 	// Ran holds, for each site the trace has a record of, whether a job
 	// ran for it; nil for a runner without the run's trace, whose plugin
-	// reports the sites in its PluginTrace warning.
+	// must then report the sites in its PluginTrace warning.
 	Ran map[string]bool
 	// Deviations are the run's run-time deviations (H7, H10).
 	Deviations []string
@@ -339,27 +339,32 @@ func (e PluginExpect) Check(o PluginOutcome) []string {
 		case PluginTrace:
 			// The plugin's onRunEnd got the run's cause; and a runner
 			// without the run's trace, in host mode, takes the sites that
-			// ran from the plugin's.
+			// ran from the plugin's. Both fields are required: an empty
+			// array of sites is a report, a missing one is not.
 			var seen struct {
-				Ran         []string `json:"ran"`
-				CancelCause string   `json:"cancel_cause"`
+				Ran         *[]string `json:"ran"`
+				CancelCause *string   `json:"cancel_cause"`
 			}
-			if err := json.Unmarshal([]byte(w.Message), &seen); err != nil {
-				diffs = append(diffs, "the plugin's trace report is not an object of ran and cancel_cause: "+w.Message)
+			if err := json.Unmarshal([]byte(w.Message), &seen); err != nil || seen.Ran == nil || seen.CancelCause == nil {
+				diffs = append(diffs, "the plugin's trace report is not an object of ran, an array, and cancel_cause, a string: "+w.Message)
 				continue
 			}
-			if seen.CancelCause != o.CancelCause {
-				diffs = append(diffs, fmt.Sprintf("the plugin's onRunEnd saw cancel_cause %q, the run has %q", seen.CancelCause, o.CancelCause))
+			if *seen.CancelCause != o.CancelCause {
+				diffs = append(diffs, fmt.Sprintf("the plugin's onRunEnd saw cancel_cause %q, the run has %q", *seen.CancelCause, o.CancelCause))
 			}
-			if ran == nil {
+			if o.Ran == nil {
 				ran = map[string]bool{}
-				for _, s := range seen.Ran {
+				for _, s := range *seen.Ran {
 					ran[s] = true
 				}
 			}
 			continue
 		}
 		codes = append(codes, w.Code)
+	}
+	if ran == nil {
+		// A runner without the run's trace relies on the plugin's report.
+		diffs = append(diffs, "no record of the sites that ran: the runner has no trace, and the plugin sent no "+PluginTrace)
 	}
 	if e.Log != nil && !slices.Equal(log, e.Log) {
 		diffs = append(diffs, fmt.Sprintf("log %q, want %q", log, e.Log))

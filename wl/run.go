@@ -53,7 +53,8 @@ const (
 
 // The causes of a canceled run, Result.CancelCause (ADR 0004 §Cancellation
 // and deadlines). Each keeps the status StatusCanceled and the result: a
-// flow's Canceled error (FX-38), or a root script's error of a killed job.
+// flow's Canceled error (FX-38), or a root script's failure value, the
+// killed job's error when the cancellation stopped its job.
 const (
 	// CauseDeadline: the run's hard deadline, its context's, passed.
 	CauseDeadline = engine.CauseDeadline
@@ -241,13 +242,6 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 			req.Exec = settlingExec{inner: rt.exec, settle: s}
 		}
 		res, err := rt.eng.RunScript(ctx, req)
-		// How the run ended is read before its settlement, whose callback
-		// in host mode releases the run's hard deadline, which ends ctx: a
-		// script that failed on its own does not read as canceled.
-		canceled, cause := ctx.Err() != nil, engine.CancelCauseOf(ctx)
-		if s != nil && err == nil {
-			s.End()
-		}
 		if err != nil {
 			return nil, err
 		}
@@ -256,11 +250,18 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		case res.Latched != nil:
 			// Its step latched the run (H5): wl.latch, or a failed around.
 			out.Status, out.Result, out.Latched = StatusLatched, nil, res.Latched
-		case res.Failed && canceled:
+		case res.Failed && ctx.Err() != nil:
 			// The script failed because the run's context ended (FX-38).
-			out.Status, out.CancelCause = StatusCanceled, cause
+			out.Status, out.CancelCause = StatusCanceled, engine.CancelCauseOf(ctx)
 		case res.Failed:
 			out.Status = StatusFailure
+		}
+		// The run settles once its outcome is decided: in host mode the
+		// settlement's callback releases the run's hard deadline, which
+		// ends ctx, so a script that failed on its own does not read as
+		// canceled.
+		if s != nil {
+			s.End()
 		}
 		return out, nil
 	default:
