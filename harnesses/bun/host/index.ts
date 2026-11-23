@@ -17,8 +17,9 @@ import { accessSync, constants, realpathSync, statSync, writeSync } from "node:f
 import { createRequire } from "node:module";
 import type { Socket } from "node:net";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { exitProcess, invocations, realStderr, realTimers } from "../runtime/context.ts";
-import type { Plugin, Selector } from "../runtime/plugin.ts";
+import { loadPlugin, type Plugin, type Selector } from "../runtime/plugin.ts";
 import { extractAssets, type HostHealth, RunError, Runtime } from "../runtime/runtime.ts";
 
 export type { AroundCall, Call, Outcome, PlatformCall, Plugin, Selector, Site, StepOutcome, StepRecord, Trace, TraceDetail, TraceNone, TraceSummary, Warning } from "../runtime/plugin.ts";
@@ -68,7 +69,11 @@ export type ConnectOptions = {
    * wrappers around a step. Each callback runs in the scope of the run it
    * serves (H11). The engine checks the declaration in the handshake and
    * refuses the host (plugin_mismatch) when a selector is malformed or
-   * ambiguous, or a provider the host contract names is missing. */
+   * ambiguous, or a provider the host contract names is missing. A bundle
+   * built with a plugin of its own (its host contract's plugin field)
+   * gives the host that plugin when this option is absent: connect()
+   * loads it once the host's modules are registered, and refuses with a
+   * HostError options when the option is given too. */
   plugin?: Plugin;
   /** The engine's watchdog: it kills this process when no frame has come
    * from it for killAfter milliseconds (default 30000; 0 disables it). */
@@ -436,12 +441,23 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   const diag = o.diag ?? ((line: string) => realStderr(line + "\n"));
   let manifest: Uint8Array;
   let listed: string[];
+  let bundled: { key?: unknown; file?: unknown } | undefined;
   try {
     manifest = await Bun.file(join(o.bundle, "manifest.json")).bytes();
-    const hm = (JSON.parse(new TextDecoder().decode(manifest)) as { host_modules?: { key?: unknown }[] | null }).host_modules ?? [];
-    listed = hm.map((h) => String(h?.key));
+    const m = JSON.parse(new TextDecoder().decode(manifest)) as {
+      host_modules?: { key?: unknown }[] | null;
+      plugin?: { key?: unknown; file?: unknown } | null;
+    };
+    listed = (m.host_modules ?? []).map((h) => String(h?.key));
+    bundled = m.plugin ?? undefined;
   } catch (e) {
     throw new HostError("bundle", `cannot read the bundle manifest: ${(e as Error).message}`);
+  }
+  if (bundled !== undefined && o.plugin !== undefined) {
+    throw new HostError("options", `the bundle has its own host plugin, ${String(bundled.key)}, and the plugin option gives another; give one of them`);
+  }
+  if (bundled !== undefined && typeof bundled.file !== "string") {
+    throw new HostError("bundle", "cannot load the bundle's host plugin: the manifest's plugin names no file");
   }
   // Before any step module loads: a step that imports a host-provided
   // module takes it from the registry when it loads.
@@ -723,6 +739,24 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   sock.on("drain", () => runtime.onDrain());
   sock.on("close", () => runtime.onClose());
   sock.on("error", (e) => diag(`windmill-lite: engine socket: ${e.message}`));
+  // The bundle's own plugin loads as a spawned harness loads one (main.ts):
+  // after the registry, from which its bundle takes the host-provided
+  // modules, and after the runtime has installed its process-wide hooks
+  // and the native realms have taken the web APIs, before the hello that
+  // carries its declaration. A fetch wrapper it installs at load thus
+  // wraps the runtime's fetch view in both modes, and reaches no native
+  // realm.
+  if (bundled !== undefined) {
+    try {
+      runtime.usePlugin(await loadPlugin(pathToFileURL(join(o.bundle, bundled.file as string)).href));
+    } catch (e) {
+      // The engine, which has had no hello, exits once its socket closes.
+      ready.catch(() => {});
+      sock.destroy();
+      child.kill();
+      throw new HostError("bundle", `cannot load the bundle's host plugin: ${(e as Error).message}`);
+    }
+  }
   runtime.start();
   await ready;
 

@@ -104,6 +104,20 @@ test("an engine that cannot start is engine_start", async () => {
   }
 });
 
+test("connect refuses a plugin option for a bundle with a plugin of its own, before it starts the engine", async () => {
+  const dir = tempDir("wl-host-plugin-");
+  writeFileSync(join(dir, "manifest.json"), JSON.stringify({ host_modules: [], plugin: { key: "f/app/plugin.ts", file: "plugins/f/app/plugin.mjs" } }));
+  const back = process.cwd();
+  process.chdir(dir);
+  try {
+    expect(await code(connect({ engine: join(dir, "no-such-engine"), bundle: dir, workdir: dir, plugin: {} }))).toBe("options");
+    // Without the option, connect gets as far as starting the engine.
+    expect(await code(connect({ engine: join(dir, "no-such-engine"), bundle: dir, workdir: dir }))).toBe("engine_start");
+  } finally {
+    process.chdir(back);
+  }
+}, 20_000);
+
 test("connect extracts the bundle's codebase assets into the working directory before it starts the engine", async () => {
   const dir = tempDir("wl-host-test-");
   const bundle = join(dir, "bundle");

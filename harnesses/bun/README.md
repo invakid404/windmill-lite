@@ -293,7 +293,7 @@ sees them.
 | `engineArgs` | `string[]` | `[]` | Arguments before the engine's `host` command |
 | `engineFlags` | `string[]` | `[]` | Flags after the `host` command's own, such as `-variables`, `-resources` or `-cpuprofile` |
 | `hostModules` | `Record<string, object>` | None | The host's instances of the bundle's host-provided modules, by the keys that the host contract gives them |
-| `plugin` | `Plugin` | None | The host's plugin ([Host plugins](#host-plugins)) |
+| `plugin` | `Plugin` | None, or the bundle's own | The host's plugin ([Host plugins](#host-plugins)). Leave it out for a bundle built with a plugin of its own, which `connect()` then loads; it refuses both with `HostError` `options`. |
 | `watchdog` | `{ killAfter: number }` | `{ killAfter: 30000 }` | The engine kills this process when no frame has come from it for `killAfter` ms. `0` turns the watchdog off. |
 | `readCache` | `boolean` | `false` | Each run keeps the answer of its first read of a host's or bundle's resource or variable, the plugin's `resource` and `variable` hooks included, and answers its later reads of that path from it. An error is not kept, and a variable that a step updates and a stored state are read again ([the read cache](../../internal/platform/README.md#the-read-cache)). Windmill reads them for each job, so this is a named deviation of the [equivalence contract](../../docs/design/0001-equivalence-contract.md#5-named-deviations). |
 | `resourceStore` | `{ kind: "memory" }` or `{ kind: "redis"; url: string; prefix?: string; allowEviction?: boolean }` | `{ kind: "memory" }` | The store of the resources that steps write through the job API, such as the stock client's state ([The resource store](#the-resource-store)). Available from version 0.4.0. |
@@ -566,6 +566,15 @@ the rules of each hook.
 - **Where it comes from.** In host mode, `connect`'s `plugin` option. In a
   `warm` harness that the engine starts, the default export, or the export
   `plugin`, of the module that `--plugin` names (`wl.Options.Plugin`).
+- **The bundle's own.** A bundle built with a plugin (the host contract's
+  `plugin`) holds it in `plugins/`, with the host-provided modules resolved
+  to their shims. The engine names it with `--plugin` when `wl` names none,
+  and `connect` loads it when its `plugin` option is absent.
+- **When it loads.** A harness loads its plugin after the runtime has
+  installed its process-wide hooks and the native realms have taken the
+  web APIs, and `connect` loads a bundle's plugin at the same point. A
+  `fetch` wrapper that such a plugin installs at load reaches ordinary
+  steps, and no native step.
 - **The declaration.** The harness sends the plugin's hooks and selectors
   to the engine in its hello. The engine refuses a host whose declaration
   it cannot use with `plugin_mismatch`: a malformed or ambiguous selector,
@@ -642,7 +651,8 @@ error that has no `code`:
 | `workdir_not_writable` | `connect`, or the engine | `workdir` is not a directory that this process can write. | Pass a writable directory. |
 | `workdir_mismatch` | `connect`, or the engine | `workdir` is not the process's working directory. | `process.chdir(workdir)` before `connect`, or pass `process.cwd()`. |
 | `options` | `connect` | The `collect` option has an `rss` that is not above 0 (missing, 0, negative or `NaN`), a `cooldown` or a `quiet` that is negative, `NaN` or infinite, or a `policy` other than `"idle"` and `"heartbeat"`. The `rss` check compares values and does not test the type, so a numeric string such as `"1"` passes it; pass a number, as the type says. `cooldown` and `quiet` must be finite numbers, so a string is refused. | Fix the option. The message names the rule that failed. |
-| `bundle` | `connect` | The bundle's `manifest.json` does not read. | Pass the bundle directory, as an absolute path. |
+| `options` | `connect` | The bundle has a host plugin of its own, and the `plugin` option gives another. | Leave the option out, or build the bundle without the contract's `plugin`. |
+| `bundle` | `connect` | The bundle's `manifest.json` does not read, or the bundle's own host plugin does not load or has a wrong shape. | Pass the bundle directory, as an absolute path. Fix the plugin, whose message the error carries. |
 | `assets` | `connect` | The bundle's assets do not extract into `workdir`. | Check the directory's space and permissions. |
 | `engine_start` | `connect` | The engine binary does not start. | Check `engine`'s path and its execute permission. |
 | `version_mismatch` | The engine, or the SDK | The SDK's version is not the engine's. An unversioned engine or SDK pairs with any. | Take the SDK and the engine from the same release. |

@@ -18,8 +18,7 @@ itself.
   frames share their fields with, and log limits in the welcome;
 - the pool's settings in `wl`, pinned runs, recycle triggers and limits per
   run (§Pooling);
-- a host plugin built into the bundle, and run data in its processes
-  (§Host plugins).
+- run data in a host plugin's processes (§Host plugins).
 
 ## Context
 
@@ -958,15 +957,23 @@ answered by a `host_reply`.
    clock (H10). The hard deadline bounds the run until it has settled, so
    steps a latch or a cancellation left running are abandoned at it.
    `run_done` reports `may_have_mutated` and the trace's `deviations`.
-7. **A plugin in the bundle** (planned). The host contract may name a
-   plugin module, which the build bundles into the bundle's `plugins/` with
-   the same Bun build helper and the same shims of host-provided modules as
-   the steps. In each process, the plugin and the steps then share those
-   modules' instances.
+7. **A plugin in the bundle.** The host contract's `plugin` field names a
+   plugin module: the file of a Bun script of the folder, named as a
+   host-provided module of the folder is. The build bundles it into
+   `plugins/<script path>.mjs` with the same Bun build helper and the same
+   shims of host-provided modules as the steps. In each process, the plugin
+   and the steps then share those modules' instances.
 8. **Loading it.** The manifest records the plugin, so the bundle digest
    covers it, and a `warm` runtime loads it as it loads the module that
    `Options.Plugin` names. A runtime given both refuses to open, and a
-   `fresh` runtime takes neither.
+   `fresh` runtime takes neither. In host mode the Bun host SDK loads it
+   when its `plugin` option is absent, and refuses both.
+   - **When a plugin loads.** A process loads its plugin, the bundle's or
+     the one `Options.Plugin` names, after the runtime has installed its
+     process-wide hooks and the [native realms](0001-equivalence-contract.md#5-named-deviations)
+     have taken the web APIs. A `fetch` wrapper that the plugin installs at
+     load thus wraps the fetch view for ordinary steps, which read
+     `globalThis.fetch` on each call, and reaches no native step.
 9. **Run data** (planned). A run's data ([H11](0008-host-hooks.md#the-hooks)) reaches a process with
    the first `invoke` or `host_call` of the run that the process gets, so
    the plugin's hooks and its `around` wrappers read it as `wl.run.data`.

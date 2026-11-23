@@ -510,6 +510,8 @@ How these tests run:
 | `TestHostRecycleModules` | The modules recycle trigger trips once a second module loads, in `health()` and `onRecycle`. |
 | `TestHostRecycleRetired` | The retired-entry recycle trigger trips once the host's count of pooled entries that retired and were not released passes its maximum, in `health()` and `onRecycle`. The host lives on. |
 | `TestHostPluginCases` | The cases of `conformance/plugins/hooks.yaml` in host mode, answered over `host_call` by the host's case plugin (`WL_PLUGIN_CASES`). Each run carries its own hooks and budgets in its run frame, and every hook runs in the run's tenant scope. The sites that ran come from the trace that the plugin's `onRunEnd` got. The plugin's report file (`WL_PLUGIN_REPORT`) shows every run settling after its hooks. |
+| `TestHostBundledPluginCases` | The same cases with the case plugin built into the bundle and no `plugin` option: the SDK loads the bundle's plugin, and every case and every run's settlement hold. |
+| `TestHostBundledPluginFetchOrder` | A `fetch` wrapper that the bundle's plugin installs at load reaches an ordinary step and not a native one: the SDK loads it after the runtime's hooks, as a spawned harness does. |
 | `TestHostSurvivesADetachedRejection` | One detached promise rejection does not end the host. Health counts it. |
 | `TestHostNeverSettlingStep` | After one run's step times out, the other run's next step completes, a new run succeeds, and health reports one abandoned invocation. The host is never restarted. |
 | `TestHostChildUnderBackpressure` | A step fills the host's socket, starts a child process and blocks the event loop. Its timeout still kills the child, which the host announced on the child channel. |

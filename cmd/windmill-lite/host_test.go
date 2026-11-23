@@ -14,6 +14,7 @@ import (
 	"maps"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1500,8 +1501,103 @@ func TestHostPluginCases(t *testing.T) {
 		t.Fatal(err)
 	}
 	report := filepath.Join(t.TempDir(), "settled.jsonl")
-	s := supervise(t, 30000, "WL_BUNDLE="+bundleDir, "WL_PLUGIN_CASES="+casesFile, "WL_PLUGIN_REPORT="+report,
-		fmt.Sprintf("WL_ENGINE_FLAGS=-plugin-timeout %dms", f.TimeoutMS))
+	runHostPluginCases(t, f, report, true, "WL_BUNDLE="+bundleDir, "WL_PLUGIN_CASES="+casesFile, "WL_PLUGIN_REPORT="+report)
+}
+
+// TestHostBundledPluginCases runs the plugin cases in host mode as
+// TestHostPluginCases does, with the case plugin built into the bundle
+// (the host contract's plugin field) and no plugin option: the host SDK
+// loads the bundle's plugin. Every case gives its expected outcome, and
+// every run settles through the plugin's onRunSettled.
+func TestHostBundledPluginCases(t *testing.T) {
+	compiledHost(t)
+	f, err := conformance.LoadPluginFile("../../conformance/plugins/hooks.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src, err := os.ReadFile("../../harnesses/bun/test/caseplugin.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := filepath.Join(t.TempDir(), "settled.jsonl")
+	files, contract, err := f.BundledPlugin(src, report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runHostPluginCases(t, f, report, false, "WL_BUNDLE="+buildPluginBundleWith(t, f, files, contract))
+}
+
+// TestHostBundledPluginFetchOrder: the host SDK loads the bundle's own
+// plugin as a spawned harness process loads one, after the runtime has
+// installed its fetch view and the native realms have taken the web APIs.
+// A fetch wrapper that the plugin installs at load reaches the ordinary
+// step, and not the native one; a loopback server reports the header the
+// wrapper sets.
+func TestHostBundledPluginFetchOrder(t *testing.T) {
+	compiledHost(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, r.Header.Get("x-plugin-wrap"))
+	}))
+	defer srv.Close()
+	repo, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	folder := t.TempDir()
+	files := map[string]string{
+		"wmill.yaml":      "defaultTs: bun\n",
+		"f/app/plain.ts":  "export async function main(url: string) { return await (await fetch(url)).text(); }\n",
+		"f/app/native.ts": "//native\nexport async function main(url: string) { return await (await fetch(url)).text(); }\n",
+		"f/app/plugin.ts": "const inner = globalThis.fetch;\n" +
+			"globalThis.fetch = Object.assign((input: RequestInfo | URL, init?: RequestInit) => {\n" +
+			"  const req = new Request(input, init);\n  req.headers.set(\"x-plugin-wrap\", \"1\");\n  return inner(req);\n}, inner);\n" +
+			"export default {};\n",
+	}
+	for _, s := range []string{"plain", "native"} {
+		files["f/app/"+s+"_flow.flow/flow.yaml"] = `{"summary":"f","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/app/` + s +
+			`","input_transforms":{"url":{"type":"javascript","expr":"flow_input.url"}}}}]}}`
+	}
+	for p, src := range files {
+		full := filepath.Join(folder, filepath.FromSlash(p))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out := filepath.Join(t.TempDir(), "bundle")
+	if _, err := bundle.Build(context.Background(), bundle.Config{
+		Folder: folder, Contract: []byte("roots: [{flow: f/app/plain_flow}, {flow: f/app/native_flow}]\nplugin: f/app/plugin.ts\n"),
+		EngineVersion: resolveVersion(), Bun: os.Getenv("WL_BUN"),
+		Helper:         filepath.Join(repo, "harnesses", "bun", "build", "main.ts"),
+		HarnessRuntime: filepath.Join(repo, "harnesses", "bun", "runtime"),
+		Out:            out, Work: filepath.Join(t.TempDir(), "work"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s := supervise(t, 30000, "WL_BUNDLE="+out)
+	for _, c := range []struct{ flow, want string }{
+		{"f/app/plain_flow", `"1"`},
+		{"f/app/native_flow", `""`},
+	} {
+		r, err := s.post("/run", map[string]any{"path": c.flow, "tenant": "t", "args": map[string]any{"url": srv.URL}})
+		if err != nil || r.Refused != "" {
+			t.Fatalf("%s: %+v, %v", c.flow, r, err)
+		}
+		if r.Status != "success" || string(r.Result) != c.want {
+			t.Errorf("%s: %s %s, want the header x-plugin-wrap %s", c.flow, r.Status, r.Result, c.want)
+		}
+	}
+}
+
+// runHostPluginCases runs every plugin case through a compiled host
+// started with env, whose plugin reports its onRunSettled to report.
+// scoped, the host's plugin also reports, in the warning plugin_scope, the
+// tenant its onRunEnd runs in, which must be the run's (H11).
+func runHostPluginCases(t *testing.T, f *conformance.PluginFile, report string, scoped bool, env ...string) {
+	t.Helper()
+	s := supervise(t, 30000, append(env, fmt.Sprintf("WL_ENGINE_FLAGS=-plugin-timeout %dms", f.TimeoutMS))...)
 	var runs []string
 	for _, c := range f.Cases {
 		t.Run(c.ID, func(t *testing.T) {
@@ -1525,7 +1621,7 @@ func TestHostPluginCases(t *testing.T) {
 				if d := cr.Expect.Check(o); len(d) > 0 {
 					t.Fatalf("%s, run %d:\n  %s", c.Title, i, strings.Join(d, "\n  "))
 				}
-				if scope != tenant {
+				if scoped && scope != tenant {
 					t.Fatalf("run %d: the plugin's onRunEnd ran in the scope of tenant %q, want the run's, %q", i, scope, tenant)
 				}
 			}
@@ -1536,6 +1632,7 @@ func TestHostPluginCases(t *testing.T) {
 	// hook the engine stopped waiting for included: run_settled, and the
 	// host's release of the run's resources, wait for it.
 	var settled, early []string
+	var err error
 	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		if settled, early, err = conformance.ReadSettlement(report); err != nil {
 			t.Fatal(err)
@@ -1687,6 +1784,13 @@ func caseRunBody(c conformance.PluginCase, r conformance.PluginRun, tenant strin
 // bundle, for this binary's engine version.
 func buildPluginBundle(t *testing.T, f *conformance.PluginFile) string {
 	t.Helper()
+	return buildPluginBundleWith(t, f, nil, f.Contract())
+}
+
+// buildPluginBundleWith builds the plugin cases' folder, with the files
+// extra, into a bundle of the host contract contract.
+func buildPluginBundleWith(t *testing.T, f *conformance.PluginFile, extra map[string]string, contract []byte) string {
+	t.Helper()
 	repo, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
@@ -1695,9 +1799,18 @@ func buildPluginBundle(t *testing.T, f *conformance.PluginFile) string {
 	if err := f.WriteFolder(folder); err != nil {
 		t.Fatal(err)
 	}
+	for p, src := range extra {
+		full := filepath.Join(folder, filepath.FromSlash(p))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	out := filepath.Join(t.TempDir(), "bundle")
 	if _, err := bundle.Build(context.Background(), bundle.Config{
-		Folder: folder, Contract: f.Contract(), EngineVersion: resolveVersion(), Bun: os.Getenv("WL_BUN"),
+		Folder: folder, Contract: contract, EngineVersion: resolveVersion(), Bun: os.Getenv("WL_BUN"),
 		Helper:         filepath.Join(repo, "harnesses", "bun", "build", "main.ts"),
 		HarnessRuntime: filepath.Join(repo, "harnesses", "bun", "runtime"),
 		Out:            out, Work: filepath.Join(t.TempDir(), "work"),
