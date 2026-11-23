@@ -16,7 +16,7 @@
 //   deadline_ms and pre_write_deadline_ms, null where the frame has none,
 //   and runs, the count of run frames this engine has received;
 // - canceled, a cause: at once, with status canceled and that
-//   cancel_cause.
+//   cancel_cause, written as given, an empty one included.
 
 import { createReadStream, existsSync, writeSync } from "node:fs";
 import { DEFAULT_MAX_MESSAGE, decodeAll, encode, frame, FrameReader, MAX_FRAME, Raw } from "../runtime/frame.ts";
@@ -49,7 +49,8 @@ socket.on("data", (d) => {
         send({ t: "run_done", id, status: "success", result: new Raw(JSON.stringify(result)) });
         send({ t: "run_settled", id });
       } else if (typeof args.canceled === "string") {
-        send({ t: "run_done", id, status: "canceled", cancel_cause: args.canceled });
+        // Raw, so that an empty cause reaches the host as written.
+        writeSync(3, frame(new TextEncoder().encode(JSON.stringify({ t: "run_done", id, status: "canceled", cancel_cause: args.canceled }))));
         send({ t: "run_settled", id });
       } else if (typeof args.invoke === "string") {
         settleOnResult.set(`i-${id}`, id);

@@ -308,6 +308,9 @@ test("a run's deadlines go in its run frame as whole milliseconds of at least 0,
     // gives it.
     const r = await host.run("f/x", { canceled: "pre_write_deadline" });
     expect([r.status, r.cancelCause]).toEqual(["canceled", "pre_write_deadline"]);
+    // An empty cause on the wire counts as none, as Go reads it.
+    const empty = await host.run("f/x", { canceled: "" });
+    expect([empty.status, empty.cancelCause]).toEqual(["canceled", undefined]);
     expect((await host.run("f/x", { echo: true })).cancelCause).toBeUndefined();
   } finally {
     await host.close();
