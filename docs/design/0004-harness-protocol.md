@@ -1052,10 +1052,11 @@ the end of the call that carried the run), `closing` (the runtime closes)
 or `flow_timeout` (the flow's own limit).
 
 The status stays Windmill's `canceled`, and so does the result: a flow's
-`Canceled` error, or a root script's failure value. That value is the
-killed job's `ExecutionErr` when the cancellation stopped the script's job,
-or the failure that ended the script before its job ran, such as an
-entrypoint that is not a name.
+`Canceled` error, or a root script's stored failure value, whatever ended
+the script. For example, that is the killed job's `ExecutionErr` when the
+cancellation stopped the script's job, an invalid entrypoint's error when
+the script failed before its job ran, or the step's own error when it
+failed just as the cancellation came.
 
 `wl`'s `Result` carries the cause as `CancelCause`, and host mode's
 `run_done` as `cancel_cause`, the name that the planned `Runner`'s

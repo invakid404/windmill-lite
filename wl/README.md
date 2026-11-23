@@ -264,9 +264,11 @@ runs.
 
 A canceled run's `CancelCause` names one cause. Every cause keeps the
 status `canceled` and the `Result` that Windmill stores: a flow's
-`Canceled` error, or a root script's failure value. That value is the
-killed job's `ExecutionErr` when the cancellation stopped the job, or the
-failure that ended the script before its job ran.
+`Canceled` error, or a root script's stored failure value, whatever ended
+the script. For example, that is the killed job's `ExecutionErr` when the
+cancellation stopped the job, an invalid entrypoint's error when the script
+failed before its job ran, or the step's own error when it failed just as
+the cancellation came.
 
 | Cause | Constant | What canceled the run |
 |---|---|---|

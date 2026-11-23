@@ -544,9 +544,9 @@ var ErrPreWriteDeadline = fmt.Errorf("engine: the run's pre-write deadline passe
 
 // The causes of a canceled run (Trace.CancelCause, ADR 0004 §Cancellation
 // and deadlines). Each keeps Windmill's status, canceled, and the run's
-// result: a flow's Canceled error (FX-38), or a root script's failure value,
-// the killed job's error when the cancellation stopped its job. The cause
-// only says what ended the run.
+// result: a flow's Canceled error (FX-38), or a root script's stored failure
+// value, such as the killed job's error when the cancellation stopped its
+// job. The cause only says what ended the run.
 const (
 	// CauseDeadline: the run's hard deadline, its context's, passed.
 	CauseDeadline = "deadline"
