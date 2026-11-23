@@ -542,6 +542,48 @@ type RunRequest struct {
 // context.DeadlineExceeded.
 var ErrPreWriteDeadline = fmt.Errorf("engine: the run's pre-write deadline passed before its first write: %w", context.DeadlineExceeded)
 
+// The causes of a canceled run (Trace.CancelCause, ADR 0004 §Cancellation
+// and deadlines). Each keeps Windmill's status, canceled, and its Canceled
+// error (FX-38); the cause only says what ended the run.
+const (
+	// CauseDeadline: the run's hard deadline, its context's, passed.
+	CauseDeadline = "deadline"
+	// CausePreWriteDeadline: its pre-write deadline passed before its
+	// first write was approved (H4, ErrPreWriteDeadline).
+	CausePreWriteDeadline = "pre_write_deadline"
+	// CauseCanceled: any other end of its context, such as a host's
+	// cancellation or the end of the call that carried the run.
+	CauseCanceled = "canceled"
+	// CauseClosing: the runtime that ran it closed (Closing).
+	CauseClosing = "closing"
+	// CauseFlowTimeout: the flow's own wall-clock limit (FX-52), while the
+	// run's context still ran.
+	CauseFlowTimeout = "flow_timeout"
+)
+
+// Closing is the cause with which a runtime that closes cancels its runs in
+// flight: their Canceled error names the reason "the runtime is closing"
+// and the canceler "windmill-lite" (FX-38), and their cause is
+// CauseClosing.
+var Closing = &Cancellation{Reason: "the runtime is closing", Canceler: "windmill-lite"}
+
+// CancelCauseOf returns the cause of a run canceled when its context ctx
+// ended: CausePreWriteDeadline for ErrPreWriteDeadline, CauseClosing for
+// Closing, CauseDeadline for a deadline that passed, and CauseCanceled for
+// any other cause, a *Cancellation included.
+func CancelCauseOf(ctx context.Context) string {
+	cause := context.Cause(ctx)
+	switch {
+	case errors.Is(cause, ErrPreWriteDeadline):
+		return CausePreWriteDeadline
+	case errors.Is(cause, Closing):
+		return CauseClosing
+	case errors.Is(cause, context.DeadlineExceeded), errors.Is(ctx.Err(), context.DeadlineExceeded):
+		return CauseDeadline
+	}
+	return CauseCanceled
+}
+
 // Run runs a flow to its end and returns its trace. ctx is the run's
 // cancellation and deadline (H4): a run whose ctx ends finishes canceled,
 // with the Canceled error of FX-38 as its result, which names the reason

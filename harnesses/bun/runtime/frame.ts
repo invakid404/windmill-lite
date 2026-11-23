@@ -55,8 +55,8 @@ const FIELDS: Record<string, readonly string[]> = {
   platform: ["id", "inv", "method", "url", "headers", "body"],
   platform_reply: ["id", "status", "headers", "body"],
   run: ["id", "kind", "path", "args", "intercept", "write_capable", "halt_before", "halt_after", "fatal_error_names", "deadline_ms", "pre_write_deadline_ms", "clock"],
-  run_done: ["id", "status", "result", "may_have_mutated", "warnings", "latched", "deviations", "error"],
-  run_cancel: ["id"],
+  run_done: ["id", "status", "result", "may_have_mutated", "warnings", "latched", "deviations", "error", "cancel_cause"],
+  run_cancel: ["id", "reason", "canceler"],
   run_settled: ["id"],
   host_call: ["id", "hook", "run", "site", "payload"],
   host_reply: ["id", "payload", "error"],
@@ -331,11 +331,9 @@ export function decode(payload: Uint8Array): Message {
         if (m[k] != null && !Array.isArray(m[k])) throw new ProtocolError("bad_field", `run ${k} is not an array`);
       }
       if (m.fatal_error_names != null) checkField(m.t, m, "fatal_error_names", "strings");
-      for (const k of ["deadline_ms", "pre_write_deadline_ms"]) {
-        if (m[k] == null) continue;
-        checkField(m.t, m, k, "int");
-        if (m[k] <= 0) throw new ProtocolError("bad_field", `run ${k} ${m[k]} is not positive`);
-      }
+      // A deadline is any integer the frame rules allow: one of 0 or less
+      // has passed, which ends that run alone (ADR 0004).
+      for (const k of ["deadline_ms", "pre_write_deadline_ms"]) if (m[k] != null) checkField(m.t, m, k, "int");
       if (m.clock != null) {
         checkField(m.t, m, "clock", "string");
         if (m.clock !== "real" && m.clock !== "record") throw new ProtocolError("bad_field", `run clock ${JSON.stringify(m.clock)}`);
@@ -355,6 +353,10 @@ export function decode(payload: Uint8Array): Message {
       if (m.latched != null) checkField(m.t, m, "latched", "string");
       if (m.deviations != null) checkField(m.t, m, "deviations", "strings");
       if (m.warnings != null && !Array.isArray(m.warnings)) throw new ProtocolError("bad_field", "run_done warnings is not an array");
+      if (m.cancel_cause != null) checkField(m.t, m, "cancel_cause", "string");
+      break;
+    case "run_cancel":
+      for (const k of ["reason", "canceler"]) if (m[k] != null) checkField(m.t, m, k, "string");
       break;
     case "ping":
     case "pong": {

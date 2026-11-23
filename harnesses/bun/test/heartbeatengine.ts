@@ -11,7 +11,12 @@
 // - hold, a file path: once that file exists;
 // - invoke, a script id of the bundle: it first sends the host an invoke
 //   of that script's main, then answers the run at once, while the step
-//   still runs; run_settled follows the invocation's result.
+//   still runs; run_settled follows the invocation's result;
+// - echo: true: at once, with a result that holds the run frame's
+//   deadline_ms and pre_write_deadline_ms, null where the frame has none,
+//   and runs, the count of run frames this engine has received;
+// - canceled, a cause: at once, with status canceled and that
+//   cancel_cause.
 
 import { createReadStream, existsSync, writeSync } from "node:fs";
 import { DEFAULT_MAX_MESSAGE, decodeAll, encode, frame, FrameReader, MAX_FRAME, Raw } from "../runtime/frame.ts";
@@ -23,6 +28,7 @@ const send = (m: Record<string, unknown>) => writeSync(3, frame(encode(m as { t:
 // The runs whose run_settled waits for their invocation's result, by the
 // invocation's id.
 const settleOnResult = new Map<string, string>();
+let runs = 0;
 
 function answer(id: string, settle: boolean) {
   send({ t: "run_done", id, status: "success" });
@@ -35,9 +41,17 @@ socket.on("data", (d) => {
     if (m.t === "hello") {
       send({ t: "welcome", proto: 1, engine: "test", bundle: m.bundle, config: { module_state: "warm", heartbeat_ms: heartbeatMs, max_message: 1 << 20 } });
     } else if (m.t === "run") {
+      runs++;
       const id = String(m.id);
-      const args = (m.args ?? {}) as { hold?: unknown; invoke?: unknown };
-      if (typeof args.invoke === "string") {
+      const args = (m.args ?? {}) as { hold?: unknown; invoke?: unknown; echo?: unknown; canceled?: unknown };
+      if (args.echo === true) {
+        const result = { deadline_ms: m.deadline_ms ?? null, pre_write_deadline_ms: m.pre_write_deadline_ms ?? null, runs };
+        send({ t: "run_done", id, status: "success", result: new Raw(JSON.stringify(result)) });
+        send({ t: "run_settled", id });
+      } else if (typeof args.canceled === "string") {
+        send({ t: "run_done", id, status: "canceled", cancel_cause: args.canceled });
+        send({ t: "run_settled", id });
+      } else if (typeof args.invoke === "string") {
         settleOnResult.set(`i-${id}`, id);
         send({ t: "invoke", id: `i-${id}`, run: id, site: "a", script: args.invoke, entry: "main", args: new Raw("{}"), env: {}, boundary: "bun" });
         answer(id, false);

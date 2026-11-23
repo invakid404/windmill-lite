@@ -714,6 +714,19 @@ func TestEngineMonitorIgnoresTheRunsClock(t *testing.T) {
 	}
 }
 
+// H4: once the first write is approved, the pre-write deadline no longer
+// applies: its time passes while the run goes on, and the run succeeds,
+// with no cause of cancellation.
+func TestPreWriteDeadlineDisarmed(t *testing.T) {
+	flow := flowOf(mod("a", "value", inputs("v", static("1")), ""), mod("b", "value", inputs("v", static("2")), `"sleep":`+static("0.3")))
+	e := mustOpen(t, map[string]string{"f/t/main": flow}, &scripts{})
+	tr := runReq(t, e, RunRequest{Hooks: writes{at: map[string]bool{"a": true}}, PreWriteDeadline: time.Now().Add(50 * time.Millisecond)})
+	wantStatus(t, tr, conformance.RunSuccess, "2")
+	if !tr.MayHaveMutated || tr.CancelCause != "" {
+		t.Fatalf("mutated %t, cause %q; want the write reported and no cause", tr.MayHaveMutated, tr.CancelCause)
+	}
+}
+
 // H4: a pre-write deadline that has passed when the run starts cancels it
 // before anything launches, however the scheduler delivers timers.
 func TestEnginePreWriteDeadlinePassed(t *testing.T) {
@@ -724,8 +737,8 @@ func TestEnginePreWriteDeadlinePassed(t *testing.T) {
 	for range 10 {
 		tr := runReq(t, e, RunRequest{Hooks: writes{at: map[string]bool{"a": true}}, PreWriteDeadline: time.Now().Add(-time.Second)})
 		wantStatus(t, tr, conformance.RunCanceled, "")
-		if tr.MayHaveMutated {
-			t.Fatal("a write launched after the deadline")
+		if tr.MayHaveMutated || tr.CancelCause != CausePreWriteDeadline {
+			t.Fatalf("mutated %t, cause %q; want no write, cause %q", tr.MayHaveMutated, tr.CancelCause, CausePreWriteDeadline)
 		}
 	}
 	wantCalls(t, s)

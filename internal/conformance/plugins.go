@@ -123,8 +123,8 @@ type PluginRun struct {
 	HaltBefore         []string `json:"halt_before"`
 	HaltAfter          []string `json:"halt_after"`
 	FatalErrorNames    []string `json:"fatal_error_names"`
-	DeadlineMS         int      `json:"deadline_ms"`
-	PreWriteDeadlineMS int      `json:"pre_write_deadline_ms"`
+	DeadlineMS         *int     `json:"deadline_ms"`
+	PreWriteDeadlineMS *int     `json:"pre_write_deadline_ms"`
 	Clock              string   `json:"clock"`
 }
 
@@ -138,6 +138,7 @@ type PluginExpect struct {
 	Warnings       []string        `json:"warnings"`
 	NotRan         []string        `json:"not_ran"`
 	Deviations     []string        `json:"deviations"`
+	CancelCause    string          `json:"cancel_cause"`
 }
 
 // PluginLog is the code of the warning in which a case plugin's onRunEnd
@@ -211,7 +212,7 @@ func LoadPluginFile(path string) (*PluginFile, error) {
 			if r.Expect.Status == "" {
 				return nil, fmt.Errorf("%s: case %s: %s: expect.status is required", path, c.ID, where)
 			}
-			if r := r.Run; r.Clock != "" && r.Clock != "real" && r.Clock != "record" || r.DeadlineMS < 0 || r.PreWriteDeadlineMS < 0 {
+			if r := r.Run; r.Clock != "" && r.Clock != "real" && r.Clock != "record" || negative(r.DeadlineMS) || negative(r.PreWriteDeadlineMS) {
 				return nil, fmt.Errorf("%s: case %s: %s: a clock that is real or record, and deadlines that are not negative", path, c.ID, where)
 			}
 		}
@@ -225,6 +226,9 @@ func LoadPluginFile(path string) (*PluginFile, error) {
 	}
 	return &f, nil
 }
+
+// negative reports whether an optional number is present and below 0.
+func negative(n *int) bool { return n != nil && *n < 0 }
 
 // FlowPath is the path of the case's flow in the folder.
 func (c PluginCase) FlowPath() string { return "f/plugins/" + c.ID }
@@ -286,6 +290,8 @@ type PluginOutcome struct {
 	Ran map[string]bool
 	// Deviations are the run's run-time deviations (H7, H10).
 	Deviations []string
+	// CancelCause is why a canceled run was canceled, "" otherwise.
+	CancelCause string
 }
 
 // Check compares the outcome of the case's run with its expectations and
@@ -339,6 +345,12 @@ func (e PluginExpect) Check(o PluginOutcome) []string {
 	}
 	if e.Deviations != nil && !slices.Equal(o.Deviations, e.Deviations) {
 		diffs = append(diffs, fmt.Sprintf("deviations %q, want %q", o.Deviations, e.Deviations))
+	}
+	if e.CancelCause != "" && o.CancelCause != e.CancelCause {
+		diffs = append(diffs, fmt.Sprintf("cancel_cause %q, want %q", o.CancelCause, e.CancelCause))
+	}
+	if o.Status != "canceled" && o.CancelCause != "" {
+		diffs = append(diffs, fmt.Sprintf("cancel_cause %q of a run that is not canceled, want none", o.CancelCause))
 	}
 	return diffs
 }

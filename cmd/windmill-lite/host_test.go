@@ -325,6 +325,8 @@ type runResult struct {
 	Latched string `json:"latched"`
 	// Deviations are the run's run-time deviations (H7, H10).
 	Deviations []string `json:"deviations"`
+	// CancelCause is why a canceled run was canceled.
+	CancelCause string `json:"cancelCause"`
 	// DoneAt and SettledAt are, for /settle, when the outcome came and
 	// when the run settled, in milliseconds after it was submitted.
 	DoneAt    float64 `json:"doneAt"`
@@ -1294,6 +1296,39 @@ func TestHostResourceRelease(t *testing.T) {
 	t.Logf("resource release: the outcome at %.0f ms, the lease's last use at %.0f ms, released at %.0f ms", r.DoneAt, l.LastUse, l.ReleasedAt)
 }
 
+// A deadline that has already passed, which the host SDK sends as 0 for a
+// negative rest, ends that run alone, canceled with its cause: the hard
+// deadline for a flow and for a root script, the pre-write deadline for a
+// flow whose step is write-capable. The host stays up, its connection
+// serves the next run, and the host is never restarted.
+func TestHostPassedDeadline(t *testing.T) {
+	s := supervise(t, 30000)
+	write := []map[string]any{{"flow": "f/host/echo", "module": "a"}}
+	for _, tc := range []struct {
+		name  string
+		body  map[string]any
+		cause string
+	}{
+		{"a flow's hard deadline", map[string]any{"path": "f/host/echo", "args": map[string]any{"x": 1}, "deadlineMs": -5}, "deadline"},
+		{"a root script's hard deadline", map[string]any{"path": "f/host/sleep", "kind": "script", "args": map[string]any{"ms": 5}, "deadlineMs": 0}, "deadline"},
+		{"a flow's pre-write deadline", map[string]any{"path": "f/host/echo", "args": map[string]any{"x": 1}, "writeCapable": write, "preWriteDeadlineMs": -5}, "pre_write_deadline"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, err := s.post("/run", tc.body)
+			if err != nil || r.Status != "canceled" || r.CancelCause != tc.cause || r.MayHaveMutated {
+				t.Fatalf("%+v, %v; want canceled, cause %s, no write", r, err, tc.cause)
+			}
+			r, err = s.post("/run", map[string]any{"path": "f/host/echo", "args": map[string]any{"x": 2}, "writeCapable": write})
+			if err != nil || r.Status != "success" || string(r.Result) != `{"x":2}` || r.CancelCause != "" || !r.MayHaveMutated {
+				t.Fatalf("the next run: %+v, %v; want success, {\"x\":2}", r, err)
+			}
+		})
+	}
+	if g := s.generations(); g != 1 {
+		t.Fatalf("the host was restarted: %d generations", g)
+	}
+}
+
 // A host runs a root script as a script job (WA-4), and gets a run that
 // does not start refused, with its reason.
 func TestHostScriptRun(t *testing.T) {
@@ -1431,7 +1466,7 @@ func TestHostPluginCases(t *testing.T) {
 					t.Fatalf("run %d: %+v, %v", i, r, err)
 				}
 				runs = append(runs, r.ID)
-				o := conformance.PluginOutcome{Status: r.Status, MayHaveMutated: r.MayHaveMutated, Result: r.Result, Latched: r.Latched, Deviations: r.Deviations}
+				o := conformance.PluginOutcome{Status: r.Status, MayHaveMutated: r.MayHaveMutated, Result: r.Result, Latched: r.Latched, Deviations: r.Deviations, CancelCause: r.CancelCause}
 				scope := ""
 				for _, w := range r.Warnings {
 					o.Warnings = append(o.Warnings, struct{ Code, Message string }{w.Code, w.Message})
@@ -1588,11 +1623,11 @@ func caseRunBody(c conformance.PluginCase, r conformance.PluginRun, tenant strin
 	if len(r.FatalErrorNames) > 0 {
 		body["fatalErrorNames"] = r.FatalErrorNames
 	}
-	if r.DeadlineMS > 0 {
-		body["deadlineMs"] = r.DeadlineMS
+	if r.DeadlineMS != nil {
+		body["deadlineMs"] = *r.DeadlineMS
 	}
-	if r.PreWriteDeadlineMS > 0 {
-		body["preWriteDeadlineMs"] = r.PreWriteDeadlineMS
+	if r.PreWriteDeadlineMS != nil {
+		body["preWriteDeadlineMs"] = *r.PreWriteDeadlineMS
 	}
 	if r.Clock != "" {
 		body["clock"] = r.Clock

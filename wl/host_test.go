@@ -2,10 +2,13 @@ package wl
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
+	"maps"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -360,5 +363,202 @@ func TestHostRunHalts(t *testing.T) {
 	}
 	if d, _, _ := run("f/t/prefix", "", ""); d.Status != StatusSuccess {
 		t.Fatalf("after the refusals: %+v", d)
+	}
+}
+
+// sendRaw sends payload, a frame's JSON text, as the host wrote it.
+func (h *testHost) sendRaw(payload string) {
+	h.t.Helper()
+	if _, err := h.conn.Write(append(binary.BigEndian.AppendUint32(nil, uint32(len(payload))), payload...)); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
+// stepFlows are flows with one Bun step each, which a host-mode runtime
+// sends to its host to run: f/t/step returns 1.
+var stepFlows = map[string]string{
+	"f/t/step": `{"modules":[{"id":"a","value":{"type":"rawscript","language":"bun","content":"export async function main() { return 1 }","input_transforms":{}}}]}`,
+}
+
+// A deadline that has already passed ends its run alone (ADR 0004): one
+// connection serves a healthy run, which waits on the host until the end,
+// and four more, each sent as the host SDK writes its frame. The run with
+// no deadline_ms runs to success; the one with deadline_ms 0 ends
+// canceled, with the cause deadline, and its step never reaches the host.
+// A write-capable step with no pre_write_deadline_ms writes; with
+// pre_write_deadline_ms 0 it is canceled before the write, with the cause
+// pre_write_deadline, and the run has not mutated. The healthy run then
+// succeeds, and host mode goes on.
+func TestHostExpiredDeadlineEndsOnlyItsRun(t *testing.T) {
+	dir := writeBundleOf(t, stepFlows, nil, "test-engine", nil, nil)
+	work := t.TempDir()
+	rt, err, h, _ := openHost(t, dir, Options{Host: &Host{Workdir: work}}, work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const healthy = "0b6d2a4e-5b5d-4f00-9c3e-00000000000a"
+	run := func(id, budgets string) string {
+		return `{"t":"run","id":"` + id + `","kind":"flow","path":"f/t/step","args":{}` + budgets + `}`
+	}
+	h.sendRaw(run(healthy, ""))
+	inv, ok := h.next().(harness.Invoke)
+	if !ok || inv.Run != healthy {
+		t.Fatalf("the healthy run's step: %+v", inv)
+	}
+	write := `,"write_capable":[{"flow":"f/t/step","module":"a"}]`
+	runs := map[string]string{
+		"0b6d2a4e-5b5d-4f00-9c3e-000000000001": "",
+		"0b6d2a4e-5b5d-4f00-9c3e-000000000002": `,"deadline_ms":0`,
+		"0b6d2a4e-5b5d-4f00-9c3e-000000000003": write,
+		"0b6d2a4e-5b5d-4f00-9c3e-000000000004": write + `,"pre_write_deadline_ms":0`,
+	}
+	for _, id := range slices.Sorted(maps.Keys(runs)) {
+		h.sendRaw(run(id, runs[id]))
+	}
+	done := map[string]harness.RunDone{}
+	stepped := map[string]bool{}
+	for len(done) < len(runs) {
+		switch m := h.next().(type) {
+		case harness.Invoke:
+			stepped[m.Run] = true
+			h.send(harness.Result{ID: m.ID, Outcome: harness.OutcomeOK, Body: jsonval.FromProducer([]byte(`1`)), Settled: true})
+		case harness.RunDone:
+			done[m.ID] = m
+		case harness.RunSettled:
+		default:
+			t.Fatalf("unexpected %T %+v", m, m)
+		}
+	}
+	for _, tc := range []struct {
+		id, status, cause string
+		stepped, mutated  bool
+	}{
+		{"0b6d2a4e-5b5d-4f00-9c3e-000000000001", StatusSuccess, "", true, false},
+		{"0b6d2a4e-5b5d-4f00-9c3e-000000000002", StatusCanceled, CauseDeadline, false, false},
+		{"0b6d2a4e-5b5d-4f00-9c3e-000000000003", StatusSuccess, "", true, true},
+		{"0b6d2a4e-5b5d-4f00-9c3e-000000000004", StatusCanceled, CausePreWriteDeadline, false, false},
+	} {
+		d := done[tc.id]
+		if d.Error != nil || d.Status != tc.status || d.CancelCause != tc.cause || stepped[tc.id] != tc.stepped || d.MayHaveMutated != tc.mutated {
+			t.Errorf("run %s%s: %+v, its step sent to the host: %v; want %s, cause %q, step sent %v, mutated %v",
+				tc.id, runs[tc.id], d, stepped[tc.id], tc.status, tc.cause, tc.stepped, tc.mutated)
+		}
+	}
+	select {
+	case <-rt.Done():
+		t.Fatal("host mode ended")
+	default:
+	}
+	h.send(harness.Result{ID: inv.ID, Outcome: harness.OutcomeOK, Body: jsonval.FromProducer([]byte(`1`)), Settled: true})
+	for {
+		if d, ok := h.next().(harness.RunDone); ok {
+			if d.ID != healthy || d.Status != StatusSuccess || d.CancelCause != "" {
+				t.Fatalf("the healthy run: %+v", d)
+			}
+			break
+		}
+	}
+	select {
+	case <-rt.Done():
+		t.Fatal("host mode ended")
+	default:
+	}
+}
+
+// A run_cancel's reason and canceler are what the run's Canceled error
+// names (FX-38), with the cause canceled; without them the error names
+// Windmill's defaults.
+func TestHostRunCancelReason(t *testing.T) {
+	dir := writeBundleOf(t, stepFlows, nil, "test-engine", nil, nil)
+	work := t.TempDir()
+	_, err, h, _ := openHost(t, dir, Options{Host: &Host{Workdir: work}}, work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, tc := range []struct {
+		cancel string
+		want   string
+	}{
+		{`,"reason":"the tenant was suspended","canceler":"tenant-admin"`, `{"error":{"message":"Job canceled: the tenant was suspended by tenant-admin","name":"Canceled","reason":"the tenant was suspended","canceler":"tenant-admin"}}`},
+		{``, `{"error":{"message":"Job canceled: no reason given by unknown","name":"Canceled","reason":"no reason given","canceler":"unknown"}}`},
+	} {
+		id := fmt.Sprintf("0b6d2a4e-5b5d-4f00-9c3e-%012d", i+1)
+		h.sendRaw(`{"t":"run","id":"` + id + `","kind":"flow","path":"f/t/step","args":{}}`)
+		if inv, ok := h.next().(harness.Invoke); !ok || inv.Run != id {
+			t.Fatalf("the run's step: %+v", inv)
+		}
+		h.sendRaw(`{"t":"run_cancel","id":"` + id + `"` + tc.cancel + `}`)
+		for {
+			m := h.next()
+			if _, ok := m.(harness.Cancel); ok {
+				continue
+			}
+			d, ok := m.(harness.RunDone)
+			if !ok || d.ID != id || d.Status != StatusCanceled || d.CancelCause != CauseCanceled {
+				t.Fatalf("after run_cancel%s: %+v", tc.cancel, m)
+			}
+			if ok, err := jsonEqual(d.Result.Producer(), []byte(tc.want)); err != nil || !ok {
+				t.Fatalf("after run_cancel%s: result %s, want %s", tc.cancel, d.Result.Producer(), tc.want)
+			}
+			break
+		}
+	}
+}
+
+// A run frame's deadline, either budget, converts to a duration exactly up
+// to the longest that a time.Duration holds, 9,223,372,036,854 ms, about
+// 292 years, and saturates to it above, up to the largest integer of the
+// frame rules; 0 or less is a deadline that has passed. The hard deadline
+// bounds the run's context, and the pre-write deadline counts from now.
+func TestBudgetDuration(t *testing.T) {
+	const longest = time.Duration(math.MaxInt64)
+	for _, tc := range []struct {
+		ms   int64
+		want time.Duration
+	}{
+		{1, time.Millisecond},
+		{9_223_372_036_854, 9_223_372_036_854 * time.Millisecond},
+		{9_223_372_036_855, longest},
+		{9_007_199_254_740_991, longest},
+		{0, 0},
+		{-1, 0},
+		{-9_007_199_254_740_991, 0},
+	} {
+		t.Run(fmt.Sprint(tc.ms), func(t *testing.T) {
+			if got := budgetDuration(tc.ms); got != tc.want {
+				t.Fatalf("budgetDuration(%d) = %v, want %v", tc.ms, got, tc.want)
+			}
+			ms := tc.ms
+			before := time.Now()
+			ctx, cancel := hostDeadline(context.Background(), harness.RunRequest{DeadlineMS: &ms})
+			defer cancel()
+			opts, err := hostBudgets(harness.RunRequest{PreWriteDeadlineMS: &ms}, nil)
+			after := time.Now()
+			if err != nil {
+				t.Fatal(err)
+			}
+			hard, ok := ctx.Deadline()
+			if !ok {
+				t.Fatal("the run's context has no deadline")
+			}
+			for _, got := range []struct {
+				name string
+				at   time.Time
+			}{{"the hard deadline", hard}, {"the pre-write deadline", opts.PreWriteDeadline}} {
+				if got.at.Before(before.Add(tc.want)) || got.at.After(after.Add(tc.want)) {
+					t.Errorf("%s of %d ms is at %v, want %v after now", got.name, tc.ms, got.at.Sub(before), tc.want)
+				}
+			}
+			if tc.want == 0 && !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				t.Errorf("a hard deadline of %d ms has not passed: %v", tc.ms, ctx.Err())
+			}
+		})
+	}
+	// Without the fields, a run has neither deadline.
+	ctx, cancel := hostDeadline(context.Background(), harness.RunRequest{})
+	defer cancel()
+	opts, err := hostBudgets(harness.RunRequest{}, nil)
+	if _, ok := ctx.Deadline(); ok || err != nil || !opts.PreWriteDeadline.IsZero() {
+		t.Fatalf("a run without deadlines: context deadline %v, pre-write deadline %v, %v", ok, opts.PreWriteDeadline, err)
 	}
 }
