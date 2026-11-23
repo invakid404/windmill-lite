@@ -143,6 +143,28 @@ type Options struct {
 	// runtime, which starts a process for each step, and host mode, whose
 	// one process is the host, refuse a Pool that is not zero.
 	Pool PoolOptions
+	// ForeignWindmillOrigins are the origins of real Windmill instances
+	// that steps call through their own client, such as
+	// "https://windmill.example.com" (ADR 0007, async dispatch).
+	// windmill-lite's job ids name no job there. So on a step's request
+	// to one of these origins under /api/w/{workspace}/jobs/run/, where
+	// the stock clients dispatch a script or a flow, the harness's fetch
+	// view removes each parent_job and root_job query parameter whose
+	// value is one of the invocation's own job ids: its WM_JOB_ID or
+	// WM_ROOT_FLOW_JOB_ID as the engine set them, the values that the stock
+	// clients send. Every other part of the request stays as it was, a link
+	// whose value is neither of the two included. A request
+	// to another origin, or one that the fetch view does not see, from a
+	// child process or a socket that the step opens, keeps its links.
+	// Each value is an http or https origin. Open refuses one with user
+	// information, a query, a fragment or a path other than "/", or whose
+	// host the harness's URL parser refuses or reads as another (an IPv4
+	// address it reads as the WHATWG URL Standard does), naming its
+	// position, never the value. A host outside ASCII goes to the harness
+	// whole, which maps it as that parser does, and leaves out one the
+	// parser refuses, since no request can go to it. Empty, the default,
+	// names none. In host mode they apply to the host's steps.
+	ForeignWindmillOrigins []string
 	// Host, when set, opens the runtime in host mode (ADR 0004 host mode,
 	// ADR 0009): its steps run in the host process that started it, which
 	// submits the runs. The bundle must then be a directory, which the
@@ -260,8 +282,9 @@ var ErrEngineVersion = errors.New("wl: the bundle was built by another engine ve
 // ErrClosed is Run's error once Close has begun.
 var ErrClosed = errors.New("wl: the runtime is closed")
 
-// closing is the cause Close cancels the runs in flight with (FX-38).
-var closing = &Cancellation{Reason: "the runtime is closing", Canceler: "windmill-lite"}
+// closing is the cause Close cancels the runs in flight with (FX-38), which
+// gives them the cause CauseClosing.
+var closing = engine.Closing
 
 // Runtime is an opened bundle. It is safe for concurrent use.
 type Runtime struct {
@@ -286,6 +309,9 @@ type Runtime struct {
 	dispatch  *engine.Dispatcher
 	readCache bool // Options.ReadCache
 	capped    bool // Options.Pool.Cap is set: each flow run's trace lists "D15"
+	// foreign is Options.ForeignWindmillOrigins as the welcomes carry
+	// them (foreignOrigins).
+	foreign []string
 	// memoryStore says that the runtime's resource store keeps its entries
 	// in memory, which its runs' traces list as D24.
 	memoryStore bool
@@ -401,6 +427,9 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 		if opts.Pool != (PoolOptions{}) {
 			return nil, errors.New("wl: host mode has no harness pool, since the host is its one harness process: Options.Pool must be zero")
 		}
+	}
+	if rt.foreign, err = foreignOrigins(opts.ForeignWindmillOrigins); err != nil {
+		return nil, err
 	}
 	// Harness processes run in directories of their own, so every path
 	// they see is absolute.
@@ -605,6 +634,7 @@ func (rt *Runtime) harness(opts Options) (*harness.Pool, error) {
 		Path: path, Args: args, WorkRoot: work, Kind: string(ir.ClassBun), Runtime: harness.PinnedBun,
 		Bundle: rt.digest, EngineVersion: rt.version,
 		Diagnostics: opts.Diagnostics, Facade: rt.PlatformOrigin(), Platform: rt.fac.Platform(),
+		ForeignWindmillOrigins: rt.foreign,
 	}
 	return harness.NewPool(cfg)
 }

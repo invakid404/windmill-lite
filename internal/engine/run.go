@@ -237,13 +237,21 @@ func (r *run) end(status conformance.RunStatus, result jsonval.Value, origin Ori
 
 // endBy ends the run with the status of a host verdict: latched, halted, or
 // canceled, whose result is the Canceled error of FX-38 whatever the flow
-// was doing.
+// was doing, and whose cause is its context's (CancelCauseOf).
 func (r *run) endBy(ctx context.Context, status conformance.RunStatus) {
 	if status == conformance.RunCanceled {
 		r.end(status, canceledError(cancellationOf(ctx)), OriginEngine, nil)
+		r.canceledBy(CancelCauseOf(ctx))
 		return
 	}
 	r.end(status, jsonval.Value{}, OriginNone, nil)
+}
+
+// canceledBy records the cause of the run's cancellation.
+func (r *run) canceledBy(cause string) {
+	r.mu.Lock()
+	r.trace.CancelCause = cause
+	r.mu.Unlock()
 }
 
 func (r *run) span(site conformance.SitePath, kind SpanKind, start time.Time) {
@@ -671,6 +679,7 @@ func (r *run) run(ctx context.Context) {
 		// The flow's own timeout ended it canceled, with the canceled
 		// value, while the host's context still runs (FX-52).
 		r.end(e.status, e.result, e.origin, nil)
+		r.canceledBy(CauseFlowTimeout)
 		return
 	}
 	if ended(e.status) {

@@ -244,6 +244,11 @@ code; an empty `code` matches any code.
 - **`fresh`.** A fresh process's welcome does not carry it, so its calls go
   over loopback TCP to an origin that listens
   ([platform interface](../../docs/design/0007-platform-interface.md)).
+- **Real Windmill instances.** `ProcessConfig.ForeignWindmillOrigins` and
+  `HostConfig.ForeignWindmillOrigins` name their origins. The
+  harness's fetch view drops the invocation's own job ids from a step's
+  dispatch to them ([wl](../../wl/README.md#job-ids-on-a-real-windmill)).
+  The package carries the list as it is given, and `wl` checks it.
 - **The handler.** `ProcessConfig.Platform` is called on the reader, in
   frame order. It returns at once with the function that answers the
   request, which runs on a goroutine of its own. So the facade has seen
@@ -268,6 +273,15 @@ the harness protocol design record lists the fields of `run`, `run_done`,
 - **Go types.** `RunRequest` is a `run` frame and `RunDone` a `run_done`.
   A `run_done` for a run that did not start carries a `RunError` with
   `RunDraining` or `RunRefused` as its code, and no `status`.
+- **Deadlines.** `RunRequest.DeadlineMS` and `PreWriteDeadlineMS` are
+  `nil` when the frame has no such field. Any integer that the frame rules
+  allow decodes, and both codecs write a present value again, 0 and
+  negative ones included: a value of 0 or less is a deadline that has
+  passed, which the engine's `Run` ends alone.
+- **Cancellation.** `RunDone.CancelCause` is a canceled run's cause, which
+  `run_done` writes last as `cancel_cause`. A `run_cancel` may carry
+  `reason` and `canceler`, which the cancellation's error names. An empty
+  `cancel_cause`, `reason` or `canceler` counts as absent, in both codecs.
 - **Fields that the message table does not list.** `run` also carries
   `halt_before` and `halt_after`, which the record describes under its
   consequences. `run_done` writes `may_have_mutated`
@@ -417,7 +431,10 @@ carries a `reject`, and `Spawn` returns a `*HandshakeError`:
 
 An accepted harness gets the module-state mode, `heartbeat_ms`,
 `max_message` and, for a warm or host-mode process with a facade origin,
-`facade`.
+`facade`. When `ForeignWindmillOrigins` names any, the welcome of every
+module state also carries them as `foreign_windmill_origins`, an array of
+strings ([Platform calls](#platform-calls)). Both codecs leave an empty
+list out, and decode an empty or null one as none.
 `Spawn` refuses a heartbeat that is not shorter than `KillAfter`, and
 negative values.
 
@@ -692,9 +709,10 @@ As for a spawned harness ([The handshake](#the-handshake)), plus:
 
 - **Runs.** Each `run` frame starts `HostConfig.Run` on a goroutine of its
   own, with a context that `run_cancel` ends with the cause
-  `engine.CancelCanceled`. What it returns goes back as `run_done`, and
-  `run_settled` follows when its `Settled` channel closes. Its invocations
-  go to the same `Process`.
+  `engine.CancelCanceled`, or an `*engine.Cancellation` of its `reason`
+  and `canceler` when it has either. What it returns goes back as
+  `run_done`, and `run_settled` follows when its `Settled` channel closes.
+  Its invocations go to the same `Process`.
 - **A host's invocations** carry `HostConfig.Facade` as `BASE_URL` in their
   `env`, since the host was not spawned with the base environment
   ([WA-2](../../docs/semantics/client-api.md#wa-2)). Their arguments go to
@@ -918,7 +936,7 @@ and `WL_REQUIRE_BUN` set ([docs/ci.md](../../docs/ci.md#the-go-jobs)).
 
 | File | What it checks | Needs |
 |---|---|---|
-| `frames_test.go` | The codec cases of `conformance/protocol/frames.json`; `-args -update` rewrites their payloads | |
+| `frames_test.go` | The codec cases of `conformance/protocol/frames.json`; `-args -update` rewrites their payloads. An empty or null `foreign_windmill_origins` decodes as none (`TestWelcomeEmptyForeignOriginsAreNone`). | |
 | `args_test.go` | `scriptArgs`: the two internal keys dropped, a key written with an escape included, every other member's raw text and place kept. Arguments with nothing to drop, or that are not an object, stay unchanged | |
 | `conn_test.go` | The writer's ordering rules, the barrier behind open run streams (with a `pong` still overtaking them), and the exchange matcher. `TestFlushWritesTheFrameItself` and `TestFlushKeepsFramesWholeAndInOrder` (a sender's own write, under `-race`, on a 4 KiB socket buffer) | |
 | `host_test.go` | A host on a socketpair: the handshake's parent check, a host gone before its hello, runs and their invocations, `run_cancel`, a lost host (also with a gap, `hostLostGap`), the watchdog, and the 502 for a bad platform answer | |

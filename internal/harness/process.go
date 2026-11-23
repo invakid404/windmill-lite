@@ -111,6 +111,12 @@ type ProcessConfig struct {
 	// go over loopback TCP to an origin that listens.
 	Facade   string
 	Platform PlatformHandler
+	// ForeignWindmillOrigins are the origins of real Windmill instances
+	// that the welcome names, in any module state: the harness's fetch
+	// view drops the invocation's own job ids from a step's dispatch
+	// there (WelcomeConfig.ForeignWindmillOrigins). nil names none, and
+	// the welcome then has no such field.
+	ForeignWindmillOrigins []string
 
 	// ExpectPlugin, when not nil, is the host plugin declaration the
 	// harness's hello must carry, byte for byte: a pool sets it for the
@@ -657,6 +663,8 @@ func (p *Process) handshake(ctx context.Context, timeout time.Duration) error {
 		ModuleState: string(p.cfg.ModuleState),
 		HeartbeatMS: int(max(p.heartbeat/time.Millisecond, 1)),
 		MaxMessage:  p.maxMessage,
+		// A fresh process's fetch view applies them too.
+		ForeignWindmillOrigins: p.cfg.ForeignWindmillOrigins,
 	}
 	if p.cfg.ModuleState != engine.ModuleStateFresh {
 		// Only a warm or host-mode process intercepts; a fresh one is
@@ -771,8 +779,13 @@ func (p *Process) handleMessage(m Message) error {
 			err = protoErr(CodeUnexpected, "run_cancel from a harness that is not in host mode")
 		} else if cancel := p.runs[m.ID]; cancel != nil {
 			// A run that already ended is no longer in the table; its
-			// cancel crossed the run_done on the wire.
-			cancel(engine.CancelCanceled)
+			// cancel crossed the run_done on the wire. A reason or a
+			// canceler is what the cancellation's error names (FX-38).
+			var cause error = engine.CancelCanceled
+			if m.Reason != "" || m.Canceler != "" {
+				cause = &engine.Cancellation{Reason: m.Reason, Canceler: m.Canceler}
+			}
+			cancel(cause)
 		}
 	default:
 		err = protoErr(CodeUnexpected, "%s from a harness", m.Type())

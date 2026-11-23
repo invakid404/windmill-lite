@@ -714,6 +714,32 @@ func TestEngineMonitorIgnoresTheRunsClock(t *testing.T) {
 	}
 }
 
+// expireAfterWrite is a host whose module a is write-capable, and which,
+// once a has ended, its write approved, expires the run's pre-write
+// deadline as the deadline's timer does when its time comes: whatever the
+// scheduler does, the expiry comes after the approval.
+type expireAfterWrite struct{ writes }
+
+func (h expireAfterWrite) OnModuleEnd(_ context.Context, r Run, s Site, _ StepRecord) error {
+	if s.Module == "a" {
+		r.(*run).expirePreWrite()
+	}
+	return nil
+}
+
+// H4: once the first write is approved, the pre-write deadline no longer
+// applies: when its timer fires after the approval, the run goes on and
+// succeeds, with no cause of cancellation.
+func TestPreWriteDeadlineDisarmed(t *testing.T) {
+	flow := flowOf(mod("a", "value", inputs("v", static("1")), ""), mod("b", "value", inputs("v", static("2")), ""))
+	e := mustOpen(t, map[string]string{"f/t/main": flow}, &scripts{})
+	tr := runReq(t, e, RunRequest{Hooks: expireAfterWrite{writes{at: map[string]bool{"a": true}}}, PreWriteDeadline: time.Now().Add(time.Hour)})
+	wantStatus(t, tr, conformance.RunSuccess, "2")
+	if !tr.MayHaveMutated || tr.CancelCause != "" {
+		t.Fatalf("mutated %t, cause %q; want the write reported and no cause", tr.MayHaveMutated, tr.CancelCause)
+	}
+}
+
 // H4: a pre-write deadline that has passed when the run starts cancels it
 // before anything launches, however the scheduler delivers timers.
 func TestEnginePreWriteDeadlinePassed(t *testing.T) {
@@ -724,8 +750,8 @@ func TestEnginePreWriteDeadlinePassed(t *testing.T) {
 	for range 10 {
 		tr := runReq(t, e, RunRequest{Hooks: writes{at: map[string]bool{"a": true}}, PreWriteDeadline: time.Now().Add(-time.Second)})
 		wantStatus(t, tr, conformance.RunCanceled, "")
-		if tr.MayHaveMutated {
-			t.Fatal("a write launched after the deadline")
+		if tr.MayHaveMutated || tr.CancelCause != CausePreWriteDeadline {
+			t.Fatalf("mutated %t, cause %q; want no write, cause %q", tr.MayHaveMutated, tr.CancelCause, CausePreWriteDeadline)
 		}
 	}
 	wantCalls(t, s)

@@ -80,7 +80,7 @@ code sees:
 | Channel | What the step sees |
 |---|---|
 | `process.env`, `Bun.env`, `import.meta.env` | Its invocation's variables first, and its writes and deletes stay with the invocation. Two exceptions, through `Bun.env` or `import.meta.env` in code that the build does not rewrite: a write of a process variable that no invocation has claimed reaches the process, and so does a delete ([the limits](#inside-the-per-invocation-context)). Outside every invocation, each reads the process environment. |
-| `fetch` | A request to the [platform facade](../../docs/glossary.md#platform-facade) becomes a platform call of the invocation. Any other request goes out as usual. |
+| `fetch` | A request to the [platform facade](../../docs/glossary.md#platform-facade) becomes a platform call of the invocation. Any other request goes out as usual, except that a dispatch to a real [Windmill](../../docs/glossary.md#windmill) that the engine names first loses its links to the invocation's own job ids ([the fetch view](#inside-the-per-invocation-context)). |
 | `setTimeout`, `setInterval`, `setImmediate` | The timers work as usual, and are registered with the invocation, on `globalThis` and on `node:timers`. |
 | `console`, `process.stdout`, `process.stderr` | Each line goes to the invocation's log ([WR-23](../../docs/semantics/languages.md#wr-23)). `Bun.stdout`, a raw file descriptor and a child's inherited output are not attributed. |
 | Child processes | A child started without an `env` gets the invocation's variables. In a `warm` process, a child that the invocation starts asynchronously, and not detached, leads a process group of its own. The engine kills that group on the step's timeout or cancellation ([WR-55](../../docs/semantics/languages.md#wr-55)). A synchronous call's child stays in the harness's group, unless the step starts it detached ([process groups](#inside-the-per-invocation-context)). |
@@ -264,8 +264,9 @@ ordinary `Error` instead ([Errors and refusals](#errors-and-refusals)):
    left out: a step that imports it fails when it loads.
 4. It extracts the bundle's codebase assets into `workdir` (`assets`).
 5. It starts the engine as `<engine> host --bundle <bundle> --workdir
-   <workdir> --kill-after <ms>ms`, then `-read-cache`, `-skip-args-file`
-   and `engineFlags` as the options ask (`engine_start`). The
+   <workdir> --kill-after <ms>ms`, then `-read-cache`, `-skip-args-file`,
+   a `-foreign-windmill` flag for each origin, and `engineFlags`, as the
+   options ask (`engine_start`). The
    [`host` command](../../cmd/windmill-lite/README.md#host) describes
    those flags.
 6. It runs the harness runtime in this process, and greets the engine.
@@ -297,6 +298,7 @@ sees them.
 | `readCache` | `boolean` | `false` | Each run keeps the answer of its first read of a host's or bundle's resource or variable, the plugin's `resource` and `variable` hooks included, and answers its later reads of that path from it. An error is not kept, and a variable that a step updates and a stored state are read again ([the read cache](../../internal/platform/README.md#the-read-cache)). Windmill reads them for each job, so this is a named deviation of the [equivalence contract](../../docs/design/0001-equivalence-contract.md#5-named-deviations). |
 | `resourceStore` | `{ kind: "memory" }` or `{ kind: "redis"; url: string; prefix?: string; allowEviction?: boolean }` | `{ kind: "memory" }` | The store of the resources that steps write through the job API, such as the stock client's state ([The resource store](#the-resource-store)). Available from version 0.4.0. |
 | `skipArgsFile` | `boolean` | `false` | States that the host's own code, its plugin included, never reads `args.json`. For a bundle none of whose scripts can read it, the engine then writes none. |
+| `foreignWindmillOrigins` | `string[]` | None | The origins of real Windmill instances that the host's steps call through their own client, such as `https://windmill.example.com`. A step's dispatch to one of them loses its links to the step's own job ids ([wl](../../wl/README.md#job-ids-on-a-real-windmill)). `connect()` refuses a value with user information, a query or a fragment (`options`) before it starts the engine, and the engine refuses the host with `engine_refused` when a value is not an origin that `wl` accepts. Neither message repeats the value. |
 | `recycle` | `{ rss?: number; samples?: number; modules?: number; retired?: { max: number; count: () => number } }` | None | Recycle triggers ([Recycle a host](#recycle-a-host)) |
 | `onRecycle` | `(reason: string) => void` | None | Called once, with the first trigger that trips |
 | `collect` | `{ rss: number; cooldown?: number; policy?: "idle" \| "heartbeat"; quiet?: number }` | None | A full garbage collection at a soft mark on the resident set ([Collect garbage](#collect-garbage)). Available from version 0.3.0. |
@@ -353,11 +355,17 @@ gives each hook's rules.
 | `writeCapable` | `Selector[]` | None | The run's write-capable sites. The plugin's `beforeFirstWrite` is asked before the first of them launches, and the run then may have mutated. |
 | `haltBefore`, `haltAfter` | `Selector[]` | None | End this run alone with status `halted`: before the first attempt of a module that a selector matches, or once such a module has its final outcome |
 | `fatalErrorNames` | `string[]` | None | Error names that latch the run instead of failing a step |
-| `deadlineMs` | `number` | None | The run's hard deadline, in ms from its submission. The run ends `canceled`, and steps that it left running are abandoned. |
-| `preWriteDeadlineMs` | `number` | None | Ends the run `canceled` if it passes before the first write is approved |
+| `deadlineMs` | `number` | None | The run's hard deadline, in ms from its submission. The run ends `canceled`, with `cancelCause` `deadline`, and steps that it left running are abandoned. |
+| `preWriteDeadlineMs` | `number` | None | Ends the run `canceled`, with `cancelCause` `pre_write_deadline`, if it passes before the first write is approved |
 | `clock` | `"real"` or `"record"` | `"real"` | `"record"` returns every sleep and retry delay at once, and the run's deviations then say so |
 | `signal` | `AbortSignal` | None | Cancels the run when it aborts |
 | `onSettled` | `() => void` | None | Called once every invocation of the run has settled, after its outcome, which may be never. Release here the resources that an abandoned step may still use. It runs in the run's scope, outside every invocation. |
+
+A deadline ends only its run. The SDK rounds it up to a whole
+millisecond, and sends 0 for one of 0 or less, which has already passed:
+the engine then ends the run before its first module. A deadline that is
+not a finite number, or that is above `Number.MAX_SAFE_INTEGER`, refuses
+the run with a `HostError` `refused`, and nothing reaches the engine.
 
 A [selector](../../docs/glossary.md#selector) is a `Selector` object, a
 type that `windmill-lite/bun` exports.
@@ -387,6 +395,7 @@ For example, `{ flow: "f/app/main", module: "report" }` names the module
 | `warnings` | `{ code, message }[]` | The run's warnings, such as those that the plugin's `onRunEnd` adds |
 | `latched` | `string` | For a latched run, the error it latched, such as `provider_declined` |
 | `deviations` | `string[]` | The run's deviations that depend on a run-time setting, such as the record clock |
+| `cancelCause` | `string` | For a canceled run, why: `deadline`, `pre_write_deadline`, `canceled` (its `signal` aborted, or another cancellation), `closing` (the engine closed) or `flow_timeout` (the flow's own limit) |
 
 ### Health
 
@@ -690,7 +699,7 @@ This part is for contributors who change the runtime or the SDK.
 | `runtime/version.ts` | The harness version and `versionsPair` |
 | `host/index.ts` | The Bun host SDK: `connect`, `checkWorkdir`, `HostError`, `HOST_MODULES` and the types |
 | `host/testing.ts` | The test entry |
-| `test/*.test.ts`, `test/caseplugin.ts`, `test/heartbeatengine.ts`, `test/typecheck/` | The tests ([Tests](#tests)) and the type check ([Type check](#type-check)). `test/heartbeatengine.ts` stands in for the engine in the collect trigger's tests. It welcomes the host with a heartbeat of `WL_TEST_HEARTBEAT_MS` ms, and answers each run at once, once a file exists, or after it has sent an invocation of a step. |
+| `test/*.test.ts`, `test/caseplugin.ts`, `test/heartbeatengine.ts`, `test/typecheck/` | The tests ([Tests](#tests)) and the type check ([Type check](#type-check)). `test/heartbeatengine.ts` stands in for the engine in the collect trigger's tests and the run deadlines' test. It welcomes the host with a heartbeat of `WL_TEST_HEARTBEAT_MS` ms, and answers each run at once, once a file exists, or after it has sent an invocation of a step. It can also answer with the run frame's deadlines, or with a canceled run's cause. |
 
 The runtime and the SDK have no dependencies and no `package.json`. The
 build helper has one, for its TypeScript parser, and the type check has
@@ -902,6 +911,22 @@ The fetch view:
   (`res.text.call(other)`) calls the native one and leaves the request
   registered.
 - A response with no body ends the request at once.
+- A request made in an invocation's context to one of the welcome's
+  `foreign_windmill_origins`, each compared as a URL's origin, under
+  `/api/w/{workspace}/jobs/run/` loses each `parent_job` and `root_job`
+  query parameter whose value is one of the invocation's own job ids. Those
+  are the values of `WM_JOB_ID` and `WM_ROOT_FLOW_JOB_ID` in its `invoke`
+  frame, which the step's writes to its environment do not change. A link
+  whose value is neither of the two stays, whichever variable it came from.
+- That edit removes only those pairs from the query, and keeps every other
+  byte of the URL. A `Request` is made again with its method, headers,
+  body and signal. A native realm's `fetch` calls this view, so a native
+  step's request gets the same edit. The welcome of every module state,
+  `fresh` included, carries the origins.
+- The runtime reads each origin with the URL parser that reads a request's
+  URL, so an internationalised name matches in either spelling. It leaves
+  out an origin that the parser refuses, with a diagnostic line: no request
+  can go to a host that the parser refuses.
 
 The timer fence:
 
@@ -1077,7 +1102,9 @@ The registry:
 - **Host mode's runs.** `Runtime.submit` sends a `run` frame, and resolves
   with its `run_done`, or rejects with a `RunError` (`draining`,
   `refused`). Its `onSettled` is called on `run_settled`, in the snapshot
-  of the submission's async context.
+  of the submission's async context. `connect`'s `run` checks the
+  deadlines first (`runBudget`), so the frame carries only an integer of
+  0 to 2^53 − 1.
 - **Drain.** `drainEngine` sends the host's `drain` behind every `run`
   queued before it (`Sender.sendAfter`), and calls back on the engine's
   `bye`.
@@ -1425,7 +1452,7 @@ cd harnesses/bun && bun test
 | `test/context.test.ts` | The environment view's rules in one process, the registry, the process scope, the exit status and the step API |
 | `test/fence.test.ts` | The settle-time fence: timers and `refresh()`, the fetch view and the evidence that ends a transfer, the log view, the `Bun.env` write trap, children's environment, and their process groups |
 | `test/plugin.test.ts` | Host plugins: the declaration, its trace detail, each hook's answer, the `unknown_hook` and `plugin_error` refusals, and the answer in the run's scope |
-| `test/host.test.ts` | The SDK: the shared working-directory cases (`conformance/protocol/host/workdir.json`) through `checkWorkdir`, the shared version cases (`versions.json`) through `versionsPair`, the refusals before the engine starts, the assets, a run's `onSettled` in its own scope, and the run frame's selectors and halts. `test/argsengine.ts`, a stand-in engine, records the flags that `resourceStore` passes, and whether its `WL_REDIS_URL` is set and equals the expected URL. With the variable unset and set in the test, the URL reaches the engine's environment, never its arguments. |
+| `test/host.test.ts` | The SDK: the shared working-directory cases (`conformance/protocol/host/workdir.json`) through `checkWorkdir`, the shared version cases (`versions.json`) through `versionsPair`, the refusals before the engine starts, the assets, a run's `onSettled` in its own scope, and the run frame's selectors, halts and deadlines. `test/argsengine.ts`, a stand-in engine, records the flags that `resourceStore` passes, and whether its `WL_REDIS_URL` is set and equals the expected URL. With the variable unset and set in the test, the URL reaches the engine's environment, never its arguments. |
 | `test/host.test.ts`, the collect trigger | Hosts that `test/heartbeatengine.ts` welcomes, mostly with a 10 ms heartbeat, with a stand-in for `Bun.gc`. The tests check the mark, the cooldown, the counters, failed collections and the `options` refusals. For the default policy, `"idle"`, they check its waits for runs, steps and the quiet period, and how `close()` and an engine exit clear its timer. They also check `"heartbeat"`, the recycle triggers left as they are, and when the heartbeat observer runs. |
 | `test/load.test.ts` | How a step module is evaluated: the caller's context at an ES module's top level, its static imports and a CommonJS module, after a top-level `await`, `import()`'s namespace, one evaluation, and a failure's own error |
 | `test/testing.test.ts` | The test entry against the runtime: timers by kind, the process scope and its control, sequential, nested and concurrent steps, a returned thenable, the invocation query, a throw, other async-context stores, and the step API |

@@ -108,6 +108,21 @@ export type ConnectOptions = {
    * mode item 7). Otherwise every invocation's file is written, as
    * Windmill's worker writes it. */
   skipArgsFile?: boolean;
+  /** The origins of real Windmill instances that the host's steps call
+   * through their own client, such as "https://windmill.example.com";
+   * none by default. windmill-lite's job ids name no job there. So on a
+   * step's request to one of them under /api/w/{workspace}/jobs/run/,
+   * where the stock clients dispatch a script or a flow, the harness
+   * removes each parent_job and root_job query parameter whose value is
+   * one of the step's own job ids (ADR 0007, async dispatch). Every other
+   * part of the request stays as it was, and a request that does not go
+   * through fetch, from a child process or a socket, keeps its links.
+   * connect() refuses (options) a value with user information, a query or
+   * a fragment before it starts the engine. The engine gets the rest as
+   * -foreign-windmill flags, and refuses the host (engine_refused) when
+   * one is not an origin that wl accepts. Neither refusal repeats the
+   * value. */
+  foreignWindmillOrigins?: string[];
   /** Recycle triggers (none by default): health() reports the first that
    * trips, and onRecycle is called once with it ("rss", "modules" or
    * "retired"). A host that sees one drains and exits, and its supervisor
@@ -179,12 +194,17 @@ export type RunOptions = {
    * with the plugin's. */
   fatalErrorNames?: string[];
   /** The run's hard deadline, in milliseconds from its submission (H4): the
-   * run ends canceled when it passes, and steps it left running are
-   * abandoned. */
+   * run ends canceled, with cancelCause "deadline", when it passes, and
+   * steps it left running are abandoned. Only this run ends: 0 or less is a
+   * deadline that has already passed, which ends the run before its first
+   * module. The SDK rounds it up to a whole millisecond, and refuses the
+   * run (HostError "refused") when it is not a finite number or is above
+   * Number.MAX_SAFE_INTEGER. */
   deadlineMs?: number;
   /** The flow run's pre-write deadline, in milliseconds from its
-   * submission (H4): it ends the run canceled if it passes before the
-   * first write is approved. */
+   * submission (H4): it ends the run canceled, with cancelCause
+   * "pre_write_deadline", if it passes before the first write is approved.
+   * It takes the values deadlineMs takes. */
   preWriteDeadlineMs?: number;
   /** The flow run's clock (H10): "record" returns every sleep and retry
    * delay at once, and the run's deviations then list H10. */
@@ -211,6 +231,10 @@ export type RunResult = {
   /** The flow run's deviations that depend on a run-time setting, as its
    * trace lists them (H7, H10). */
   deviations: string[];
+  /** Why a canceled run was canceled: "deadline", "pre_write_deadline",
+   * "canceled" (its signal aborted, or another cancellation), "closing"
+   * (the engine closed) or "flow_timeout" (the flow's own limit). */
+  cancelCause?: string;
 };
 
 export type Health = HostHealth & {
@@ -266,8 +290,10 @@ export type Host = {
   /** Runs the flow (or script) at path with args, inside the caller's
    * current scope. It rejects with a HostError when the run does not
    * start: "draining", or "refused": no such target, arguments that are
-   * not an object, a selector option that is not a list of objects, or a
-   * selector that the engine finds malformed or ambiguous. */
+   * not an object, a selector option that is not a list of objects, a
+   * selector that the engine finds malformed or ambiguous, or a deadline
+   * option that is not a finite number or is above
+   * Number.MAX_SAFE_INTEGER. */
   run(path: string, args?: Record<string, unknown>, opts?: RunOptions): Promise<RunResult>;
   /** In-flight and abandoned invocations, the age of the oldest abandoned
    * one, process-level errors no invocation owned, event-loop lag, RSS,
@@ -323,6 +349,21 @@ function runSelectors(option: string, list: unknown): Selector[] | undefined {
   return list as Selector[];
 }
 
+/** A run option's budget in milliseconds as the run frame carries it, or
+ * undefined when the option is undefined: rounded up to a whole
+ * millisecond, and at least 0, a deadline that has passed. The engine
+ * decodes a number that is not an integer, or one beyond the frame rules'
+ * largest, as a broken frame, which would end the connection, so a value
+ * that is not a finite number or is above Number.MAX_SAFE_INTEGER throws
+ * here, null included: it is not an absent deadline. */
+function runBudget(option: string, ms: unknown): number | undefined {
+  if (ms === undefined) return undefined;
+  if (typeof ms !== "number" || !Number.isFinite(ms) || ms > Number.MAX_SAFE_INTEGER) {
+    throw new Error(`the run's ${option} is not a finite number of milliseconds up to ${Number.MAX_SAFE_INTEGER}: ${String(ms)}`);
+  }
+  return Math.max(0, Math.ceil(ms));
+}
+
 /** Registers the host's instances of host-provided modules, by the keys
  * the host contract gives them, and says which keys the bundle does not
  * list (they are never read) and which listed ones the host left out (a
@@ -373,6 +414,21 @@ export async function connect(o: ConnectOptions): Promise<Host> {
       throw new HostError("options", `resourceStore's allowEviction is a boolean; got ${typeof store.allowEviction}`);
     }
   }
+  if (o.foreignWindmillOrigins !== undefined && !Array.isArray(o.foreignWindmillOrigins)) {
+    const got = o.foreignWindmillOrigins;
+    throw new HostError("options", `foreignWindmillOrigins is an array of origins, such as ["https://windmill.example.com"]; got ${got === null ? "null" : typeof got}`);
+  }
+  // A copy, read once: the engine's flags are built from the values checked
+  // here, before connect() awaits anything, whatever the caller does to its
+  // array afterwards. An origin has no user information, query or fragment,
+  // which could hold a secret: such a value is refused here, before it
+  // reaches the engine's command line, and no message repeats a value.
+  const foreign = [...(o.foreignWindmillOrigins ?? [])];
+  foreign.forEach((origin, i) => {
+    if (typeof origin !== "string") throw new HostError("options", `foreignWindmillOrigins[${i}] is a string; got ${origin === null ? "null" : typeof origin}`);
+    if (/[@?#]/.test(origin)) throw new HostError("options", `foreignWindmillOrigins[${i}] is not an origin: it has user information, a query or a fragment`);
+  });
+  const foreignFlags = foreign.flatMap((origin) => ["-foreign-windmill", origin]);
   // Without collect, false: a host with no trigger takes no idle check.
   const whenIdle = collect !== undefined && (collect.policy ?? DEFAULT_COLLECT_POLICY) === "idle";
   // The host's stderr as Bun has it: a step's context must never take a
@@ -417,6 +473,7 @@ export async function connect(o: ConnectOptions): Promise<Host> {
       ...["host", "--bundle", o.bundle, "--workdir", workdir, "--kill-after", `${killAfter}ms`],
       ...(o.readCache ? ["-read-cache"] : []),
       ...(o.skipArgsFile ? ["-skip-args-file"] : []),
+      ...foreignFlags,
       ...(store ? ["-resource-store", store.kind] : []),
       ...(store?.kind === "redis" && store.prefix !== undefined ? ["-redis-prefix", store.prefix] : []),
       ...(store?.kind === "redis" && store.allowEviction ? ["-redis-allow-eviction"] : []),
@@ -674,11 +731,16 @@ export async function connect(o: ConnectOptions): Promise<Host> {
     run(path, args = {}, opts = {}) {
       if (draining) return Promise.reject(new HostError("draining", "the host is draining and takes no new runs"));
       let selectors;
+      let budgets;
       try {
         selectors = {
           write_capable: runSelectors("writeCapable", opts.writeCapable),
           halt_before: runSelectors("haltBefore", opts.haltBefore),
           halt_after: runSelectors("haltAfter", opts.haltAfter),
+        };
+        budgets = {
+          deadline_ms: runBudget("deadlineMs", opts.deadlineMs),
+          pre_write_deadline_ms: runBudget("preWriteDeadlineMs", opts.preWriteDeadlineMs),
         };
       } catch (e) {
         return Promise.reject(new HostError("refused", (e as Error).message));
@@ -694,8 +756,7 @@ export async function connect(o: ConnectOptions): Promise<Host> {
             intercept: opts.intercept && JSON.stringify(opts.intercept),
             ...selectors,
             fatal_error_names: opts.fatalErrorNames,
-            deadline_ms: opts.deadlineMs,
-            pre_write_deadline_ms: opts.preWriteDeadlineMs,
+            ...budgets,
             clock: opts.clock,
           },
           opts.onSettled,
@@ -719,6 +780,7 @@ export async function connect(o: ConnectOptions): Promise<Host> {
             warnings: o.warnings,
             latched: o.latched,
             deviations: o.deviations,
+            cancelCause: o.cancel_cause,
           }),
           (e) => {
             throw e instanceof RunError ? new HostError(e.code, e.detail) : e;

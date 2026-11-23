@@ -122,6 +122,14 @@ type WelcomeConfig struct {
 	// fetch requests to this origin into platform frames (ADR 0004,
 	// per-invocation identity).
 	Facade string
+	// ForeignWindmillOrigins are the origins of real Windmill instances
+	// ("https://windmill.example.com"), or none. On a step's request to
+	// one of them under /api/w/{workspace}/jobs/run/, the harness's fetch
+	// view removes each parent_job and root_job query parameter whose
+	// value is one of the invocation's own job ids, which name no job
+	// there (ADR 0007, async dispatch). Encoded only when not empty; an
+	// empty or null list decodes as none.
+	ForeignWindmillOrigins []string
 }
 
 // Reject says why the engine refused a harness. Code is one of the
@@ -364,9 +372,10 @@ const (
 // array of selectors (H3); HaltBefore and HaltAfter, if not zero, are JSON
 // arrays of selectors at whose modules the run ends halted (H8);
 // FatalErrorNames are error names that latch (H7); DeadlineMS and
-// PreWriteDeadlineMS, when positive, are the hard and the pre-write
-// deadline (H4), in milliseconds from the engine's receipt of the frame;
-// Clock is ClockReal ("" too) or ClockRecord (H10).
+// PreWriteDeadlineMS are the hard and the pre-write deadline (H4), in
+// milliseconds from the engine's receipt of the frame, nil when the frame
+// has none: a present value of 0 or less is a deadline that has passed, and
+// both codecs write it; Clock is ClockReal ("" too) or ClockRecord (H10).
 type RunRequest struct {
 	ID                 string
 	Kind               string
@@ -377,8 +386,8 @@ type RunRequest struct {
 	HaltBefore         jsonval.Value
 	HaltAfter          jsonval.Value
 	FatalErrorNames    []string
-	DeadlineMS         int64
-	PreWriteDeadlineMS int64
+	DeadlineMS         *int64
+	PreWriteDeadlineMS *int64
 	Clock              string
 }
 
@@ -401,6 +410,9 @@ type RunDone struct {
 	// setting, as its trace lists them (H7, H10).
 	Deviations []string
 	Error      *RunError
+	// CancelCause is why a canceled run was canceled: one of the causes of
+	// engine.CancelCauseOf, such as "deadline"; "" otherwise.
+	CancelCause string
 	// Settled, which is not part of the frame, closes once the run has
 	// settled (ADR 0004 host mode item 5): the process then sends
 	// RunSettled, after the run_done. Nil means never.
@@ -469,9 +481,13 @@ type RunSettled struct {
 	ID string
 }
 
-// RunCancel cancels a run the harness submitted.
+// RunCancel cancels a run the harness submitted. Reason and Canceler, when
+// either is set, are what the cancellation's error names (FX-38); "" for
+// both names Windmill's defaults. Both codecs write neither when empty.
 type RunCancel struct {
-	ID string
+	ID       string
+	Reason   string
+	Canceler string
 }
 
 // Health is what a ping or pong reports about its sender.
@@ -578,6 +594,9 @@ func (m Welcome) appendPayload(b []byte) ([]byte, error) {
 			e.int("max_message", c.MaxMessage)
 			if c.Facade != "" {
 				e.str("facade", c.Facade)
+			}
+			if len(c.ForeignWindmillOrigins) > 0 {
+				e.strings("foreign_windmill_origins", c.ForeignWindmillOrigins)
 			}
 		})
 	} else {
@@ -735,11 +754,11 @@ func (m RunRequest) appendPayload(b []byte) ([]byte, error) {
 	if m.FatalErrorNames != nil {
 		e.strings("fatal_error_names", m.FatalErrorNames)
 	}
-	if m.DeadlineMS != 0 {
-		e.int("deadline_ms", m.DeadlineMS)
+	if m.DeadlineMS != nil {
+		e.int("deadline_ms", *m.DeadlineMS)
 	}
-	if m.PreWriteDeadlineMS != 0 {
-		e.int("pre_write_deadline_ms", m.PreWriteDeadlineMS)
+	if m.PreWriteDeadlineMS != nil {
+		e.int("pre_write_deadline_ms", *m.PreWriteDeadlineMS)
 	}
 	if m.Clock != "" {
 		e.str("clock", m.Clock)
@@ -776,6 +795,9 @@ func (m RunDone) appendPayload(b []byte) ([]byte, error) {
 			e.str("code", m.Error.Code)
 			e.str("message", m.Error.Message)
 		})
+	}
+	if m.CancelCause != "" {
+		e.str("cancel_cause", m.CancelCause)
 	}
 	return e.end()
 }
@@ -820,6 +842,12 @@ func (m RunSettled) appendPayload(b []byte) ([]byte, error) {
 func (m RunCancel) appendPayload(b []byte) ([]byte, error) {
 	e := newEnvelope(b, TypeRunCancel)
 	e.str("id", m.ID)
+	if m.Reason != "" {
+		e.str("reason", m.Reason)
+	}
+	if m.Canceler != "" {
+		e.str("canceler", m.Canceler)
+	}
 	return e.end()
 }
 
@@ -944,6 +972,12 @@ func Decode(payload []byte) (Message, error) {
 				wm.Config = &WelcomeConfig{ModuleState: cd.str("module_state"), HeartbeatMS: cd.int("heartbeat_ms"), MaxMessage: cd.int64("max_message")}
 				if cd.present("facade") {
 					wm.Config.Facade = cd.str("facade")
+				}
+				// An empty list means none, as an absent or null one does.
+				if cd.present("foreign_windmill_origins") {
+					if o := cd.strings("foreign_windmill_origins"); len(o) > 0 {
+						wm.Config.ForeignWindmillOrigins = o
+					}
 				}
 			}
 		case reject:
@@ -1076,14 +1110,15 @@ func Decode(payload []byte) (Message, error) {
 		if d.present("fatal_error_names") {
 			r.FatalErrorNames = d.strings("fatal_error_names")
 		}
+		// A deadline is any integer the frame rules allow: one of 0 or less
+		// has passed, which ends that run alone (ADR 0004).
 		for _, f := range []struct {
 			k string
-			v *int64
+			v **int64
 		}{{"deadline_ms", &r.DeadlineMS}, {"pre_write_deadline_ms", &r.PreWriteDeadlineMS}} {
 			if k, v := f.k, f.v; d.present(k) {
-				if *v = d.int64(k); *v <= 0 && derr == nil {
-					d.fail(CodeBadField, "run %s %d is not positive", k, *v)
-				}
+				ms := d.int64(k)
+				*v = &ms
 			}
 		}
 		if d.present("clock") {
@@ -1128,9 +1163,19 @@ func Decode(payload []byte) (Message, error) {
 				d.fail(CodeBadField, "run_done warnings is not an array")
 			}
 		}
+		if d.present("cancel_cause") {
+			r.CancelCause = d.str("cancel_cause")
+		}
 		m = r
 	case TypeRunCancel:
-		m = RunCancel{ID: d.str("id")}
+		c := RunCancel{ID: d.str("id")}
+		if d.present("reason") {
+			c.Reason = d.str("reason")
+		}
+		if d.present("canceler") {
+			c.Canceler = d.str("canceler")
+		}
+		m = c
 	case TypeRunSettled:
 		m = RunSettled{ID: d.str("id")}
 	case TypeHostCall:

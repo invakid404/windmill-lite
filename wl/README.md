@@ -6,7 +6,9 @@ host plugins.
 Only Bun steps run, and the go-plugin, gRPC and HTTP adapters of the
 [host adapters ADR](../docs/design/0009-host-adapters.md) do not exist yet.
 This README covers `wl/`, the Go package
-`github.com/invakid404/windmill-lite/wl`.
+`github.com/invakid404/windmill-lite/wl`, and its `testdata/`: the
+synthetic fixture of the tests of `ForeignWindmillOrigins`, which the
+host-mode test of `cmd/windmill-lite` runs too.
 
 `wl` is the only exported Go package of the windmill-lite
 [engine](../docs/glossary.md#engine). A Go program, the
@@ -155,6 +157,7 @@ The zero value of each field is its default.
 | `PluginTimeout` | How long each call to the host plugin waits for its reply | `DefaultPluginTimeout`, 60 s | To change that bound |
 | `Pool` | The pool of `warm` harness processes: its size, cap, lag threshold, recycle timeout, recycle triggers, bound on live processes and warm start ([The harness pool](#the-harness-pool)) | One process, no cap, started on the first step or earlier for a host plugin | To run CPU-bound steps beside others, to replace processes that grow, or to start processes before the first run |
 | `ReadCache` | Gives each flow run a read cache: the run reads each of the host's and the bundle's resources and variables once, and answers its later reads from that read. A provider's error is not kept, so the next read asks again, and an update of a variable through the run drops its cached value ([the read cache](../internal/platform/README.md#the-read-cache)). A state that steps wrote to the `ResourceStore` is read again each time, so a run sees its latest value. | Off | When a run reads the same values often and need not see a change during the run |
+| `ForeignWindmillOrigins` | The origins of real [Windmill](../docs/glossary.md#windmill) instances that steps call through their own client, such as `https://windmill.example.com`. A step's dispatch to one of them loses its links to the step's own [job](../docs/glossary.md#job) ids ([Job ids on a real Windmill](#job-ids-on-a-real-windmill)). | None | When steps dispatch jobs on a real Windmill |
 | `Host` | Opens the runtime in [host mode](#host-mode) | Nil | Only for host mode |
 
 A `Variable` holds its `Value`, and `Secret` marks a secret. With
@@ -208,6 +211,44 @@ there.
   steps that wait on each other can wait until their timeout under a cap.
   The [trace](../docs/glossary.md#trace) that `Run` returns for each flow
   run of a runtime with a cap lists `D15`.
+
+### Job ids on a real Windmill
+
+windmill-lite's job ids name no job of any Windmill instance. The stock
+clients still send a step's `WM_JOB_ID` as `parent_job` and its
+`WM_ROOT_FLOW_JOB_ID` as `root_job` when the step dispatches a script or
+calls `runFlow`. With `ForeignWindmillOrigins`, the harness removes those
+links from a step's request to a listed origin, in every module state and
+in host mode:
+
+- It acts on a request under `/api/w/{workspace}/jobs/run/`, the path of
+  Windmill's dispatch, that goes through the harness's `fetch`, a native
+  step's included.
+- It removes each `parent_job` and `root_job` query parameter whose value
+  is one of the step's own job ids: its `WM_JOB_ID` or
+  `WM_ROOT_FLOW_JOB_ID`, as the engine set them. The rest of the request
+  stays as the step sent it, and so does a link whose value is neither of
+  those two, whichever variable the step took it from.
+- A request that does not go through `fetch` keeps its links, such as one
+  from a child process or over a socket that the step opens.
+- `Open` compares origins as URLs do, so `https://Windmill.example.com:443/`
+  names `https://windmill.example.com`.
+- `Open` fails on a value with user information, a query, a fragment or a
+  path, or with a host that the harness's URL parser refuses or reads as
+  another. It reads a host that ends in a number as that parser does: as an
+  IPv4 address of up to four decimal, octal or hex parts, so `http://127.1`
+  names `http://127.0.0.1`.
+- `Open`'s error names the value's position in the list and the reason,
+  never the value, which could hold a secret.
+- A host with a character outside ASCII reaches the harness whole, and so
+  does a name in its `xn--` form. The harness's URL parser maps it as it
+  maps a request's URL, so `http://１２７.0.0.1`, in fullwidth digits, names
+  `http://127.0.0.1`. A host that the parser refuses cannot be a request's
+  host, so the harness leaves it out of the list and writes a diagnostic
+  line.
+
+The [platform interface ADR](../docs/design/0007-platform-interface.md#async-dispatch)
+gives the reason.
 
 ### The resource store
 
@@ -296,6 +337,7 @@ runs.
 | `Trace` | For a flow, the [trace](../docs/glossary.md#trace): for each call site what happened and why, with timings, and the platform calls that the steps made before the run ended. Each call is a `PlatformCall`: the step's site; the request's method, path and query, without its headers or body; the route that it matched, empty when none did; and the answer's status. `nil` for a script. |
 | `Warnings` | The run's warnings, such as an error that no step owns, or the work that a step left behind when it settled. Each is a `Warning` with a code and a message, and no warning changes the run's status. |
 | `Latched` | For a `latched` run, the error that was latched |
+| `CancelCause` | For a `canceled` run, why it was canceled (table below); empty otherwise |
 
 | Status | Constant | Meaning |
 |---|---|---|
@@ -305,6 +347,22 @@ runs.
 | `skipped` | `StatusSkipped` | A step's early stop with `skip_if_stopped` ended the flow. |
 | `latched` | `StatusLatched` | A hook, a provider, a step or the engine [latched](../docs/glossary.md#latch) an error. `Latched` holds it. |
 | `halted` | `StatusHalted` | A halt hook ended the run. |
+
+A canceled run's `CancelCause` names one cause. Every cause keeps the
+status `canceled` and the `Result` that Windmill stores: a flow's
+`Canceled` error, or a root script's stored failure value, whatever ended
+the script. For example, that is the killed job's `ExecutionErr` when the
+cancellation stopped the job, an invalid entrypoint's error when the script
+failed before its job ran, or the step's own error when it failed just as
+the cancellation came.
+
+| Cause | Constant | What canceled the run |
+|---|---|---|
+| `deadline` | `CauseDeadline` | Its context's deadline passed. |
+| `pre_write_deadline` | `CausePreWriteDeadline` | `RunOptions.PreWriteDeadline` passed before the first write was approved. |
+| `canceled` | `CauseCanceled` | Its context ended otherwise, such as with a `*wl.Cancellation` cause. |
+| `closing` | `CauseClosing` | `Close` canceled it. |
+| `flow_timeout` | `CauseFlowTimeout` | The flow's own wall-clock limit passed ([FX-52](../docs/semantics/execution.md#fx-52)). |
 
 ## Hooks
 
@@ -403,8 +461,8 @@ iteration, sleep and retry delay.
 
 | Setting | What it limits | What happens when it trips |
 |---|---|---|
-| The run's context (`ctx`) | The whole run: its cancellation and its hard deadline | The run ends `canceled`. |
-| `RunOptions.PreWriteDeadline` | The time before the run's first write is approved | The run ends `canceled`, and its context's cause is `ErrPreWriteDeadline`. After the approval, the deadline no longer applies. |
+| The run's context (`ctx`) | The whole run: its cancellation and its hard deadline | The run ends `canceled`, with `CancelCause` `deadline` at the deadline. |
+| `RunOptions.PreWriteDeadline` | The time before the run's first write is approved | The run ends `canceled`, with `CancelCause` `pre_write_deadline`, and its context's cause is `ErrPreWriteDeadline`. After the approval, the deadline no longer applies. |
 | `Hooks.WriteCapable` and `Hooks.BeforeFirstWrite` | The first write: the first job of a write-capable site, or a write-capable subflow call | An error from `BeforeFirstWrite` vetoes the write and latches the run. Parallel launches wait for that one verdict. After an approval, `Result.MayHaveMutated` is `true`, also in a failed run. |
 | `Hooks.FatalErrorNames` | The error names that skip retries, `continue_on_error`, `skip_failures` and `skip_failure` | The run latches with a `*FatalError`, and the trace lists `H7`. |
 | `RunOptions.Clock` set to a `*wl.RecordClock` | The time of sleeps and retry delays | Each wait is recorded and returns at once, and the trace lists `H10`. |
@@ -573,8 +631,9 @@ This section is for contributors who change `wl`.
 
 | File | Contents |
 |---|---|
+| `foreign.go` | The check of `Options.ForeignWindmillOrigins`, and the one form of each origin that the welcome carries |
 | `wl.go` | `Options`, `PoolOptions`, `RecycleTriggers`, `Resource`, `Variable`, `ResultCache`, `ResourceStore`, `MemoryResourceStore`, `NewMemoryResourceStore`, `Runtime`, `Open`, `BuildInfo`, `PlatformOrigin`, `Close`, `Version`, and `ErrUnsupported`, `ErrEngineVersion`, `ErrClosed` |
-| `run.go` | `RunOptions`, `RunPlatform`, `Result`, `Run`; the clock and jitter types; `ErrPreWriteDeadline`, `ErrRunInFlight`; the trace types, which alias the engine's; the executor that collects each run's platform calls |
+| `run.go` | `RunOptions`, `RunPlatform`, `Result`, `Run`; the causes of a canceled run; the clock and jitter types; `ErrPreWriteDeadline`, `ErrRunInFlight`; the trace types, which alias the engine's; the executor that collects each run's platform calls |
 | `hooks.go` | `Hooks` and the types of their callbacks, `Selector`, `Site`, `FatalError` and the selector and provider errors; selector matching, and the adapter to the engine's hook interface |
 | `host.go` | `Host`, `Runtime.Done`, `Host.Refuse`, `HandshakeError` and the reject codes: host mode, its handshake, and the runs that it serves |
 | `plugin.go` | `DefaultPluginTimeout`, `ErrHostCallTimeout`, `HostCallError`: host plugins, their declaration as `Hooks` and `Providers`, their resources and variables, `around`, and the merge of a run's hooks with the plugin's |
@@ -641,15 +700,26 @@ with the engine's side of the protocol in
   The run's invocations go back to the host, which runs them in the scope
   that it captured when it submitted the run.
 - **Outcomes.** `run_done` carries the status, the stored result,
-  `may_have_mutated`, the warnings and the trace's deviations.
-  `run_settled` follows once the run has settled. A run that `Run`
-  refuses goes back as `refused`, or `draining` once `Close` has begun.
+  `may_have_mutated`, the warnings, the trace's deviations and, for a
+  canceled run, `cancel_cause`. `run_settled` follows once the run has
+  settled; a root script's run settles only after its status and cause are
+  decided, since the settlement's callback releases the run's hard
+  deadline. A run that `Run` refuses goes back as `refused`, or `draining`
+  once `Close` has begun.
 - **A run's own hooks.** `hostBudgets` turns a run frame's write-capable
   selectors, halts and fatal error names into the run's own hooks, ahead
-  of the plugin's, with its pre-write deadline, record clock and hard
-  deadline. `checkSelectorIn` checks their selectors as a plugin's are
-  checked, and a selector that fails refuses the run, naming it, such as
+  of the plugin's, with its pre-write deadline and record clock;
+  `hostDeadline` bounds the run's context by its hard deadline.
+  `checkSelectorIn` checks their selectors as a plugin's are checked, and
+  a selector that fails refuses the run, naming it, such as
   `the run's haltAfter[0]`.
+- **Deadlines.** A frame without `deadline_ms` or `pre_write_deadline_ms`
+  has no such deadline, and a root script's run takes only the hard one.
+  `budgetDuration` converts either value:
+  - 0 or less has passed: it ends that run alone before its first module,
+    with the cause `deadline` or `pre_write_deadline`;
+  - above 9,223,372,036,854 ms, the longest `time.Duration`, it counts as
+    that duration.
 - **Drain and end.** A host's `drain` is answered on the harness side:
   later runs are refused `draining`, and `bye` follows once no run is in
   flight. When the host's connection ends, `Done` closes, and the runs in
@@ -696,7 +766,8 @@ build helper's dependencies, and skip without them unless
 | `wl_test.go` | `Open`, `Run`, `BuildInfo` and `Close` on hand-written bundles that need no harness. It covers archives, data directories, the host's variables, every refusal of `Open` and `Run`, cancellation, `Close` during runs, and a late platform call that still reaches its run. | No |
 | `hooks_test.go` | Every hook without Bun: interceptions, rewrites, observers, halts, run-end hooks, latches, selector checks, providers and their errors, per-run variables and the resolver | No |
 | `hookcases_test.go` | The latch-precedence cases of `conformance/hooks`, through the public hooks | No |
-| `host_test.go` | Host mode on a socketpair: the welcome, `run_done` and `run_settled`, refused runs, drain, `Close`, every refusal in the handshake, and per-run halts (`TestHostRunHalts`) | No |
+| `host_test.go` | Host mode on a socketpair: the welcome, `run_done` and `run_settled`, refused runs, drain, `Close`, every refusal in the handshake, and per-run halts (`TestHostRunHalts`). Deadlines that have passed, which end only their run (`TestHostExpiredDeadlineEndsOnlyItsRun`), the conversion of both deadlines (`TestBudgetDuration`), and a `run_cancel`'s reason and canceler (`TestHostRunCancelReason`) | No |
+| `cause_test.go` | The cause of a canceled run (`TestRunCancelCause`): a deadline, a passed pre-write deadline, a cancellation, `Close` and a flow's own limit. A root script's run past its deadline (`TestScriptRunCancelCause`) needs Bun | No, but for the script |
 | `plugin_test.go` | Host plugins without Bun: refusals, the declaration's checks, providers, `host_call`s, timeouts, `mergeHooks`, settlement (`TestPluginCallsHoldSettlement`) and the run-end trace detail (`TestPluginTraceDetail`) | No |
 | `payload_test.go` | The payload encoding against `json.Marshal` (`TestPayloadSplice`) | No |
 | `settled_test.go` | The run-settlement hooks | No |
@@ -705,4 +776,5 @@ build helper's dependencies, and skip without them unless
 | `plugincases_test.go` | The cases of `conformance/plugins/hooks.yaml`, through the TypeScript case plugin and through Go callbacks built from the same plugins | Yes |
 | `store_test.go` | `Options.ResourceStore` on real steps (`TestResourceStoreOnBun`): two runtimes that share a memory store, one with its own, a failing store's warning, and `D24` in the trace; a run id in flight refused (`TestRunIDInFlight`). Without Bun: `Close` releasing its own store while readers use it (`TestCloseReleasesItsOwnStore`), and a late answer kept from a later run of the same id (`TestLateAnswerAcrossIDReuse`) | Yes, but for the last two |
 | `pool_test.go` | `Options.Pool`. Without Bun: `Open`'s refusals in `fresh` and host mode (`TestPoolOptionsRefusedFresh`) and of `MaxLive` below `Max` (`TestPoolMaxLiveBelowMax`), and the cap's entry in the trace. On real steps: a second process for a step beside a CPU-bound one and under `Cap`, the module and RSS triggers (`TestWlPoolOptions`), and the warm start (`TestWarmStart`). A step reads a plugin's resource under `Cap: 1` (`TestPoolCapLeavesPluginCalls`) and while its process leaves (`TestPoolRecyclingProcessServesPluginCalls`); zero settings call the diagnostics writer as before (`TestDiagnosticsZeroSettings`) | Yes, but for the refusals and the trace |
+| `foreign_test.go` | `ForeignWindmillOrigins` in the welcome, and its refusals (`TestForeignWindmillOrigins`). The stock client's and a native step's dispatch to two loopback servers that stand in for real Windmill instances, in `warm` and `fresh`, with and without the option (`TestForeignWindmillLinks`, on the cases of `testdata/foreign/cases.json`). That test also needs `WL_WINDMILL_CLIENT`. | Yes, but for the first |
 | `example_test.go` | Compiles the README's example | No |

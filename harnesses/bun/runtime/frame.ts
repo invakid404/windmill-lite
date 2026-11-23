@@ -55,8 +55,8 @@ const FIELDS: Record<string, readonly string[]> = {
   platform: ["id", "inv", "method", "url", "headers", "body"],
   platform_reply: ["id", "status", "headers", "body"],
   run: ["id", "kind", "path", "args", "intercept", "write_capable", "halt_before", "halt_after", "fatal_error_names", "deadline_ms", "pre_write_deadline_ms", "clock"],
-  run_done: ["id", "status", "result", "may_have_mutated", "warnings", "latched", "deviations", "error"],
-  run_cancel: ["id"],
+  run_done: ["id", "status", "result", "may_have_mutated", "warnings", "latched", "deviations", "error", "cancel_cause"],
+  run_cancel: ["id", "reason", "canceler"],
   run_settled: ["id"],
   host_call: ["id", "hook", "run", "site", "payload"],
   host_reply: ["id", "payload", "error"],
@@ -71,7 +71,7 @@ const FIELDS: Record<string, readonly string[]> = {
 const NESTED: Record<string, readonly string[]> = {
   harness: ["kind", "version"],
   caps: ["fetch", "native", "fresh", "host"],
-  config: ["module_state", "heartbeat_ms", "max_message", "facade"],
+  config: ["module_state", "heartbeat_ms", "max_message", "facade", "foreign_windmill_origins"],
   reject: ["code", "message"],
   error: ["code", "message"],
 };
@@ -91,14 +91,31 @@ function value(v: unknown, nestedOrder?: readonly string[]): string {
     // Protocol objects use their fixed order; data objects (env, headers)
     // sort their keys by UTF-16 code units, as Go sorts them bytewise for
     // the ASCII names the cases use.
-    const keys = nestedOrder ? nestedOrder.filter((k) => o[k] !== undefined) : Object.keys(o).sort();
+    const keys = nestedOrder ? nestedOrder.filter((k) => present(k, o[k])) : Object.keys(o).sort();
     return "{" + keys.map((k) => JSON.stringify(k) + ":" + value(o[k])).join(",") + "}";
   }
   throw new ProtocolError("bad_field", `cannot encode ${typeof v}`);
 }
 
+/** Lists of a protocol object that are absent when null or empty, as Go
+ * reads and writes them: an empty list means none. */
+const ABSENT_WHEN_EMPTY = new Set(["foreign_windmill_origins"]);
+
+/** Whether field k of a protocol object, of value v, is written and kept
+ * when decoded: a field that is undefined is not, and neither is an
+ * ABSENT_WHEN_EMPTY list that is null or empty. Every other field keeps the
+ * codec's rules as they are. */
+function present(k: string, v: unknown): boolean {
+  if (ABSENT_WHEN_EMPTY.has(k)) return v != null && !(Array.isArray(v) && v.length === 0);
+  return v !== undefined;
+}
+
 /** Boolean fields written only when true, as Go writes them. */
 const WRITTEN_WHEN_TRUE = new Set(["run_done.may_have_mutated"]);
+
+/** String fields written only when not empty, as Go writes them: an empty
+ * one counts as absent, on decoding too. */
+const WRITTEN_WHEN_NOT_EMPTY = new Set(["run_done.cancel_cause", "run_cancel.reason", "run_cancel.canceler"]);
 
 /** The canonical payload text of a message. */
 export function encodeText(m: Outgoing): string {
@@ -107,7 +124,7 @@ export function encodeText(m: Outgoing): string {
   let s = '{"t":' + JSON.stringify(m.t);
   for (const k of order) {
     const v = m[k];
-    if (v === undefined || (v === false && WRITTEN_WHEN_TRUE.has(`${m.t}.${k}`))) continue;
+    if (v === undefined || (v === false && WRITTEN_WHEN_TRUE.has(`${m.t}.${k}`)) || (v === "" && WRITTEN_WHEN_NOT_EMPTY.has(`${m.t}.${k}`))) continue;
     s += "," + JSON.stringify(k) + ":" + value(v, NESTED[k]);
   }
   return s + "}";
@@ -265,6 +282,7 @@ export function decode(payload: Uint8Array): Message {
         checkField(m.t, m, "config", "object");
         checkNested(m.t, m, "config", { module_state: "string", heartbeat_ms: "int", max_message: "int" });
         if (m.config.facade != null) checkField(m.t, m.config, "facade", "string");
+        if (m.config.foreign_windmill_origins != null) checkField(m.t, m.config, "foreign_windmill_origins", "strings");
       } else if (m.reject != null) {
         checkField(m.t, m, "reject", "object");
         checkNested(m.t, m, "reject", { code: "string", message: "string" });
@@ -331,11 +349,9 @@ export function decode(payload: Uint8Array): Message {
         if (m[k] != null && !Array.isArray(m[k])) throw new ProtocolError("bad_field", `run ${k} is not an array`);
       }
       if (m.fatal_error_names != null) checkField(m.t, m, "fatal_error_names", "strings");
-      for (const k of ["deadline_ms", "pre_write_deadline_ms"]) {
-        if (m[k] == null) continue;
-        checkField(m.t, m, k, "int");
-        if (m[k] <= 0) throw new ProtocolError("bad_field", `run ${k} ${m[k]} is not positive`);
-      }
+      // A deadline is any integer the frame rules allow: one of 0 or less
+      // has passed, which ends that run alone (ADR 0004).
+      for (const k of ["deadline_ms", "pre_write_deadline_ms"]) if (m[k] != null) checkField(m.t, m, k, "int");
       if (m.clock != null) {
         checkField(m.t, m, "clock", "string");
         if (m.clock !== "real" && m.clock !== "record") throw new ProtocolError("bad_field", `run clock ${JSON.stringify(m.clock)}`);
@@ -355,6 +371,10 @@ export function decode(payload: Uint8Array): Message {
       if (m.latched != null) checkField(m.t, m, "latched", "string");
       if (m.deviations != null) checkField(m.t, m, "deviations", "strings");
       if (m.warnings != null && !Array.isArray(m.warnings)) throw new ProtocolError("bad_field", "run_done warnings is not an array");
+      if (m.cancel_cause != null) checkField(m.t, m, "cancel_cause", "string");
+      break;
+    case "run_cancel":
+      for (const k of ["reason", "canceler"]) if (m[k] != null) checkField(m.t, m, k, "string");
       break;
     case "ping":
     case "pong": {
@@ -407,13 +427,13 @@ function resultField(outcome: unknown, k: string): boolean {
 function own(m: Message): Message {
   const out: Message = { t: m.t };
   for (const k of FIELDS[m.t]) {
-    if (m[k] === undefined) continue;
+    if (m[k] === undefined || (m[k] === "" && WRITTEN_WHEN_NOT_EMPTY.has(`${m.t}.${k}`))) continue;
     if (m.t === "result" && !resultField(m.outcome, k)) continue;
     if ((m.t === "ping" || m.t === "pong") && k !== "id" && (m.in_flight === undefined || m.in_flight === null)) continue;
     const nested = Object.hasOwn(NESTED, k) ? NESTED[k] : undefined;
     if (nested && m[k] !== null) {
       const o: Record<string, unknown> = {};
-      for (const n of nested) if (m[k][n] !== undefined) o[n] = m[k][n];
+      for (const n of nested) if (present(n, m[k][n])) o[n] = m[k][n];
       out[k] = o;
     } else if (m[k] !== null || KEEP_NULL.has(`${m.t}.${k}`)) {
       out[k] = m[k];

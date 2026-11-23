@@ -1,0 +1,203 @@
+{
+  "title": "A step's own calls to a real Windmill: the parent_job and root_job that each request carries without and with the foreign Windmill origins",
+  "note": "Read by TestForeignWindmillLinks (wl) and TestHostForeignWindmillLinks (cmd/windmill-lite). A loopback server stands in for each real Windmill: it answers a dispatch under /jobs/run/ with dispatch_id as text, the result poll with a completed job whose result is flow_result, and any other request with []. listed says whether the request goes to the origin that the option names. sent is the request's parent_job and root_job as the step sends it, which the server sees without the option, and got what it sees with it: job is the step's WM_JOB_ID, root its WM_ROOT_FLOW_JOB_ID, top its WM_ROOT_JOB_ID, other the parent other_parent that the step names itself, and an empty string an absent parameter. With the option, also_listed are listed too: origins in forms that wl accepts and puts in one form, among them internationalised names, IPv4 addresses in short forms and one in fullwidth digits. The harness must run with each; xn--a.example, which only the harness's URL parser refuses, it leaves out. request is the first request that the call makes, requests how many it makes, params the other query parameters of the first, and out what the step read.",
+  "dispatch_id": "0193c1e0-0000-7000-8000-00000000f00d",
+  "flow_result": "remote",
+  "other_parent": "0193c1e0-0000-7000-8000-0000000000aa",
+  "also_listed": [
+    "HTTPS://Windmill.Example.com:443/",
+    "http://127.0.0.1:8000",
+    "https://windmill.example.com",
+    "http://[::1]:80",
+    "https://windmill.example.com:0443",
+    "http://[::1]:8080/",
+    "https://A_b.example",
+    "https://-a.example:8443",
+    "http://1.2.3.4:",
+    "https://[::FFFF:1.2.3.4]:443",
+    "https://localhost:0",
+    "https://xn--bcher-kva.example",
+    "https://Bücher.example",
+    "https://example.com.",
+    "http://127.1",
+    "https://0X7F.0.0.1:8443",
+    "https://01.2.3.4",
+    "https://xn--a.example",
+    "https://１２７.0.0.1:8444"
+  ],
+  "cases": [
+    {
+      "name": "stock client runScriptAsync",
+      "flow": "f/foreign/client",
+      "call": "runScriptAsync",
+      "listed": true,
+      "sent": [
+        "job",
+        "root"
+      ],
+      "got": [
+        "",
+        ""
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/api/w/windmill-lite/jobs/run/p/f/remote/script",
+        "body": "{\"x\":1}"
+      },
+      "requests": 1,
+      "params": {
+        "tag": "t1"
+      },
+      "out": "0193c1e0-0000-7000-8000-00000000f00d"
+    },
+    {
+      "name": "native step fetch",
+      "flow": "f/foreign/native",
+      "listed": true,
+      "sent": [
+        "job",
+        "root"
+      ],
+      "got": [
+        "",
+        ""
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/api/w/windmill-lite/jobs/run/p/f/remote/script",
+        "body": "{\"x\":1}"
+      },
+      "requests": 1,
+      "out": "0193c1e0-0000-7000-8000-00000000f00d"
+    },
+    {
+      "name": "stock client runFlow",
+      "flow": "f/foreign/client",
+      "call": "runFlow",
+      "listed": true,
+      "sent": [
+        "job",
+        "root"
+      ],
+      "got": [
+        "",
+        ""
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/api/w/windmill-lite/jobs/run/f/f/remote/flow",
+        "body": "{\"x\":1}"
+      },
+      "requests": 2,
+      "out": "remote"
+    },
+    {
+      "name": "stock client runFlowAsync sends none",
+      "flow": "f/foreign/client",
+      "call": "runFlowAsync",
+      "listed": true,
+      "sent": [
+        "",
+        ""
+      ],
+      "got": [
+        "",
+        ""
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/api/w/windmill-lite/jobs/run/f/f/remote/flow",
+        "body": "{\"x\":1}"
+      },
+      "requests": 1,
+      "out": "0193c1e0-0000-7000-8000-00000000f00d"
+    },
+    {
+      "name": "a parent that is not the step's own job",
+      "flow": "f/foreign/client",
+      "call": "otherParent",
+      "listed": true,
+      "sent": [
+        "other",
+        "root"
+      ],
+      "got": [
+        "other",
+        ""
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/api/w/windmill-lite/jobs/run/p/f/remote/script",
+        "body": "{\"x\":1}"
+      },
+      "requests": 1,
+      "out": "0193c1e0-0000-7000-8000-00000000f00d"
+    },
+    {
+      "name": "a parent that is the top of the step's run, in a subflow",
+      "flow": "f/foreign/nested",
+      "call": "topParent",
+      "listed": true,
+      "sent": [
+        "top",
+        "root"
+      ],
+      "got": [
+        "top",
+        ""
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/api/w/windmill-lite/jobs/run/p/f/remote/script",
+        "body": "{\"x\":1}"
+      },
+      "requests": 1,
+      "out": "0193c1e0-0000-7000-8000-00000000f00d"
+    },
+    {
+      "name": "an origin that is not listed",
+      "flow": "f/foreign/client",
+      "call": "runScriptAsync",
+      "listed": false,
+      "sent": [
+        "job",
+        "root"
+      ],
+      "got": [
+        "job",
+        "root"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/api/w/windmill-lite/jobs/run/p/f/remote/script",
+        "body": "{\"x\":1}"
+      },
+      "requests": 1,
+      "params": {
+        "tag": "t1"
+      },
+      "out": "0193c1e0-0000-7000-8000-00000000f00d"
+    },
+    {
+      "name": "a path outside jobs/run",
+      "flow": "f/foreign/client",
+      "call": "outsideRun",
+      "listed": true,
+      "sent": [
+        "job",
+        "root"
+      ],
+      "got": [
+        "job",
+        "root"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/api/w/windmill-lite/jobs/list",
+        "body": ""
+      },
+      "requests": 1,
+      "out": []
+    }
+  ]
+}

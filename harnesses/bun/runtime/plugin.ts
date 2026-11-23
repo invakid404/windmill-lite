@@ -108,6 +108,9 @@ export type Trace = {
   may_have_mutated: boolean;
   cached: boolean;
   latched?: string;
+  /** Why a canceled run was canceled: "deadline", "pre_write_deadline",
+   * "canceled", "closing" or "flow_timeout". */
+  cancel_cause?: string;
   steps: StepRecord[];
   children: { site: string; id: string; modules: string[]; virtual: boolean[]; failure: boolean }[];
   warnings: Warning[];

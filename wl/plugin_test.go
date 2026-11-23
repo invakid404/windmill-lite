@@ -231,7 +231,7 @@ func TestPluginCallsHoldSettlement(t *testing.T) {
 func TestPluginTraceDetail(t *testing.T) {
 	prog := &ir.Program{Flows: map[string]*ir.Flow{}}
 	tr := &Trace{
-		RunID: "r1", Bundle: "b1", Status: "success", Deviations: []string{"D21"},
+		RunID: "r1", Bundle: "b1", Status: "canceled", CancelCause: "deadline", Deviations: []string{"D21"},
 		Warnings: []Warning{{Code: "c", Message: "m"}},
 		Result:   jsonval.FromProducer([]byte(`{"big":"result"}`)),
 	}
@@ -242,7 +242,7 @@ func TestPluginTraceDetail(t *testing.T) {
 	}{
 		{"", nil},
 		{`"full"`, nil},
-		{`"summary"`, []string{"bundle", "cached", "deviations", "may_have_mutated", "module_state", "run", "shared_code", "status", "warnings"}},
+		{`"summary"`, []string{"bundle", "cached", "cancel_cause", "deviations", "may_have_mutated", "module_state", "run", "shared_code", "status", "warnings"}},
 		{`"none"`, []string{"run", "status"}},
 	} {
 		decl := `{"on_run_end":true,"on_run_settled":true}`

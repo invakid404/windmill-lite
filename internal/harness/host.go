@@ -57,6 +57,9 @@ type HostConfig struct {
 	// facade's origin as BASE_URL instead.
 	Facade   string
 	Platform PlatformHandler
+	// ForeignWindmillOrigins is as in ProcessConfig: the host's welcome
+	// names them, and its fetch view applies them to its steps' requests.
+	ForeignWindmillOrigins []string
 	// Workdir is the working directory the host passed to the engine,
 	// which must be a writable directory and the host's own working
 	// directory, the workdir of its hello (ADR 0004, the shared-process
@@ -86,10 +89,11 @@ type HostConfig struct {
 	// Run serves one run the host submitted, on a goroutine of its own,
 	// and returns its outcome; the ID of what it returns is set from the
 	// request. ctx ends when the host cancels the run (with cause
-	// engine.CancelCanceled) or the connection ends. Invocations of the
-	// run go to p, which implements engine.StepExecutor. What it returns
-	// goes back as run_done; when its Settled closes, a run_settled
-	// follows.
+	// engine.CancelCanceled, or an *engine.Cancellation when its
+	// run_cancel names a reason or a canceler) or the connection ends.
+	// Invocations of the run go to p, which implements
+	// engine.StepExecutor. What it returns goes back as run_done; when its
+	// Settled closes, a run_settled follows.
 	Run func(ctx context.Context, p *Process, r RunRequest) RunDone
 
 	// getppid and signal stand in for the system calls in tests.
@@ -273,6 +277,8 @@ func AttachHost(ctx context.Context, cfg HostConfig) (*Process, error) {
 		Diagnostics:      cfg.Diagnostics,
 		Facade:           cfg.Facade,
 		Platform:         cfg.Platform,
+
+		ForeignWindmillOrigins: cfg.ForeignWindmillOrigins,
 	})
 	if err != nil {
 		cfg.Conn.Close()

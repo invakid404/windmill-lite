@@ -21,8 +21,10 @@
 // of plugin cases, whose case plugin the host connects with, milestone
 // F2c), WL_PLUGIN_REPORT (the file that plugin's onRunSettled reports to)
 // WL_ENGINE_FLAGS (flags for the engine, space-separated),
-// WL_READ_CACHE (1 connects with the SDK's readCache) and
-// WL_RESOURCE_STORE (a kind connects with the SDK's resourceStore of it).
+// WL_READ_CACHE (1 connects with the SDK's readCache),
+// WL_RESOURCE_STORE (a kind connects with the SDK's resourceStore of it)
+// and WL_FOREIGN_WINDMILL (origins, space-separated, connect with the SDK's
+// foreignWindmillOrigins).
 
 import { readFileSync } from "node:fs";
 import { connect, HostError, type Plugin, type RunOptions } from "../../../../harnesses/bun/host/index.ts";
@@ -78,6 +80,7 @@ try {
     readCache: env.WL_READ_CACHE === "1",
     resourceStore: env.WL_RESOURCE_STORE ? { kind: env.WL_RESOURCE_STORE as "memory" } : undefined,
     skipArgsFile: env.WL_SKIP_ARGS_FILE === "1",
+    foreignWindmillOrigins: env.WL_FOREIGN_WINDMILL ? env.WL_FOREIGN_WINDMILL.split(" ") : undefined,
   });
 } catch (e) {
   // The supervisor's test reads why the host could not connect.
@@ -96,10 +99,13 @@ function percentiles(ms: number[]) {
 // own hooks and budgets.
 type Budgets = Pick<RunOptions, "writeCapable" | "haltBefore" | "haltAfter" | "fatalErrorNames" | "deadlineMs" | "preWriteDeadlineMs" | "clock">;
 
-async function submit(b: { path: string; tenant?: string; args?: Record<string, unknown>; intercept?: Record<string, unknown>; kind?: "flow" | "script" } & Budgets, onSettled?: () => void) {
+// abortAfterMs, when set, aborts the run's signal that long after its
+// submission, which cancels the run (run_cancel).
+async function submit(b: { path: string; tenant?: string; args?: Record<string, unknown>; intercept?: Record<string, unknown>; kind?: "flow" | "script"; abortAfterMs?: number } & Budgets, onSettled?: () => void) {
   try {
     const { writeCapable, haltBefore, haltAfter, fatalErrorNames, deadlineMs, preWriteDeadlineMs, clock } = b;
-    const opts: RunOptions = { intercept: b.intercept, kind: b.kind, onSettled, writeCapable, haltBefore, haltAfter, fatalErrorNames, deadlineMs, preWriteDeadlineMs, clock };
+    const signal = b.abortAfterMs === undefined ? undefined : AbortSignal.timeout(b.abortAfterMs);
+    const opts: RunOptions = { intercept: b.intercept, kind: b.kind, onSettled, writeCapable, haltBefore, haltAfter, fatalErrorNames, deadlineMs, preWriteDeadlineMs, clock, signal };
     return await scopes.store.run({ tenant: b.tenant ?? "" }, () => outside.tenant.run(b.tenant ?? "", () => host.run(b.path, b.args, opts)));
   } catch (e) {
     if (e instanceof HostError) return { refused: e.code };

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -325,6 +326,8 @@ type runResult struct {
 	Latched string `json:"latched"`
 	// Deviations are the run's run-time deviations (H7, H10).
 	Deviations []string `json:"deviations"`
+	// CancelCause is why a canceled run was canceled.
+	CancelCause string `json:"cancelCause"`
 	// DoneAt and SettledAt are, for /settle, when the outcome came and
 	// when the run settled, in milliseconds after it was submitted.
 	DoneAt    float64 `json:"doneAt"`
@@ -1036,7 +1039,8 @@ func TestHostWorkdirRefusedBySDK(t *testing.T) {
 // (harness.CheckWorkdir). The test plays the host itself: it starts the
 // engine as its child with a socketpair as file descriptor 3 and greets it.
 // An engine that cannot open the bundle refuses the host too, with its
-// reason.
+// reason, as does one whose -foreign-windmill origin wl refuses. No refusal
+// and no line of the engine's output holds the marker of a refused value.
 func TestHostWorkdirRefusedByEngine(t *testing.T) {
 	compiledHost(t) // builds the bundle
 	manifest, err := os.ReadFile(filepath.Join(hostBundle, "manifest.json"))
@@ -1065,6 +1069,10 @@ func TestHostWorkdirRefusedByEngine(t *testing.T) {
 		{"an unreachable Sentinel", false, false, []string{"-resource-store", "redis"}, harness.RejectEngine, "", "redis://user:s3cr3t-marker@127.0.0.1:1/0?master_name=main&password=s3cr3t-marker"},
 		{"a URL as the master's name", false, false, []string{"-resource-store", "redis"}, harness.RejectEngine, "", "redis://127.0.0.1:1/0?master_name=redis://user:s3cr3t-marker@host2:6379"},
 		{"the password as the master's name", false, false, []string{"-resource-store", "redis"}, harness.RejectEngine, "", "redis://user:s3cr3t-marker@127.0.0.1:1/0?master_name=s3cr3t-marker"},
+		{"an origin of a real Windmill with user information", false, false, []string{"-foreign-windmill", "https://user:s3cr3t-marker@windmill.example.com"}, harness.RejectEngine, "", ""},
+		{"an origin of a real Windmill with a query", false, false, []string{"-foreign-windmill", "https://windmill.example.com/?token=s3cr3t-marker"}, harness.RejectEngine, "", ""},
+		{"an origin of a real Windmill whose host the harness refuses", false, false, []string{"-foreign-windmill", "http://999.999.999.999"}, harness.RejectEngine, "", ""},
+		{"an origin of a real Windmill with an empty fragment", false, false, []string{"-foreign-windmill", "https://windmill.example.com/#"}, harness.RejectEngine, "", ""},
 		{"a host plugin with a malformed selector", false, false, nil, harness.RejectPlugin, `{"intercept":[{"selector":{"flow":"f/host/echo"}}]}`, ""},
 		{"a usable host plugin", false, false, nil, "", `{"halt_before":[{"flow":"f/host/echo","module":"a"}]}`, ""},
 	} {
@@ -1166,7 +1174,7 @@ func TestHostWorkdirRefusedByEngine(t *testing.T) {
 				t.Fatalf("welcome %+v; want a reject with %s; stderr:\n%s", w, tc.code, stderr.String())
 			}
 			if strings.Contains(w.Reject.Message, "s3cr3t-marker") || strings.Contains(stderr.String(), "s3cr3t-marker") {
-				t.Fatal("the refusal or the engine's output holds the Redis URL's marker")
+				t.Fatal("the refusal or the engine's output holds the marker of a refused value")
 			}
 			t.Logf("refused: %s: %s", w.Reject.Code, w.Reject.Message)
 		})
@@ -1292,6 +1300,81 @@ func TestHostResourceRelease(t *testing.T) {
 		t.Fatalf("lease %+v: the abandoned step used it until about 1500 ms, and it must be released only after that", l)
 	}
 	t.Logf("resource release: the outcome at %.0f ms, the lease's last use at %.0f ms, released at %.0f ms", r.DoneAt, l.LastUse, l.ReleasedAt)
+}
+
+// A deadline that has already passed, which the host SDK sends as 0 for a
+// negative rest, ends that run alone, canceled with its cause: the hard
+// deadline for a flow and for a root script, the pre-write deadline for a
+// flow whose step is write-capable. The host stays up, its connection
+// serves the next run, and the host is never restarted.
+func TestHostPassedDeadline(t *testing.T) {
+	s := supervise(t, 30000)
+	write := []map[string]any{{"flow": "f/host/echo", "module": "a"}}
+	for _, tc := range []struct {
+		name  string
+		body  map[string]any
+		cause string
+	}{
+		{"a flow's hard deadline", map[string]any{"path": "f/host/echo", "args": map[string]any{"x": 1}, "deadlineMs": -5}, "deadline"},
+		{"a root script's hard deadline", map[string]any{"path": "f/host/sleep", "kind": "script", "args": map[string]any{"ms": 5}, "deadlineMs": 0}, "deadline"},
+		{"a flow's pre-write deadline", map[string]any{"path": "f/host/echo", "args": map[string]any{"x": 1}, "writeCapable": write, "preWriteDeadlineMs": -5}, "pre_write_deadline"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, err := s.post("/run", tc.body)
+			if err != nil || r.Status != "canceled" || r.CancelCause != tc.cause || r.MayHaveMutated {
+				t.Fatalf("%+v, %v; want canceled, cause %s, no write", r, err, tc.cause)
+			}
+			r, err = s.post("/run", map[string]any{"path": "f/host/echo", "args": map[string]any{"x": 2}, "writeCapable": write})
+			if err != nil || r.Status != "success" || string(r.Result) != `{"x":2}` || r.CancelCause != "" || !r.MayHaveMutated {
+				t.Fatalf("the next run: %+v, %v; want success, {\"x\":2}", r, err)
+			}
+		})
+	}
+	if g := s.generations(); g != 1 {
+		t.Fatalf("the host was restarted: %d generations", g)
+	}
+}
+
+// A root script's run in host mode that ends on its own, before a
+// deadline far in the future, is not canceled and names no cause: a failure
+// the engine finds before the step (an entrypoint that is not a name), and
+// one of the step (an entrypoint the script does not export). Its deadline
+// passing is a cancellation, with the cause deadline and the killed job's
+// error, and so is the host's cancellation of a run with no deadline, with
+// the cause canceled. A script that fails before its job, its deadline
+// having passed, is canceled too, and keeps that failure as its result.
+func TestHostScriptOutcomeWithDeadline(t *testing.T) {
+	s := supervise(t, 30000)
+	const killed = "cancelled by unknown (reason: no reason given)"
+	for _, tc := range []struct {
+		name   string
+		body   map[string]any
+		status string
+		cause  string
+		// message is a text that the result's error message contains.
+		message string
+	}{
+		{"an entrypoint that is not a name", map[string]any{"args": map[string]any{"ms": 5, "_ENTRYPOINT_OVERRIDE": "1x"}, "deadlineMs": 30000}, "failure", "", "Invalid entrypoint override"},
+		{"an entrypoint the script does not export", map[string]any{"args": map[string]any{"ms": 5, "_ENTRYPOINT_OVERRIDE": "nosuch"}, "deadlineMs": 30000}, "failure", "", "nosuch function is missing"},
+		{"a step that outlives the deadline", map[string]any{"args": map[string]any{"ms": 5000}, "deadlineMs": 200}, "canceled", "deadline", killed},
+		{"the host's cancellation, with no deadline", map[string]any{"args": map[string]any{"ms": 5000}, "abortAfterMs": 200}, "canceled", "canceled", killed},
+		{"an entrypoint that is not a name, past the deadline", map[string]any{"args": map[string]any{"ms": 5, "_ENTRYPOINT_OVERRIDE": "1x"}, "deadlineMs": 0}, "canceled", "deadline", "Invalid entrypoint override"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := map[string]any{"path": "f/host/sleep", "kind": "script"}
+			maps.Copy(body, tc.body)
+			r, err := s.post("/run", body)
+			if err != nil || r.Status != tc.status || r.CancelCause != tc.cause {
+				t.Fatalf("%+v, %v; want %s, cause %q", r, err, tc.status, tc.cause)
+			}
+			var res struct {
+				Error struct{ Name, Message string } `json:"error"`
+			}
+			if json.Unmarshal(r.Result, &res) != nil || !strings.Contains(res.Error.Message, tc.message) || (tc.message == killed) != (res.Error.Name == "ExecutionErr" && strings.Contains(res.Error.Message, killed)) {
+				t.Fatalf("result %s; want an error whose message contains %q", r.Result, tc.message)
+			}
+		})
+	}
 }
 
 // A host runs a root script as a script job (WA-4), and gets a run that
@@ -1431,7 +1514,7 @@ func TestHostPluginCases(t *testing.T) {
 					t.Fatalf("run %d: %+v, %v", i, r, err)
 				}
 				runs = append(runs, r.ID)
-				o := conformance.PluginOutcome{Status: r.Status, MayHaveMutated: r.MayHaveMutated, Result: r.Result, Latched: r.Latched, Deviations: r.Deviations}
+				o := conformance.PluginOutcome{Status: r.Status, MayHaveMutated: r.MayHaveMutated, Result: r.Result, Latched: r.Latched, Deviations: r.Deviations, CancelCause: r.CancelCause}
 				scope := ""
 				for _, w := range r.Warnings {
 					o.Warnings = append(o.Warnings, struct{ Code, Message string }{w.Code, w.Message})
@@ -1588,11 +1671,11 @@ func caseRunBody(c conformance.PluginCase, r conformance.PluginRun, tenant strin
 	if len(r.FatalErrorNames) > 0 {
 		body["fatalErrorNames"] = r.FatalErrorNames
 	}
-	if r.DeadlineMS > 0 {
-		body["deadlineMs"] = r.DeadlineMS
+	if r.DeadlineMS != nil {
+		body["deadlineMs"] = *r.DeadlineMS
 	}
-	if r.PreWriteDeadlineMS > 0 {
-		body["preWriteDeadlineMs"] = r.PreWriteDeadlineMS
+	if r.PreWriteDeadlineMS != nil {
+		body["preWriteDeadlineMs"] = *r.PreWriteDeadlineMS
 	}
 	if r.Clock != "" {
 		body["clock"] = r.Clock
