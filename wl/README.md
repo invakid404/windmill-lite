@@ -264,7 +264,9 @@ runs.
 
 A canceled run's `CancelCause` names one cause. Every cause keeps the
 status `canceled` and the `Result` that Windmill stores: a flow's
-`Canceled` error, or a root script's `ExecutionErr` of a killed job.
+`Canceled` error, or a root script's failure value. That value is the
+killed job's `ExecutionErr` when the cancellation stopped the job, or the
+failure that ended the script before its job ran.
 
 | Cause | Constant | What canceled the run |
 |---|---|---|
@@ -609,9 +611,10 @@ with the engine's side of the protocol in
   that it captured when it submitted the run.
 - **Outcomes.** `run_done` carries the status, the stored result,
   `may_have_mutated`, the warnings, the trace's deviations and, for a
-  canceled run, `cancel_cause`; a root script's status and cause are read
-  before its settlement, whose callback releases the run's hard deadline.
-  `run_settled` follows once the run has settled. A run that `Run` refuses goes back as `refused`, or `draining`
+  canceled run, `cancel_cause`. `run_settled` follows once the run has
+  settled; a root script's run settles only after its status and cause are
+  decided, since the settlement's callback releases the run's hard
+  deadline. A run that `Run` refuses goes back as `refused`, or `draining`
   once `Close` has begun.
 - **A run's own hooks.** `hostBudgets` turns a run frame's write-capable
   selectors, halts and fatal error names into the run's own hooks, ahead

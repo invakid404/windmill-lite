@@ -699,9 +699,10 @@ its log of the run in the warning `plugin_log`. The TypeScript plugin's
 also reports, in the warning `plugin_trace`, the sites whose job ran and
 the run's cause of cancellation, as the trace that it got shows them.
 
-Every plugin's `onRunSettled` writes each run to a report file, with
-whether one of the run's hooks still ran, which `ReadSettlement` reads: the
-runners check that every run settles, and none early.
+The TypeScript plugin's `onRunSettled` also writes each run to a report
+file, with whether one of the run's hooks still ran, which `ReadSettlement`
+reads. Its two runners, in `warm` processes and in host mode, check that
+every run settles, and none early.
 
 `PluginCase.Check` compares a run's `PluginOutcome` with its `expect`, field
 by field:
@@ -714,7 +715,9 @@ by field:
   This is looser than a step run's `warnings`, which must be exact;
 - `log` and `deviations`, when given, must equal the outcome's, in order;
 - each `not_ran` site must have run no job: by the run's trace, or, for a
-  runner without it in host mode, by the plugin's `plugin_trace`;
+  runner without it in host mode, by the plugin's `plugin_trace`. Such a
+  runner's outcome needs that report, with its array of sites, an empty
+  one included: without it the check fails;
 - `cancel_cause`, when given, must equal the outcome's, and a run that is
   not `canceled` must have none;
 - the cause in `plugin_trace`, when the plugin sent one, must equal the

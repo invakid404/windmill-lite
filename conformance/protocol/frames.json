@@ -912,7 +912,7 @@
     },
     {
       "case": "run-cancel-reason",
-      "title": "the host cancels a run with a reason and a canceler, which the canceled run's result names",
+      "title": "the host cancels a run with a reason and a canceler, which the cancellation's error names",
       "message_text": "{\"t\":\"run_cancel\",\"canceler\":\"tenant-admin\",\"reason\":\"the tenant was suspended\",\"id\":\"r2\"}",
       "payload": "{\"t\":\"run_cancel\",\"id\":\"r2\",\"reason\":\"the tenant was suspended\",\"canceler\":\"tenant-admin\"}"
     },

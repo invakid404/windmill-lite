@@ -274,7 +274,7 @@ the harness protocol design record lists the fields of `run`, `run_done`,
   passed, which the engine's `Run` ends alone.
 - **Cancellation.** `RunDone.CancelCause` is a canceled run's cause, which
   `run_done` writes last as `cancel_cause`. A `run_cancel` may carry
-  `reason` and `canceler`, which the canceled run's result names. An empty
+  `reason` and `canceler`, which the cancellation's error names. An empty
   `cancel_cause`, `reason` or `canceler` counts as absent, in both codecs.
 - **Fields that the message table does not list.** `run` also carries
   `halt_before` and `halt_after`, which the record describes under its

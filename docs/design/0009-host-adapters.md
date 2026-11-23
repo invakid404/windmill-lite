@@ -521,7 +521,9 @@ never cancels a run that may have mutated.
 
 Both are optional fields in `runner.proto`, so absent means no deadline.
 One of 0 or less has already passed: the run ends at once, before any step,
-and other runs go on. A root script's run takes only the hard deadline.
+and other runs go on. A root script's run takes only the hard deadline, and
+one that fails on its own before it ends `failure`, with no cause
+([harness protocol](0004-harness-protocol.md#cancellation-and-deadlines)).
 
 The gRPC deadline of the `Run` call bounds the call, not the run. A call
 that ends first cancels its run, whose outcome then has no receiver, so

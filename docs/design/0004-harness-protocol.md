@@ -1049,18 +1049,34 @@ budget that a host gives it can end the connection.
 **The cause.** A canceled run's outcome names why it was canceled:
 `deadline`, `pre_write_deadline`, `canceled` (the host's cancellation, or
 the end of the call that carried the run), `closing` (the runtime closes)
-or `flow_timeout` (the flow's own limit). The status stays Windmill's
-`canceled`, and so does the result: a flow's `Canceled` error, or a root
-script's error of a killed job.
+or `flow_timeout` (the flow's own limit).
+
+The status stays Windmill's `canceled`, and so does the result: a flow's
+`Canceled` error, or a root script's failure value. That value is the
+killed job's `ExecutionErr` when the cancellation stopped the script's job,
+or the failure that ended the script before its job ran, such as an
+entrypoint that is not a name.
 
 `wl`'s `Result` carries the cause as `CancelCause`, and host mode's
 `run_done` as `cancel_cause`, the name that the planned `Runner`'s
 `RunResult` gives it too
 ([host adapters](0009-host-adapters.md#deadlines-and-outcomes)).
 
-A host's `run_cancel` may carry a `reason` and a `canceler`, which that
-result then names ([FX-38](../semantics/execution.md#fx-38)); without them
-it names Windmill's defaults. Its cause is `canceled` either way.
+A host's `run_cancel` may carry a `reason` and a `canceler`, which the
+cancellation's error then names, a flow's `Canceled` error or a killed
+script job's `ExecutionErr` ([FX-38](../semantics/execution.md#fx-38));
+without them it names Windmill's defaults. Its cause is `canceled` either
+way.
+
+**A root script that fails on its own.** A host-mode root script's run
+whose run frame carries a hard deadline, and that fails on its own before
+the deadline, before its job runs or in it, ends `failure`, with no cause.
+One whose deadline passes ends `canceled`, with the cause `deadline`.
+
+The run's outcome is decided before its settlement, because the settlement
+releases the run's hard deadline, which ends the run's context. Decided
+after it, that release would read as a cancellation, and such a run as
+`canceled`.
 
 ## Consequences
 
