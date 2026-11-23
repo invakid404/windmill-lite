@@ -195,10 +195,12 @@ in host mode:
   names `http://127.0.0.1`.
 - `Open`'s error names the value's position in the list and the reason,
   never the value, which could hold a secret.
-- An internationalised name, in Unicode or in its `xn--` form, reaches the
-  harness, whose URL parser maps it as it maps a request's URL. A name that
-  the parser refuses cannot be a request's host, so the harness leaves it
-  out of the list and writes a diagnostic line.
+- A host with a character outside ASCII reaches the harness whole, and so
+  does a name in its `xn--` form. The harness's URL parser maps it as it
+  maps a request's URL, so `http://１２７.0.0.1`, in fullwidth digits, names
+  `http://127.0.0.1`. A host that the parser refuses cannot be a request's
+  host, so the harness leaves it out of the list and writes a diagnostic
+  line.
 
 The [platform interface ADR](../docs/design/0007-platform-interface.md#async-dispatch)
 gives the reason.

@@ -36,7 +36,7 @@ func TestForeignWindmillOrigins(t *testing.T) {
 	// The origins in the forms of the cases' also_listed: duplicates, case,
 	// default ports, trailing slashes and colons, an underscore, a leading
 	// hyphen, IPv6, internationalised names, a trailing dot, IPv4 in short
-	// forms.
+	// forms and in fullwidth digits.
 	_, err, _, w := openHost(t, dir, Options{Host: &Host{Workdir: work}, ForeignWindmillOrigins: readForeignCases(t).AlsoListed}, work)
 	if err != nil {
 		t.Fatal(err)
@@ -48,6 +48,8 @@ func TestForeignWindmillOrigins(t *testing.T) {
 		// leaves xn--a.example out, which its URL parser refuses.
 		"https://xn--bcher-kva.example", "https://bücher.example", "https://example.com.", "http://127.0.0.1",
 		"https://127.0.0.1:8443", "https://1.2.3.4", "https://xn--a.example",
+		// The harness reads the fullwidth digits as 127.0.0.1.
+		"https://１２７.0.0.1:8444",
 	}
 	if w.Config == nil || !reflect.DeepEqual(w.Config.ForeignWindmillOrigins, want) {
 		t.Fatalf("welcome %+v, want the foreign origins %q", w.Config, want)
@@ -236,11 +238,13 @@ func buildForeignBundle(t *testing.T, bun, client string) (out, runtimeDir strin
 // Options.ForeignWindmillOrigins, on the pinned Bun 1.4.3 with the stock
 // windmill-client@1.862.0, in warm and fresh mode; host mode's is
 // TestHostForeignWindmillLinks in cmd/windmill-lite. Two loopback servers
-// stand in for real Windmill instances, and the option lists one of them,
-// in a form that the runtime normalises: in upper case, with a trailing
-// slash. It also lists the cases' also_listed, each of which the harness
-// processes must run with. Each case of testdata/foreign/cases.json runs a flow whose step
-// calls one of them, and checks the request that the server saw:
+// stand in for real Windmill instances, and the option lists one of them
+// only in a spelling that the harness maps (unicodeOrigin): its digits
+// fullwidth, its scheme in upper case, with a trailing slash. It also lists
+// the cases' also_listed, which the harness processes run with; they leave
+// out xn--a.example, which their URL parser refuses, and serve the rest.
+// Each case of testdata/foreign/cases.json runs a flow whose step calls one
+// of the servers, and checks the request that the server saw:
 //
 //   - With the option, a dispatch to the listed origin under
 //     /api/w/{workspace}/jobs/run/ carries neither of the step's own job
@@ -268,10 +272,11 @@ func TestForeignWindmillLinks(t *testing.T) {
 			opts := Options{Bun: bun, HarnessRuntime: runtimeDir, ModuleState: mode}
 			if on {
 				name = mode + "/with the option"
-				// Each origin that Open accepts must be one that the
-				// harness's URL parser accepts: one it refused would stop
-				// every harness process at its welcome.
-				opts.ForeignWindmillOrigins = append([]string{strings.ToUpper(listed.URL) + "/"}, cases.AlsoListed...)
+				// The harness processes run with every value that Open
+				// accepts: they leave out the one that their URL parser
+				// refuses, and match the listed server through its
+				// Unicode spelling.
+				opts.ForeignWindmillOrigins = append([]string{unicodeOrigin(t, listed.URL)}, cases.AlsoListed...)
 			}
 			t.Run(name, func(t *testing.T) {
 				rt, err := Open(out, opts)
@@ -301,6 +306,18 @@ func TestForeignWindmillLinks(t *testing.T) {
 			})
 		}
 	}
+}
+
+// unicodeOrigin returns the loopback origin u ("http://127.0.0.1:<port>")
+// spelt as the harness's URL parser maps it back to u, and wl only checks:
+// "HTTP://１２７.0.0.1:<port>/", with fullwidth digits.
+func unicodeOrigin(t *testing.T, u string) string {
+	t.Helper()
+	port, ok := strings.CutPrefix(u, "http://127.0.0.1:")
+	if !ok {
+		t.Fatalf("the loopback server's origin is %s, not on 127.0.0.1", u)
+	}
+	return "HTTP://１２７.0.0.1:" + port + "/"
 }
 
 // checkForeignCase checks the result of case i's step, and the requests

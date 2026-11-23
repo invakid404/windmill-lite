@@ -20,9 +20,9 @@ import (
 // them, the parser that reads a request's URL. This check refuses what that
 // parser refuses or reads as something else, wherever it can decide it
 // without the Unicode tables of internationalised names (foreignOrigin), so
-// the host learns why here. A name that only those tables reject reaches
-// the harness, which leaves it out: no request URL can have a host that the
-// parser rejects. An error names the value's position and the reason, never
+// the host learns why here. A host outside ASCII reaches the harness whole,
+// since the parser maps it before it reads it; the harness leaves out one
+// that the parser then rejects: no request URL can have such a host. An error names the value's position and the reason, never
 // the value, which can hold a secret in its user information or query.
 func foreignOrigins(list []string) ([]string, error) {
 	var out []string
@@ -95,13 +95,16 @@ const forbiddenHost = "/:<>[]^|\x7f"
 // URL wrote it in brackets. As the URL parser does, it reads:
 //
 //   - a bracketed host as an IPv6 address, which may have no zone;
-//   - a host whose last label is a number (digits, or "0x" and hex digits)
-//     as an IPv4 address, in up to four parts of decimal, octal (a leading
-//     "0") or hex numbers (ipv4), refusing one that is not a valid address
-//     and giving the address's dotted form;
-//   - any other host as a name, with its ASCII letters in lower case and
-//     any other character kept: the harness maps an internationalised name,
-//     such as bücher.example, to its xn-- form.
+//   - a host with a character outside ASCII as a name, with its ASCII
+//     letters in lower case and every other character kept: the harness's
+//     parser maps it first, and only then reads it, so bücher.example
+//     becomes xn--bcher-kva.example and １２７.0.0.1, in fullwidth digits,
+//     the IPv4 address 127.0.0.1;
+//   - an ASCII host whose last label is a number (digits, or "0x" and hex
+//     digits) as an IPv4 address, in up to four parts of decimal, octal (a
+//     leading "0") or hex numbers (ipv4), refusing one that is not a valid
+//     address and giving the address's dotted form;
+//   - any other host as a name, with its letters in lower case.
 func foreignHost(h string, bracketed bool) (string, string) {
 	if bracketed {
 		a, err := netip.ParseAddr(h)
@@ -113,6 +116,9 @@ func foreignHost(h string, bracketed bool) (string, string) {
 	h = asciiLower(h)
 	if strings.ContainsAny(h, forbiddenHost) {
 		return "", "its host has a character that a host name cannot have"
+	}
+	if strings.ContainsFunc(h, func(r rune) bool { return r > '~' }) {
+		return h, ""
 	}
 	if endsInNumber(h) {
 		a, ok := ipv4(h)

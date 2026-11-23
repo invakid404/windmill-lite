@@ -92,8 +92,9 @@ func (s *foreignStandIn) take() []foreignRequest {
 // connects with the SDK's foreignWindmillOrigins, which reach the engine as
 // -foreign-windmill flags and the host's runtime in the welcome, and its
 // steps, which run in the host, call two loopback servers that stand in for
-// real Windmill instances. The option lists one of them, in upper case
-// and with a trailing slash. Each case of the fixture's cases.json runs
+// real Windmill instances. The option lists one of them only in a spelling
+// that the host's URL parser maps: its digits fullwidth, its scheme in
+// upper case, with a trailing slash. Each case of the fixture's cases.json runs
 // with the option, where a dispatch to the listed origin under
 // /api/w/{workspace}/jobs/run/ loses the step's own job ids, and without
 // it, the control, where every request keeps what the step sent; the rest
@@ -121,9 +122,16 @@ func TestHostForeignWindmillLinks(t *testing.T) {
 	for _, on := range []bool{true, false} {
 		name, env := "without the option", "WL_FOREIGN_WINDMILL="
 		if on {
-			// The cases' also_listed too: each must be an origin that the
-			// host's URL parser accepts, or the host stops at its welcome.
-			name, env = "with the option", "WL_FOREIGN_WINDMILL="+strings.Join(append([]string{strings.ToUpper(listed.URL) + "/"}, cases.AlsoListed...), " ")
+			// The listed server only in a spelling that the host's URL
+			// parser maps (fullwidth digits, the scheme in upper case, a
+			// trailing slash), and the cases' also_listed: the host leaves
+			// out xn--a.example, which its parser refuses, and serves the
+			// rest.
+			port, ok := strings.CutPrefix(listed.URL, "http://127.0.0.1:")
+			if !ok {
+				t.Fatalf("the loopback server's origin is %s, not on 127.0.0.1", listed.URL)
+			}
+			name, env = "with the option", "WL_FOREIGN_WINDMILL="+strings.Join(append([]string{"HTTP://１２７.0.0.1:" + port + "/"}, cases.AlsoListed...), " ")
 		}
 		t.Run(name, func(t *testing.T) {
 			s := superviseHost(t, []string{host}, bundlePath, 30000, env)

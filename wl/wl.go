@@ -149,8 +149,8 @@ type Options struct {
 	// information, a query, a fragment or a path other than "/", or whose
 	// host the harness's URL parser refuses or reads as another (an IPv4
 	// address it reads as the WHATWG URL Standard does), naming its
-	// position, never the value. An internationalised name goes to the
-	// harness, which maps it as that parser does, and leaves out one the
+	// position, never the value. A host outside ASCII goes to the harness
+	// whole, which maps it as that parser does, and leaves out one the
 	// parser refuses, since no request can go to it. Empty, the default,
 	// names none. In host mode they apply to the host's steps.
 	ForeignWindmillOrigins []string
