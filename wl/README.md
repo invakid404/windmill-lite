@@ -2,8 +2,10 @@
 
 **Current state:** `wl` opens a bundle and runs its flows and root
 scripts, with host hooks, providers, budgets, host mode and host plugins.
-Only Bun steps run, and the go-plugin, gRPC and HTTP adapters of the
-[host adapters ADR](../docs/design/0009-host-adapters.md) do not exist yet.
+Only Bun steps run. Of the adapters of the
+[host adapters ADR](../docs/design/0009-host-adapters.md), the go-plugin
+adapter has only its host's side, [wl/plugin](plugin/README.md), and the
+gRPC and HTTP adapters do not exist yet.
 This README covers `wl/`, the Go package
 `github.com/invakid404/windmill-lite/wl`.
 
@@ -537,6 +539,7 @@ This section is for contributors who change `wl`.
 | `example_test.go` | The README's example, compiled by `go test` |
 | `storetest/` | The contract suite of `ResourceStore` ([its README](storetest/README.md)) |
 | `redisstore/` | The resource store on Redis ([its README](redisstore/README.md)) |
+| `plugin/` | The host's side of the go-plugin adapter ([its README](plugin/README.md)) |
 
 ### How Open works
 

@@ -1,0 +1,223 @@
+# wl/plugin
+
+**Current state:** the package launches the engine as a go-plugin plugin,
+pins its executable by SHA-256, and calls its `Runner` service: build
+information, runs, cancellation and health. The engine's side, the
+`windmill-lite plugin` command that serves `Runner`, is planned, so no
+engine answers these calls yet; the tests launch a test plugin instead.
+The supervisor, and the serving of a run's Go hooks on the broker, are
+planned too.
+
+This README covers `wl/plugin/`, the Go package
+`github.com/invakid404/windmill-lite/wl/plugin`, with its generated code and
+`testdata/`.
+
+`wl/plugin` is the host's side of windmill-lite's go-plugin adapter
+([host adapters](../../docs/design/0009-host-adapters.md#the-go-plugin-adapter)).
+[hashicorp/go-plugin](https://github.com/hashicorp/go-plugin) is a library
+that starts a plugin as a child process and calls it over gRPC on a private
+socket. A Go [host](../../docs/glossary.md#host) uses this package to start
+the [engine](../../docs/glossary.md#engine) binary that way, check that it
+is the expected build, and run [flows](../../docs/glossary.md#flow) and
+[root](../../docs/glossary.md#root) [scripts](../../docs/glossary.md#script)
+of its [bundle](../../docs/glossary.md#bundle) through the `Runner` service.
+
+The service and its messages are defined in
+[proto/windmill_lite/v1/runner.proto](../../proto/README.md). Their Go code
+is generated into this package: the message types, such as `RunRequest`,
+`RunResult` and `BuildInfo`, and the gRPC client and server types.
+
+## Launch the engine
+
+1. Make go-plugin's client configuration with `ClientConfig`, from a
+   `Launch` that names the executable, its SHA-256 and its configuration
+   file.
+2. Pass it to go-plugin's `NewClient`, and defer the client's `Kill`.
+3. Connect with the client's `Client`, then call `Dispense(PluginName)`,
+   which returns a `*Client`.
+4. Compare `BuildInfo` with the release record that the host ships.
+5. Run flows and scripts with `Run`.
+
+This example, from `example_test.go`, does the five steps:
+
+```go
+cfg, err := plugin.ClientConfig(plugin.Launch{
+	Path:   "/opt/windmill-lite/windmill-lite",
+	SHA256: engineSHA256,
+	Config: "/etc/windmill-lite/plugin.json",
+	Env:    []string{"PATH=/usr/local/bin:/usr/bin:/bin"},
+})
+if err != nil {
+	return err
+}
+client := goplugin.NewClient(cfg)
+defer client.Kill()
+
+conn, err := client.Client()
+if err != nil {
+	return err
+}
+raw, err := conn.Dispense(plugin.PluginName)
+if err != nil {
+	return err
+}
+engine := raw.(*plugin.Client)
+
+info, err := engine.BuildInfo(ctx)
+if err != nil {
+	return err
+}
+if info.GetBundleDigest() != wantBundle {
+	return fmt.Errorf("the engine serves the bundle %s, want %s", info.GetBundleDigest(), wantBundle)
+}
+
+res, err := engine.Run(ctx, &plugin.RunRequest{
+	Path: "f/app/main",
+	Args: []byte(`{"name": "lite"}`),
+})
+```
+
+### The launch
+
+| `Launch` field | What it sets | Default |
+|---|---|---|
+| `Path` | The engine executable, started as `<Path> plugin -config <Config>` | required |
+| `SHA256` | The SHA-256 that the executable must have, in hexadecimal | required |
+| `Config` | The path of the engine's configuration file | required |
+| `Env` | The engine's whole environment, as `KEY=value` entries | none |
+| `TempDir` | Where the launch creates its private base directory | `os.TempDir()` |
+| `MaxMessageBytes` | The largest gRPC message that the host sends or receives | 536870912 bytes (512 MiB), the harness protocol's limit |
+| `ReplyMargin` | How long before the context's deadline `Run` sets the run's hard deadline | 1 s |
+| `StartTimeout` | The bound on the engine's start, until its handshake | go-plugin's, 1 minute |
+| `Logger` | The logger of go-plugin and of the engine's standard error | go-plugin's |
+
+`ClientConfig` refuses a `Launch` without `Path` or `Config`, with a
+`SHA256` that is not 64 hexadecimal digits, or with a negative limit or
+margin. Each configuration serves one launch.
+
+- **The pin.** The launch hashes the executable just before it starts it.
+  On a mismatch it starts no process, and go-plugin's `Start` returns
+  `ErrChecksumMismatch`. The host keeps the file where no one else can
+  change it between the check and the start.
+- **Why not `SecureConfig`.** go-plugin's own check of the executable
+  cannot work here: go-plugin leaves the command's path empty when a runner
+  of the host's starts the plugin.
+- **The environment.** The engine gets `Env` and go-plugin's handshake
+  variables, such as the magic cookie, `PLUGIN_PROTOCOL_VERSIONS` and
+  `PLUGIN_UNIX_SOCKET_DIR`, and nothing else of the host's environment
+  (go-plugin's `SkipHostEnv`). A handshake variable wins over an entry of
+  `Env` with the same name. The engine's standard input is empty.
+- **The sockets.** `ClientConfig` creates a fresh base directory of mode
+  `0700`, `UnixSocketConfig.TempDir` in the configuration. go-plugin makes
+  a directory of mode `0700` in it for the engine's socket and for both
+  sides' broker sockets.
+- **Their removal.** The launch removes the base directory once the engine
+  has exited, after `Kill` or on its own, and when the launch fails. A
+  configuration that go-plugin never starts leaves its empty base
+  directory to the host.
+- **The length of a socket path.** macOS refuses a Unix socket path of 104
+  bytes or more. go-plugin adds up to 38 bytes to the base directory, so
+  `ClientConfig` refuses a base directory longer than 65 bytes: set
+  `TempDir` to a shorter directory then.
+- **gRPC only.** The configuration allows only go-plugin's gRPC protocol,
+  so a plugin that speaks go-plugin's `net/rpc` protocol fails to start.
+
+## Call the engine
+
+`Client` holds typed calls of one connection, which are safe for
+concurrent use.
+
+| Method | What it does |
+|---|---|
+| `BuildInfo` | Returns the engine's build identity: the bundle digest, the engine and Bun versions, the configuration's digest and labels, and the `Runner` version of the connection |
+| `Health` | Returns the gRPC health status of the service `windmill_lite.v1.Runner`. go-plugin's own health server answers only for the service `plugin`, so an engine that does not answer for `Runner` gives an error, not go-plugin's fixed `SERVING` |
+| `Run` | Runs a flow or a root script to its end and returns its `RunResult` |
+| `Cancel` | Cancels a run in flight by its id, with the reason and the canceler that its cancellation names |
+
+### Deadlines of a run
+
+`Run` gives the run the earlier of two hard deadlines: the request's own
+`deadline_ms`, and the context's deadline less the reply margin, in whole
+milliseconds. So the run ends, and its outcome reaches the host, before the
+call does. Without either deadline the run has none. `Run` sends a copy of
+the request with that deadline, and does not change the caller's request.
+
+| Request's `deadline_ms` | Context's deadline | `deadline_ms` sent |
+|---|---|---|
+| absent | none | absent |
+| 500 | none | 500 |
+| absent | in 10 s | 9000, with the default margin of 1 s |
+| 500 | in 10 s | 500 |
+| 20000 | in 10 s | 9000 |
+
+A context that has already ended starts no call: `Run` returns
+`ErrNotStarted` with the context's cause.
+
+### Outcomes of a run
+
+Every run that starts answers a `RunResult`, a failed or canceled one
+included. A `Run` error says whether the run started:
+
+| Error | When | What the host may do |
+|---|---|---|
+| `ErrNotStarted` | The engine refused the run with a gRPC error whose details hold a `google.rpc.ErrorInfo` with the domain `windmill-lite` (`ErrorDomain`) and the reason `RUN_NOT_STARTED` (`ReasonRunNotStarted`), or the context had ended | Retry the run |
+| `ErrOutcomeUnknown` | Any other error: the call's deadline, a lost connection, a transport's `UNAVAILABLE` without that detail, `INTERNAL` | Treat the run as one that may have mutated |
+
+The error of a call that `Run` made also wraps the call's gRPC error, so
+`status.Code(err)` gives its code, such as `ALREADY_EXISTS` for an id that
+a run in flight has.
+
+## Handshake and versions
+
+| Name | Value |
+|---|---|
+| `Handshake` | go-plugin's handshake configuration: the magic cookie `WINDMILL_LITE_PLUGIN` with a fixed value, and `ProtocolVersion` |
+| `PluginName` | `runner` |
+| `ProtocolVersion` | 1, the major version of `windmill_lite.v1.Runner` |
+| `VersionedPlugins` | The plugin sets by `Runner` version, for the engine's side and the host's: version 1 serves a `RunnerPlugin` under `PluginName` |
+| `RunnerPlugin` | The go-plugin plugin type, gRPC only. On the engine's side its `Runner` field is the service's implementation, which it registers; on the host's side it returns a `*Client` |
+
+The magic cookie checks that the engine was started as a plugin; it is not
+authentication. go-plugin's handshake picks the highest version that both
+sides list, and refuses a plugin that serves none of the host's versions.
+A breaking change of the service would define `windmill_lite.v2.Runner`,
+which both sides would list beside version 1 while hosts move.
+
+## Licences of the dependencies
+
+hashicorp/go-plugin and its dependency hashicorp/yamux are under the
+Mozilla Public License 2.0 (MPL-2.0). This package uses them as Go modules
+only, and the repository holds none of their files. A host that imports
+`wl/plugin` links them into its own binary, and gives their notices itself.
+
+## Tests
+
+The launch tests start real plugin processes. They build
+`testdata/runnerplugin`, a stand-in for the engine that serves a fake
+`Runner`, twice with the `go` command on the `PATH`: once serving only
+version 1 and once only version 2. They run on Linux and macOS, and fail
+instead of skipping when the build fails.
+
+| Test | What it checks |
+|---|---|
+| `TestRunnerRoundTrip` | `Run`, `Cancel` and `BuildInfo` over a real gRPC connection to a fake server: JSON values arrive as the same bytes, an absent deadline stays absent, and a deadline of 0 stays 0 |
+| `TestClientHealth` | `Health` reads the `Runner` service's status, and fails for a server that answers only for `plugin` |
+| `TestClientRunOutcomes` | The deadline that `Run` sends, and its errors: a call past its deadline, a connection lost after a write, the engine's refusal with and without its detail, and an ended context |
+| `TestVersionNegotiationRealHandshake` | A launch refuses the plugin that serves only version 2, and dispenses from the one that serves version 1 |
+| `TestClientConfigPin` | A matching SHA-256 starts the plugin, which sees the handshake variables and `Env` but not the test's own environment; a mismatching one starts no process and removes the base directory |
+| `TestClientConfigSocketPlacement` | The plugin's socket, made under umask `0077`, and the host's broker listener lie in a directory of mode `0700` in the base directory of mode `0700`, even under the host umask `0277`. Both directories are gone after `Kill` and after a failed launch |
+| `TestClientConfigRefusals` | The `Launch` fields that `ClientConfig` refuses |
+
+Run them with `go test -race ./wl/plugin`.
+
+## Files
+
+| File | Contents |
+|---|---|
+| `doc.go` | The package documentation, and the `go:generate` line that regenerates the code ([proto](../../proto/README.md#generate-the-go-code)) |
+| `plugin.go` | `PluginName`, `ProtocolVersion`, `Handshake`, `DefaultReplyMargin`, `VersionedPlugins`, `RunnerPlugin` |
+| `client.go` | `Client` and its calls, `ErrNotStarted`, `ErrOutcomeUnknown`, `ErrorDomain`, `ReasonRunNotStarted` |
+| `launch.go` | `Launch`, `ClientConfig`, `ErrChecksumMismatch`, `DefaultMaxMessageBytes`, and the runner that pins and starts the executable |
+| `runner.pb.go`, `runner_grpc.pb.go` | Generated from `runner.proto`; do not edit |
+| `example_test.go` | The example above, compiled by `go test` |
+| `testdata/runnerplugin/` | The test plugin |

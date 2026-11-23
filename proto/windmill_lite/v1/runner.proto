@@ -1,0 +1,300 @@
+// The contract between the windmill-lite engine, served as a go-plugin
+// plugin, and the host that launches it. ADR 0009 ("The go-plugin adapter")
+// gives the rules that this file only names. The Go code generated from it
+// is in wl/plugin; proto/README.md says how to regenerate it.
+//
+// Version 1 changes only by additions: a new field or a new call keeps it.
+// A breaking change defines windmill_lite.v2 beside it.
+
+syntax = "proto3";
+
+package windmill_lite.v1;
+
+option go_package = "github.com/invakid404/windmill-lite/wl/plugin;plugin";
+
+// Runner runs the flows and root scripts of the one bundle that the engine
+// serves.
+service Runner {
+  // GetBuildInfo returns the build identity of the engine, its bundle and
+  // its configuration.
+  rpc GetBuildInfo(GetBuildInfoRequest) returns (BuildInfo);
+
+  // Run runs a flow or a root script of the bundle to its end and returns
+  // its outcome. Every run that starts answers a RunResult. A run that
+  // does not start answers a gRPC error whose details hold a
+  // google.rpc.ErrorInfo with the domain "windmill-lite" and the reason
+  // "RUN_NOT_STARTED". Any other error leaves the outcome unknown.
+  rpc Run(RunRequest) returns (RunResult);
+
+  // Cancel cancels a run in flight by its id, with a reason and a
+  // canceler that the run's cancellation names.
+  rpc Cancel(CancelRequest) returns (CancelResponse);
+
+  // GetRun says whether the engine still holds the run of a hooks
+  // registration: in flight, or ended and not yet released.
+  rpc GetRun(GetRunRequest) returns (GetRunResponse);
+}
+
+// HostHooks is the service that a host serves on a connection of
+// go-plugin's broker, so that the engine calls the host's Go hooks of a
+// run. A run names the connection and its hooks in RunRequest.hooks.
+service HostHooks {
+  // Call calls one hook of a run.
+  rpc Call(HookCall) returns (HookReply);
+}
+
+// GetBuildInfoRequest asks for the build identity. It has no fields.
+message GetBuildInfoRequest {}
+
+// BuildInfo is the build identity of the engine, its bundle and its
+// configuration.
+message BuildInfo {
+  // bundle_digest is the digest of the bundle's manifest.
+  string bundle_digest = 1;
+  // engine_version is the version of the engine, which built the bundle.
+  string engine_version = 2;
+  // bun_version is the Bun that built the bundle's scripts and that the
+  // harness processes run on.
+  string bun_version = 3;
+  // esbuild_version is the esbuild that bundled the codebase scripts, if
+  // the bundle has any.
+  string esbuild_version = 4;
+  // harness_runtimes maps each harness class to the digest of the harness
+  // runtime that the bundle was built for.
+  map<string, string> harness_runtimes = 5;
+  // module_state is the module-state mode that the engine runs steps in.
+  string module_state = 6;
+  // shared_code says that the steps run the shared-code layout of the
+  // bundle.
+  bool shared_code = 7;
+  // contract is the host contract that the bundle was built against, as
+  // JSON text.
+  bytes contract = 8;
+  // deviations are the named deviations in effect for the bundle.
+  repeated string deviations = 9;
+  // nonconformant_runtime says that a Bun other than the pinned one built
+  // the bundle.
+  bool nonconformant_runtime = 10;
+  // protocol_version is the Runner version of the connection.
+  int32 protocol_version = 11;
+  // labels are the names and values of the configuration's labels.
+  map<string, string> labels = 12;
+  // config_digest is the SHA-256 of the configuration file, in lowercase
+  // hexadecimal.
+  string config_digest = 13;
+}
+
+// RunRequest asks the engine to run a flow or a root script. A field that
+// is not set has its default; a field that the engine does not serve, or
+// that a script run does not take, refuses the run and names the field.
+message RunRequest {
+  // id is the run's job id. Empty means a new UUID.
+  string id = 1;
+  // kind is "flow" or "script". Empty means "flow".
+  string kind = 2;
+  // path is the path of the flow or the root script in the bundle.
+  string path = 3;
+  // args are the run's arguments, a JSON object as text.
+  bytes args = 4;
+  // deadline_ms is the run's hard deadline, in milliseconds from the
+  // engine's receipt of the request. Absent means no deadline. 0 or less
+  // is a deadline that has passed: the run ends canceled before any step.
+  optional int64 deadline_ms = 5;
+  // pre_write_deadline_ms is the flow run's pre-write deadline, in
+  // milliseconds from the engine's receipt of the request: it cancels the
+  // run only until the first write is approved. Absent means no deadline.
+  optional int64 pre_write_deadline_ms = 6;
+  // write_capable selects the write-capable sites of the flow, as a JSON
+  // selector.
+  bytes write_capable = 7;
+  // halt_before selects the sites before which the flow run halts, as a
+  // JSON selector.
+  bytes halt_before = 8;
+  // halt_after selects the sites after which the flow run halts, as a
+  // JSON selector.
+  bytes halt_after = 9;
+  // fatal_error_names are the error names that latch the flow run instead
+  // of passing through retries, continue_on_error and skipped failures.
+  repeated string fatal_error_names = 10;
+  // intercept is the flow run's static interceptions, as JSON.
+  bytes intercept = 11;
+  // clock is the flow run's clock: "real" or "record". Empty means "real".
+  string clock = 12;
+  // run_data is JSON that the run's host plugin reads as the run's data.
+  bytes run_data = 13;
+  // identity is the run's own workspace and user, in place of the
+  // engine's.
+  Identity identity = 14;
+  // resources are the run's own resources by path, in place of the
+  // engine's at the same paths.
+  map<string, Resource> resources = 15;
+  // variables are the run's own variables by path, in place of the
+  // engine's at the same paths.
+  map<string, Variable> variables = 16;
+  // hooks names the host's hooks service on the broker and the hooks that
+  // it answers for this run.
+  Hooks hooks = 17;
+  // pin keeps every invocation and hook call of the run on one harness
+  // process.
+  bool pin = 18;
+  // limits are the run's own limits.
+  Limits limits = 19;
+  // trace is how much of the run's trace the result carries: "none",
+  // "summary" or "full". Empty means "none".
+  string trace = 20;
+}
+
+// Identity is the workspace and the user that every job of a run has.
+// An empty field has the engine's value.
+message Identity {
+  // workspace is the jobs' workspace (WM_WORKSPACE).
+  string workspace = 1;
+  // username is the jobs' user name (WM_USERNAME).
+  string username = 2;
+  // email is the jobs' user email (WM_EMAIL).
+  string email = 3;
+  // permissioned_as is the identity that the jobs run as
+  // (WM_PERMISSIONED_AS).
+  string permissioned_as = 4;
+  // base_url is the base URL that the jobs see (WM_BASE_URL).
+  string base_url = 5;
+  // worker_group is the worker group that the jobs see (WM_WORKER_GROUP).
+  string worker_group = 6;
+}
+
+// Resource is a resource that the host provides.
+message Resource {
+  // type is the resource's type.
+  string type = 1;
+  // value is the resource's value, as JSON text.
+  bytes value = 2;
+}
+
+// Variable is a variable that the host provides.
+message Variable {
+  // value is the variable's value: a secret's plaintext, unless
+  // ciphertext is set.
+  string value = 1;
+  // secret says that the variable is a secret.
+  bool secret = 2;
+  // ciphertext says that value is Windmill ciphertext under the workspace
+  // key, which windmill-lite never decrypts.
+  bool ciphertext = 3;
+}
+
+// Hooks names the host's hooks service for one run.
+message Hooks {
+  // broker_id is the id of the go-plugin broker connection on which the
+  // host serves HostHooks.
+  uint32 broker_id = 1;
+  // token identifies the host's registration of the run's hooks. Every
+  // HookCall of the run echoes it.
+  string token = 2;
+  // declaration is the hooks that the host answers for the run, as JSON,
+  // in the form of a host plugin's declaration.
+  bytes declaration = 3;
+}
+
+// Limits are the limits of one run. Zero means no limit.
+message Limits {
+  // max_in_flight bounds the run's invocations in flight.
+  int64 max_in_flight = 1;
+  // max_args_bytes bounds the size of the run's arguments, in bytes.
+  int64 max_args_bytes = 2;
+  // max_held_bytes bounds the bytes that the engine holds for the run's
+  // stored values.
+  int64 max_held_bytes = 3;
+  // bytes is the run's budget of bytes that its steps and its host plugin
+  // reserve.
+  int64 bytes = 4;
+}
+
+// RunResult is the outcome of a run that started.
+message RunResult {
+  // id is the run's job id.
+  string id = 1;
+  // status is "success", "failure", "canceled", "skipped", "latched" or
+  // "halted".
+  string status = 2;
+  // result is the run's final result in its stored form, as JSON text.
+  // It is empty when the run has none, such as a canceled run.
+  bytes result = 3;
+  // may_have_mutated says that the launch of the run's first write-capable
+  // step was approved. Only false means that no write-capable step
+  // started.
+  bool may_have_mutated = 4;
+  // cancel_cause is, for a canceled run, "deadline", "pre_write_deadline",
+  // "canceled", "closing" or "flow_timeout"; empty otherwise.
+  string cancel_cause = 5;
+  // latched is the error that a latched run latched; empty otherwise.
+  string latched = 6;
+  // warnings are the run's warnings, as a JSON array of objects with a
+  // code and a message; empty when the run has none.
+  bytes warnings = 7;
+  // deviations are the deviations of the run's trace.
+  repeated string deviations = 8;
+  // trace is the run's trace at the level that the request asked for, as
+  // JSON text; empty at the level "none".
+  bytes trace = 9;
+}
+
+// CancelRequest cancels a run in flight.
+message CancelRequest {
+  // id is the run's job id.
+  string id = 1;
+  // reason is the reason that the run's cancellation names.
+  string reason = 2;
+  // canceler is who canceled the run, as the run's cancellation names it.
+  string canceler = 3;
+}
+
+// CancelResponse answers a CancelRequest. It has no fields.
+message CancelResponse {}
+
+// GetRunRequest asks about the run of one hooks registration.
+message GetRunRequest {
+  // id is the run's job id.
+  string id = 1;
+  // token is the registration's token, from RunRequest.hooks.
+  string token = 2;
+}
+
+// GetRunResponse says whether the engine holds the run of a hooks
+// registration.
+message GetRunResponse {
+  // state is "held" while the engine holds the run, and "gone" once it no
+  // longer does or never did.
+  string state = 1;
+}
+
+// HookCall is one call of a run's hook.
+message HookCall {
+  // hook is the hook's name, as a host plugin declares it.
+  string hook = 1;
+  // run is the run's job id.
+  string run = 2;
+  // token is the token of the run's hooks registration.
+  string token = 3;
+  // site is the flow site that the call is about, if any.
+  string site = 4;
+  // payload is the hook's input, a JSON object as text.
+  bytes payload = 5;
+}
+
+// HookReply answers a HookCall: payload is the hook's answer, or error
+// says why the host gave none.
+message HookReply {
+  // payload is the hook's answer, a JSON object as text.
+  bytes payload = 1;
+  // error says why the host gave no answer.
+  HookError error = 2;
+}
+
+// HookError says why the host gave a hook call no answer.
+message HookError {
+  // code names the failure, as a host plugin's failure codes do, such as
+  // "plugin_error" or "unknown_hook".
+  string code = 1;
+  // message describes the failure.
+  string message = 2;
+}
