@@ -209,8 +209,9 @@ var ErrEngineVersion = errors.New("wl: the bundle was built by another engine ve
 // ErrClosed is Run's error once Close has begun.
 var ErrClosed = errors.New("wl: the runtime is closed")
 
-// closing is the cause Close cancels the runs in flight with (FX-38).
-var closing = &Cancellation{Reason: "the runtime is closing", Canceler: "windmill-lite"}
+// closing is the cause Close cancels the runs in flight with (FX-38), which
+// gives them the cause CauseClosing.
+var closing = engine.Closing
 
 // Runtime is an opened bundle. It is safe for concurrent use.
 type Runtime struct {

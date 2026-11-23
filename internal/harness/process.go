@@ -769,8 +769,13 @@ func (p *Process) handleMessage(m Message) error {
 			err = protoErr(CodeUnexpected, "run_cancel from a harness that is not in host mode")
 		} else if cancel := p.runs[m.ID]; cancel != nil {
 			// A run that already ended is no longer in the table; its
-			// cancel crossed the run_done on the wire.
-			cancel(engine.CancelCanceled)
+			// cancel crossed the run_done on the wire. A reason or a
+			// canceler is what the cancellation's error names (FX-38).
+			var cause error = engine.CancelCanceled
+			if m.Reason != "" || m.Canceler != "" {
+				cause = &engine.Cancellation{Reason: m.Reason, Canceler: m.Canceler}
+			}
+			cancel(cause)
 		}
 	default:
 		err = protoErr(CodeUnexpected, "%s from a harness", m.Type())

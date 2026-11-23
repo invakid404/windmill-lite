@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"sync/atomic"
 	"time"
@@ -169,17 +170,14 @@ func (rt *Runtime) serveHost(ctx context.Context, p *harness.Process, r harness.
 	// The hard deadline bounds the run's context until the run has
 	// settled: iterations a latch or a cancellation left running are
 	// abandoned at it (H5).
-	cancel := context.CancelFunc(func() {})
-	if r.DeadlineMS > 0 {
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(r.DeadlineMS)*time.Millisecond)
-	}
+	ctx, cancel := hostDeadline(ctx, r)
 	settled := make(chan struct{})
 	res, err := rt.run(ctx, r.Path, json.RawMessage(r.Args.Producer()), opts, hooks, func() { close(settled); cancel() })
 	if err != nil {
 		cancel()
 		return refused(err)
 	}
-	done := harness.RunDone{Status: res.Status, MayHaveMutated: res.MayHaveMutated, Settled: settled}
+	done := harness.RunDone{Status: res.Status, MayHaveMutated: res.MayHaveMutated, CancelCause: res.CancelCause, Settled: settled}
 	if res.Trace != nil {
 		done.Deviations = res.Trace.Deviations
 	}
@@ -202,6 +200,16 @@ func (rt *Runtime) serveHost(ctx context.Context, p *harness.Process, r harness.
 		done.Warnings = jsonval.FromProducer(b)
 	}
 	return done
+}
+
+// hostDeadline is the context of a run frame's run: ctx, bounded by the
+// frame's hard deadline when it has one. A deadline that has passed ends
+// the run before its first module, and that run alone (ADR 0004).
+func hostDeadline(ctx context.Context, r harness.RunRequest) (context.Context, context.CancelFunc) {
+	if r.DeadlineMS == nil {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, budgetDuration(*r.DeadlineMS))
 }
 
 // hostBudgets are the RunOptions of a run frame: its id and kind, and what
@@ -243,13 +251,32 @@ func hostBudgets(r harness.RunRequest, prog *ir.Program) (RunOptions, error) {
 	if len(h.WriteCapable) > 0 || len(h.HaltBefore) > 0 || len(h.HaltAfter) > 0 || len(h.FatalErrorNames) > 0 {
 		opts.Hooks = &h
 	}
-	if r.PreWriteDeadlineMS > 0 {
-		opts.PreWriteDeadline = time.Now().Add(time.Duration(r.PreWriteDeadlineMS) * time.Millisecond)
+	if r.PreWriteDeadlineMS != nil {
+		opts.PreWriteDeadline = time.Now().Add(budgetDuration(*r.PreWriteDeadlineMS))
 	}
 	if r.Clock == harness.ClockRecord {
 		opts.Clock = &RecordClock{}
 	}
 	return opts, nil
+}
+
+// maxBudgetMS is the longest budget in milliseconds that a time.Duration
+// holds: 9,223,372,036,854 ms, about 292 years.
+const maxBudgetMS = math.MaxInt64 / int64(time.Millisecond)
+
+// budgetDuration converts a run frame's deadline in milliseconds, either
+// budget, to a duration: 0 for one of 0 or less, a deadline that has
+// passed; the longest duration for one above maxBudgetMS, which would
+// otherwise wrap around to a wrong duration (ADR 0004 §Cancellation and
+// deadlines).
+func budgetDuration(ms int64) time.Duration {
+	switch {
+	case ms <= 0:
+		return 0
+	case ms > maxBudgetMS:
+		return math.MaxInt64
+	}
+	return time.Duration(ms) * time.Millisecond
 }
 
 // refused is the run_done of a run that did not start.

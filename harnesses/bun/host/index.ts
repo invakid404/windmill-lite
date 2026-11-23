@@ -194,12 +194,17 @@ export type RunOptions = {
    * with the plugin's. */
   fatalErrorNames?: string[];
   /** The run's hard deadline, in milliseconds from its submission (H4): the
-   * run ends canceled when it passes, and steps it left running are
-   * abandoned. */
+   * run ends canceled, with cancelCause "deadline", when it passes, and
+   * steps it left running are abandoned. Only this run ends: 0 or less is a
+   * deadline that has already passed, which ends the run before its first
+   * module. The SDK rounds it up to a whole millisecond, and refuses the
+   * run (HostError "refused") when it is not a finite number or is above
+   * Number.MAX_SAFE_INTEGER. */
   deadlineMs?: number;
   /** The flow run's pre-write deadline, in milliseconds from its
-   * submission (H4): it ends the run canceled if it passes before the
-   * first write is approved. */
+   * submission (H4): it ends the run canceled, with cancelCause
+   * "pre_write_deadline", if it passes before the first write is approved.
+   * It takes the values deadlineMs takes. */
   preWriteDeadlineMs?: number;
   /** The flow run's clock (H10): "record" returns every sleep and retry
    * delay at once, and the run's deviations then list H10. */
@@ -226,6 +231,10 @@ export type RunResult = {
   /** The flow run's deviations that depend on a run-time setting, as its
    * trace lists them (H7, H10). */
   deviations: string[];
+  /** Why a canceled run was canceled: "deadline", "pre_write_deadline",
+   * "canceled" (its signal aborted, or another cancellation), "closing"
+   * (the engine closed) or "flow_timeout" (the flow's own limit). */
+  cancelCause?: string;
 };
 
 export type Health = HostHealth & {
@@ -281,8 +290,10 @@ export type Host = {
   /** Runs the flow (or script) at path with args, inside the caller's
    * current scope. It rejects with a HostError when the run does not
    * start: "draining", or "refused": no such target, arguments that are
-   * not an object, a selector option that is not a list of objects, or a
-   * selector that the engine finds malformed or ambiguous. */
+   * not an object, a selector option that is not a list of objects, a
+   * selector that the engine finds malformed or ambiguous, or a deadline
+   * option that is not a finite number or is above
+   * Number.MAX_SAFE_INTEGER. */
   run(path: string, args?: Record<string, unknown>, opts?: RunOptions): Promise<RunResult>;
   /** In-flight and abandoned invocations, the age of the oldest abandoned
    * one, process-level errors no invocation owned, event-loop lag, RSS,
@@ -336,6 +347,21 @@ function runSelectors(option: string, list: unknown): Selector[] | undefined {
     if (s === null || typeof s !== "object" || Array.isArray(s)) throw new Error(`the run's ${option}[${i}]: a selector is an object`);
   });
   return list as Selector[];
+}
+
+/** A run option's budget in milliseconds as the run frame carries it, or
+ * undefined when the option is undefined: rounded up to a whole
+ * millisecond, and at least 0, a deadline that has passed. The engine
+ * decodes a number that is not an integer, or one beyond the frame rules'
+ * largest, as a broken frame, which would end the connection, so a value
+ * that is not a finite number or is above Number.MAX_SAFE_INTEGER throws
+ * here, null included: it is not an absent deadline. */
+function runBudget(option: string, ms: unknown): number | undefined {
+  if (ms === undefined) return undefined;
+  if (typeof ms !== "number" || !Number.isFinite(ms) || ms > Number.MAX_SAFE_INTEGER) {
+    throw new Error(`the run's ${option} is not a finite number of milliseconds up to ${Number.MAX_SAFE_INTEGER}: ${String(ms)}`);
+  }
+  return Math.max(0, Math.ceil(ms));
 }
 
 /** Registers the host's instances of host-provided modules, by the keys
@@ -705,11 +731,16 @@ export async function connect(o: ConnectOptions): Promise<Host> {
     run(path, args = {}, opts = {}) {
       if (draining) return Promise.reject(new HostError("draining", "the host is draining and takes no new runs"));
       let selectors;
+      let budgets;
       try {
         selectors = {
           write_capable: runSelectors("writeCapable", opts.writeCapable),
           halt_before: runSelectors("haltBefore", opts.haltBefore),
           halt_after: runSelectors("haltAfter", opts.haltAfter),
+        };
+        budgets = {
+          deadline_ms: runBudget("deadlineMs", opts.deadlineMs),
+          pre_write_deadline_ms: runBudget("preWriteDeadlineMs", opts.preWriteDeadlineMs),
         };
       } catch (e) {
         return Promise.reject(new HostError("refused", (e as Error).message));
@@ -725,8 +756,7 @@ export async function connect(o: ConnectOptions): Promise<Host> {
             intercept: opts.intercept && JSON.stringify(opts.intercept),
             ...selectors,
             fatal_error_names: opts.fatalErrorNames,
-            deadline_ms: opts.deadlineMs,
-            pre_write_deadline_ms: opts.preWriteDeadlineMs,
+            ...budgets,
             clock: opts.clock,
           },
           opts.onSettled,
@@ -750,6 +780,7 @@ export async function connect(o: ConnectOptions): Promise<Host> {
             warnings: o.warnings,
             latched: o.latched,
             deviations: o.deviations,
+            cancelCause: o.cancel_cause,
           }),
           (e) => {
             throw e instanceof RunError ? new HostError(e.code, e.detail) : e;

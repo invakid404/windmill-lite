@@ -51,6 +51,26 @@ const (
 	StatusHalted  = string(conformance.RunHalted)
 )
 
+// The causes of a canceled run, Result.CancelCause (ADR 0004 §Cancellation
+// and deadlines). Each keeps the status StatusCanceled and the result: a
+// flow's Canceled error (FX-38), or a root script's stored failure value,
+// such as the killed job's error when the cancellation stopped its job.
+const (
+	// CauseDeadline: the run's hard deadline, its context's, passed.
+	CauseDeadline = engine.CauseDeadline
+	// CausePreWriteDeadline: the flow run's pre-write deadline
+	// (RunOptions.PreWriteDeadline) passed before its first write was
+	// approved.
+	CausePreWriteDeadline = engine.CausePreWriteDeadline
+	// CauseCanceled: any other end of the run's context, such as a
+	// cancellation with a *Cancellation cause.
+	CauseCanceled = engine.CauseCanceled
+	// CauseClosing: Close canceled the run.
+	CauseClosing = engine.CauseClosing
+	// CauseFlowTimeout: the flow's own wall-clock limit (FX-52).
+	CauseFlowTimeout = engine.CauseFlowTimeout
+)
+
 // Target kinds, RunOptions.Kind.
 const (
 	KindFlow   = "flow"
@@ -164,13 +184,18 @@ type Result struct {
 	// run whose Status is StatusLatched (H5), such as ErrProviderDeclined;
 	// nil otherwise.
 	Latched error
+	// CancelCause is why a run whose Status is StatusCanceled was
+	// canceled: CauseDeadline, CausePreWriteDeadline, CauseCanceled,
+	// CauseClosing or CauseFlowTimeout; "" otherwise.
+	CancelCause string
 }
 
 // Run runs the flow or script at path with args, a JSON object, and
 // returns how it ended (ADR 0009). The run's context bounds it: when it
 // ends, the run ends canceled, with its cause's reason and canceler when
 // that is a *Cancellation (FX-38); Close cancels it too, with the reason
-// "the runtime is closing" by "windmill-lite". An error means the run
+// "the runtime is closing" by "windmill-lite". Result.CancelCause says
+// which of these, or which deadline, canceled it. An error means the run
 // could not start: the runtime is closed (ErrClosed), no such target, or
 // arguments that are not a JSON object or that cannot be stored.
 func (rt *Runtime) Run(ctx context.Context, path string, args json.RawMessage, opts RunOptions) (*Result, error) {
@@ -217,9 +242,6 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 			req.Exec = settlingExec{inner: rt.exec, settle: s}
 		}
 		res, err := rt.eng.RunScript(ctx, req)
-		if s != nil && err == nil {
-			s.End()
-		}
 		if err != nil {
 			return nil, err
 		}
@@ -230,9 +252,16 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 			out.Status, out.Result, out.Latched = StatusLatched, nil, res.Latched
 		case res.Failed && ctx.Err() != nil:
 			// The script failed because the run's context ended (FX-38).
-			out.Status = StatusCanceled
+			out.Status, out.CancelCause = StatusCanceled, engine.CancelCauseOf(ctx)
 		case res.Failed:
 			out.Status = StatusFailure
+		}
+		// The run settles once its outcome is decided: in host mode the
+		// settlement's callback releases the run's hard deadline, which
+		// ends ctx, so a script that failed on its own does not read as
+		// canceled.
+		if s != nil {
+			s.End()
 		}
 		return out, nil
 	default:
@@ -301,6 +330,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		Trace:          tr,
 		Warnings:       tr.Warnings,
 		Latched:        tr.Latched,
+		CancelCause:    tr.CancelCause,
 	}, nil
 }
 

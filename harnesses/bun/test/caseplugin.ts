@@ -3,7 +3,9 @@
 // sites of its own flow, which the Go tests load in warm
 // harness processes (wl, wl.Options.Plugin) and in a compiled host
 // (cmd/windmill-lite, the host SDK's plugin option). It keeps a log of
-// each run, which onRunEnd reports in the warning plugin_log. Its
+// each run, which onRunEnd reports in the warning plugin_log, and reports
+// in the warning plugin_trace what the run's trace showed it: the sites
+// whose job ran, and the cause of a cancellation. Its
 // onRunSettled appends a line to the report file, when it has one: the
 // run's id, and whether one of the run's hooks still ran then, which must
 // never be so (ADR 0008 H9: a run's resources outlive its hooks). A file,
@@ -131,6 +133,7 @@ export function casePlugin(cases: { flow: string; plugin: CaseSpec }[], report?:
     onRunEnd: (t) => {
       const ws = [
         { code: "plugin_log", message: JSON.stringify(logs.get(t.run) ?? []) },
+        { code: "plugin_trace", message: JSON.stringify({ ran: t.steps.filter((s) => s.ran).map((s) => s.site), cancel_cause: t.cancel_cause ?? "" }) },
         ...(byFlow.get(runFlow.get(t.run) ?? "")?.warnings ?? []),
       ];
       logs.delete(t.run);

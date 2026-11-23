@@ -55,8 +55,8 @@ const FIELDS: Record<string, readonly string[]> = {
   platform: ["id", "inv", "method", "url", "headers", "body"],
   platform_reply: ["id", "status", "headers", "body"],
   run: ["id", "kind", "path", "args", "intercept", "write_capable", "halt_before", "halt_after", "fatal_error_names", "deadline_ms", "pre_write_deadline_ms", "clock"],
-  run_done: ["id", "status", "result", "may_have_mutated", "warnings", "latched", "deviations", "error"],
-  run_cancel: ["id"],
+  run_done: ["id", "status", "result", "may_have_mutated", "warnings", "latched", "deviations", "error", "cancel_cause"],
+  run_cancel: ["id", "reason", "canceler"],
   run_settled: ["id"],
   host_call: ["id", "hook", "run", "site", "payload"],
   host_reply: ["id", "payload", "error"],
@@ -113,6 +113,10 @@ function present(k: string, v: unknown): boolean {
 /** Boolean fields written only when true, as Go writes them. */
 const WRITTEN_WHEN_TRUE = new Set(["run_done.may_have_mutated"]);
 
+/** String fields written only when not empty, as Go writes them: an empty
+ * one counts as absent, on decoding too. */
+const WRITTEN_WHEN_NOT_EMPTY = new Set(["run_done.cancel_cause", "run_cancel.reason", "run_cancel.canceler"]);
+
 /** The canonical payload text of a message. */
 export function encodeText(m: Outgoing): string {
   const order = Object.hasOwn(FIELDS, m.t) ? FIELDS[m.t] : undefined;
@@ -120,7 +124,7 @@ export function encodeText(m: Outgoing): string {
   let s = '{"t":' + JSON.stringify(m.t);
   for (const k of order) {
     const v = m[k];
-    if (v === undefined || (v === false && WRITTEN_WHEN_TRUE.has(`${m.t}.${k}`))) continue;
+    if (v === undefined || (v === false && WRITTEN_WHEN_TRUE.has(`${m.t}.${k}`)) || (v === "" && WRITTEN_WHEN_NOT_EMPTY.has(`${m.t}.${k}`))) continue;
     s += "," + JSON.stringify(k) + ":" + value(v, NESTED[k]);
   }
   return s + "}";
@@ -345,11 +349,9 @@ export function decode(payload: Uint8Array): Message {
         if (m[k] != null && !Array.isArray(m[k])) throw new ProtocolError("bad_field", `run ${k} is not an array`);
       }
       if (m.fatal_error_names != null) checkField(m.t, m, "fatal_error_names", "strings");
-      for (const k of ["deadline_ms", "pre_write_deadline_ms"]) {
-        if (m[k] == null) continue;
-        checkField(m.t, m, k, "int");
-        if (m[k] <= 0) throw new ProtocolError("bad_field", `run ${k} ${m[k]} is not positive`);
-      }
+      // A deadline is any integer the frame rules allow: one of 0 or less
+      // has passed, which ends that run alone (ADR 0004).
+      for (const k of ["deadline_ms", "pre_write_deadline_ms"]) if (m[k] != null) checkField(m.t, m, k, "int");
       if (m.clock != null) {
         checkField(m.t, m, "clock", "string");
         if (m.clock !== "real" && m.clock !== "record") throw new ProtocolError("bad_field", `run clock ${JSON.stringify(m.clock)}`);
@@ -369,6 +371,10 @@ export function decode(payload: Uint8Array): Message {
       if (m.latched != null) checkField(m.t, m, "latched", "string");
       if (m.deviations != null) checkField(m.t, m, "deviations", "strings");
       if (m.warnings != null && !Array.isArray(m.warnings)) throw new ProtocolError("bad_field", "run_done warnings is not an array");
+      if (m.cancel_cause != null) checkField(m.t, m, "cancel_cause", "string");
+      break;
+    case "run_cancel":
+      for (const k of ["reason", "canceler"]) if (m[k] != null) checkField(m.t, m, k, "string");
       break;
     case "ping":
     case "pong": {
@@ -421,7 +427,7 @@ function resultField(outcome: unknown, k: string): boolean {
 function own(m: Message): Message {
   const out: Message = { t: m.t };
   for (const k of FIELDS[m.t]) {
-    if (m[k] === undefined) continue;
+    if (m[k] === undefined || (m[k] === "" && WRITTEN_WHEN_NOT_EMPTY.has(`${m.t}.${k}`))) continue;
     if (m.t === "result" && !resultField(m.outcome, k)) continue;
     if ((m.t === "ping" || m.t === "pong") && k !== "id" && (m.in_flight === undefined || m.in_flight === null)) continue;
     const nested = Object.hasOwn(NESTED, k) ? NESTED[k] : undefined;

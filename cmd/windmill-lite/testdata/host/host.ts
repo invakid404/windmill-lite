@@ -99,10 +99,13 @@ function percentiles(ms: number[]) {
 // own hooks and budgets.
 type Budgets = Pick<RunOptions, "writeCapable" | "haltBefore" | "haltAfter" | "fatalErrorNames" | "deadlineMs" | "preWriteDeadlineMs" | "clock">;
 
-async function submit(b: { path: string; tenant?: string; args?: Record<string, unknown>; intercept?: Record<string, unknown>; kind?: "flow" | "script" } & Budgets, onSettled?: () => void) {
+// abortAfterMs, when set, aborts the run's signal that long after its
+// submission, which cancels the run (run_cancel).
+async function submit(b: { path: string; tenant?: string; args?: Record<string, unknown>; intercept?: Record<string, unknown>; kind?: "flow" | "script"; abortAfterMs?: number } & Budgets, onSettled?: () => void) {
   try {
     const { writeCapable, haltBefore, haltAfter, fatalErrorNames, deadlineMs, preWriteDeadlineMs, clock } = b;
-    const opts: RunOptions = { intercept: b.intercept, kind: b.kind, onSettled, writeCapable, haltBefore, haltAfter, fatalErrorNames, deadlineMs, preWriteDeadlineMs, clock };
+    const signal = b.abortAfterMs === undefined ? undefined : AbortSignal.timeout(b.abortAfterMs);
+    const opts: RunOptions = { intercept: b.intercept, kind: b.kind, onSettled, writeCapable, haltBefore, haltAfter, fatalErrorNames, deadlineMs, preWriteDeadlineMs, clock, signal };
     return await scopes.store.run({ tenant: b.tenant ?? "" }, () => outside.tenant.run(b.tenant ?? "", () => host.run(b.path, b.args, opts)));
   } catch (e) {
     if (e instanceof HostError) return { refused: e.code };

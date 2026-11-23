@@ -355,11 +355,17 @@ gives each hook's rules.
 | `writeCapable` | `Selector[]` | None | The run's write-capable sites. The plugin's `beforeFirstWrite` is asked before the first of them launches, and the run then may have mutated. |
 | `haltBefore`, `haltAfter` | `Selector[]` | None | End this run alone with status `halted`: before the first attempt of a module that a selector matches, or once such a module has its final outcome |
 | `fatalErrorNames` | `string[]` | None | Error names that latch the run instead of failing a step |
-| `deadlineMs` | `number` | None | The run's hard deadline, in ms from its submission. The run ends `canceled`, and steps that it left running are abandoned. |
-| `preWriteDeadlineMs` | `number` | None | Ends the run `canceled` if it passes before the first write is approved |
+| `deadlineMs` | `number` | None | The run's hard deadline, in ms from its submission. The run ends `canceled`, with `cancelCause` `deadline`, and steps that it left running are abandoned. |
+| `preWriteDeadlineMs` | `number` | None | Ends the run `canceled`, with `cancelCause` `pre_write_deadline`, if it passes before the first write is approved |
 | `clock` | `"real"` or `"record"` | `"real"` | `"record"` returns every sleep and retry delay at once, and the run's deviations then say so |
 | `signal` | `AbortSignal` | None | Cancels the run when it aborts |
 | `onSettled` | `() => void` | None | Called once every invocation of the run has settled, after its outcome, which may be never. Release here the resources that an abandoned step may still use. It runs in the run's scope, outside every invocation. |
+
+A deadline ends only its run. The SDK rounds it up to a whole
+millisecond, and sends 0 for one of 0 or less, which has already passed:
+the engine then ends the run before its first module. A deadline that is
+not a finite number, or that is above `Number.MAX_SAFE_INTEGER`, refuses
+the run with a `HostError` `refused`, and nothing reaches the engine.
 
 A [selector](../../docs/glossary.md#selector) is a `Selector` object, a
 type that `windmill-lite/bun` exports.
@@ -389,6 +395,7 @@ For example, `{ flow: "f/app/main", module: "report" }` names the module
 | `warnings` | `{ code, message }[]` | The run's warnings, such as those that the plugin's `onRunEnd` adds |
 | `latched` | `string` | For a latched run, the error it latched, such as `provider_declined` |
 | `deviations` | `string[]` | The run's deviations that depend on a run-time setting, such as the record clock |
+| `cancelCause` | `string` | For a canceled run, why: `deadline`, `pre_write_deadline`, `canceled` (its `signal` aborted, or another cancellation), `closing` (the engine closed) or `flow_timeout` (the flow's own limit) |
 
 ### Health
 
@@ -692,7 +699,7 @@ This part is for contributors who change the runtime or the SDK.
 | `runtime/version.ts` | The harness version and `versionsPair` |
 | `host/index.ts` | The Bun host SDK: `connect`, `checkWorkdir`, `HostError`, `HOST_MODULES` and the types |
 | `host/testing.ts` | The test entry |
-| `test/*.test.ts`, `test/caseplugin.ts`, `test/heartbeatengine.ts`, `test/typecheck/` | The tests ([Tests](#tests)) and the type check ([Type check](#type-check)). `test/heartbeatengine.ts` stands in for the engine in the collect trigger's tests. It welcomes the host with a heartbeat of `WL_TEST_HEARTBEAT_MS` ms, and answers each run at once, once a file exists, or after it has sent an invocation of a step. |
+| `test/*.test.ts`, `test/caseplugin.ts`, `test/heartbeatengine.ts`, `test/typecheck/` | The tests ([Tests](#tests)) and the type check ([Type check](#type-check)). `test/heartbeatengine.ts` stands in for the engine in the collect trigger's tests and the run deadlines' test. It welcomes the host with a heartbeat of `WL_TEST_HEARTBEAT_MS` ms, and answers each run at once, once a file exists, or after it has sent an invocation of a step. It can also answer with the run frame's deadlines, or with a canceled run's cause. |
 
 The runtime and the SDK have no dependencies and no `package.json`. The
 build helper has one, for its TypeScript parser, and the type check has
@@ -1095,7 +1102,9 @@ The registry:
 - **Host mode's runs.** `Runtime.submit` sends a `run` frame, and resolves
   with its `run_done`, or rejects with a `RunError` (`draining`,
   `refused`). Its `onSettled` is called on `run_settled`, in the snapshot
-  of the submission's async context.
+  of the submission's async context. `connect`'s `run` checks the
+  deadlines first (`runBudget`), so the frame carries only an integer of
+  0 to 2^53 − 1.
 - **Drain.** `drainEngine` sends the host's `drain` behind every `run`
   queued before it (`Sender.sendAfter`), and calls back on the engine's
   `bye`.
@@ -1443,7 +1452,7 @@ cd harnesses/bun && bun test
 | `test/context.test.ts` | The environment view's rules in one process, the registry, the process scope, the exit status and the step API |
 | `test/fence.test.ts` | The settle-time fence: timers and `refresh()`, the fetch view and the evidence that ends a transfer, the log view, the `Bun.env` write trap, children's environment, and their process groups |
 | `test/plugin.test.ts` | Host plugins: the declaration, its trace detail, each hook's answer, the `unknown_hook` and `plugin_error` refusals, and the answer in the run's scope |
-| `test/host.test.ts` | The SDK: the shared working-directory cases (`conformance/protocol/host/workdir.json`) through `checkWorkdir`, the shared version cases (`versions.json`) through `versionsPair`, the refusals before the engine starts, the assets, a run's `onSettled` in its own scope, and the run frame's selectors and halts. `test/argsengine.ts`, a stand-in engine, records the flags that `resourceStore` passes, and whether its `WL_REDIS_URL` is set and equals the expected URL. With the variable unset and set in the test, the URL reaches the engine's environment, never its arguments. |
+| `test/host.test.ts` | The SDK: the shared working-directory cases (`conformance/protocol/host/workdir.json`) through `checkWorkdir`, the shared version cases (`versions.json`) through `versionsPair`, the refusals before the engine starts, the assets, a run's `onSettled` in its own scope, and the run frame's selectors, halts and deadlines. `test/argsengine.ts`, a stand-in engine, records the flags that `resourceStore` passes, and whether its `WL_REDIS_URL` is set and equals the expected URL. With the variable unset and set in the test, the URL reaches the engine's environment, never its arguments. |
 | `test/host.test.ts`, the collect trigger | Hosts that `test/heartbeatengine.ts` welcomes, mostly with a 10 ms heartbeat, with a stand-in for `Bun.gc`. The tests check the mark, the cooldown, the counters, failed collections and the `options` refusals. For the default policy, `"idle"`, they check its waits for runs, steps and the quiet period, and how `close()` and an engine exit clear its timer. They also check `"heartbeat"`, the recycle triggers left as they are, and when the heartbeat observer runs. |
 | `test/load.test.ts` | How a step module is evaluated: the caller's context at an ES module's top level, its static imports and a CommonJS module, after a top-level `await`, `import()`'s namespace, one evaluation, and a failure's own error |
 | `test/testing.test.ts` | The test entry against the runtime: timers by kind, the process scope and its control, sequential, nested and concurrent steps, a returned thenable, the invocation query, a throw, other async-context stores, and the step API |

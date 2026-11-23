@@ -89,7 +89,9 @@ share one vocabulary.
 | `Engine` | struct | An opened program. Safe for concurrent use | `wl` holds one per bundle |
 | `Engine.Run` | method | Runs one flow to its end and returns its `*Trace`. An error means the run could not start | `wl` (and through it `wltest check`) |
 | `RunRequest` | struct | One run: `ID`, `Path`, `Args`, `Hooks`, `Exec`, `ParentJob`, `RootJob`, `ParentPath`, `Seed`, `Clock`, `Jitter`, `Platform`, `PreWriteDeadline`, `Around`, `Started`, `Deviations` | `wl` |
-| `Cancellation` | struct | The cause that a host cancels a run with: `Reason` and `Canceler` | `wl` |
+| `Cancellation` | struct | The cause that a host cancels a run with: `Reason` and `Canceler` | `wl`, `internal/harness` |
+| `CancelCauseOf`, `CauseDeadline`, `CausePreWriteDeadline`, `CauseCanceled`, `CauseClosing`, `CauseFlowTimeout` | func, consts | The cause of a canceled run ([The cause](#the-cause)) | `wl` |
+| `Closing` | var | The `*Cancellation` with which a runtime that closes cancels its runs, whose cause is `CauseClosing` | `wl` |
 | `ModuleState` | string type | `ModuleStateWarm` (the default) or `ModuleStateFresh` | `wl`, `internal/harness`, `internal/bundle`, `cmd/windmill-lite`, `wltest check` |
 | `Boundary` | string type | A step's boundary: `BoundaryBun` or `BoundaryNative` | `internal/harness`, `wltest check` |
 | `ErrUnsupported` | var | Wrapped by `New`'s refusal of a feature that the engine does not run ([What New refuses](#what-new-refuses)); `New`'s other errors do not wrap it | `wl`, `wltest check` |
@@ -165,7 +167,7 @@ The engine fills the trace; `wl` returns it to its host and adds the platform ca
 
 | Name | Kind | What it does | Who reads it |
 |---|---|---|---|
-| `Trace` | struct | What a run returns: its status, result, records, child flows, spans, warnings, deviations, platform calls; `Trace.Step` finds a record by site | `wl`, `wltest check` |
+| `Trace` | struct | What a run returns: its status, result, the cause of a cancellation, records, child flows, spans, warnings, deviations, platform calls; `Trace.Step` finds a record by site | `wl`, `wltest check` |
 | `StepRecord` | struct | One site: a module, or a failed attempt at `<module>/r:<k>`. Its status, its arguments (recorded and resolved), its result and carried value with their origins, its job, attempt, timings and hooks | `wl`'s hooks, `wltest check` |
 | `ChildFlow` | struct | A child flow the run created: its site, id, modules, failure slot | `wltest check`, `wl`'s plugin trace payload |
 | `Span`, `SpanKind` | struct, string type | A timed interval: `SpanModule`, `SpanQueue`, `SpanHarness`, `SpanSerialise`, `SpanExpression`, `SpanPlatform`, `SpanWait` | `wl`'s plugin trace payload, the benchmarks of `cmd/windmill-lite` |
@@ -738,6 +740,23 @@ A run whose context ends finishes canceled, without a retry,
   still starts what the decision asks for (the next module or the failure
   module), and the run ends canceled at its next completion
   ([Precedence](#precedence)).
+
+### The cause
+
+A canceled run's `Trace.CancelCause` says what canceled it. The status
+stays `canceled`, and the result stays the `Canceled` error above.
+`CancelCauseOf` reads the context's cause, in this order:
+
+| Cause | When |
+|---|---|
+| `pre_write_deadline` | The cause is `ErrPreWriteDeadline` ([Deadlines](#deadlines)). |
+| `closing` | The cause is `Closing`, with which a runtime that closes cancels its runs. |
+| `deadline` | A deadline of the context passed. |
+| `canceled` | Anything else: a `*Cancellation`, the monitor's included, or a cause that is not one. |
+
+A root flow that its own wall-clock limit ended has the cause
+`flow_timeout`, while its context still runs
+([The flow's own timeout](#the-flows-own-timeout)).
 
 ### The flow's result
 
@@ -1959,7 +1978,7 @@ the same way with its own `retry`.
 - **The pre-write deadline.** `RunRequest.PreWriteDeadline` ends the run
   canceled when it passes before the first write-capable module launched.
   The context's cause is then `ErrPreWriteDeadline`, with Windmill's
-  default reason and canceler.
+  default reason and canceler, and the run's cause `pre_write_deadline`.
 - **When it acts.** A deadline already passed cancels the run before it
   starts. One that passes before the first write, or while the host's
   `BeforeFirstWrite` decides on it, stops that write. After the first
@@ -1991,7 +2010,7 @@ step's positive `timeout`, else its flow's own positive `value.timeout`.
   as its `previous_result`, and the module that the flow was at as its
   preceding id. The flow ends as `timedOut` says. The flow job completes
   canceled with the canceled value, whatever that module returned.
-- **A root run** ends there.
+- **A root run** ends there, with the cause `flow_timeout`.
 - **A subflow** is a failed step to its caller, whose retry,
   `continue_on_error` and failure module apply. The step's job is canceled
   with the canceled value, which lookups read. It carries the timeout

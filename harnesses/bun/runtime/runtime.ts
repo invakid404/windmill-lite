@@ -203,7 +203,8 @@ type Invocation = {
 export type Mode = "warm" | "fresh";
 
 /** A run's outcome, as run_done reports it: result is its JSON text,
- * warnings its warnings, each with a code and a message. */
+ * warnings its warnings, each with a code and a message, and cancel_cause
+ * why a canceled run was canceled. */
 export type RunOutcome = {
   status: string;
   result?: string;
@@ -211,14 +212,15 @@ export type RunOutcome = {
   warnings: { code: string; message: string }[];
   latched?: string;
   deviations: string[];
+  cancel_cause?: string;
 };
 
 /** What a run frame carries besides its target and arguments: its static
  * intercept (JSON text), and the run's own hooks and budgets, which a Go
  * host gives in its run options: write-capable selectors (H3), halts
  * before and after the modules selectors match (H8), fatal error names
- * (H7), the hard and pre-write deadlines in milliseconds (H4), and the
- * clock (H10). */
+ * (H7), the hard and pre-write deadlines in milliseconds (H4), present
+ * when given, 0 or less for one that has passed, and the clock (H10). */
 export type RunFields = {
   intercept?: string;
   write_capable?: Selector[];
@@ -1227,6 +1229,7 @@ export class Runtime {
       warnings,
       latched: typeof m.latched === "string" ? m.latched : undefined,
       deviations: Array.isArray(m.deviations) ? m.deviations : [],
+      cancel_cause: typeof m.cancel_cause === "string" ? m.cancel_cause : undefined,
     });
   }
 

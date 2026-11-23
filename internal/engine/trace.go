@@ -41,6 +41,10 @@ type Trace struct {
 	// Latched is the error the run latched (H5) when Status is
 	// conformance.RunLatched: the first one latched.
 	Latched error
+	// CancelCause is why the run was canceled when Status is
+	// conformance.RunCanceled: CauseDeadline, CausePreWriteDeadline,
+	// CauseCanceled, CauseClosing or CauseFlowTimeout; "" otherwise.
+	CancelCause string
 	// MayHaveMutated is true once the first write-capable module launched
 	// (H3), in failed runs too.
 	MayHaveMutated bool
