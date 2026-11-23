@@ -235,6 +235,10 @@ func NewPool(cfg PoolConfig) (*Pool, error) {
 		return nil, err
 	}
 	cfg.withDefaults()
+	if pc.Diagnostics != nil {
+		// Every process of the pool, and the pool itself, write to it.
+		pc.Diagnostics = &syncWriter{w: pc.Diagnostics}
+	}
 	pl := &Pool{cfg: cfg, changed: make(chan struct{}), affinity: runMap{limit: defaultAffinity}, fresh: map[*Process]struct{}{}}
 	if !pl.isFresh() {
 		pl.cfg.Process.notify = pl.processChanged

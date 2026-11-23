@@ -51,6 +51,20 @@ func (d *diagnostics) line(s string) {
 	io.WriteString(d.w, s+"\n")
 }
 
+// syncWriter serializes the writes to a diagnostics writer that several
+// processes share, which need not be safe for concurrent use: each
+// process's diagnostics lock only its own writes.
+type syncWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (s *syncWriter) Write(b []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.w.Write(b)
+}
+
 // maxPendingKillLines is how many kill lines may wait for their
 // diagnostics writers at once, across every process in the program.
 const maxPendingKillLines = 64

@@ -1,10 +1,12 @@
 package harness
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -21,10 +23,12 @@ import (
 // poolFake is the fake harness of mode pool, which the tests of a warm
 // pool's settings drive. It runs each invocation on a goroutine of its own.
 // An invocation's arguments may name a file to create once it starts
-// (started), a file to wait for before it answers (hold), and a resident
-// set to report in a heartbeat ping just before its result (rss); its
-// result is {"pid": <the pid of its process>}, and so is its answer to a
-// host_call. It ignores cancels, so an abandoned invocation runs on until
+// (started), a file to wait for before it answers (hold), a number of
+// lines to write to stderr once the hold ends (print), a resident set to
+// report in a heartbeat ping just before its result (rss), and the
+// resident set that the process's pongs report from then on (pong_rss);
+// its result is {"pid": <the pid of its process>}, and so is its answer to
+// a host_call. It ignores cancels, so an abandoned invocation runs on until
 // its hold file exists. It sends no heartbeat of its own. It answers a drain
 // with bye and exits: at once, or, while the file hold-drains exists in the
 // directory WL_FAKE_CTL, once release-<pid> exists there too. The first
@@ -36,23 +40,33 @@ func poolFake(send func(Message), recv func() Message, pid int) int {
 	if ctl != "" && os.Rename(filepath.Join(ctl, "exit-after-welcome"), filepath.Join(ctl, "exit-after-welcome.taken")) == nil {
 		return 0
 	}
-	var beats atomic.Int64
+	var beats, pongRSS atomic.Int64
 	for {
 		switch m := recv().(type) {
+		case Ping:
+			send(Pong{ID: m.ID, Health: &Health{RSS: pongRSS.Load()}})
 		case HostCall:
 			send(HostReply{ID: m.ID, Payload: jsonval.FromProducer(fmt.Appendf(nil, `{"pid":%d}`, pid))})
 		case Invoke:
 			go func() {
 				var a struct {
 					Started, Hold string
+					Print         int
 					RSS           *int64
+					PongRSS       *int64 `json:"pong_rss"`
 				}
 				json.Unmarshal(m.Args.Producer(), &a)
+				if a.PongRSS != nil {
+					pongRSS.Store(*a.PongRSS)
+				}
 				if a.Started != "" {
 					os.WriteFile(a.Started, nil, 0o600)
 				}
 				for a.Hold != "" && !exists(a.Hold) {
 					time.Sleep(2 * time.Millisecond)
+				}
+				for i := range a.Print {
+					fmt.Fprintf(os.Stderr, "line %d\n", i)
 				}
 				if a.RSS != nil {
 					send(Ping{ID: fmt.Sprintf("h%d", beats.Add(1)), Health: &Health{RSS: *a.RSS}})
@@ -288,12 +302,17 @@ type heldInvocation struct {
 	done <-chan runResult
 }
 
-// startHeld starts a held invocation and waits until it runs in a process.
-func startHeld(t *testing.T, pool *Pool, ctl, name string) heldInvocation {
+// startHeld starts a held invocation, with extra arguments if any, and
+// waits until it runs in a process.
+func startHeld(t *testing.T, pool *Pool, ctl, name string, extra ...map[string]any) heldInvocation {
 	t.Helper()
 	started, hold := filepath.Join(ctl, name+".started"), filepath.Join(ctl, name+".hold")
 	t.Cleanup(func() { os.WriteFile(hold, nil, 0o600) })
-	done := goRun(pool, "held", map[string]any{"started": started, "hold": hold})
+	args := map[string]any{"started": started, "hold": hold}
+	for _, e := range extra {
+		maps.Copy(args, e)
+	}
+	done := goRun(pool, "held", args)
 	waitFile(t, started)
 	return heldInvocation{hold: hold, done: done}
 }
@@ -434,12 +453,12 @@ func TestPoolMaxLiveRouting(t *testing.T) {
 // does the drain start, and the replacement starts only after the leaver's
 // exit is observed.
 func TestPoolLeavingWaitsForWork(t *testing.T) {
-	const recycle = time.Millisecond
+	const recycle = 50 * time.Millisecond
 	pool, ctl, log := fakePool(t, PoolConfig{Max: 1, MaxLive: 1, RecycleTimeout: recycle})
 	a := fakeRun(t, pool, "s", nil)
 	h := startHeld(t, pool, ctl, "h")
-	heldSince := time.Now()
 	abandon(t, pool, ctl, "x")
+	tainted := time.Now()
 	if n, m := log.count("spawn"), len(log.after("")); n != 1 || slices.ContainsFunc(log.after(""), func(e string) bool { return strings.HasPrefix(e, "drain") }) {
 		t.Fatalf("a tainted process with work in flight drained or made room: %d spawns, %d events: %q", n, m, log.after(""))
 	}
@@ -450,9 +469,9 @@ func TestPoolLeavingWaitsForWork(t *testing.T) {
 		t.Fatalf("%d spawns while the leaver is alive; events: %q", n, log.after(""))
 	}
 	notReturned(t, w, "the invocation that should wait")
-	if held := time.Since(heldSince); held <= recycle {
-		t.Fatalf("held for %s, not past RecycleTimeout", held)
-	}
+	// The held invocation stays held past RecycleTimeout from the taint, so
+	// a drain timed from the taint would have killed the process by now.
+	time.Sleep(time.Until(tainted.Add(2 * recycle)))
 	log.note("release h")
 	h.release(t)
 	if r := <-h.done; pidOfOutcome(t, r.out, r.err) != a {
@@ -468,11 +487,55 @@ func TestPoolLeavingWaitsForWork(t *testing.T) {
 }
 
 // The RSS trigger: two health reports in a row at or over the threshold
-// (Samples defaults to 2) trip a process. It takes no new invocation, its
+// (Samples defaults to 2) trip a process, whether heartbeat pings or pongs
+// carry them. It takes no new invocation, its
 // invocation in flight completes, and the next goes to a replacement that
 // starts beside it. A second process that trips while the first leaves
 // keeps serving until the first has exited.
 func TestPoolRecycleOnRSS(t *testing.T) {
+	t.Run("heartbeats", testRecycleOnHeartbeats)
+	t.Run("pongs", testRecycleOnPongs)
+}
+
+// testRecycleOnPongs: the pongs that answer the engine's pings count as
+// health reports too, two in a row over the threshold tripping a process.
+func testRecycleOnPongs(t *testing.T) {
+	pool, _, _ := fakePool(t, PoolConfig{Max: 1, Recycle: RecycleTriggers{RSS: 1000}})
+	a := fakeRun(t, pool, "s", map[string]any{"pong_rss": 2000})
+	p := memberProcess(t, pool, a)
+	ping := func() {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if h, err := p.Ping(ctx); err != nil || h == nil || h.RSS != 2000 {
+			t.Fatalf("ping: %+v, %v", h, err)
+		}
+	}
+	ping()
+	if got := fakeRun(t, pool, "s", nil); got != a {
+		t.Fatalf("one pong over the threshold moved the next invocation to %d", got)
+	}
+	ping()
+	if got := fakeRun(t, pool, "s", nil); got == a {
+		t.Fatalf("the process whose two pongs in a row reached the threshold got a new invocation")
+	}
+}
+
+// memberProcess returns the pool's member whose pid is pid.
+func memberProcess(t *testing.T, pool *Pool, pid int) *Process {
+	t.Helper()
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	for _, m := range pool.members {
+		if m.p.PID() == pid {
+			return m.p
+		}
+	}
+	t.Fatalf("no member %d", pid)
+	return nil
+}
+
+func testRecycleOnHeartbeats(t *testing.T) {
 	pool, ctl, log := fakePool(t, PoolConfig{Max: 1, Recycle: RecycleTriggers{RSS: 1000}})
 	over, under := map[string]any{"rss": 2000}, map[string]any{"rss": 10}
 	a := fakeRun(t, pool, "s", nil)
@@ -690,5 +753,58 @@ func TestPoolPluginDeclarationsAgree(t *testing.T) {
 	pool.mu.Unlock()
 	if len(decls) != 1 || decls[0] != recorded {
 		t.Fatalf("members declare %q; the pool recorded %q", decls, recorded)
+	}
+}
+
+// syncless is a writer that is not safe for concurrent use, as a host's
+// bytes.Buffer is not.
+type syncless struct{ b bytes.Buffer }
+
+func (s *syncless) Write(p []byte) (int, error) { return s.b.Write(p) }
+
+// A pool's processes share the host's diagnostics writer, and the pool
+// serializes their writes to it: two processes that write output that no
+// invocation owns at the same time do not race on a writer that is not
+// safe for concurrent use (the race detector would report it), and every
+// line arrives whole.
+func TestPoolDiagnosticsSerialized(t *testing.T) {
+	const lines = 300
+	pc, _ := fakeConfig(t, "pool")
+	ctl := t.TempDir()
+	out := &syncless{}
+	pc.Env = append(pc.Env, "WL_FAKE_CTL="+ctl)
+	pc.KillAfter = WatchdogOff
+	pc.Diagnostics = out
+	pool, err := NewPool(PoolConfig{Process: pc, Max: 2, Cap: 1, LagThreshold: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { pool.Close(context.Background()) })
+	printing := map[string]any{"print": lines}
+	h1 := startHeld(t, pool, ctl, "h1", printing)
+	h2 := startHeld(t, pool, ctl, "h2", printing)
+	h1.release(t)
+	h2.release(t)
+	var pids []int
+	for _, h := range []heldInvocation{h1, h2} {
+		r := <-h.done
+		pids = append(pids, pidOfOutcome(t, r.out, r.err))
+	}
+	if pids[0] == pids[1] {
+		t.Fatalf("both invocations ran in %d; the test needs two processes", pids[0])
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := pool.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Close has waited for both processes' output to end.
+	text := out.b.String()
+	for _, pid := range pids {
+		for i := range lines {
+			if want := fmt.Sprintf("harness pid %d stderr: line %d\n", pid, i); !strings.Contains(text, want) {
+				t.Fatalf("missing %q", want)
+			}
+		}
 	}
 }

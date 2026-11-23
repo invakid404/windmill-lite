@@ -771,7 +771,9 @@ hooks ([harnesses/bun](../../harnesses/bun/README.md#host-plugins)).
 ## Pools
 
 A `Pool` serves one `Key`: a harness class, a runtime pin, a dependency set
-and a module-state mode.
+and a module-state mode. Its processes share `ProcessConfig.Diagnostics`,
+and the pool serializes their writes to it, so that writer need not be
+safe for concurrent use.
 
 ### Fresh pools
 
@@ -1014,11 +1016,12 @@ unattributed warning, and a signature that did not parse. Others hold:
 |---|---|
 | `TestPoolMaxLive`, `TestPoolMaxLiveRouting` | `MaxLive` with a taint, and routing to a started process |
 | `TestPoolLeavingWaitsForWork` | A leaver that waits for its work before it drains |
-| `TestPoolRecycleOnRSS`, `TestPoolRecycleOnModules`, `TestPoolModulesCountDispatchedScripts` | The RSS and module triggers |
+| `TestPoolRecycleOnRSS`, `TestPoolRecycleOnModules`, `TestPoolModulesCountDispatchedScripts` | The RSS trigger, from heartbeat pings and from pongs, and the module trigger |
 | `TestPoolRecycleReplacesAboveMin` | The replacement of a tripped process in a pool grown past `Min` |
 | `TestPoolCapLeavesHostCalls` | Host calls beside a full cap |
 | `TestPoolEarlyExitNotAdmitted` | A process that exits before its admission |
 | `TestPoolPluginDeclarationsAgree` | Two initial processes with different plugin declarations |
+| `TestPoolDiagnosticsSerialized` | Two processes that write to one writer that is not safe for concurrent use, at once: no race, every line whole |
 
 #### What the fake-harness tests check
 

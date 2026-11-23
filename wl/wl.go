@@ -90,6 +90,8 @@ type Options struct {
 	ResourceStore ResourceStore
 	// Diagnostics receives the harness processes' output that no step
 	// owns, and the engine's diagnostics about them; nil means os.Stderr.
+	// The runtime serializes its writes, so it need not be safe for
+	// concurrent use.
 	Diagnostics io.Writer
 	// ExpressionSlots is the number of evaluation slots of the runtime's
 	// expression engine; zero means its default (ADR 0003).
@@ -361,6 +363,11 @@ func Version() string {
 // bundle's program. The facade serves them to its steps.
 func Open(path string, opts Options) (_ *Runtime, err error) {
 	rt := &Runtime{version: opts.EngineVersion, readCache: opts.ReadCache, capped: opts.Pool.Cap > 0}
+	if opts.Diagnostics != nil {
+		// The harness processes, the pool and the host plugin's calls write
+		// to it from goroutines of their own.
+		opts.Diagnostics = &lockedWriter{w: opts.Diagnostics}
+	}
 	rt.stop, rt.cancelStop = context.WithCancelCause(context.Background())
 	if rt.version == "" {
 		rt.version = Version()
@@ -609,6 +616,18 @@ func readProgram(path string) (*ir.Program, error) {
 		return nil, fmt.Errorf("wl: ir.json is of IR version %d, and this engine reads %d", prog.Version, ir.Version)
 	}
 	return &prog, nil
+}
+
+// lockedWriter serializes the writes to a host's diagnostics writer.
+type lockedWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (l *lockedWriter) Write(b []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.w.Write(b)
 }
 
 // noHarness is the executor of a bundle with no step: nothing reaches it.

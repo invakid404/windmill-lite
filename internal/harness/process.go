@@ -734,6 +734,8 @@ func (p *Process) handleMessage(m Message) error {
 	var drive bool
 	var err error
 	var sampled bool // a health report the pool counts arrived
+	var pongTo chan *Health
+	var pong *Health
 	switch m := m.(type) {
 	case Result:
 		target, calls, drive, err = p.onResult(m)
@@ -751,7 +753,7 @@ func (p *Process) handleMessage(m Message) error {
 	case Pong:
 		if ch, ok := p.pings[m.ID]; ok {
 			delete(p.pings, m.ID)
-			ch <- m.Health
+			pongTo, pong = ch, m.Health
 		}
 		sampled = p.noteHealthLocked(m.Health)
 	case Bye:
@@ -779,6 +781,11 @@ func (p *Process) handleMessage(m Message) error {
 	if sampled && p.cfg.notify != nil {
 		// The pool applies its recycle trigger to each report in turn.
 		p.cfg.notify(p)
+	}
+	if pongTo != nil {
+		// After the pool has applied it: Ping returns a health that the
+		// pool has seen. The channel has room for it.
+		pongTo <- pong
 	}
 	switch {
 	case target == nil:
