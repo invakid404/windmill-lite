@@ -1046,7 +1046,7 @@ unattributed warning, and a signature that did not parse. Others hold:
 | `TestPoolCapLeavesHostCalls` | Host calls beside a full cap |
 | `TestPoolEarlyExitNotAdmitted` | A process that exits before its admission, in a pool with settings |
 | `TestPoolEarlyExitZeroSettings`, `TestPoolStartWaitsForALiveProcess` | Without settings: the early exit admitted as before, and `Start` waiting for a live process |
-| `TestPoolStartSurfacesAFailedReplacement`, `TestPoolStartGivesUpOnRepeatedEarlyExits` | `Start` failing with the failed replacement of an early exit, and after more than `Min` early exits |
+| `TestPoolStartSurfacesAFailedReplacement`, `TestPoolStartGivesUpOnRepeatedEarlyExits`, `TestPoolStartIgnoresOrdinaryExits` | `Start` failing with the failed replacement of an early exit and after more than `Min` early exits, but not for members that served and exited |
 | `TestPoolPluginDeclarationsAgree`, `TestPoolPluginAbsenceIsTheBaseline`, `TestPoolFailedStartSetsNoDeclaration` | Two initial processes with different plugin declarations, a declaration after none, and a failed start that sets nothing |
 | `TestPoolDiagnosticsSerialized` | Two processes that write to one writer that is not safe for concurrent use, at once: no race, every line whole, through `WriteString` |
 | `TestPoolDiagnosticsZeroSettings` | Without settings: the writer's `WriteString` called as before, and one process's line not held behind another's |

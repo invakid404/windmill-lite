@@ -203,6 +203,9 @@ type member struct {
 	// invocations and leaves once idle.
 	tripped   bool
 	recycling bool
+	// early: its process had exited when the pool admitted it, which only
+	// a pool without settings does.
+	early bool
 }
 
 func (m *member) inService() bool {
@@ -327,7 +330,7 @@ func (pl *Pool) Start(ctx context.Context) error {
 		return nil
 	}
 	var mine []*spawnAttempt
-	exits := 0 // members that Start removed because their process exited
+	exits := 0 // members that Start removed because their process exited before their admission
 	for {
 		for _, a := range mine {
 			select {
@@ -668,7 +671,7 @@ func (pl *Pool) spawn(att *spawnAttempt) {
 					pl.plugin = slices.Clone(d.Producer())
 				}
 			}
-			m := &member{p: p, surplus: pl.inServiceLocked() >= pl.cfg.Max}
+			m := &member{p: p, surplus: pl.inServiceLocked() >= pl.cfg.Max, early: p.hasExited()}
 			pl.members = append(pl.members, m)
 			pl.reviewLocked(m)
 		}
@@ -785,25 +788,29 @@ func (pl *Pool) removeLocked(i int) []*spawnAttempt {
 	return pl.fillLocked()
 }
 
-// pruneExitedLocked removes the members whose process has exited and whose
-// exit no notify reports any more: a pool without settings admits a
-// process whose exit came first, as it always has. It returns how many it
-// removed and the attempts it made to replace them.
+// pruneExitedLocked removes the members whose process has exited: those
+// whose exit came before their admission, which a pool without settings
+// admits, as it always has, and whose exit no notify reports any more, and
+// those whose notify has not come yet. It returns how many of the first
+// kind it removed, and the attempts it made to replace them all.
 func (pl *Pool) pruneExitedLocked() (int, []*spawnAttempt) {
-	n := 0
+	early, removed := 0, false
 	var atts []*spawnAttempt
 	for i := 0; i < len(pl.members); {
 		if m := pl.members[i]; !m.gone && m.p.hasExited() {
 			atts = append(atts, pl.removeLocked(i)...)
-			n++
+			removed = true
+			if m.early {
+				early++
+			}
 			continue
 		}
 		i++
 	}
-	if n > 0 {
+	if removed {
 		pl.broadcastLocked()
 	}
-	return n, atts
+	return early, atts
 }
 
 // applyTriggersLocked applies the recycle triggers to every serving member

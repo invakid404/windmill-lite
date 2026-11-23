@@ -1094,10 +1094,12 @@ func TestPoolOwedReplacementSurvivesAFailedStart(t *testing.T) {
 // for a recycle trigger goes to that process, though it takes no new
 // invocations: with Max = MaxLive = 1 no replacement can start until it
 // exits, and the invocation may be waiting for the call. What counts is the
-// invocation in flight, not the pool's memory of the run's last process:
-// the test shrinks that memory to one run, so the held run is forgotten
-// before the trip, and a run whose invocation has ended, though the pool
-// remembers it there, gets no such exception. A new invocation still waits.
+// invocation in flight, not the pool's memory of the run's last process,
+// which the test shrinks to one run. A run whose invocation has ended,
+// which that memory names last, gets no such exception: its host call
+// waits, checked first, while the memory still names it. The held run,
+// which the memory forgot before the trip, gets its answer. A new
+// invocation still waits.
 func TestPoolRecyclingProcessServesItsRunsHostCalls(t *testing.T) {
 	pool, ctl, log := fakePool(t, PoolConfig{Max: 1, MaxLive: 1, Recycle: RecycleTriggers{Modules: 1}}, "WL_FAKE_PLUGIN=same")
 	pool.affinity.limit = 1
@@ -1132,12 +1134,8 @@ func TestPoolRecyclingProcessServesItsRunsHostCalls(t *testing.T) {
 		}
 		return r.PID, nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if got, err := hostCall(ctx, "run-held"); err != nil || got != a {
-		t.Fatalf("the held run's host call: %d, %v; want an answer from %d", got, err, a)
-	}
-	// The ended run's host call waits for a serving process.
+	// The ended run's host call waits for a serving process. A waiting
+	// call picks nothing, so the memory still names the ended run after it.
 	log.note("ended run")
 	ended, stop := context.WithCancel(context.Background())
 	endedCall := make(chan error, 1)
@@ -1149,6 +1147,11 @@ func TestPoolRecyclingProcessServesItsRunsHostCalls(t *testing.T) {
 	stop()
 	if err := <-endedCall; !errors.Is(err, context.Canceled) {
 		t.Fatalf("the host call of a run with nothing in flight there: %v; want it to wait", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if got, err := hostCall(ctx, "run-held"); err != nil || got != a {
+		t.Fatalf("the held run's host call: %d, %v; want an answer from %d", got, err, a)
 	}
 	log.note("next step")
 	w := goRun(pool, "s1", nil)
@@ -1221,4 +1224,64 @@ func TestPoolStartGivesUpOnRepeatedEarlyExits(t *testing.T) {
 	if err := pool.Start(ctx); err == nil || !strings.Contains(err.Error(), "exited right after their handshakes") {
 		t.Fatalf("Start with two early exits and Min 1: %v", err)
 	}
+}
+
+// Start's limit on early exits counts only processes that exited before
+// their admission: members that served and exited since, whose exits the
+// pool has not heard of yet, are removed but do not count. A pool of three
+// processes (Cap 1, Max 3, Min 1) loses two to a kill while the test holds
+// their exit notices; Start still returns, with the third serving.
+func TestPoolStartIgnoresOrdinaryExits(t *testing.T) {
+	pool, ctl, _ := fakePool(t, PoolConfig{Min: 1, Max: 3, Cap: 1})
+	var mu sync.Mutex
+	heldPIDs := map[int]bool{}
+	release := make(chan struct{})
+	notify := pool.cfg.Process.notify
+	pool.cfg.Process.notify = func(p *Process) {
+		mu.Lock()
+		hold := heldPIDs[p.PID()] && p.hasExited()
+		mu.Unlock()
+		if hold {
+			<-release
+		}
+		notify(p)
+	}
+	t.Cleanup(func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	})
+	var hs []heldInvocation
+	for i := range 3 {
+		hs = append(hs, startHeld(t, pool, ctl, fmt.Sprintf("h%d", i)))
+	}
+	var pids []int
+	for _, h := range hs {
+		h.release(t)
+		r := <-h.done
+		pids = append(pids, pidOfOutcome(t, r.out, r.err))
+	}
+	slices.Sort(pids)
+	if len(slices.Compact(slices.Clone(pids))) != 3 {
+		t.Fatalf("the held invocations ran in %v; the test needs three processes", pids)
+	}
+	mu.Lock()
+	heldPIDs[pids[0]], heldPIDs[pids[1]] = true, true
+	mu.Unlock()
+	for _, pid := range pids[:2] {
+		p := memberProcess(t, pool, pid)
+		p.Kill()
+		waitFor(t, "the exit", p.hasExited)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := pool.Start(ctx); err != nil {
+		t.Fatalf("Start with one process serving and two ordinary exits not yet reported: %v", err)
+	}
+	if st := pool.Stats(); len(st) != 1 || st[0].PID != pids[2] {
+		t.Fatalf("after Start: %+v; want the serving process %d", st, pids[2])
+	}
+	close(release)
 }
