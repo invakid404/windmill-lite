@@ -197,9 +197,10 @@ def go_modules() -> list[tuple[str, str, str]]:
 
 
 # The Go modules under the Mozilla Public License 2.0 that windmill-lite
-# takes, as Go module dependencies only. notices checks that a licence file
-# of each is the MPL-2.0, and refuses any other module whose licence files
-# mention the MPL, so that a person decides what that licence covers.
+# takes, as Go module dependencies only. Only these get the source line,
+# and notices checks that a licence file of each is the MPL-2.0. Another
+# module keeps its licence and notice texts as they are, whatever they
+# mention, such as an MPL-2.0 component that it attributes.
 MPL_MODULES = frozenset({"github.com/hashicorp/go-plugin", "github.com/hashicorp/yamux"})
 
 # A module's own licence grant: a licence file other than a notice or a
@@ -207,11 +208,9 @@ MPL_MODULES = frozenset({"github.com/hashicorp/go-plugin", "github.com/hashicorp
 _GRANT_FILE = re.compile(r"(?i)(licen[cs]e|copying)([.-].*)?")
 
 # The title of the Mozilla Public License 2.0, which its text starts with,
-# the line that names it by its SPDX identifier, and any mention of the
-# licence.
+# and the line that names it by its SPDX identifier.
 _MPL2_TITLE = re.compile(r"(?i)mozilla public license,?\s+version\s+2\.0")
 _MPL2_SPDX = re.compile(r"(?i)^\W*SPDX-License-Identifier:\s*MPL-2\.0\s*$")
-_MPL_MENTION = re.compile(r"(?i)mozilla public license|\bMPL-2\.0\b")
 
 # How many lines that are not blank the title or the SPDX line may come
 # after, such as a copyright line.
@@ -262,8 +261,7 @@ def module_notice(path: str, ver: str, directory: str) -> str:
     """Returns the section of LICENSES.txt for the Go module path at
     version ver, whose files are in directory: its licence files, after the
     source line of a module of MPL_MODULES. It raises ReleaseError for a
-    module of MPL_MODULES that no licence file says is under the MPL-2.0,
-    and for any other module whose licence files mention the MPL."""
+    module of MPL_MODULES that no licence file says is under the MPL-2.0."""
     found = sorted(p for p in pathlib.Path(directory).iterdir() if p.is_file() and _LICENSE_FILE.fullmatch(p.name))
     if not found:
         raise ReleaseError(f"Go module {path} {ver} has no licence file in {directory}")
@@ -273,13 +271,6 @@ def module_notice(path: str, ver: str, directory: str) -> str:
         if not any(_GRANT_FILE.fullmatch(name) and is_mpl2(body) for name, body in texts):
             raise ReleaseError(f"Go module {path} {ver} is in MPL_MODULES, but no licence file of it is the Mozilla Public License 2.0")
         text = mpl_source(path, ver) + "\n\n" + text
-    else:
-        named = [name for name, body in texts if _MPL_MENTION.search(body)]
-        if named:
-            raise ReleaseError(
-                f"Go module {path} {ver} mentions the Mozilla Public License in {', '.join(named)}: "
-                "check what that licence covers, and add the module to MPL_MODULES if it is the module's own"
-            )
     return _section(f"Go module {path} {ver}", text)
 
 

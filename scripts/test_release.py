@@ -223,23 +223,52 @@ class MPLSourceTest(unittest.TestCase):
         self.assertNotIn("Source Code Form", text)
         self.assertIn(self.MIT, text)
 
-    def test_an_other_module_that_mentions_the_mpl_fails(self) -> None:
-        """A module outside MPL_MODULES whose licence files mention the MPL,
-        such as for a component that it attributes, stops the notices: a
-        person decides what the licence covers, whether the mention is in a
-        NOTICE or in the licence file, an SPDX line included."""
-        attribution = "\n\nThe component x is available under the Mozilla Public License, version 2.0.\n"
-        component = "\n\n--- third_party/x ---\n\nSPDX-License-Identifier: MPL-2.0\n"
-        filler = "\n".join(f"Section {i}." for i in range(10))
-        cases = {
-            "in its NOTICE": {"LICENSE": self.APACHE, "NOTICE": "Example\nCopyright 2026 Example" + attribution},
-            "further down its LICENSE": {"LICENSE": self.APACHE + filler + attribution},
-            "as a component's SPDX line in its LICENSE": {"LICENSE": self.APACHE + filler + component},
-        }
-        for name, files in cases.items():
+    # Licence files of modules outside MPL_MODULES that mention the MPL: an
+    # attribution in a NOTICE, one further down a LICENSE, and a component's
+    # SPDX line in a LICENSE.
+    ATTRIBUTION = "\n\nThe component x is available under the Mozilla Public License, version 2.0.\n"
+    COMPONENT = "\n\n--- third_party/x ---\n\nSPDX-License-Identifier: MPL-2.0\n"
+    FILLER = "\n".join(f"Section {i}." for i in range(10))
+    MENTIONS = {
+        "in its NOTICE": {"LICENSE": APACHE, "NOTICE": "Example\nCopyright 2026 Example" + ATTRIBUTION},
+        "further down its LICENSE": {"LICENSE": APACHE + FILLER + ATTRIBUTION},
+        "as a component's SPDX line in its LICENSE": {"LICENSE": APACHE + FILLER + COMPONENT},
+        "in the NOTICE of an MIT module": {"LICENSE": MIT, "NOTICE": "This module contains no code under the MPL-2.0.\n"},
+    }
+
+    def test_an_other_module_that_mentions_the_mpl_keeps_its_texts(self) -> None:
+        """A module outside MPL_MODULES whose licence files mention the MPL
+        gets no source line, and its section holds every licence and notice
+        text as it is."""
+        for name, files in self.MENTIONS.items():
             with self.subTest(name), tempfile.TemporaryDirectory() as d, self.mpl_modules("github.com/example/listed"):
-                with self.assertRaisesRegex(release.ReleaseError, r"github\.com/example/apache v1\.2\.0 mentions the Mozilla Public License"):
-                    release.module_notice("github.com/example/apache", "v1.2.0", self.module(d, "apache", files))
+                text = release.module_notice("github.com/example/apache", "v1.2.0", self.module(d, "apache", files))
+            self.assertNotIn("Source Code Form", text)
+            self.assertIn("Go module github.com/example/apache v1.2.0\n", text)
+            for file, body in files.items():
+                self.assertIn(f"--- {file} ---\n\n{body}", text)
+
+    @unittest.skipUnless(shutil.which("go"), "needs the go command")
+    def test_notices_of_a_module_that_attributes_the_mpl(self) -> None:
+        """The whole output of notices, with module discovery returning a
+        listed MPL-2.0 module and a module that attributes an MPL-2.0
+        component: the source line only in the listed module's section, and
+        the other module's texts complete."""
+        files = self.MENTIONS["as a component's SPDX line in its LICENSE"] | {"NOTICE": "Example" + self.ATTRIBUTION}
+        with tempfile.TemporaryDirectory() as d:
+            modules = [
+                ("github.com/example/apache", "v1.2.0", self.module(d, "apache", files)),
+                ("github.com/example/mpl", "v1.0.0", self.module(d, "mpl", {"LICENSE": self.MPL})),
+            ]
+            with mock.patch.object(release, "go_modules", return_value=modules), self.mpl_modules("github.com/example/mpl"):
+                text = release.notices()
+        apache = text.index("Go module github.com/example/apache v1.2.0\n")
+        mpl = text.index("Go module github.com/example/mpl v1.0.0\n")
+        self.assertEqual(text.count("Source Code Form"), 1)
+        self.assertGreater(text.index("Source Code Form"), mpl)
+        for file, body in files.items():
+            self.assertIn(f"--- {file} ---\n\n{body}", text[apache:mpl])
+        self.assertIn("Go (the standard library and runtime)", text)
 
     def test_a_listed_module_under_another_licence_fails(self) -> None:
         """A module of MPL_MODULES gets the source line only while its own

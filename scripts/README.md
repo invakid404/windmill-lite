@@ -101,9 +101,10 @@ form: `MAJOR.MINOR.PATCH` with an optional pre-release, such as
 - **The check of each module.** A module of `MPL_MODULES` must have a
   licence file, `LICENSE`, `LICENCE` or `COPYING`, whose first five lines
   that are not blank hold the licence's title or the line
-  `SPDX-License-Identifier: MPL-2.0`. Any other module whose licence files
-  mention the MPL fails `notices`, naming the files, so that a person
-  decides what the licence covers.
+  `SPDX-License-Identifier: MPL-2.0`; otherwise `notices` fails. Any other
+  module gets no source line, and its section holds its licence and notice
+  files as they are, also when they mention the MPL, such as for a
+  component that the module attributes.
 - **`MPL_MODULES`** holds `github.com/hashicorp/go-plugin` and
   `github.com/hashicorp/yamux`.
 - **The upstream repository.** On github.com, gitlab.com and bitbucket.org
@@ -135,9 +136,9 @@ form: `MAJOR.MINOR.PATCH` with an optional pre-release, such as
 - `MPLSourceTest` checks the source line on synthetic module directories,
   each test with its own `MPL_MODULES`. A listed MPL-2.0 module gets the
   line, with the proxy's case encoding of its path and version, in the
-  whole output of `notices` too. Another licence gets none. A listed
-  module under another licence fails, and so does an unlisted one that
-  mentions the MPL;
+  whole output of `notices` too. A listed module under another licence
+  fails. An unlisted module gets no line and keeps its texts, also when
+  they mention the MPL;
 - `ModeTest` checks `mode` for a tag, a pull request and a dispatch, each in
   this repository and in a fork.
 
