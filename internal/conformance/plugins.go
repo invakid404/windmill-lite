@@ -283,6 +283,54 @@ func (f *PluginFile) Contract() []byte {
 	return b
 }
 
+// BundledPluginPath is the module path of the case plugin that
+// BundledPlugin puts into the cases' folder.
+const BundledPluginPath = "f/plugin/plugin.ts"
+
+// caseTypeImport is the type-only import of the TypeScript case plugin
+// (harnesses/bun/test/caseplugin.ts), which reaches outside a sync folder.
+const caseTypeImport = `import type { Plugin, Selector } from "../runtime/plugin.ts";`
+
+// BundledPlugin returns the TypeScript case plugin as files of the cases'
+// folder, for a bundle built with it (the host contract's plugin field):
+// BundledPluginPath, which applies every case's declarative plugin and
+// reports its onRunSettled to report, over a copy of casePlugin, the
+// source of caseplugin.ts, whose type-only import of the runtime's plugin
+// types gives way to local aliases, since a script of the folder imports
+// only within it. It returns the cases' host contract with the plugin
+// field too.
+func (f *PluginFile) BundledPlugin(casePlugin []byte, report string) (files map[string]string, contract []byte, err error) {
+	if !bytes.Contains(casePlugin, []byte(caseTypeImport)) {
+		return nil, nil, fmt.Errorf("conformance: the case plugin has no line %s", caseTypeImport)
+	}
+	lib := strings.Replace(string(casePlugin), caseTypeImport, "type Plugin = Record<string, any>;\ntype Selector = Record<string, unknown>;", 1)
+	var cases []map[string]any
+	for _, c := range f.Cases {
+		cases = append(cases, map[string]any{"flow": c.FlowPath(), "plugin": c.Plugin})
+	}
+	input, err := json.Marshal(cases)
+	if err != nil {
+		return nil, nil, err
+	}
+	reportJS, err := json.Marshal(report)
+	if err != nil {
+		return nil, nil, err
+	}
+	files = map[string]string{
+		"f/plugin/caseplugin.ts": lib,
+		BundledPluginPath:        fmt.Sprintf("import { casePlugin } from \"./caseplugin.ts\";\nexport default casePlugin(%s, %s);\n", input, reportJS),
+	}
+	var c map[string]any
+	if err := json.Unmarshal(f.Contract(), &c); err != nil {
+		return nil, nil, err
+	}
+	c["plugin"] = BundledPluginPath
+	if contract, err = json.Marshal(c); err != nil {
+		return nil, nil, err
+	}
+	return files, contract, nil
+}
+
 // PluginOutcome is what a case's run gave: its status, result (stored),
 // latched error, warnings and the sites that ran a job.
 type PluginOutcome struct {
