@@ -49,7 +49,7 @@ names the departure among its
 
 | File | What it holds |
 |---|---|
-| `identity.go` | Job identity: `Identity`, `Host`, `Host.Override`, `DefaultHost`, `StatePath`, `ObjectPath`, `NewToken` |
+| `identity.go` | Job identity: `Identity`, `Host`, `Host.Override`, `Host.EffectiveWorkspace`, `DefaultHost`, `StatePath`, `ObjectPath`, `NewToken` |
 | `services.go` | `Services`, the service interfaces, the records `Resource` and `Variable`, `Store`, the chains, `LocalSecrets`, `Providers` |
 | `data.go` | `LoadData`: a bundle's `data/` directory as a `Store` |
 | `readcache.go` | `ReadCache`, a run's read cache |
@@ -92,6 +92,7 @@ Every exported name, grouped by concern. "Engine", "facade", "`wl`" and
 | `Identity`, `Identity.Env` | struct, method | One invocation's job identity, and its job variables ([Job identity](#job-identity)) | engine, `wltest` |
 | `Host`, `DefaultHost` | struct, variable | The host configuration and its defaults ([Host configuration](#host-configuration)) | engine, `wltest` |
 | `Host.Override` | method | A run's own host configuration over the runtime's: each field that the run sets replaces the runtime's | engine |
+| `Host.EffectiveWorkspace` | method | The workspace that a host configuration's jobs run in: its own, or `DefaultHost`'s; the workspace scope of its jobs | engine, facade |
 | `StatePath`, `ObjectPath` | functions | `WM_STATE_PATH` and `WM_OBJECT_PATH` | `Identity.Env` |
 | `NewToken` | function | A fresh `WM_TOKEN` | engine, `wltest` |
 | `APIEnv` | function | The variables an interpolated read with a job id resolves `$WM_*` strings from ([Contract (b)](#contract-b-the-interpolated-read)) | engine, the package |
@@ -118,7 +119,7 @@ Every exported name, grouped by concern. "Engine", "facade", "`wl`" and
 | `JobView` | interface | Renders a live run's job records | engine implements it |
 | `FlowUserState`, `FlowUserStateLister`, `UserStates`, `NewUserStates` | interfaces, struct, constructor | Flow user state and its local default | the package; hosts implement `FlowUserState` |
 | `JobLookup` | function type | Finds the job an interpolated read names | facade |
-| `Services.Registry`, `JobRegistry`, `RootJob`, `JobEnv`, `ReadJobEnv`, `GetJob`, `GetJobArgs`, `FlowUserState`, `FlowUserStates`, `SetFlowUserState`, `JobScope` | methods | The lookups ([Lookups](#lookups)) and the job reads | engine, facade, `wltest` (`JobRegistry`); `Services.Registry` only inside the package |
+| `Services.Registry`, `JobRegistry`, `RootJob`, `JobEnv`, `ReadJobEnv`, `GetJob`, `GetJobArgs`, `FlowUserState`, `FlowUserStates`, `SetFlowUserState`, `JobScope`, and `RootJobIn`, `ReadJobEnvIn`, `GetJobIn`, `GetJobArgsIn`, `FlowUserStateIn`, `SetFlowUserStateIn` | methods | The lookups ([Lookups](#lookups)) and the job reads | engine, facade, `wltest` (`JobRegistry`); `Services.Registry` only inside the package |
 
 ### Objects, dispatch and results
 
@@ -514,8 +515,8 @@ Its local default, `Registry`, keeps each `Job`: its id, its kind
 for a script job, its job variables.
 
 A job also keeps `Job.Host`, its run's configured host configuration. Its
-`Workspace` is the job's workspace scope: `""` when neither the runtime nor
-the run set one.
+effective workspace (`Host.EffectiveWorkspace`) is the job's workspace
+scope: `windmill-lite` when neither the runtime nor the run set one.
 
 ### What the registry keeps
 
@@ -557,7 +558,8 @@ windmill-lite bounds the memory by count instead.
 | `Services.JobEnv` | The job variables of a script job whose tree has not ended, the step ended or not | false otherwise; the ended jobs that the registry keeps have none |
 | `Services.ReadJobEnv` | The job that a resource read's `job_id` names: a live script job of the path's workspace, whose variables the read's `$WM_*` strings resolve from (`APIEnv`), as Windmill looks it up among the queued and running jobs ([WA-12](../../docs/semantics/client-api.md#wa-12)) | `Not found: Job not found at name <id>` (404) for an unknown id, an ended job or another workspace's job; `ErrNoJobVariables` for a live flow job |
 | `Services.JobRegistry` | The registry that the engine and the facade register with: `Jobs`, or the services' own | — |
-| `Services.JobScope` | The workspace scope of a known job, live or ended, for the facade's lookups in a workspace | false for an unknown id |
+| `Services.JobScope` | The workspace scope of a known job, live or ended: the effective workspace of its `Host` | false for an unknown id |
+| `Services.RootJobIn`, `ReadJobEnvIn`, `GetJobIn`, `GetJobArgsIn`, `FlowUserStateIn`, `SetFlowUserStateIn` | The lookups for a caller of one workspace scope (`""` for every scope): a job of another scope is unknown. Each checks the scope on the registry entry that it answers from, and a flow user state read looks the job up again after the read | as for an unknown id |
 
 ### Job reads of a live run
 
@@ -659,7 +661,7 @@ polls for them with a `JobResult`
   caller's job variables. Its `Host` is the caller's run's host
   configuration, which the dispatched run takes.
 - **`Dispatcher.Result`** takes the caller's workspace scope, and answers
-  only for a job that a run of that scope dispatched.
+  only for a job that a run of that scope dispatched; `""` takes any.
 - **A `JobResult`** says whether the job has started and, once it has
   completed, whether it succeeded and its result as stored JSON text.
 - **A target that is not a root of the bundle** fails with
@@ -908,7 +910,7 @@ CI runs every package's tests with `-race` in its Go jobs
 | | `TestValidResourcePath` | The path check, on every recorded path |
 | | `TestStateWrites`, `TestStateWritesNeverChangeAReplacement` | The recorded answers of create, update and delete; a provider's path; an entry of another type |
 | | `TestStoreReadOrder`, `TestStoreFailure`, `TestWithProvidersSharesTheStore`, `TestReleaseDropsTheEntries` | The read order behind the read cache; a failing store on every read and write; the store that a run's own providers share; a release dropping the memory store's entries |
-| `jobs_test.go` | `TestRegistryLifetime`, `TestRegistryOutlivedRoot`, `TestRegistryUnregisteredRoot` | A run and its jobs, the scopes a script job names, a job that ended while its run lives, a step that outlives its run, and jobs of a root never registered |
+| `jobs_test.go` | `TestRegistryLifetime`, `TestRegistryOutlivedRoot`, `TestRegistryUnregisteredRoot` | A run and its jobs, the scopes a script job names, a job that ended while its run lives, a step that outlives its run, and jobs of a root never registered. `TestRegistryJobScope`: the workspace scope that a job takes from its run, that derived jobs take, and that ended jobs keep |
 | | `TestRegistryEndedBound` | The bound on ended jobs: the oldest forgotten, and an id registered and ended again kept by its later end |
 | | `TestFlowUserState`, `TestFlowUserStateWithAHostsJobs`, `TestFlowUserStateSweepsDeadJobs`, `TestFlowUserStateWithAHostsStates` | Flow user state during and after the run, its stored form, the 404 and the 400; with a host's `Jobs`, with the sweep, and with a host's `FlowUserState` |
 | | `TestReadJobEnv`, `TestServicesRegistry` | The job that a read's `job_id` names; the services' one registry, shared by callers that first ask at once |

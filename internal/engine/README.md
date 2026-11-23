@@ -579,7 +579,7 @@ The engine gives each step its job identity, from which
 | `WM_FLOW_JOB_ID`, `WM_ROOT_FLOW_JOB_ID`, `WM_ROOT_JOB_ID` | The run's id; a dispatched run's two root ids follow its links ([A dispatched flow](#a-dispatched-flow)) |
 | `WM_FLOW_PATH`, `WM_FLOW_STEP_ID`, `WM_JOB_PATH`, `WM_STATE_PATH` | The flow's path, the module id, the job path, the state path |
 | `WM_TOKEN` | A fresh token |
-| The host configuration | `Config.Host` and `Config.Workspace`, under the run's own (`RunRequest.Host`, `ScriptRequest.Host`), field by field |
+| The host configuration | `Config.Host` and `Config.Workspace`, under the run's own (`RunRequest.Host`, `ScriptRequest.Host`), field by field. Each invocation carries the result as `Invocation.Host`, from which the facade scopes its job lookups |
 
 A step in a loop body takes its child flow's job id, innermost scope and
 path. A collapsed iteration's step takes its loop's step id and the job
@@ -1431,7 +1431,7 @@ client ([JE-20](../../docs/semantics/expressions.md#je-20)):
 |---|---|---|
 | `variable(path)` | The variable's value; a secret's plaintext | Throws the API's error text |
 | `resource(path)` | The resource, read as the stock client reads it, without a job id | Throws the API's error text |
-| `flow_user_state(key)` | The value stored at `key` for the run's root, as the API's read gives it; JSON `null` for a missing key ([WA-14](../../docs/semantics/client-api.md#wa-14)) | |
+| `flow_user_state(key)` | The value stored at `key` for the run's root, as the API's read gives it; JSON `null` for a missing key ([WA-14](../../docs/semantics/client-api.md#wa-14)), and for a root of another workspace than the run's | |
 
 Which of the client's reads Windmill's `resource()` helper uses is not in
 the reference; the engine uses the read without a job id.
@@ -1560,6 +1560,10 @@ root through `Run` for `jobs/run/f`.
   job's runnable path, from the job registry) are taken when the dispatch
   is accepted. So a run that starts after its parent has ended, after
   `scheduled_in_secs` or at once, keeps them.
+- **Links to another workspace.** A parent of another workspace than the
+  dispatching run's is as unknown: its path is not taken. The ids stay as
+  sent, as an unknown id's do, and `flow_user_state()` reads null through
+  a root of another workspace.
 - **Result polls.** It answers the result polls for its runs. The record
   of a completed run is kept while the dispatching step's root lives in the
   registry, and swept after.
@@ -1756,6 +1760,10 @@ services keeps one of its own, per engine (`New` makes it), a
   sorted key order as its name and stored text. The runnable is an inline
   step's inventory id (which the collapsed iterations of its loop share), a
   path script's path, or a flow's path.
+- **The key's workspace.** A run of another workspace than `windmill-lite`
+  (its `Host.EffectiveWorkspace`) starts its keys with a marker of its own
+  and the workspace, so it never shares an entry with a run of another
+  workspace. A run of `windmill-lite` keeps the key it always had.
 - **What the key leaves out.** No path that differs between jobs enters
   it, so the iterations of one loop share an entry, as [FX-40/d](../../docs/semantics/conformance.md#fx-40) recorded.
   The bundle's digest keeps entries from crossing bundles in a shared

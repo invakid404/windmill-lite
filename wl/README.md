@@ -175,13 +175,22 @@ that it sets for that run
 | `BaseURL` | `WM_BASE_URL` |
 | `WorkerGroup` | `WM_WORKER_GROUP` |
 
-- **A job is in its run's workspace.** The job API accepts only that
-  workspace in a call's path, and answers `401` for another. A step finds
-  only the jobs of its workspace's runs: the jobs of another workspace's
-  runs answer as unknown ids, in the job reads, the root lookup, the result
-  polls and flow user state.
-- **The resource store** keys a run's entries under its workspace.
-- **A run that a step dispatches** takes the identity of the step's run.
+- **A job is in its run's workspace**, `windmill-lite` when neither the
+  runtime nor the run sets one. A run that names `windmill-lite` and one
+  that names none are so in one workspace.
+- **The job API's workspace.** Its authenticated routes answer `401` for
+  a call whose path names another workspace than the step's. The `jobs_u`
+  routes (the job reads, the root lookup and the result polls) find no job
+  in another workspace. A step finds only the jobs of its workspace's runs:
+  the jobs of another workspace's runs answer as unknown ids, there and in
+  flow user state and a resource read's `job_id`.
+- **A hook's `WM_WORKSPACE`** (`InvocationEnv`) sets the workspace of a run
+  without a configured one, as it always did, but not that of a run with
+  one.
+- **The resource store and the result cache** key a run's entries under
+  its workspace.
+- **A run that a step dispatches** takes the identity of the step's run. A
+  `parent_job` or `root_job` of another workspace's run is unknown to it.
 - **The JSON form**, which host mode uses, names the fields `workspace`,
   `username`, `email`, `permissioned_as`, `base_url` and `worker_group`
   (`DecodeIdentity`).
@@ -711,7 +720,8 @@ build helper's dependencies, and skip without them unless
 | `wl_test.go` | `Open`, `Run`, `BuildInfo` and `Close` on hand-written bundles that need no harness. It covers archives, data directories, the host's variables, every refusal of `Open` and `Run`, cancellation, `Close` during runs, and a late platform call that still reaches its run. | No |
 | `hooks_test.go` | Every hook without Bun: interceptions, rewrites, observers, halts, run-end hooks, latches, selector checks, providers and their errors, per-run variables and the resolver | No |
 | `hookcases_test.go` | The latch-precedence cases of `conformance/hooks`, through the public hooks | No |
-| `host_test.go` | Host mode on a socketpair: the welcome, `run_done` and `run_settled`, refused runs, drain, `Close`, every refusal in the handshake, and per-run halts (`TestHostRunHalts`). Deadlines that have passed, which end only their run (`TestHostExpiredDeadlineEndsOnlyItsRun`), the conversion of both deadlines (`TestBudgetDuration`), and a `run_cancel`'s reason and canceler (`TestHostRunCancelReason`) | No |
+| `host_test.go` | Host mode on a socketpair: the welcome, `run_done` and `run_settled`, refused runs, drain, `Close`, every refusal in the handshake, and per-run halts (`TestHostRunHalts`). Deadlines that have passed, which end only their run (`TestHostExpiredDeadlineEndsOnlyItsRun`), the conversion of both deadlines (`TestBudgetDuration`), and a `run_cancel`'s reason and canceler (`TestHostRunCancelReason`). A run frame's `identity`, and the runs that a malformed one refuses while the connection serves on (`TestHostRunIdentity`) | No |
+| `identity_test.go` | The job identity: `Options.Identity` and `RunOptions.Identity` in the job variables, the facade's workspace check, and the keys of the resource store and the result cache. Two concurrent runs of two workspaces on one runtime and their dispatches; the default workspace named and not; a hook's `WM_WORKSPACE`; two invocations with one job id; `DecodeIdentity` | Yes, but `TestDecodeIdentity` |
 | `cause_test.go` | The cause of a canceled run (`TestRunCancelCause`): a deadline, a passed pre-write deadline, a cancellation, `Close` and a flow's own limit. A root script's run past its deadline (`TestScriptRunCancelCause`) needs Bun | No, but for the script |
 | `plugin_test.go` | Host plugins without Bun: refusals, the declaration's checks, providers, `host_call`s, timeouts, `mergeHooks`, settlement (`TestPluginCallsHoldSettlement`) and the run-end trace detail (`TestPluginTraceDetail`) | No |
 | `payload_test.go` | The payload encoding against `json.Marshal` (`TestPayloadSplice`) | No |
