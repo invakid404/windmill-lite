@@ -1022,12 +1022,12 @@ is a timer on the flow's context, not a step's. When it fires, the flow
 and its steps are canceled as in item 3, with canceler `timeout`; the
 flow's failure module still runs once, and the flow ends canceled.
 
-**A deadline ends only its run.** A run's hard deadline, and its pre-write
-deadline until the first write is approved, end that run alone, `canceled`,
-as a cancellation does in item 3. Other runs, the harness processes and a
-host's connection go on. A deadline that has passed when the run arrives
-ends it before its first module, as `wl` ends a flow run whose pre-write
-deadline is past.
+**A deadline ends only its run.** A run's hard deadline, and a flow run's
+pre-write deadline until the first write is approved, end that run alone,
+`canceled`, as a cancellation does in item 3. Other runs, the harness
+processes and a host's connection go on. A deadline that has passed when
+the run arrives ends it before its first module, as `wl` ends a flow run
+whose pre-write deadline is past.
 
 **Expired deadlines in host mode.** Each of `deadline_ms` and
 `pre_write_deadline_ms` is optional, and its absence means no deadline.
@@ -1035,27 +1035,31 @@ Both codecs keep whether it is present and write a present 0. A present
 value of 0 or less is a deadline that has passed, and one above the longest
 duration that the engine holds, about 292 years, counts as that duration.
 
-No budget fails to decode, since a protocol error would end the
-connection, and with it every run of the host and the engine (§Transport
-and framing item 3).
+Any integer from −(2^53 − 1) to 2^53 − 1, the frame rules' range, decodes,
+so a deadline that has passed is never a malformed frame. A value outside
+that range, or one that is not an integer, still is: the protocol error
+ends the connection, and with it every run of the host and the engine
+(§Transport and framing item 3).
 
 The host SDK sends a rest rounded up to whole milliseconds and at least 0.
-It refuses, itself, a rest that is not a finite number or that is above
-2^53 − 1 ms, the frame rules' largest integer, so no budget that a host
-gives it can end the connection.
+It refuses, itself, a rest that is not a finite number, `null` included,
+or that is above 2^53 − 1 ms, the frame rules' largest integer, so no
+budget that a host gives it can end the connection.
 
 **The cause.** A canceled run's outcome names why it was canceled:
 `deadline`, `pre_write_deadline`, `canceled` (the host's cancellation, or
 the end of the call that carried the run), `closing` (the runtime closes)
-or `flow_timeout` (the flow's own limit). `wl`'s `Result` carries it as
-`CancelCause`, and host mode's `run_done` as `cancel_cause`, the name that
-the planned `Runner`'s `RunResult` gives it too
-([host adapters](0009-host-adapters.md#deadlines-and-outcomes)). The
-status stays Windmill's `canceled`, and so does the `Canceled` error in the
-result.
+or `flow_timeout` (the flow's own limit). The status stays Windmill's
+`canceled`, and so does the result: a flow's `Canceled` error, or a root
+script's error of a killed job.
+
+`wl`'s `Result` carries the cause as `CancelCause`, and host mode's
+`run_done` as `cancel_cause`, the name that the planned `Runner`'s
+`RunResult` gives it too
+([host adapters](0009-host-adapters.md#deadlines-and-outcomes)).
 
 A host's `run_cancel` may carry a `reason` and a `canceler`, which that
-error then names ([FX-38](../semantics/execution.md#fx-38)); without them
+result then names ([FX-38](../semantics/execution.md#fx-38)); without them
 it names Windmill's defaults. Its cause is `canceled` either way.
 
 ## Consequences

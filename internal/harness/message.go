@@ -474,8 +474,8 @@ type RunSettled struct {
 }
 
 // RunCancel cancels a run the harness submitted. Reason and Canceler, when
-// either is set, are what the run's Canceled error names (FX-38); "" for
-// both names Windmill's defaults.
+// either is set, are what the canceled run's result names (FX-38); "" for
+// both names Windmill's defaults. Both codecs write neither when empty.
 type RunCancel struct {
 	ID       string
 	Reason   string

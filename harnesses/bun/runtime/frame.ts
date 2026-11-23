@@ -100,6 +100,10 @@ function value(v: unknown, nestedOrder?: readonly string[]): string {
 /** Boolean fields written only when true, as Go writes them. */
 const WRITTEN_WHEN_TRUE = new Set(["run_done.may_have_mutated"]);
 
+/** String fields written only when not empty, as Go writes them: an empty
+ * one counts as absent, on decoding too. */
+const WRITTEN_WHEN_NOT_EMPTY = new Set(["run_done.cancel_cause", "run_cancel.reason", "run_cancel.canceler"]);
+
 /** The canonical payload text of a message. */
 export function encodeText(m: Outgoing): string {
   const order = Object.hasOwn(FIELDS, m.t) ? FIELDS[m.t] : undefined;
@@ -107,7 +111,7 @@ export function encodeText(m: Outgoing): string {
   let s = '{"t":' + JSON.stringify(m.t);
   for (const k of order) {
     const v = m[k];
-    if (v === undefined || (v === false && WRITTEN_WHEN_TRUE.has(`${m.t}.${k}`))) continue;
+    if (v === undefined || (v === false && WRITTEN_WHEN_TRUE.has(`${m.t}.${k}`)) || (v === "" && WRITTEN_WHEN_NOT_EMPTY.has(`${m.t}.${k}`))) continue;
     s += "," + JSON.stringify(k) + ":" + value(v, NESTED[k]);
   }
   return s + "}";
@@ -409,7 +413,7 @@ function resultField(outcome: unknown, k: string): boolean {
 function own(m: Message): Message {
   const out: Message = { t: m.t };
   for (const k of FIELDS[m.t]) {
-    if (m[k] === undefined) continue;
+    if (m[k] === undefined || (m[k] === "" && WRITTEN_WHEN_NOT_EMPTY.has(`${m.t}.${k}`))) continue;
     if (m.t === "result" && !resultField(m.outcome, k)) continue;
     if ((m.t === "ping" || m.t === "pong") && k !== "id" && (m.in_flight === undefined || m.in_flight === null)) continue;
     const nested = Object.hasOwn(NESTED, k) ? NESTED[k] : undefined;

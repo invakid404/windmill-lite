@@ -131,7 +131,7 @@ fields are in `go doc`.
 | `PluginRun`, `PluginThen`, `PluginExpect` | structs | A run's own hooks and budgets; one later run of the case; what a run expects | `wl`, `cmd/windmill-lite` tests |
 | `LoadPluginFile` | function | Read and check the plugin file | `wl`, `cmd/windmill-lite` tests |
 | `PluginOutcome` | struct | What a run of a case showed, which `PluginCase.Check` compares | the same |
-| `PluginLog`, `ReadSettlement` | constant, function | `plugin_log`, the warning that carries a plugin's log; the report of settled runs | the same |
+| `PluginLog`, `PluginTrace`, `ReadSettlement` | constants, function | `plugin_log`, the warning that carries a plugin's log; `plugin_trace`, the one that carries what the run's trace showed the TypeScript plugin; the report of settled runs | the same |
 
 ### Claims, comparison and normalisation
 
@@ -695,10 +695,13 @@ its hosts, not Windmill's, so the oracle never records them.
 The cases run through a TypeScript plugin
 (`harnesses/bun/test/caseplugin.ts`) and through Go callbacks
 ([conformance](../../conformance/README.md#plugin-cases) lists where). Every plugin's `onRunEnd` reports
-its log of the run in the warning `plugin_log`. Its `onRunSettled` writes
-each run to a report file, with whether one of the run's hooks still ran,
-which `ReadSettlement` reads: the runners check that every run settles, and
-none early.
+its log of the run in the warning `plugin_log`. The TypeScript plugin's
+also reports, in the warning `plugin_trace`, the sites whose job ran and
+the run's cause of cancellation, as the trace that it got shows them.
+
+Every plugin's `onRunSettled` writes each run to a report file, with
+whether one of the run's hooks still ran, which `ReadSettlement` reads: the
+runners check that every run settles, and none early.
 
 `PluginCase.Check` compares a run's `PluginOutcome` with its `expect`, field
 by field:
@@ -710,9 +713,12 @@ by field:
 - `warnings` lists codes that must be among the run's; others may come too.
   This is looser than a step run's `warnings`, which must be exact;
 - `log` and `deviations`, when given, must equal the outcome's, in order;
-- each `not_ran` site must have run no job;
+- each `not_ran` site must have run no job: by the run's trace, or, for a
+  runner without it in host mode, by the plugin's `plugin_trace`;
 - `cancel_cause`, when given, must equal the outcome's, and a run that is
-  not `canceled` must have none.
+  not `canceled` must have none;
+- the cause in `plugin_trace`, when the plugin sent one, must equal the
+  outcome's, so the plugin's `onRunEnd` saw it.
 
 The loader decodes the file strictly, and needs at least one case:
 

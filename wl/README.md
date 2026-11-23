@@ -263,7 +263,8 @@ runs.
 | `halted` | `StatusHalted` | A halt hook ended the run. |
 
 A canceled run's `CancelCause` names one cause. Every cause keeps the
-status `canceled` and Windmill's `Canceled` error in `Result`.
+status `canceled` and the `Result` that Windmill stores: a flow's
+`Canceled` error, or a root script's `ExecutionErr` of a killed job.
 
 | Cause | Constant | What canceled the run |
 |---|---|---|

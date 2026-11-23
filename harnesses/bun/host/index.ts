@@ -335,14 +335,14 @@ function runSelectors(option: string, list: unknown): Selector[] | undefined {
 }
 
 /** A run option's budget in milliseconds as the run frame carries it, or
- * undefined when the option is not given: rounded up to a whole
+ * undefined when the option is undefined: rounded up to a whole
  * millisecond, and at least 0, a deadline that has passed. The engine
  * decodes a number that is not an integer, or one beyond the frame rules'
  * largest, as a broken frame, which would end the connection, so a value
  * that is not a finite number or is above Number.MAX_SAFE_INTEGER throws
- * here. */
+ * here, null included: it is not an absent deadline. */
 function runBudget(option: string, ms: unknown): number | undefined {
-  if (ms === undefined || ms === null) return undefined;
+  if (ms === undefined) return undefined;
   if (typeof ms !== "number" || !Number.isFinite(ms) || ms > Number.MAX_SAFE_INTEGER) {
     throw new Error(`the run's ${option} is not a finite number of milliseconds up to ${Number.MAX_SAFE_INTEGER}: ${String(ms)}`);
   }

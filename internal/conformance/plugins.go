@@ -145,6 +145,12 @@ type PluginExpect struct {
 // reports its log of the run, as a JSON array of strings.
 const PluginLog = "plugin_log"
 
+// PluginTrace is the code of the warning in which the TypeScript case
+// plugin's onRunEnd reports what the run's trace showed it, as a JSON
+// object: ran, the sites whose job ran, and cancel_cause, the run's cause
+// of cancellation, "" for none.
+const PluginTrace = "plugin_trace"
+
 // ReadSettlement reads a case plugin's report file: the runs its
 // onRunSettled heard of, and those of them that settled while one of their
 // hooks still ran (early). A missing file reports none.
@@ -286,7 +292,8 @@ type PluginOutcome struct {
 	Latched        string
 	Warnings       []struct{ Code, Message string }
 	// Ran holds, for each site the trace has a record of, whether a job
-	// ran for it.
+	// ran for it; nil for a runner without the run's trace, whose plugin
+	// reports the sites in its PluginTrace warning.
 	Ran map[string]bool
 	// Deviations are the run's run-time deviations (H7, H10).
 	Deviations []string
@@ -321,10 +328,34 @@ func (e PluginExpect) Check(o PluginOutcome) []string {
 	}
 	var log []string
 	var codes []string
+	ran := o.Ran
 	for _, w := range o.Warnings {
-		if w.Code == PluginLog {
+		switch w.Code {
+		case PluginLog:
 			if err := json.Unmarshal([]byte(w.Message), &log); err != nil {
 				diffs = append(diffs, "the plugin's log is not a JSON array of strings: "+w.Message)
+			}
+			continue
+		case PluginTrace:
+			// The plugin's onRunEnd got the run's cause; and a runner
+			// without the run's trace, in host mode, takes the sites that
+			// ran from the plugin's.
+			var seen struct {
+				Ran         []string `json:"ran"`
+				CancelCause string   `json:"cancel_cause"`
+			}
+			if err := json.Unmarshal([]byte(w.Message), &seen); err != nil {
+				diffs = append(diffs, "the plugin's trace report is not an object of ran and cancel_cause: "+w.Message)
+				continue
+			}
+			if seen.CancelCause != o.CancelCause {
+				diffs = append(diffs, fmt.Sprintf("the plugin's onRunEnd saw cancel_cause %q, the run has %q", seen.CancelCause, o.CancelCause))
+			}
+			if ran == nil {
+				ran = map[string]bool{}
+				for _, s := range seen.Ran {
+					ran[s] = true
+				}
 			}
 			continue
 		}
@@ -339,7 +370,7 @@ func (e PluginExpect) Check(o PluginOutcome) []string {
 		}
 	}
 	for _, s := range e.NotRan {
-		if o.Ran[s] {
+		if ran[s] {
 			diffs = append(diffs, fmt.Sprintf("site %s ran a job, want none", s))
 		}
 	}

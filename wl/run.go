@@ -52,8 +52,8 @@ const (
 )
 
 // The causes of a canceled run, Result.CancelCause (ADR 0004 §Cancellation
-// and deadlines). Each keeps the status StatusCanceled and Windmill's
-// Canceled error (FX-38) in the result.
+// and deadlines). Each keeps the status StatusCanceled and the result: a
+// flow's Canceled error (FX-38), or a root script's error of a killed job.
 const (
 	// CauseDeadline: the run's hard deadline, its context's, passed.
 	CauseDeadline = engine.CauseDeadline

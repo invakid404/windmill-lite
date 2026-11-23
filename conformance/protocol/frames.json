@@ -818,8 +818,14 @@
     {
       "case": "run-done-cancel-cause",
       "title": "a canceled run's run_done names why it was canceled, after every other field",
-      "message_text": "{\"cancel_cause\":\"pre_write_deadline\",\"t\":\"run_done\",\"id\":\"r4\",\"status\":\"canceled\"}",
-      "payload": "{\"t\":\"run_done\",\"id\":\"r4\",\"status\":\"canceled\",\"cancel_cause\":\"pre_write_deadline\"}"
+      "message_text": "{\"cancel_cause\":\"pre_write_deadline\",\"deviations\":[\"H10\"],\"t\":\"run_done\",\"warnings\":[{\"code\":\"c\",\"message\":\"m\"}],\"id\":\"r4\",\"status\":\"canceled\",\"result\":{\"error\":{\"name\":\"Canceled\",\"message\":\"Job canceled: no reason given by unknown\"}}}",
+      "payload": "{\"t\":\"run_done\",\"id\":\"r4\",\"status\":\"canceled\",\"result\":{\"error\":{\"name\":\"Canceled\",\"message\":\"Job canceled: no reason given by unknown\"}},\"warnings\":[{\"code\":\"c\",\"message\":\"m\"}],\"deviations\":[\"H10\"],\"cancel_cause\":\"pre_write_deadline\"}"
+    },
+    {
+      "case": "run-done-cancel-cause-empty",
+      "title": "an empty cancel_cause counts as absent, and is not written",
+      "message_text": "{\"t\":\"run_done\",\"id\":\"r4\",\"status\":\"success\",\"cancel_cause\":\"\"}",
+      "payload": "{\"t\":\"run_done\",\"id\":\"r4\",\"status\":\"success\"}"
     },
     {
       "case": "host-call",
@@ -901,9 +907,21 @@
     },
     {
       "case": "run-cancel-reason",
-      "title": "the host cancels a run with a reason and a canceler, which the run's Canceled error names",
+      "title": "the host cancels a run with a reason and a canceler, which the canceled run's result names",
       "message_text": "{\"t\":\"run_cancel\",\"canceler\":\"tenant-admin\",\"reason\":\"the tenant was suspended\",\"id\":\"r2\"}",
       "payload": "{\"t\":\"run_cancel\",\"id\":\"r2\",\"reason\":\"the tenant was suspended\",\"canceler\":\"tenant-admin\"}"
+    },
+    {
+      "case": "run-cancel-reason-empty",
+      "title": "an empty reason counts as absent, and is not written",
+      "message_text": "{\"t\":\"run_cancel\",\"id\":\"r2\",\"reason\":\"\",\"canceler\":\"tenant-admin\"}",
+      "payload": "{\"t\":\"run_cancel\",\"id\":\"r2\",\"canceler\":\"tenant-admin\"}"
+    },
+    {
+      "case": "run-cancel-canceler-empty",
+      "title": "an empty canceler counts as absent, and is not written",
+      "message_text": "{\"t\":\"run_cancel\",\"id\":\"r2\",\"reason\":\"the tenant was suspended\",\"canceler\":\"\"}",
+      "payload": "{\"t\":\"run_cancel\",\"id\":\"r2\",\"reason\":\"the tenant was suspended\"}"
     },
     {
       "case": "ping-health",

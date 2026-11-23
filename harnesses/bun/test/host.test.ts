@@ -293,7 +293,7 @@ test("a run's deadlines go in its run frame as whole milliseconds of at least 0,
     process.chdir(back);
   }
   try {
-    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 2 ** 53, "5" as unknown as number]) {
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 2 ** 53, "5" as unknown as number, null as unknown as number]) {
       expect(await code(host.run("f/x", { echo: true }, { deadlineMs: bad }))).toBe("refused");
       expect(await code(host.run("f/x", { echo: true }, { preWriteDeadlineMs: bad }))).toBe("refused");
     }

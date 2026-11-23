@@ -40,7 +40,10 @@
 # Every plugin also answers onRunEnd (H9) with the warning plugin_log,
 # whose message is its log of the run, as JSON, and the runs that settled
 # so far (plugin_settled) and settled while one of their hooks still ran
-# (plugin_settled_early): every case's run must settle, none early.
+# (plugin_settled_early): every case's run must settle, none early. The
+# TypeScript plugin also answers with plugin_trace, what the run's trace
+# showed it: the sites whose job ran, which not_ran checks in host mode,
+# and the cause of a cancellation, which must be the run's.
 # provided: the case's host-provided sites: [{module, provider}].
 # run: the run's own hooks and budgets, which a Go host gives in
 #   RunOptions and a TypeScript host in its run frame:

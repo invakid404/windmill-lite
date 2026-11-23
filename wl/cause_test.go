@@ -3,6 +3,7 @@ package wl
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -104,7 +105,8 @@ func TestRunCancelCause(t *testing.T) {
 }
 
 // A root script's run whose context has passed its deadline before it
-// starts ends canceled, with the cause deadline.
+// starts ends canceled, with the cause deadline; its result stays the
+// killed job's error of a script job, not a flow's Canceled error.
 func TestScriptRunCancelCause(t *testing.T) {
 	bun := bunOrSkip(t)
 	out, runtimeDir := buildBundle(t, bun)
@@ -121,6 +123,12 @@ func TestScriptRunCancelCause(t *testing.T) {
 	}
 	if res.Status != StatusCanceled || res.CancelCause != CauseDeadline {
 		t.Fatalf("status %s, cause %q (result %s); want canceled, cause %q", res.Status, res.CancelCause, res.Result, CauseDeadline)
+	}
+	var killed struct {
+		Error struct{ Name, Message string } `json:"error"`
+	}
+	if json.Unmarshal(res.Result, &killed) != nil || killed.Error.Name != "ExecutionErr" || !strings.Contains(killed.Error.Message, "cancelled by unknown (reason: no reason given)") {
+		t.Fatalf("result %s; want the killed job's ExecutionErr", res.Result)
 	}
 	// The same script with time left runs.
 	if res, err := rt.Run(context.Background(), "f/t/set", json.RawMessage(`{"v":"u/t/v"}`), RunOptions{Kind: KindScript}); err != nil || res.Status != StatusSuccess || res.CancelCause != "" {
