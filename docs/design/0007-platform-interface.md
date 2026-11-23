@@ -24,10 +24,10 @@ default `fail` policy a step that called an unsupported route fails with
 - the job routes other than the root lookup, the job reads, flow user
   state, dispatch, the result polls and the flow restart, which answer 501
   too;
-- the result polls for a job of a live run that the dispatcher did not
-  start (§Services);
-- the settings of the job identity in `wl` and in the go-plugin adapter
-  (§Job identity);
+- the option that makes the result polls answer for a job of a live run
+  that the dispatcher did not start (§Services);
+- the settings of the job identity in `wl` and in the go-plugin adapter,
+  and a workspace per run (§Job identity);
 - removing windmill-lite's job ids from a step's own dispatch to a real
   Windmill (§Async dispatch).
 
@@ -88,14 +88,21 @@ as a subflow's flow job whose id it took from its flow's status:
 
 - The job read (`jobs_u/get/{id}`) answers for the jobs of a live run,
   with `success` and `result` once the job has completed
-  ([WA-19](../semantics/client-api.md#wa-19)).
+  ([WA-19](../semantics/client-api.md#wa-19)). It answers 501 for a job
+  that windmill-lite canceled, a flow job that ended neither in a success
+  nor in a failure, and a flow with a preprocessor module.
 - The result polls (`jobs_u/completed/get_result_maybe/{id}` and
-  `get_result/{id}`) answer only for the runs that the dispatcher started,
-  and 501 for any other job of windmill-lite's. They are planned to answer
-  for every job of a live run from the run registry, with the shapes of
-  [WA-V2](../semantics/client-api.md#wa-v2) and WA-19, and for a job of an
-  ended run as the job read does
-  ([D22](0001-equivalence-contract.md#5-named-deviations)).
+  `get_result/{id}`) answer only for the runs that the dispatcher started.
+  For another job that the job registry knows in the caller's workspace
+  they answer 501, and for an id that it does not know, Windmill's answer
+  for a job with no row.
+- A runtime option is planned to make the result polls answer for every
+  job of a live run that the job read answers for, from the run registry,
+  with the shapes of [WA-V2](../semantics/client-api.md#wa-v2) and
+  [WA-19](../semantics/client-api.md#wa-19). A job of an ended run then
+  answers as the job read does
+  ([D22](0001-equivalence-contract.md#5-named-deviations)), and the 501s
+  stay the default.
 - A provided site has no job, so a step that reads its outcome gets it
   from a provider too
   ([host hooks](0008-host-hooks.md#patterns-built-from-the-hooks)).
@@ -105,18 +112,24 @@ as a subflow's flow job whose id it took from its flow's status:
 **Where a run's resources and variables come from.** A read takes the
 first answer of these sources, in this order:
 
-1. the run's own values: a Go host's `RunPlatform` (H13), or the
+1. the run's own values: a Go host's `RunPlatform` ([H13](0008-host-hooks.md#the-hooks)), or the
    `resources` and `variables` of a go-plugin `RunRequest` (planned);
-2. the host plugin's `resource` and `variable` providers, and those of a
-   go-plugin host's hooks service on the broker (planned);
-3. the runtime's host values, `wl`'s `Options.Resources` and `Variables`,
-   which the go-plugin adapter's configuration fills;
-4. the bundle's `data/`;
-5. for a resource, the resource store's entries.
+2. the run's own providers on a go-plugin host's broker (planned), which
+   are the run's hooks and so come before the plugin's;
+3. the host plugin's `resource` and `variable` providers;
+4. the runtime's host values, `wl`'s `Options.Resources` and `Variables`,
+   which the go-plugin adapter's configuration is to fill;
+5. the bundle's `data/`;
+6. for a resource, the resource store's entries.
 
 With the read cache on
-([D21](0001-equivalence-contract.md#5-named-deviations)), a run's later
-reads of a path take its first read's answer. A source that reads a real
+([D21](0001-equivalence-contract.md#5-named-deviations)), a run keeps the
+providers' first successful answer for a path, before interpolation, and
+answers its later reads of that path from it. An error is not kept, a
+variable that a step updates is read again, and the resource store's
+entries, below the providers, are read each time.
+
+A source that reads a real
 Windmill's API is the proxied platform of hybrid dispatch (§Hybrid dispatch
 to a real Windmill), which waits for the decision named there. A host's own
 provider may read any source that the host chooses.
@@ -293,8 +306,16 @@ and [WA-4](../semantics/client-api.md#wa-4):
 this host configuration once, for the job environment, the facade's check
 of a call's workspace and the resource store's key alike. Until then `wl`
 sets none of it, so every job reads windmill-lite's placeholders, such as
-`WM_WORKSPACE` `windmill-lite`. The go-plugin adapter's configuration
-carries the option, and a go-plugin `RunRequest` may set it for one run.
+`WM_WORKSPACE` `windmill-lite`. The go-plugin adapter's configuration is to
+carry the option.
+
+**A workspace per run** (planned). A run may set the identity for itself,
+so one runtime can hold runs of several workspaces, each job in its run's
+workspace. The job reads, the result polls, the root lookup
+with its record of ended jobs, flow user state and the dispatcher's results
+find a job only through a path in its own workspace. For a job of another
+workspace they answer as for an unknown id, as Windmill does
+([WA-V2](../semantics/client-api.md#wa-v2)).
 
 `FlowUserState` keys on the effective root; `getRootJobId` answers from the
 run registry. A host can override the environment of an invocation
@@ -319,22 +340,28 @@ no default cap delays it, so a parent that waits for it cannot starve it
 
 **windmill-lite's job ids stay local.** They name no job of any Windmill
 instance ([D3](0001-equivalence-contract.md#5-named-deviations)), so
-nothing that reaches a real Windmill from a run carries them as
-`parent_job` or `root_job`:
+windmill-lite keeps them out of `parent_job` and `root_job` wherever it
+handles a request to a real Windmill:
 
 - A dispatcher that routes a step's dispatch to a real Windmill, and the
   steps that hybrid dispatch runs remotely (§Hybrid dispatch to a real
   Windmill), send neither link. A host's own dispatcher that routes there
   drops them too.
-- A step's own client call to a real Windmill bypasses the facade, and the
-  stock clients add `parent_job` from `WM_JOB_ID` and `root_job` from
-  `WM_ROOT_FLOW_JOB_ID` ([WA-15](../semantics/client-api.md#wa-15)). A
-  runtime setting that names such a Windmill's origins is planned. On a
-  step's request to one of them, the harness's `fetch` view then removes a
+- A step's own client call to a real Windmill bypasses the facade. The
+  stock clients add `parent_job` from `WM_JOB_ID` whenever it is set and
+  `root_job` from `WM_ROOT_FLOW_JOB_ID` when it is not empty, on a script's
+  dispatch and on `runFlow`, while `runFlowAsync` sends neither by default
+  ([WA-15](../semantics/client-api.md#wa-15)).
+- A runtime setting that names such a Windmill's origins is planned. On a
+  request from a step, a native step's included, to one of them under
+  `/api/w/{workspace}/jobs/run/`, the harness's `fetch` view then removes a
   `parent_job` or `root_job` query parameter whose value is one of the
   invocation's own job ids.
-- Until then, a host that runs such code removes the links in its own
-  `fetch` wrapper.
+- A request that windmill-lite does not handle keeps them. That is one to
+  an origin that the setting does not name, one made outside the `fetch`
+  view (by a child process or a socket that the step opens), and, until the
+  setting exists, every such call. A host that runs such code removes the
+  links itself.
 
 ### Hybrid dispatch to a real Windmill
 
@@ -829,4 +856,5 @@ WA-31, WA-40 to WA-42, WA-50, WA-51, WA-V1 to WA-V5, FX-5, FX-40, FX-46,
 WR-22, JE-20, JE-42, JE-43, SY-11, OR-5, OR-10, LIC-1, Q-OF-7, Q-WA-3,
 Q-WA-10, and the client table of client-api.md.
 
-FX-39, for flows that suspend until notified.
+[FX-39](../semantics/execution.md#fx-39), for flows that suspend until
+notified.

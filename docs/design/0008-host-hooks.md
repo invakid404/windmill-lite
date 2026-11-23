@@ -124,8 +124,9 @@ declines.
   ([host adapters](0009-host-adapters.md#hooks-across-the-plugin-boundary)).
   The host serves a run's hooks on a broker connection with a host plugin's
   declaration, and the engine calls them with a `host_call`'s hook names and
-  payloads. Their errors and timeouts latch the run as a plugin's do, and
-  `around`, which runs inside the harness process, is not offered there.
+  payloads. A call that fails or times out has the outcome that the same
+  hook's failure has in a plugin (§Consequences), and `around`, which runs
+  inside the harness process, is not offered there.
 - **Settings in the run** need no callback. A run's static interceptions
   (H1), write-capable selectors (H3), deadlines (H4), fatal error names
   (H7), halts (H8) and clock (H10) travel in host mode's `run` frame and in

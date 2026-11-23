@@ -155,7 +155,7 @@ flowchart LR
   host[Go host with wl/plugin] -->|starts and pins| engine[windmill-lite plugin]
   host -->|Runner and health calls| engine
   engine -->|hook calls over the broker| host
-  engine -->|one frame per step| harness[warm Bun harness processes]
+  engine -->|invocations, hook and platform calls| harness[warm Bun harness processes]
 ```
 
 #### The plugin command
@@ -177,31 +177,43 @@ process.
 | `providers` | For each named provider of the host contract: a static value, or `broker` for the host's hooks service | none |
 | `plugin_timeout_ms` | The bound of each hook call, to a host plugin or over the broker | 60000 |
 | `read_cache` | The read cache of each run ([D21](0001-equivalence-contract.md#5-named-deviations)) | off |
-| `pool` | The warm pool's size, cap, pinned runs, recycle triggers and warm start ([harness protocol](0004-harness-protocol.md#pooling-processes-the-engine-spawns)) | one process, no cap |
+| `pool` | A `warm` pool's size, cap, pinned runs, recycle triggers and warm start ([harness protocol](0004-harness-protocol.md#pooling-processes-the-engine-spawns)) | one process, no cap |
+| `foreign_windmill_origins` | The origins of real Windmill instances, whose requests from steps lose windmill-lite's job ids ([platform interface](0007-platform-interface.md#async-dispatch)) | none |
 | `engine_recycle_rss` | The engine's own resident set, in bytes, at which it stops serving | off |
 | `drain_timeout_ms` | How long a drain lets the runs in flight go on | 60000 |
 | `max_message_bytes` | The largest gRPC message in either direction | 536870912, the harness protocol's limit |
 | `labels` | Names and values that build information echoes, such as a deployment's region | none |
 
-- **Secrets by reference.** A variable's value and the resource store's
-  URL may name a variable of the engine's environment (`value_env`,
-  `url_env`) instead of holding the value. The engine reads it once, at
-  start, and writes it to no file, build information or diagnostic; a
-  variable that is not set fails the start, naming the variable. A resource
-  reaches a secret through a `$var:` reference to such a variable, as on
-  Windmill ([WA-12](../semantics/client-api.md#wa-12)).
+- **Secrets by reference.** A secret variable's value names a variable of
+  the engine's environment (`value_env`), and so does the resource store's
+  URL (`url_env`), which may hold a credential. A secret written in the
+  file refuses the start, naming the field but not the value.
+- **Reading them.** The engine reads each reference once, at start, and
+  writes the value to no file, build information or diagnostic. A variable
+  that is not set fails the start, naming the variable. A resource reaches a
+  secret through a `$var:` reference to a secret variable, as on Windmill
+  ([WA-12](../semantics/client-api.md#wa-12)).
 - **The launch environment.** A go-plugin host usually starts its plugin
   with a literal environment (go-plugin's `SkipHostEnv`), so it puts
   exactly the referenced variables there.
 - **The configuration's digest** is the SHA-256 of the file's bytes. It
   covers every setting and every secret's reference, but no secret's value.
-- **The socket.** go-plugin creates the plugin's Unix socket in a
-  directory under the one that the host's client configuration names
-  (`UnixSocketConfig.TempDir`), and `wl/plugin` gives each launch a fresh
-  directory of mode `0700`. The command sets its own umask to `0077`
-  before it serves, so the socket has no group or other permission. It
-  starts each harness process with the umask it was started with, so steps
-  see the umask they see under `wl`.
+- **The sockets.** go-plugin makes a private directory for its sockets,
+  passes it to the plugin as `PLUGIN_UNIX_SOCKET_DIR` and removes it in its
+  `Kill` only when the host starts the plugin through a runner of its own
+  (`ClientConfig.RunnerFunc`). With go-plugin's default runner, the plugin's
+  socket and the host's broker sockets go to each process's temporary
+  directory.
+- **The private directory.** So `wl/plugin`'s `ClientConfig` starts the
+  engine through a runner of its own, under a fresh base directory of mode
+  `0700` (`UnixSocketConfig.TempDir`). go-plugin then puts the plugin's
+  socket and both sides' broker sockets in a directory of mode `0700`
+  inside it, and `wl/plugin` removes the base directory once the plugin has
+  exited.
+- **The umask.** The command sets its own umask to `0077` before it serves,
+  so its sockets have no group or other permission. It starts each harness
+  process with the umask that it was started with, so steps see the umask
+  they see under `wl`.
 
 #### The Runner service
 
@@ -219,8 +231,8 @@ A `RunRequest` holds:
 | Field | Meaning |
 |---|---|
 | `id`, `kind`, `path`, `args` | The run's job id (empty: a new UUID), `flow` or `script`, the target's path, and the arguments, a JSON object |
-| `deadline_ms`, `pre_write_deadline_ms` | The hard and the pre-write deadline, in milliseconds from the engine's receipt; 0 or less is a deadline that has passed ([Deadlines and outcomes](#deadlines-and-outcomes)) |
-| `write_capable`, `halt_before`, `halt_after`, `fatal_error_names`, `intercept`, `clock` | The run's own hooks and budgets, as host mode's `run` frame carries them: H1's static form, H3, H7, H8 and H10 ([host hooks](0008-host-hooks.md#the-hooks)) |
+| `deadline_ms`, `pre_write_deadline_ms` | Optional: absent means no deadline. The hard and the pre-write deadline, in milliseconds from the engine's receipt; 0 or less is a deadline that has passed ([Deadlines and outcomes](#deadlines-and-outcomes)) |
+| `write_capable`, `halt_before`, `halt_after`, `fatal_error_names`, `intercept`, `clock` | The run's own hooks and budgets, as host mode's `run` frame carries them: write-capable sites ([H3](0008-host-hooks.md#the-hooks)), halts ([H8](0008-host-hooks.md#the-hooks)), fatal error names ([H7](0008-host-hooks.md#the-hooks)), static interceptions ([H1](0008-host-hooks.md#the-hooks)) and the clock ([H10](0008-host-hooks.md#the-hooks)) |
 | `run_data` | JSON that host plugins read as `wl.run.data` ([H11](0008-host-hooks.md#the-hooks)) |
 | `identity`, `resources`, `variables` | The run's own workspace and user, and its own values by path ([H13](0008-host-hooks.md#the-hooks)), in place of the runtime's |
 | `hooks` | The broker id of the host's hooks service, and the hooks that it answers for this run ([Hooks across the plugin boundary](#hooks-across-the-plugin-boundary)) |
@@ -233,9 +245,9 @@ A `RunResult` holds:
 |---|---|
 | `id`, `status` | The run's id, and `success`, `failure`, `canceled`, `skipped`, `latched` or `halted` |
 | `result` | The final result in its stored form ([FX-36](../semantics/execution.md#fx-36)) |
-| `may_have_mutated` | Whether the first write-capable step launched (H3), in a failed or canceled run too |
+| `may_have_mutated` | Whether the launch of the first write-capable module was approved ([H3](0008-host-hooks.md#the-hooks)), in a failed or canceled run too. That step may have started even when it then failed before its code ran, so only `false` means that no write-capable step started |
 | `cancel_cause` | For a canceled run: `deadline`, `pre_write_deadline`, `canceled`, `closing` or `flow_timeout` |
-| `latched` | A latched run's error (H5) |
+| `latched` | A latched run's error ([H5](0008-host-hooks.md#the-hooks)) |
 | `warnings`, `deviations` | The run's warnings, and the deviations of its trace |
 | `trace` | The trace at the level that the request asked for |
 
@@ -247,6 +259,13 @@ A `RunResult` holds:
   names, with the JSON values embedded raw. So they are not proto3's JSON
   mapping, which would write a `bytes` field as base64
   ([harness protocol](0004-harness-protocol.md#messages)).
+- **Flow and script runs.** A root script's run takes `id`, `args`,
+  `deadline_ms`, `identity`, `run_data`, `pin` and the `trace` level
+  `none`. A request that sets any other field for a script refuses the run,
+  naming the field; a flow run takes every field.
+- **No field is ignored.** A request that sets a field which the engine
+  does not serve refuses the run, naming the field, rather than running
+  without it.
 - **Runs that do not start.** Every run that starts answers a `RunResult`,
   a failed, canceled or latched one included. A run that does not start
   answers a gRPC error, as the list below gives.
@@ -299,6 +318,14 @@ for the services `""`, `plugin` and `windmill_lite.v1.Runner`.
 | Serving | `SERVING` | runs |
 | Draining, for good | `NOT_SERVING` | `UNAVAILABLE` (`draining`); the runs in flight go on |
 
+- **The health methods.** The interceptors answer `Check`, `Watch` and
+  `List`, the methods of the health service in the gRPC release that the
+  engine builds with, and a method they do not know answers
+  `UNIMPLEMENTED`. So go-plugin's fixed `SERVING` never reaches a caller.
+- **Other service names.** `Check` of another name answers `NOT_FOUND`, and
+  `Watch` of one streams `SERVICE_UNKNOWN`, as gRPC's own health server
+  does. A `Watch` that is open sends each change of state.
+
 - **Readiness.** The engine completes go-plugin's handshake at once. It
   serves, `GetBuildInfo` included, only once `wl.Open` has returned and,
   with the pool's warm start, its minimum of harness processes has started.
@@ -336,8 +363,8 @@ other than the pin built the bundle, and adds three fields:
 A host pins the engine executable by its SHA-256 with go-plugin's
 `SecureConfig`, which go-plugin checks before it starts the process. The
 host then compares `GetBuildInfo` with the release record that it ships, at
-least the bundle digest, the engine version, the Bun version and the
-labels that it expects, and refuses the process otherwise. The
+least the bundle digest, the engine version, the Bun version, the labels
+and the configuration's digest, and refuses the process otherwise. The
 executable's digest is not in build information: a process cannot vouch for
 its own file, and `SecureConfig` has already checked it.
 
@@ -355,10 +382,15 @@ its own file, and `SecureConfig` has already checked it.
 | `ClientConfig` | go-plugin's client configuration for one launch: the executable and its configuration file, `SecureConfig` with the executable's SHA-256, gRPC only, a fresh private socket directory, a literal environment and the message limits |
 | `Supervisor` | The optional supervisor ([The supervisor](#the-supervisor)) |
 
-`Client.Run` derives the run's hard deadline from its context's deadline,
-less a margin for the reply (1 s by default), so the host gets the run's
-outcome, `may_have_mutated` included, before the call itself times out. A
-context that has already ended starts no run.
+`Client.Run` gives the run the earlier of two hard deadlines: the
+request's own, and the context's deadline less a margin for the reply (1 s
+by default). A context that has already ended starts no run.
+
+If the call still ends first, the host has no outcome, and `Client.Run`
+returns an error that says so: the host then treats the run as one that may
+have mutated. The margin must cover what the run does after its deadline,
+such as its host plugin's run-end hook, which may take up to
+`plugin_timeout_ms`.
 
 #### The supervisor
 
@@ -367,9 +399,10 @@ generation, and routes the host's calls to the generation that serves.
 
 | Behaviour | Rule | Default |
 |---|---|---|
-| Admission | A new generation must answer health `SERVING` within the admission timeout, then a `GetBuildInfo` equal to the pinned identity on every field that the host pins. Otherwise it is stopped, and counts as a failed launch | 30 s |
-| Health poll | One check at a time, each with a bound. The first answer other than `SERVING`, a timeout or an error withdraws the generation from new calls for good | every 1 s, each bounded by 1 s |
-| Drain | A withdrawn generation's calls in flight go on, up to the drain timeout. Then the supervisor kills the plugin and waits for its exit | the engine's `drain_timeout_ms` |
+| Admission | Within the admission timeout, a new generation must answer health `SERVING`, then a `GetBuildInfo` equal to the pinned identity, the configuration's digest included, on every field that the host pins. Each call has its own deadline inside that timeout. Otherwise the supervisor stops the generation, and the launch counts as failed | 30 s |
+| Health poll | One `Check` at a time, each with a bound, whose returned status the supervisor reads: go-plugin's own ping discards it. The first answer other than `SERVING`, a timeout or an error withdraws the generation from new calls for good | every 1 s, each bounded by 1 s |
+| Drain | A withdrawn generation's calls in flight go on, up to the drain timeout plus a grace for the engine's own close, which cancels what is left and reports it. Then the supervisor stops the plugin | the engine's `drain_timeout_ms` plus 15 s |
+| Stop | go-plugin's `Kill` waits for its shutdown call with no deadline of its own, so the supervisor bounds it. Past the bound, it sends `SIGKILL` to the plugin's process itself, and the generation has exited once that process has | 5 s |
 | Restart | After an exit or a refused admission, the next launch waits an exponential backoff, which resets once a generation has served for a while | [gRPC's connection backoff](https://github.com/grpc/grpc/blob/master/doc/connection-backoff.md): 1 s, times 1.6, jitter 0.2, at most 120 s; reset after 60 s |
 | Recycle on memory | The engine's memory triggers make it stop serving, and the health poll then replaces the generation | the configuration's triggers |
 | Calls | `Call(ctx, fn)` runs `fn` with the serving generation's `Client`, and waits for one until `ctx` ends | — |
@@ -379,6 +412,15 @@ The engine, not the supervisor, measures memory. It reads its own
 resident set, and each harness process's from that process's heartbeats, on
 every platform. A supervisor would have to read a tree of processes, in a
 way that differs by platform.
+
+**What retirement bounds.** The supervisor's stop bounds the engine's
+process. A harness process exits when its connection to the engine ends
+only if its event loop still runs, and it leads a process group of its own.
+
+So when a killed engine leaves a wedged harness process, that process and
+the groups its steps left run on beside the next generation. A host that
+needs a bound on them too gives each generation a cgroup of its own, on
+Linux, and kills it whole.
 
 #### Hooks across the plugin boundary
 
@@ -390,18 +432,35 @@ A hook takes the cheapest of three routes that serves it:
 | A host plugin in the bundle | Hooks that need step code, the step's process or its host-provided modules: `around`, providers, interceptions that call step code, per-run state | Nothing: the plugin runs in each warm harness process, beside the steps ([harness protocol](0004-harness-protocol.md#host-plugins)) |
 | Go callbacks over the broker | A Go host's own logic, such as a check against its tenant registry | One gRPC call for each hook call |
 
-- **The broker route.** The host serves `windmill_lite.v1.HostHooks` on a
-  connection of go-plugin's broker, and a run names that connection's id
-  and its hooks in the request. The declaration is a host plugin's, and
-  each call carries a `host_call`'s hook name and payload
-  ([host hooks](0008-host-hooks.md#where-hooks-run)), so a Go callback
-  takes a TypeScript hook's path through the engine.
+- **The broker route.** The host serves `windmill_lite.v1.HostHooks` on
+  one connection of go-plugin's broker for each `Client`, and each run of
+  that client names the connection's id and its hooks in the request. The
+  declaration is a host plugin's, and each call carries a `host_call`'s hook
+  name and payload ([host hooks](0008-host-hooks.md#where-hooks-run)), so a
+  Go callback takes a TypeScript hook's path through the engine.
+- **Order.** A run's hooks on the broker are its own hooks, so they come
+  before its host plugin's, as a Go host's run hooks do. The first matching
+  interception answers, rewrites apply in order, both sets of observers run,
+  and the run's providers answer first. A named provider that the
+  configuration marks `broker` and that the host plugin also answers
+  refuses the start.
 - **What the broker route lacks.** `around` is not offered there, because
   it runs inside the harness process around the step.
-- **Failures.** Each call is bounded by `plugin_timeout_ms`. A call that
-  fails, or gets no reply in time, latches the run as a host plugin's does
-  (`plugin_error`, `host_call_timeout`), and at a provided site fails it
-  closed.
+- **Failures.** Each call is bounded by `plugin_timeout_ms`, and a call
+  that fails or gets no reply in time has the outcome that the same hook's
+  failure has in a host plugin
+  ([host hooks](0008-host-hooks.md#consequences)). An interception, rewrite,
+  observer, first-write verdict or provider latches the run (`plugin_error`,
+  `host_call_timeout`), and fails it closed at a provided site.
+- **Failures after the outcome.** A failed `onRunEnd` adds a warning, a
+  failed `onRunSettled` is a diagnostic line, and a hook whose run has
+  already ended latches nothing.
+- **Lifetime.** A run's hook calls can come after its `Run` call has
+  returned, until the run has settled (`onRunSettled`). So `Client` keeps a
+  run's hooks until that call or the generation's end, and refuses a new
+  run with the id of a run whose hooks it still holds. The broker
+  connection lives as long as the `Client`, so a run opens no listener of
+  its own.
 - **Providers on the broker.** A named provider that the configuration
   marks `broker` is answered by the hooks service of the run that reaches
   it, and a run that serves none latches there. So `wl.Open` still finds
@@ -415,11 +474,16 @@ A hook takes the cheapest of three routes that serves it:
 
 #### Deadlines and outcomes
 
-A run's hard and pre-write deadlines end that run alone, `canceled`, with
-`cancel_cause` `deadline` or `pre_write_deadline`
+A run's hard deadline ends that run alone, `canceled`, with `cancel_cause`
+`deadline`
 ([harness protocol](0004-harness-protocol.md#cancellation-and-deadlines)).
-A deadline of 0 or less in the request has already passed: the run ends at
-once, before any step, and other runs go on.
+Its pre-write deadline does the same, with `pre_write_deadline`, until the
+first write is approved ([H3](0008-host-hooks.md#the-hooks)); from then on it no longer applies, so it
+never cancels a run that may have mutated.
+
+Both are optional fields in `runner.proto`, so absent means no deadline.
+One of 0 or less has already passed: the run ends at once, before any step,
+and other runs go on. A root script's run takes only the hard deadline.
 
 The gRPC deadline of the `Run` call bounds the call, not the run. A call
 that ends first cancels its run, whose outcome then has no receiver, so
@@ -427,11 +491,14 @@ that ends first cancels its run, whose outcome then has no receiver, so
 
 #### Process affinity and limits
 
-The configuration's `pool` sets the warm pool's minimum and maximum, the
+The configuration's `pool` sets a `warm` pool's minimum and maximum, the
 cap per process ([D15](0001-equivalence-contract.md#5-named-deviations)),
 the lag threshold, pinned runs for every run, the recycle triggers and a
-warm start. A request's `pin` and `limits` set one run's affinity and
-limits. Their rules are the pool's
+warm start. A `fresh` runtime starts a process for each step and has none
+of them.
+
+A request's `pin` and `limits` set one run's affinity and limits.
+Their rules are the pool's
 ([harness protocol](0004-harness-protocol.md#pooling-processes-the-engine-spawns)):
 a pinned run keeps one process, a process that trips a recycle trigger is
 replaced, and a run's limits act on that run alone.
@@ -672,8 +739,8 @@ a new protocol.
 - A host that kills the engine without a drain loses the work in flight,
   and the child process groups that its steps left, which only the engine
   kills ([harness protocol](0004-harness-protocol.md#the-shared-process-failure-model)),
-  run on. Each harness process exits once its connection to the engine
-  ends.
+  run on. A harness process exits once its connection to the engine ends,
+  if its event loop still runs ([The supervisor](#the-supervisor)).
 - **Host mode is a runtime of `wl`** (`Options.Host`), so the Bun host
   SDK and any other host that speaks the protocol share one engine path.
   - The engine binary's path is the host's to give, not the bundle
@@ -701,5 +768,9 @@ a new protocol.
 
 ## Spec IDs relied on
 
-OF-18, PA-3, WA-60, FX-36, FX-38, WA-12, and the
-[host hooks](0008-host-hooks.md#the-hooks).
+OF-18, PA-3, WA-60, and the [host hooks](0008-host-hooks.md#the-hooks).
+The go-plugin adapter relies on
+[FX-36](../semantics/execution.md#fx-36) (the stored final result),
+[FX-38](../semantics/execution.md#fx-38) (a cancellation's reason and
+canceler) and [WA-12](../semantics/client-api.md#wa-12) (`$var:` in a
+resource).

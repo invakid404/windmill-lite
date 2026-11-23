@@ -18,7 +18,8 @@ itself.
   frames share their fields with, and log limits in the welcome;
 - the pool's settings in `wl`, pinned runs, recycle triggers and limits per
   run (§Pooling);
-- a host plugin built into the bundle (§Host plugins);
+- a host plugin built into the bundle, and run data in its processes
+  (§Host plugins);
 - the named cause of a canceled run, and host-mode deadlines that have
   already passed (§Cancellation and deadlines).
 
@@ -619,17 +620,33 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
   `wl` is planned to expose them with the rules below, and the go-plugin
   adapter's configuration as `pool`
   ([host adapters](0009-host-adapters.md#process-affinity-and-limits)).
-  Until then every `wl` runtime's pool keeps one process in service and
-  no cap.
-- **Pinned runs** (planned). With pinning on, for a runtime or for one
-  run, every invocation and host-plugin call of a run goes to the process
-  that served the run first. It goes there while that process lives, even
-  when it lags or is tainted, and the pool retires that process only once
-  its pinned runs have ended.
+  Until then a `warm` runtime of `wl` keeps one process in service, with
+  no cap, and a `fresh` one starts a process for each invocation.
+- These settings, pinned runs and recycle triggers are a `warm` pool's: a
+  `fresh` pool and host mode have none of them.
+- **Pinned runs** (planned), for a runtime or for one run. A run is pinned
+  to the process that serves its first invocation or host-plugin call, and
+  each later one of the run goes there while that process lives, even when
+  it lags, is tainted or is being recycled. This is the one exception to
+  the taint rule, above and in §Cancellation and deadlines item 4: such a
+  process takes no new invocations but its pinned runs'.
+- **No new pins on a leaving process.** The pool pins no run to a process
+  that is tainted, being recycled or surplus. A tainted process that returns
+  to service takes new pins again.
+- **When a pin ends.** A pin holds its process until its run has ended: a
+  tainted, recycling or idle process does not leave while a live run is
+  pinned to it. After the run's end, the pin still sends the run's
+  remaining hook calls, such as `onRunSettled`, to that process while it
+  lives, but no longer holds it.
+- So a pinned run that never settles holds no process, and one that never
+  ends holds its process until its hard deadline or its cancellation ends
+  it. A host that pins runs gives them a hard deadline.
 - **A pinned run's process ends** (planned). A pinned run never moves to
   another process, since its per-run state lived in the one that ended. Its
-  next invocation or hook call latches `pinned_process_lost` (H5), as a
-  host-mode run ends with `harness_lost` (§Host mode item 6).
+  invocation in flight there fails as `escaped`, as any does. If the run
+  then starts another invocation or calls a hook, that latches
+  `pinned_process_lost` ([H5](0008-host-hooks.md#the-hooks)), as a host-mode run ends with
+  `harness_lost` (§Host mode item 6).
 - **Recycle triggers** (planned). The pool replaces a process whose
   resident set, its heartbeat's `rss`, reaches a threshold on consecutive
   heartbeats, or that has loaded more script modules than a cap, counted
@@ -637,20 +654,33 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
   invocations but its pinned runs', a replacement starts beside it outside
   the maximum, and the process leaves once nothing is in flight in it and
   no pinned run holds it.
-- **Overlap and memory** (planned). A replacement runs beside the process
-  it replaces until that process leaves, which waits for its steps in
-  flight and its pinned runs. While one process leaves for a memory trigger,
-  another that trips keeps serving, so a pool of at most `M` processes
-  with the threshold `R` needs the engine's memory plus `(M + 1) × R`. A
-  tainted process adds its own size while it leaves.
+- **Overlap** (planned). A replacement runs beside the process it replaces
+  until that process leaves, which waits for its steps in flight and its
+  pinned runs. While one process leaves for a memory trigger, another that
+  trips keeps serving, and tainted processes leave beside them. So the
+  processes alive at once are the pool's maximum, one process leaving for a
+  memory trigger, and the tainted ones.
+- **Memory.** A threshold is sampled at heartbeats and is not a cap: a
+  process can pass it between samples, and while it waits to leave. Nothing
+  in windmill-lite bounds the bytes, so the container's memory limit is the
+  one hard bound. A host sizes it from its workload's measured peaks per
+  process, times the processes that can be alive at once, plus the engine's
+  peak and headroom.
 - **Limits per run** (planned). A run may bound its invocations in
   flight, so its parallel iterations and branches wait: a host-set cap that
-  deviation D15 is to cover per run as well as per process. It may bound
-  its arguments' size, which refuses it before it starts, and the bytes
-  that the engine holds for its stored values, which latches
+  deviation [D15](0001-equivalence-contract.md#5-named-deviations) is to cover per run as well as per process. It may
+  bound its arguments' size, which refuses it before it starts, and the
+  bytes that the engine holds for its stored values, which latches
   `run_memory_limit` once passed.
-- A shared process has no measure of one run's JavaScript heap, so the
-  recycle triggers bound a process's memory, never a run's.
+- **A byte budget per run** (planned). A run may have a budget of bytes
+  that its steps and its host plugin draw on with `wl.reserve(bytes)` in
+  the step API, for data that a step holds, such as a source it downloads.
+  The engine keeps the account, so the budget holds across processes. A
+  reservation past the budget throws in the step, and each reservation
+  returns to the budget when the invocation that made it settles.
+- A shared process has no measure of one run's JavaScript heap, so a
+  run's limits count only what the engine holds and what its steps
+  reserve.
 - Processes that are tainted or being recycled (§Cancellation and deadlines
   item 4) do not count toward the maximum: they are leaving the pool, and a
   replacement takes the new invocations, so one abandoned step does not
@@ -923,6 +953,11 @@ answered by a `host_reply`.
    covers it, and a `warm` runtime loads it as it loads the module that
    `Options.Plugin` names. A runtime given both refuses to open, and a
    `fresh` runtime takes neither.
+9. **Run data** (planned). A run's data ([H11](0008-host-hooks.md#the-hooks)) reaches a process with
+   the first `invoke` or `host_call` of the run that the process gets, so
+   the plugin's hooks and its `around` wrappers read it as `wl.run.data`.
+   The engine tells the process when the run has settled, and the process
+   then drops the data.
 
 ### Parallel loops
 
@@ -977,21 +1012,28 @@ is a timer on the flow's context, not a step's. When it fires, the flow
 and its steps are canceled as in item 3, with canceler `timeout`; the
 flow's failure module still runs once, and the flow ends canceled.
 
-**A deadline ends only its run.** A run's hard or pre-write deadline ends
-that run alone, `canceled`, as a cancellation does in item 3. Other runs,
-the harness processes and, in host mode, the host's connection go on. A
-deadline that has already passed when the run arrives ends it before its
-first module, as `wl` ends a run whose pre-write deadline is in the past.
+**A deadline ends only its run.** A run's hard deadline, and its pre-write
+deadline until the first write is approved, end that run alone, `canceled`,
+as a cancellation does in item 3. Other runs and the harness processes go
+on, and so, once the host-mode rule below is built, does a host's
+connection. A deadline that has passed when the run arrives ends it before
+its first module, as `wl` ends a flow run whose pre-write deadline is past.
 
 **Expired deadlines in host mode** (planned). Until then, a `run` frame
 whose `deadline_ms` or `pre_write_deadline_ms` is 0 or negative fails to
 decode. That protocol error ends the connection, and with it every run of
 the host and the engine (§Transport and framing item 3).
 
-The planned rule: a `run` takes any integer in those fields, and 0 or less
-is a deadline that has passed. The host SDK sends a finite rest rounded up
-to whole milliseconds and at least 0, and refuses any other rest itself, so
-no budget that a host gives it can end the connection.
+The planned rule: each field is optional, and its absence means no
+deadline. Both codecs keep whether it is present and write a present 0. A
+present value of 0 or less is a deadline that has passed, and one above
+the longest duration that the engine holds, about 292 years, counts as that
+duration.
+
+The host SDK sends a rest rounded up to whole milliseconds and at least 0.
+It refuses, itself, a rest that is not a finite number or that is above
+2^53 − 1 ms, the frame rules' largest integer, so no budget that a host
+gives it can end the connection.
 
 **The cause** (planned). A canceled run's outcome names why it was
 canceled: `deadline`, `pre_write_deadline`, `canceled` (the host's
