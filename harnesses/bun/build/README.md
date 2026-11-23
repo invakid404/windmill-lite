@@ -85,7 +85,7 @@ dependencies in `bun.lock`. `node_modules/` is not committed.
 
 | Package | Version | Licence | What it is for |
 |---|---|---|---|
-| `@babel/parser` | 8.1.2 | MIT | Every parse of the helper: signatures, pinned imports, packages and live bindings in TypeScript, host sources in their own syntax, the native form in JavaScript, and the `kept`, `namespaces` and `lazy` requests |
+| `@babel/parser` | 8.1.3 | MIT | Every parse of the helper: signatures, pinned imports, packages and live bindings in TypeScript, host sources in their own syntax, the native form in JavaScript, and the `kept`, `namespaces` and `lazy` requests |
 | `windmill-client` | 1.326.0 | Apache-2.0 | The package that the native runtime's embedded client is built from |
 
 `windmill-client` stays at the version that Windmill embeds, at v1.862.0 as
