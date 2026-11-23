@@ -609,8 +609,9 @@ with the engine's side of the protocol in
   that it captured when it submitted the run.
 - **Outcomes.** `run_done` carries the status, the stored result,
   `may_have_mutated`, the warnings, the trace's deviations and, for a
-  canceled run, `cancel_cause`. `run_settled` follows once the run has
-  settled. A run that `Run` refuses goes back as `refused`, or `draining`
+  canceled run, `cancel_cause`; a root script's status and cause are read
+  before its settlement, whose callback releases the run's hard deadline.
+  `run_settled` follows once the run has settled. A run that `Run` refuses goes back as `refused`, or `draining`
   once `Close` has begun.
 - **A run's own hooks.** `hostBudgets` turns a run frame's write-capable
   selectors, halts and fatal error names into the run's own hooks, ahead

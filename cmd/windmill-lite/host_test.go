@@ -1329,6 +1329,45 @@ func TestHostPassedDeadline(t *testing.T) {
 	}
 }
 
+// A root script's run in host mode that ends on its own, before a
+// deadline far in the future, is not canceled and names no cause: a failure
+// the engine finds before the step (an entrypoint that is not a name), and
+// one of the step (an entrypoint the script does not export). Its deadline
+// passing is a cancellation, with the cause deadline and the killed job's
+// error of a script job.
+func TestHostScriptOutcomeWithDeadline(t *testing.T) {
+	s := supervise(t, 30000)
+	for _, tc := range []struct {
+		name   string
+		args   map[string]any
+		status string
+		cause  string
+	}{
+		{"an entrypoint that is not a name", map[string]any{"ms": 5, "_ENTRYPOINT_OVERRIDE": "1x"}, "failure", ""},
+		{"an entrypoint the script does not export", map[string]any{"ms": 5, "_ENTRYPOINT_OVERRIDE": "nosuch"}, "failure", ""},
+		{"a step that outlives the deadline", map[string]any{"ms": 5000}, "canceled", "deadline"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			deadline := 30000
+			if tc.cause != "" {
+				deadline = 200
+			}
+			r, err := s.post("/run", map[string]any{"path": "f/host/sleep", "kind": "script", "args": tc.args, "deadlineMs": deadline})
+			if err != nil || r.Status != tc.status || r.CancelCause != tc.cause {
+				t.Fatalf("%+v, %v; want %s, cause %q", r, err, tc.status, tc.cause)
+			}
+			if tc.cause != "" {
+				var res struct {
+					Error struct{ Name, Message string } `json:"error"`
+				}
+				if json.Unmarshal(r.Result, &res) != nil || res.Error.Name != "ExecutionErr" || !strings.Contains(res.Error.Message, "cancelled by unknown (reason: no reason given)") {
+					t.Fatalf("result %s; want the killed job's ExecutionErr", r.Result)
+				}
+			}
+		})
+	}
+}
+
 // A host runs a root script as a script job (WA-4), and gets a run that
 // does not start refused, with its reason.
 func TestHostScriptRun(t *testing.T) {

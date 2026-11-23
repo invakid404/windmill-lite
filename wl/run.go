@@ -241,6 +241,10 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 			req.Exec = settlingExec{inner: rt.exec, settle: s}
 		}
 		res, err := rt.eng.RunScript(ctx, req)
+		// How the run ended is read before its settlement, whose callback
+		// in host mode releases the run's hard deadline, which ends ctx: a
+		// script that failed on its own does not read as canceled.
+		canceled, cause := ctx.Err() != nil, engine.CancelCauseOf(ctx)
 		if s != nil && err == nil {
 			s.End()
 		}
@@ -252,9 +256,9 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		case res.Latched != nil:
 			// Its step latched the run (H5): wl.latch, or a failed around.
 			out.Status, out.Result, out.Latched = StatusLatched, nil, res.Latched
-		case res.Failed && ctx.Err() != nil:
+		case res.Failed && canceled:
 			// The script failed because the run's context ended (FX-38).
-			out.Status, out.CancelCause = StatusCanceled, engine.CancelCauseOf(ctx)
+			out.Status, out.CancelCause = StatusCanceled, cause
 		case res.Failed:
 			out.Status = StatusFailure
 		}
