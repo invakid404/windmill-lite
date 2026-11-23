@@ -327,9 +327,13 @@ func (h heldInvocation) release(t *testing.T) {
 // abandon runs a fake invocation that never answers until the test ends,
 // and cancels it once it runs: the abandonment taints its process. The
 // pool's rules for the taint have run when abandon returns.
-func abandon(t *testing.T, pool *Pool, ctl, name string) {
+func abandon(t *testing.T, pool *Pool, ctl, name string, extra ...map[string]any) {
 	t.Helper()
 	started, hold := filepath.Join(ctl, name+".started"), filepath.Join(ctl, name+".hold")
+	args := map[string]any{"started": started, "hold": hold}
+	for _, e := range extra {
+		maps.Copy(args, e)
+	}
 	t.Cleanup(func() { os.WriteFile(hold, nil, 0o600) })
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
@@ -342,7 +346,7 @@ func abandon(t *testing.T, pool *Pool, ctl, name string) {
 		}
 		cancel(errors.New("the invocation to abandon did not start"))
 	}()
-	if _, err := pool.Execute(ctx, fakeInvocation("abandoned", map[string]any{"started": started, "hold": hold})); !errors.Is(err, engine.CancelTimeout) {
+	if _, err := pool.Execute(ctx, fakeInvocation("abandoned", args)); !errors.Is(err, engine.CancelTimeout) {
 		t.Fatalf("abandoned invocation: %v", err)
 	}
 }
@@ -996,16 +1000,7 @@ func TestPoolDiagnosticsZeroSettings(t *testing.T) {
 	g.hold.Store(int64(a))
 	// a's abandoned invocation prints a line once released; a drains, held.
 	hold := filepath.Join(ctl, "x.hold")
-	started := filepath.Join(ctl, "x.started")
-	t.Cleanup(func() { os.WriteFile(hold, nil, 0o600) })
-	ctx, cancel := context.WithCancelCause(context.Background())
-	go func() {
-		waitFile(t, started)
-		cancel(engine.CancelTimeout)
-	}()
-	if _, err := pool.Execute(ctx, fakeInvocation("abandoned", map[string]any{"started": started, "hold": hold, "print": 1})); !errors.Is(err, engine.CancelTimeout) {
-		t.Fatalf("abandoned invocation: %v", err)
-	}
+	abandon(t, pool, ctl, "x", map[string]any{"print": 1})
 	log.waitFor(t, "", fmt.Sprintf("drain %d", a))
 	b := fakeRun(t, pool, "s", nil)
 	if b == a {
@@ -1095,17 +1090,20 @@ func TestPoolOwedReplacementSurvivesAFailedStart(t *testing.T) {
 	}
 }
 
-// A host call of a run whose step still runs in a process that left for a
-// recycle trigger goes to that process, though it takes no new
+// A host call of a run with an invocation in flight in a process that left
+// for a recycle trigger goes to that process, though it takes no new
 // invocations: with Max = MaxLive = 1 no replacement can start until it
-// exits, and the step may be waiting for the call. A new invocation still
-// waits.
+// exits, and the invocation may be waiting for the call. What counts is the
+// invocation in flight, not the pool's memory of the run's last process:
+// the test shrinks that memory to one run, so the held run is forgotten
+// before the trip, and a run whose invocation has ended, though the pool
+// remembers it there, gets no such exception. A new invocation still waits.
 func TestPoolRecyclingProcessServesItsRunsHostCalls(t *testing.T) {
 	pool, ctl, log := fakePool(t, PoolConfig{Max: 1, MaxLive: 1, Recycle: RecycleTriggers{Modules: 1}}, "WL_FAKE_PLUGIN=same")
-	a := fakeRun(t, pool, "s1", nil)
+	pool.affinity.limit = 1
 	started, hold := filepath.Join(ctl, "h.started"), filepath.Join(ctl, "h.hold")
 	t.Cleanup(func() { os.WriteFile(hold, nil, 0o600) })
-	inv := fakeInvocation("s2", map[string]any{"started": started, "hold": hold})
+	inv := fakeInvocation("s1", map[string]any{"started": started, "hold": hold})
 	inv.Run = "run-held"
 	held := make(chan runResult, 1)
 	go func() {
@@ -1113,13 +1111,44 @@ func TestPoolRecyclingProcessServesItsRunsHostCalls(t *testing.T) {
 		held <- runResult{out, err}
 	}()
 	waitFile(t, started)
-	log.note("host call")
+	// Another run of the same script; the pool now remembers it, not the
+	// held run.
+	a := fakeRun(t, pool, "s1", nil)
+	// The second script trips the process; its run ends at once.
+	done := fakeInvocation("s2", nil)
+	done.Run = "run-done"
+	out, err := execute(t, pool, done, 10*time.Second)
+	if got := pidOfOutcome(t, out, err); got != a {
+		t.Fatalf("the second script ran in %d, want %d", got, a)
+	}
+	hostCall := func(ctx context.Context, run string) (int, error) {
+		out, err := pool.HostCall(ctx, "resource", run, "", jsonval.FromProducer([]byte(`{"path":"u/t/r"}`)))
+		if err != nil {
+			return 0, err
+		}
+		var r struct{ PID int }
+		if err := json.Unmarshal(out.Producer(), &r); err != nil {
+			return 0, err
+		}
+		return r.PID, nil
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	out, err := pool.HostCall(ctx, "resource", "run-held", "", jsonval.FromProducer([]byte(`{"path":"u/t/r"}`)))
-	var r struct{ PID int }
-	if err != nil || json.Unmarshal(out.Producer(), &r) != nil || r.PID != a {
-		t.Fatalf("the held step's host call: %s, %v; want an answer from %d", out.Producer(), err, a)
+	if got, err := hostCall(ctx, "run-held"); err != nil || got != a {
+		t.Fatalf("the held run's host call: %d, %v; want an answer from %d", got, err, a)
+	}
+	// The ended run's host call waits for a serving process.
+	log.note("ended run")
+	ended, stop := context.WithCancel(context.Background())
+	endedCall := make(chan error, 1)
+	go func() {
+		_, err := hostCall(ended, "run-done")
+		endedCall <- err
+	}()
+	log.waitFor(t, "ended run", "wait")
+	stop()
+	if err := <-endedCall; !errors.Is(err, context.Canceled) {
+		t.Fatalf("the host call of a run with nothing in flight there: %v; want it to wait", err)
 	}
 	log.note("next step")
 	w := goRun(pool, "s1", nil)
@@ -1131,5 +1160,65 @@ func TestPoolRecyclingProcessServesItsRunsHostCalls(t *testing.T) {
 	}
 	if got := wait(t, w); got == a {
 		t.Fatalf("the new invocation ran in the leaver %d", a)
+	}
+}
+
+// The replacement that Start makes for a member whose process exited
+// before its admission is Start's own: when it fails, Start fails with its
+// error, rather than starting another. Zero settings; the test holds the
+// first admission until that process has exited, then makes the next
+// start fail before its hello.
+func TestPoolStartSurfacesAFailedReplacement(t *testing.T) {
+	pc, _ := fakeConfig(t, "pool")
+	ctl := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ctl, "exit-after-welcome"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pc.Env = append(pc.Env, "WL_FAKE_CTL="+ctl)
+	pc.KillAfter = WatchdogOff
+	var first atomic.Bool
+	log := newPoolLog()
+	pool := newPool(t, PoolConfig{Process: pc, observe: log.observe, admitting: func(p *Process) {
+		if first.CompareAndSwap(false, true) {
+			<-p.Done()
+			os.WriteFile(filepath.Join(ctl, "fail-start"), nil, 0o600)
+		}
+	}})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := pool.Start(ctx); err == nil || !strings.Contains(err.Error(), "exit code 9") {
+		t.Fatalf("Start whose replacement failed: %v; events %q", err, log.after(""))
+	}
+	if n := log.count("spawn"); n != 2 {
+		t.Fatalf("%d spawns; Start should stop at the failed replacement: %q", n, log.after(""))
+	}
+}
+
+// Start gives up when processes keep exiting right after their handshakes:
+// it replaces Min of them, and fails at the next. Zero settings; the first
+// two processes exit before their admission.
+func TestPoolStartGivesUpOnRepeatedEarlyExits(t *testing.T) {
+	pc, _ := fakeConfig(t, "pool")
+	ctl := t.TempDir()
+	exitFile := filepath.Join(ctl, "exit-after-welcome")
+	if err := os.WriteFile(exitFile, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pc.Env = append(pc.Env, "WL_FAKE_CTL="+ctl)
+	pc.KillAfter = WatchdogOff
+	var early atomic.Int32
+	pool := newPool(t, PoolConfig{Process: pc, admitting: func(p *Process) {
+		if n := early.Add(1); n <= 2 {
+			<-p.Done()
+			if n == 1 {
+				os.Remove(exitFile + ".taken")
+				os.WriteFile(exitFile, nil, 0o600)
+			}
+		}
+	}})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := pool.Start(ctx); err == nil || !strings.Contains(err.Error(), "exited right after their handshakes") {
+		t.Fatalf("Start with two early exits and Min 1: %v", err)
 	}
 }

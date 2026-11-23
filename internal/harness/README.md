@@ -807,6 +807,10 @@ directory of its own, and exits once it has reported the outcome.
 - **Size.** `Min` and `Max` default to 1. `Start` spawns `Min` processes
   and returns once `Min` live processes serve, or `ErrPoolClosed` after
   `Close`; otherwise the first `Execute` spawns them.
+- **`Start`'s errors.** `Start` fails with the error of a start that it
+  made, which includes the replacement of a member whose process exited
+  before its admission. It also fails once more than `Min` members have
+  exited that way.
 - **Routing.** The process that the run used last, then the least-loaded
   one. A process whose lag exceeds `LagThreshold` (250 ms by default) is
   used only when no other process can take the invocation and none can be
@@ -846,13 +850,16 @@ directory of its own, and exits once it has reported the outcome.
   invocation that was never sent does not count. Zero turns it off.
 - **Past the module threshold,** the invocation of the one more script
   still runs there, and so do invocations picked for the process before
-  that one was dispatched. No later pick goes there.
+  that one was dispatched. Once the process starts to leave, no later
+  invocation goes there. While another process leaves for a trigger, it
+  keeps serving (one at a time, below).
 - **Leaving for a trigger.** A process that trips stays tripped. It takes
   no new invocations and does not count toward `Max`. It drains once
   nothing that the engine waits for is in flight in it.
-- **Its runs' host calls.** A host call of a run whose step still runs in
-  such a process goes there when no serving process can take it, since
-  the step may wait for the call.
+- **Its runs' host calls.** A host call of a run with an invocation in
+  flight in a leaving process goes there when no serving process can take
+  it, since the invocation may wait for the call. A run with nothing in
+  flight there waits for a serving process.
 - **Its replacement** starts at once, beside it, also in a pool that has
   grown past `Min`. One that `MaxLive` holds back starts once a process
   exits, unless the pool has reached `Max` by then. A failed start of it
@@ -1039,12 +1046,13 @@ unattributed warning, and a signature that did not parse. Others hold:
 | `TestPoolCapLeavesHostCalls` | Host calls beside a full cap |
 | `TestPoolEarlyExitNotAdmitted` | A process that exits before its admission, in a pool with settings |
 | `TestPoolEarlyExitZeroSettings`, `TestPoolStartWaitsForALiveProcess` | Without settings: the early exit admitted as before, and `Start` waiting for a live process |
+| `TestPoolStartSurfacesAFailedReplacement`, `TestPoolStartGivesUpOnRepeatedEarlyExits` | `Start` failing with the failed replacement of an early exit, and after more than `Min` early exits |
 | `TestPoolPluginDeclarationsAgree`, `TestPoolPluginAbsenceIsTheBaseline`, `TestPoolFailedStartSetsNoDeclaration` | Two initial processes with different plugin declarations, a declaration after none, and a failed start that sets nothing |
 | `TestPoolDiagnosticsSerialized` | Two processes that write to one writer that is not safe for concurrent use, at once: no race, every line whole, through `WriteString` |
 | `TestPoolDiagnosticsZeroSettings` | Without settings: the writer's `WriteString` called as before, and one process's line not held behind another's |
 | `TestPoolModulesTripBeforeTheNextPick` | No pick after the dispatch that crossed the module threshold goes to that process |
 | `TestPoolOwedReplacementSurvivesAFailedStart` | A replacement whose first start fails is tried again |
-| `TestPoolRecyclingProcessServesItsRunsHostCalls` | A host call of a run whose step runs in a process leaving for a trigger |
+| `TestPoolRecyclingProcessServesItsRunsHostCalls` | A host call of a run with an invocation in flight in a process leaving for a trigger, after the pool forgot the run's last process; a run with nothing in flight there waits |
 
 #### What the fake-harness tests check
 

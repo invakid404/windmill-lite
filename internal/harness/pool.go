@@ -110,7 +110,8 @@ type RecycleTriggers struct {
 	// Modules is how many distinct scripts a process may run, counted from
 	// the invocations dispatched to it; the first invocation of one more
 	// still runs there, and then the process trips. Invocations picked for
-	// it before it trips still run there too. Zero turns it off.
+	// it before that one was dispatched still run there too. Zero turns it
+	// off.
 	Modules int
 }
 
@@ -186,9 +187,10 @@ type member struct {
 	p *Process
 	// active counts what the engine waits for in the process: invocations
 	// and host calls. steps counts the invocations alone, which the cap
-	// bounds.
+	// bounds, and runs counts them by run.
 	active int
 	steps  int
+	runs   map[string]int
 	// tainted: it has unsettled abandoned invocations. surplus: its taint
 	// cleared while the pool already had Max processes serving without it.
 	// Either way it takes no new invocations and leaves once idle.
@@ -315,14 +317,17 @@ func (pl *Pool) isFresh() bool { return pl.cfg.Key.ModuleState == engine.ModuleS
 // Start spawns the pool's Min processes and waits until Min serve, those
 // that others started included, and live: a member whose process exited
 // before its admission, which a pool without settings admits, is removed
-// first. It returns the error of a start it made that failed. A warm
-// pool's Start returns ErrPoolClosed once Close has begun; a fresh pool
-// starts none ahead, and its Start returns nil.
+// first, and its replacement counts as a start Start made. It returns the
+// error of a start it made that failed, and an error once more than Min
+// members have exited that way. A warm pool's Start returns ErrPoolClosed
+// once Close has begun; a fresh pool starts none ahead, and its Start
+// returns nil.
 func (pl *Pool) Start(ctx context.Context) error {
 	if pl.isFresh() {
 		return nil
 	}
 	var mine []*spawnAttempt
+	exits := 0 // members that Start removed because their process exited
 	for {
 		for _, a := range mine {
 			select {
@@ -338,7 +343,14 @@ func (pl *Pool) Start(ctx context.Context) error {
 			pl.mu.Unlock()
 			return ErrPoolClosed
 		}
-		pl.pruneExitedLocked()
+		// The replacements of the members it removes are Start's own: their
+		// failures are its errors.
+		n, atts := pl.pruneExitedLocked()
+		mine = append(mine, atts...)
+		if exits += n; exits > pl.cfg.Min {
+			pl.mu.Unlock()
+			return fmt.Errorf("harness: %d processes exited right after their handshakes while the pool started %d", exits, pl.cfg.Min)
+		}
 		if pl.inServiceLocked() >= pl.cfg.Min {
 			pl.mu.Unlock()
 			return nil
@@ -375,7 +387,7 @@ func (pl *Pool) Execute(ctx context.Context, inv engine.Invocation) (engine.Step
 		// The slot is freed as soon as the engine stops waiting for the
 		// invocation, before its Reporter learns the outcome, or else here.
 		var once sync.Once
-		release := func(unavailable bool) { once.Do(func() { pl.release(m, unavailable, true) }) }
+		release := func(unavailable bool) { once.Do(func() { pl.release(m, unavailable, true, inv.Run) }) }
 		out, d, err := m.p.exec(ctx, inv, func() { release(false) })
 		unavailable := d == notDispatched && errors.Is(err, errUnavailable)
 		release(unavailable)
@@ -477,6 +489,12 @@ func (pl *Pool) acquire(ctx context.Context, run string, step bool) (*member, er
 			m.active++
 			if step {
 				m.steps++
+				if run != "" {
+					if m.runs == nil {
+						m.runs = map[string]int{}
+					}
+					m.runs[run]++
+				}
 			}
 			pl.affinity.set(run, m)
 			pl.mu.Unlock()
@@ -542,11 +560,14 @@ func (pl *Pool) pickLocked(run string, step bool) (*member, bool) {
 	if best != nil {
 		return best, false
 	}
-	if bestLagging == nil && !step {
-		// A host call of a run whose step still runs in a process that is
-		// leaving for a recycle trigger: that step may be waiting for it.
-		if a, ok := pl.affinity.get(run); ok && a.recycling && !a.retiring && !a.gone {
-			return a, false
+	if bestLagging == nil && !step && run != "" {
+		// A host call of a run with an invocation in flight in a process
+		// that is leaving for a recycle trigger: that invocation may be
+		// waiting for it.
+		for _, m := range pl.members {
+			if m.recycling && !m.retiring && !m.gone && m.runs[run] > 0 {
+				return m, false
+			}
 		}
 	}
 	return bestLagging, bestLagging != nil
@@ -695,14 +716,19 @@ func (pl *Pool) admitLocked(p *Process) error {
 	return errors.New("harness: the process's host plugin declaration differs from the pool's first process's")
 }
 
-// release ends an acquire of m: an invocation (step) or a host call. A
-// process found not serving is leaving the pool (it is dying or draining),
-// so it is not picked again.
-func (pl *Pool) release(m *member, unavailable, step bool) {
+// release ends an acquire of m: an invocation of run (step) or a host
+// call. A process found not serving is leaving the pool (it is dying or
+// draining), so it is not picked again.
+func (pl *Pool) release(m *member, unavailable, step bool, run string) {
 	pl.mu.Lock()
 	m.active--
 	if step {
 		m.steps--
+		if run != "" {
+			if m.runs[run]--; m.runs[run] <= 0 {
+				delete(m.runs, run)
+			}
+		}
 	}
 	if unavailable {
 		m.retiring = true
@@ -738,9 +764,9 @@ func (pl *Pool) processChanged(p *Process) {
 	}
 }
 
-// removeLocked removes the member at i, whose exit is observed, and
-// replaces it up to Min.
-func (pl *Pool) removeLocked(i int) {
+// removeLocked removes the member at i, whose exit is observed, replaces
+// it up to Min, and returns the attempts it made.
+func (pl *Pool) removeLocked(i int) []*spawnAttempt {
 	m := pl.members[i]
 	m.gone = true
 	pl.members = append(pl.members[:i], pl.members[i+1:]...)
@@ -756,25 +782,28 @@ func (pl *Pool) removeLocked(i int) {
 			}
 		}
 	}
-	pl.fillLocked()
+	return pl.fillLocked()
 }
 
 // pruneExitedLocked removes the members whose process has exited and whose
 // exit no notify reports any more: a pool without settings admits a
-// process whose exit came first, as it always has.
-func (pl *Pool) pruneExitedLocked() {
-	removed := false
+// process whose exit came first, as it always has. It returns how many it
+// removed and the attempts it made to replace them.
+func (pl *Pool) pruneExitedLocked() (int, []*spawnAttempt) {
+	n := 0
+	var atts []*spawnAttempt
 	for i := 0; i < len(pl.members); {
 		if m := pl.members[i]; !m.gone && m.p.hasExited() {
-			pl.removeLocked(i)
-			removed = true
+			atts = append(atts, pl.removeLocked(i)...)
+			n++
 			continue
 		}
 		i++
 	}
-	if removed {
+	if n > 0 {
 		pl.broadcastLocked()
 	}
+	return n, atts
 }
 
 // applyTriggersLocked applies the recycle triggers to every serving member

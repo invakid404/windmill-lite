@@ -146,7 +146,7 @@ func (pl *Pool) HostCall(ctx context.Context, hook, run, site string, payload js
 		}
 		out, err := m.p.HostCall(ctx, hook, run, site, payload)
 		unavailable := errors.Is(err, errUnavailable)
-		pl.release(m, unavailable, false)
+		pl.release(m, unavailable, false, "")
 		if unavailable {
 			continue
 		}
@@ -165,6 +165,6 @@ func (pl *Pool) Plugin(ctx context.Context) (jsonval.Value, error) {
 	if err != nil {
 		return jsonval.Value{}, err
 	}
-	defer pl.release(m, false, false)
+	defer pl.release(m, false, false, "")
 	return m.p.Hello().Plugin, nil
 }
