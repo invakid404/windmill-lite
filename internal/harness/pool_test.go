@@ -582,6 +582,18 @@ func testRecycleOnHeartbeats(t *testing.T) {
 	}
 }
 
+// Start after Close fails with ErrPoolClosed rather than reporting the
+// minimum started.
+func TestPoolStartAfterClose(t *testing.T) {
+	pool, _, _ := fakePool(t, PoolConfig{})
+	if err := pool.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.Start(context.Background()); !errors.Is(err, ErrPoolClosed) {
+		t.Fatalf("Start after Close: %v", err)
+	}
+}
+
 // A process that trips in a pool grown past Min gets its replacement at
 // once, beside it, with no further invocation to ask for one. With Min 1,
 // Max 2 and Cap 2, three held invocations grow the pool to two processes;

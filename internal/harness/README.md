@@ -83,7 +83,7 @@ the code.
 | `DefaultLagThreshold`, `DefaultRecycleTimeout`, `DefaultRecycleSamples` | const | 250 ms; 5 s; 2 | `PoolConfig` defaults |
 | `ArgsFile` | const | `args.json` ([The arguments file](#the-arguments-file)) | `Process`, tests |
 | `TailLength` | const | 600: the characters of an invocation's log kept for its tail | the package's own log tail; no other package reads it (`engine.TailLength` is the engine's) |
-| `ErrPoolClosed` | var | `Execute` after `Close` | tests |
+| `ErrPoolClosed` | var | `Execute` and `Start` after `Close` | tests |
 | `HandshakeError` | struct | The error of `Spawn` or `AttachHost` when the welcome rejects the hello | `wl` (host mode) |
 
 ### Host mode and host plugins
@@ -795,7 +795,8 @@ directory of its own, and exits once it has reported the outcome.
 ### Warm pools
 
 - **Size.** `Min` and `Max` default to 1. `Start` spawns `Min` processes
-  and returns once `Min` serve; otherwise the first `Execute` spawns them.
+  and returns once `Min` serve, or `ErrPoolClosed` after `Close`; otherwise
+  the first `Execute` spawns them.
 - **Routing.** The process that the run used last, then the least-loaded
   one. A process whose lag exceeds `LagThreshold` (250 ms by default) is
   used only when no other process can take the invocation and none can be

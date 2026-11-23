@@ -621,8 +621,9 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
   `pool`
   ([host adapters](0009-host-adapters.md#process-affinity-and-limits)).
 - Their zero values keep one process in service, with no cap, started on
-  the first step. A warm start starts the minimum, and waits for their
-  handshakes, before `wl.Open` returns.
+  the first step, or when `wl.Open` reads a host plugin's declaration. A
+  warm start makes `wl.Open` return once the minimum serve; a bundle with
+  no step has no pool.
 - These settings, pinned runs and recycle triggers are a `warm` pool's: a
   `fresh` pool and host mode have none of them, and `wl.Open` refuses
   settings that are not zero there.

@@ -137,9 +137,10 @@ type Options struct {
 	// Pool sets the pool of a warm runtime's harness processes (ADR 0004
 	// §Pooling): its size, the cap per process, the lag threshold, the
 	// recycle triggers, the bound on live processes and a warm start. Its
-	// zero value is one process with no cap, started on the first step. A
-	// fresh runtime, which starts a process for each step, and host mode,
-	// whose one process is the host, refuse a Pool that is not zero.
+	// zero value is one process with no cap, which starts on the first
+	// step, or in Open to read a host plugin's declaration. A fresh
+	// runtime, which starts a process for each step, and host mode, whose
+	// one process is the host, refuse a Pool that is not zero.
 	Pool PoolOptions
 	// Host, when set, opens the runtime in host mode (ADR 0004 host mode,
 	// ADR 0009): its steps run in the host process that started it, which
@@ -160,9 +161,9 @@ type PoolOptions struct {
 	// trigger, does not count toward Max.
 	Min, Max int
 	// Cap bounds the steps in flight in each process; zero means no cap.
-	// A cap is deviation D15 of ADR 0001: steps that wait on each other
-	// can then wait until their timeout, so the trace of every flow run
-	// lists D15.
+	// A cap is one of the named deviations of ADR 0001: steps that wait
+	// on each other can then wait until their timeout. So the trace that
+	// Run returns for each flow run lists it, as "D15".
 	Cap int
 	// LagThreshold is the event-loop lag past which a process counts as
 	// busy with a CPU-bound step: new steps go to another process, which
@@ -179,9 +180,9 @@ type PoolOptions struct {
 	// start until its exit: serving, starting, tainted, leaving or
 	// draining. Zero means no bound. Open refuses a bound below Max.
 	MaxLive int
-	// WarmStart makes Open start Min processes and wait for their
-	// handshakes before it returns, instead of starting them on the first
-	// step.
+	// WarmStart makes Open start Min processes, and return once Min
+	// serve, their handshakes done, instead of starting them on the first
+	// step. A bundle with no step has no pool, so nothing starts.
 	WarmStart bool
 }
 
@@ -283,7 +284,7 @@ type Runtime struct {
 	services  *platform.Services
 	dispatch  *engine.Dispatcher
 	readCache bool // Options.ReadCache
-	capped    bool // Options.Pool.Cap is set, which each run's trace lists as D15
+	capped    bool // Options.Pool.Cap is set: each flow run's trace lists "D15"
 	// memoryStore says that the runtime's resource store keeps its entries
 	// in memory, which its runs' traces list as D24.
 	memoryStore bool
@@ -353,8 +354,12 @@ func Version() string {
 // that the runtime's engine version built it and, when it has steps, that
 // opts.HarnessRuntime is the harness runtime it was built for, reads the
 // compiled program and data/, and opens the engine. An archive is
-// extracted into the data directory first. Harness processes start
-// lazily, on the first step (a fresh runtime starts one per step).
+// extracted into the data directory first. Harness processes start on
+// the first step (a fresh runtime starts one per step), and a bundle with
+// no step starts none. In a warm runtime, Open starts them earlier in two
+// cases: a host plugin (Options.Plugin) makes it start the pool's minimum
+// and wait for the first, to read the plugin's declaration, and a warm
+// start (Options.Pool.WarmStart) makes it wait until the minimum serve.
 //
 // The runtime owns its platform services (ADR 0007): the bundle's
 // resources and variables with the host's, which a step can update through

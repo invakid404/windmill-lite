@@ -123,7 +123,7 @@ type poolEvent struct {
 	p    *Process // exit and drain
 }
 
-// ErrPoolClosed is returned by Execute after Close.
+// ErrPoolClosed is returned by Execute and Start after Close.
 var ErrPoolClosed = errors.New("harness: pool closed")
 
 // Pool runs invocations on a set of spawned harness processes. It
@@ -291,7 +291,8 @@ func (pl *Pool) isFresh() bool { return pl.cfg.Key.ModuleState == engine.ModuleS
 
 // Start spawns the pool's Min processes and waits until Min serve, those
 // that others started included. It returns the error of a start it made
-// that failed. A fresh pool starts none ahead.
+// that failed, and ErrPoolClosed once Close has begun. A fresh pool starts
+// none ahead.
 func (pl *Pool) Start(ctx context.Context) error {
 	if pl.isFresh() {
 		return nil
@@ -308,7 +309,11 @@ func (pl *Pool) Start(ctx context.Context) error {
 			}
 		}
 		pl.mu.Lock()
-		if pl.closed || pl.inServiceLocked() >= pl.cfg.Min {
+		if pl.closed {
+			pl.mu.Unlock()
+			return ErrPoolClosed
+		}
+		if pl.inServiceLocked() >= pl.cfg.Min {
 			pl.mu.Unlock()
 			return nil
 		}

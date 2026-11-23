@@ -3,6 +3,7 @@ package wl
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -113,6 +114,16 @@ export async function main(started: string, gate: string) {
 // reported.
 func runPID(t *testing.T, rt *Runtime, path string, args map[string]string) int {
 	t.Helper()
+	pid, err := scriptPID(rt, path, args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pid
+}
+
+// scriptPID is runPID for a goroutine of the test's own, which returns its
+// error rather than failing the test.
+func scriptPID(rt *Runtime, path string, args map[string]string) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	b := []byte(`{}`)
@@ -121,13 +132,13 @@ func runPID(t *testing.T, rt *Runtime, path string, args map[string]string) int 
 	}
 	res, err := rt.Run(ctx, path, b, RunOptions{Kind: KindScript})
 	if err != nil || res.Status != StatusSuccess {
-		t.Fatalf("%s: %+v, %v", path, res, err)
+		return 0, fmt.Errorf("%s: %+v, %v", path, res, err)
 	}
 	pid, err := strconv.Atoi(string(res.Result))
 	if err != nil {
-		t.Fatalf("%s returned %s", path, res.Result)
+		return 0, fmt.Errorf("%s returned %s", path, res.Result)
 	}
-	return pid
+	return pid, nil
 }
 
 // gatedRun starts the root script path, f/t/spin or f/t/gate, with its
@@ -222,11 +233,22 @@ func TestWlPoolOptions(t *testing.T) {
 		rt := open(PoolOptions{Max: 2, LagThreshold: 50 * time.Millisecond})
 		a, spin := gatedRun(t, rt, "f/t/spin", gates, "spin")
 		waitLag(t, rt, a, 50*time.Millisecond)
-		other := make(chan int, 1)
-		go func() { other <- runPID(t, rt, "f/t/pid", nil) }()
+		type pidResult struct {
+			pid int
+			err error
+		}
+		other := make(chan pidResult, 1)
+		go func() {
+			pid, err := scriptPID(rt, "f/t/pid", nil)
+			other <- pidResult{pid, err}
+		}()
 		select {
 		case b := <-other:
-			if b == a {
+			if b.err != nil {
+				spin()
+				t.Fatal(b.err)
+			}
+			if b.pid == a {
 				t.Fatalf("the step ran in the spinning process %d", a)
 			}
 		case <-time.After(30 * time.Second):
