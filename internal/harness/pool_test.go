@@ -519,6 +519,43 @@ func TestPoolRecycleOnRSS(t *testing.T) {
 	}
 }
 
+// A process that trips in a pool grown past Min gets its replacement at
+// once, beside it, with no further invocation to ask for one. With Min 1,
+// Max 2 and Cap 2, three held invocations grow the pool to two processes;
+// the first trips while one of them is still in flight there.
+func TestPoolRecycleReplacesAboveMin(t *testing.T) {
+	pool, ctl, log := fakePool(t, PoolConfig{Min: 1, Max: 2, Cap: 2, Recycle: RecycleTriggers{RSS: 1000}})
+	h1 := startHeld(t, pool, ctl, "h1")
+	h2 := startHeld(t, pool, ctl, "h2")
+	h3 := startHeld(t, pool, ctl, "h3")
+	if n := len(pool.Stats()); n != 2 || log.count("spawn") != 2 {
+		t.Fatalf("the pool did not grow to two processes: %+v, events %q", pool.Stats(), log.after(""))
+	}
+	h2.release(t)
+	r2 := <-h2.done
+	a := pidOfOutcome(t, r2.out, r2.err)
+	// Both reports go to a, which has one invocation in flight (h1) beside
+	// the other process's one (h3), and comes first among equals.
+	for range 2 {
+		if got := fakeRun(t, pool, "s", map[string]any{"rss": 2000}); got != a {
+			t.Fatalf("a report went to %d, want %d", got, a)
+		}
+	}
+	if n := log.count("spawn"); n != 3 {
+		t.Fatalf("%d spawns after the trip in a pool above Min; events: %q", n, log.after(""))
+	}
+	if slices.Contains(log.after(""), fmt.Sprintf("drain %d", a)) {
+		t.Fatalf("the tripped process drained with an invocation in flight: %q", log.after(""))
+	}
+	h1.release(t)
+	h3.release(t)
+	for _, h := range []heldInvocation{h1, h3} {
+		r := <-h.done
+		pidOfOutcome(t, r.out, r.err)
+	}
+	log.waitFor(t, "", fmt.Sprintf("drain %d", a))
+}
+
 // The module trigger counts the distinct scripts that the engine sent a
 // process. With Modules 2, a repeat does not count, the invocation of a
 // third script still runs there, and the next goes to a replacement.

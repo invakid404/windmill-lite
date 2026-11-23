@@ -832,9 +832,11 @@ directory of its own, and exits once it has reported the outcome.
   picked for it before it tripped. An invocation that was never sent does
   not count. Zero turns it off.
 - **Leaving for a trigger.** A process that trips stays tripped. It takes
-  no new invocations, does not count toward `Max`, and the pool starts its
-  replacement up to `Min` at once. It drains once nothing that the engine
-  waits for is in flight in it.
+  no new invocations and does not count toward `Max`. It drains once
+  nothing that the engine waits for is in flight in it.
+- **Its replacement** starts at once, beside it, also in a pool that has
+  grown past `Min`. One that `MaxLive` holds back starts once a process
+  exits, unless the pool has reached `Max` by then.
 - **One at a time.** One process leaves for a trigger at a time. Another
   that trips meanwhile keeps serving, and starts to leave once the exit of
   the first is observed.
@@ -1013,6 +1015,7 @@ unattributed warning, and a signature that did not parse. Others hold:
 | `TestPoolMaxLive`, `TestPoolMaxLiveRouting` | `MaxLive` with a taint, and routing to a started process |
 | `TestPoolLeavingWaitsForWork` | A leaver that waits for its work before it drains |
 | `TestPoolRecycleOnRSS`, `TestPoolRecycleOnModules`, `TestPoolModulesCountDispatchedScripts` | The RSS and module triggers |
+| `TestPoolRecycleReplacesAboveMin` | The replacement of a tripped process in a pool grown past `Min` |
 | `TestPoolCapLeavesHostCalls` | Host calls beside a full cap |
 | `TestPoolEarlyExitNotAdmitted` | A process that exits before its admission |
 | `TestPoolPluginDeclarationsAgree` | Two initial processes with different plugin declarations |

@@ -164,8 +164,11 @@ type Pool struct {
 	// carry the same declaration. nil until then.
 	plugin []byte
 	// recycler is the member that leaves for a recycle trigger, until its
-	// exit is observed; nil when none does.
+	// exit is observed; nil when none does. owed counts the replacements
+	// of members that left for a trigger, which start as soon as MaxLive
+	// lets them, unless the pool reaches Max first.
 	recycler *member
+	owed     int
 }
 
 type member struct {
@@ -521,11 +524,21 @@ func (pl *Pool) roomLocked() bool {
 	return pl.cfg.MaxLive == 0 || len(pl.members)+pl.starting < pl.cfg.MaxLive
 }
 
-// fillLocked starts processes until Min serve or are starting, as far as
-// MaxLive lets it, and returns the attempts it made. A closed pool starts
-// none.
+// fillLocked starts the replacements owed to members that left for a
+// recycle trigger, then processes until Min serve or are starting, as far
+// as MaxLive lets it, and returns the attempts it made. A closed pool
+// starts none.
 func (pl *Pool) fillLocked() []*spawnAttempt {
 	var atts []*spawnAttempt
+	for !pl.closed && pl.owed > 0 && pl.roomLocked() {
+		if pl.inServiceLocked()+pl.starting >= pl.cfg.Max {
+			// The pool is full without them.
+			pl.owed = 0
+			break
+		}
+		atts = append(atts, pl.spawnLocked())
+		pl.owed--
+	}
 	for !pl.closed && pl.inServiceLocked()+pl.starting < pl.cfg.Min && pl.roomLocked() {
 		atts = append(atts, pl.spawnLocked())
 	}
@@ -700,9 +713,11 @@ func (pl *Pool) reviewLocked(m *member) {
 		m.tripped = true
 	}
 	if m.tripped && m.inService() && pl.recycler == nil {
-		// It leaves for its trigger now; a replacement starts beside it.
+		// It leaves for its trigger now, and its replacement starts beside
+		// it, also in a pool grown past Min.
 		m.recycling = true
 		pl.recycler = m
+		pl.owed++
 		pl.fillLocked()
 	}
 	if (m.tainted || m.surplus || m.recycling) && m.active == 0 {
