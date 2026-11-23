@@ -1,0 +1,14 @@
+summary: A step that calls a real Windmill through the stock client
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        path: f/foreign/cb/call
+        input_transforms:
+          base:
+            type: javascript
+            expr: flow_input.base
+          call:
+            type: javascript
+            expr: flow_input.call

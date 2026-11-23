@@ -1039,7 +1039,8 @@ func TestHostWorkdirRefusedBySDK(t *testing.T) {
 // (harness.CheckWorkdir). The test plays the host itself: it starts the
 // engine as its child with a socketpair as file descriptor 3 and greets it.
 // An engine that cannot open the bundle refuses the host too, with its
-// reason.
+// reason, as does one whose -foreign-windmill origin wl refuses. No refusal
+// and no line of the engine's output holds the marker of a refused value.
 func TestHostWorkdirRefusedByEngine(t *testing.T) {
 	compiledHost(t) // builds the bundle
 	manifest, err := os.ReadFile(filepath.Join(hostBundle, "manifest.json"))
@@ -1068,6 +1069,10 @@ func TestHostWorkdirRefusedByEngine(t *testing.T) {
 		{"an unreachable Sentinel", false, false, []string{"-resource-store", "redis"}, harness.RejectEngine, "", "redis://user:s3cr3t-marker@127.0.0.1:1/0?master_name=main&password=s3cr3t-marker"},
 		{"a URL as the master's name", false, false, []string{"-resource-store", "redis"}, harness.RejectEngine, "", "redis://127.0.0.1:1/0?master_name=redis://user:s3cr3t-marker@host2:6379"},
 		{"the password as the master's name", false, false, []string{"-resource-store", "redis"}, harness.RejectEngine, "", "redis://user:s3cr3t-marker@127.0.0.1:1/0?master_name=s3cr3t-marker"},
+		{"an origin of a real Windmill with user information", false, false, []string{"-foreign-windmill", "https://user:s3cr3t-marker@windmill.example.com"}, harness.RejectEngine, "", ""},
+		{"an origin of a real Windmill with a query", false, false, []string{"-foreign-windmill", "https://windmill.example.com/?token=s3cr3t-marker"}, harness.RejectEngine, "", ""},
+		{"an origin of a real Windmill whose host the harness refuses", false, false, []string{"-foreign-windmill", "http://999.999.999.999"}, harness.RejectEngine, "", ""},
+		{"an origin of a real Windmill with an empty fragment", false, false, []string{"-foreign-windmill", "https://windmill.example.com/#"}, harness.RejectEngine, "", ""},
 		{"a host plugin with a malformed selector", false, false, nil, harness.RejectPlugin, `{"intercept":[{"selector":{"flow":"f/host/echo"}}]}`, ""},
 		{"a usable host plugin", false, false, nil, "", `{"halt_before":[{"flow":"f/host/echo","module":"a"}]}`, ""},
 	} {
@@ -1169,7 +1174,7 @@ func TestHostWorkdirRefusedByEngine(t *testing.T) {
 				t.Fatalf("welcome %+v; want a reject with %s; stderr:\n%s", w, tc.code, stderr.String())
 			}
 			if strings.Contains(w.Reject.Message, "s3cr3t-marker") || strings.Contains(stderr.String(), "s3cr3t-marker") {
-				t.Fatal("the refusal or the engine's output holds the Redis URL's marker")
+				t.Fatal("the refusal or the engine's output holds the marker of a refused value")
 			}
 			t.Logf("refused: %s: %s", w.Reject.Code, w.Reject.Message)
 		})
