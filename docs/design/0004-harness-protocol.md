@@ -12,8 +12,16 @@ attributed to that invocation, and a timed-out step is abandoned instead of
 killed; in [host mode](../glossary.md#host-mode) the harness is the host
 itself.
 
-**Not built yet:** `runner.proto`, whose JSON mapping the `run` frames'
-fields stand in for, and log limits in the welcome.
+**Not built yet:**
+
+- `runner.proto`, whose messages the `run`, `run_done` and `run_cancel`
+  frames share their fields with, and log limits in the welcome;
+- the pool's settings in `wl`, pinned runs, recycle triggers and limits per
+  run (§Pooling);
+- a host plugin built into the bundle, and run data in its processes
+  (§Host plugins);
+- the named cause of a canceled run, and host-mode deadlines that have
+  already passed (§Cancellation and deadlines).
 
 ## Context
 
@@ -108,7 +116,7 @@ step without failing the others.
 | `platform` | harness → engine | `id`, `inv` (invocation id), `method`, `url`, `headers`, `body` | an intercepted `fetch` to the platform facade ([platform interface](0007-platform-interface.md)) |
 | `platform_reply` | engine → harness | `id`, `status`, `headers`, `body` | its answer |
 | `host_call` / `host_reply` | engine → harness / back | `host_call`: `id`, `hook`, `run`, `site` (`""` for a hook of the run as a whole), `payload` (raw object); `host_reply`: `id`, then `payload` (raw object) or `error` (`code`: `plugin_error` or `unknown_hook`, `message`) | a host plugin hook ([host hooks](0008-host-hooks.md), §Host plugins) |
-| `run` / `run_done` / `run_cancel` | harness → engine / back / harness → engine | the JSON mapping of the `Run` request, `Run` response and `Cancel` request messages of `runner.proto` ([host adapters](0009-host-adapters.md)): `run` has `id`, `kind`, `path`, `args` and `intercept`, then the run's budgets and latches (§Host plugins): `write_capable` (raw, an array of selectors), `fatal_error_names`, `deadline_ms`, `pre_write_deadline_ms` and `clock` (`real` or `record`); `run_done` has `id`, then `status`, `result`, `may_have_mutated` and `warnings` (raw, an array of `code` and `message`), `latched` (a latched run's error), `deviations` (the run-time deviations of its trace), or for a run the engine did not start `error` (`code`: `draining` or `refused`, `message`) | host mode: a harness that is also the host submits runs |
+| `run` / `run_done` / `run_cancel` | harness → engine / back / harness → engine | the fields that they share with `runner.proto`'s `RunRequest`, `RunResult` and `CancelRequest`, under the same names, JSON values raw ([host adapters](0009-host-adapters.md#the-runner-service)). `run`: `id`, `kind`, `path`, `args`, `intercept`, `write_capable`, `halt_before` and `halt_after` (raw arrays of selectors), `fatal_error_names`, `deadline_ms`, `pre_write_deadline_ms` and `clock` (`real` or `record`). `run_done`: `id`, then `status`, `result`, `may_have_mutated`, `warnings` (raw, each a `code` and a `message`), `latched` and `deviations`, or `error` for a run the engine did not start (`code`: `draining` or `refused`). `run_cancel`: `id` | host mode: a harness that is also the host submits runs |
 | `run_settled` | engine → harness | `id` | host mode: one of the host's runs has settled, after its `run_done` (host mode item 5) |
 | `ping` / `pong` | either way | `id`; from a harness also `in_flight`, `abandoned`, `errors` (process-level errors no invocation owned), `lag_ms` (event-loop lag), `rss` | health; a harness also pings on its own every `heartbeat_ms` |
 | `part` | either way | `id`, `seq`, `last`, `chunk` | one piece of a message over 1 MiB |
@@ -607,6 +615,84 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
 - Routing prefers the run's process (affinity), then the least-loaded one.
   When the event loop of a process lags past a threshold (a CPU-bound step),
   the pool starts another process, up to the maximum.
+- **The settings in `wl`** (planned). The minimum, the maximum, the cap
+  and the lag threshold are settings of the pool in `internal/harness`.
+  `wl` is planned to expose them with the rules below, and the go-plugin
+  adapter's configuration as `pool`
+  ([host adapters](0009-host-adapters.md#process-affinity-and-limits)).
+  Until then a `warm` runtime of `wl` keeps one process in service, with
+  no cap, and a `fresh` one starts a process for each invocation.
+- These settings, pinned runs and recycle triggers are a `warm` pool's: a
+  `fresh` pool and host mode have none of them.
+- **Pinned runs** (planned), for a runtime or for one run. A run is pinned
+  to the process that serves its first invocation or host-plugin call, and
+  each later one of the run goes there while that process lives, even when
+  it lags, is tainted or is being recycled. This is the one exception to
+  the taint rule, above and in §Cancellation and deadlines item 4: such a
+  process takes no new invocations but its pinned runs'.
+- **No new pins on a leaving process.** The pool pins no run to a process
+  that is tainted, being recycled or surplus. A tainted process that returns
+  to service takes new pins again.
+- **When a pin ends.** A pin holds its process until its run has ended: a
+  tainted, recycling or idle process does not leave while a live run is
+  pinned to it. After the run's end, the pin still sends the run's
+  remaining hook calls, such as `onRunSettled`, to that process while it
+  lives, but no longer holds it.
+- So a pinned run that never settles holds no process, and one that never
+  ends holds its process until its hard deadline or its cancellation ends
+  it. A host that pins runs gives them a hard deadline.
+- **A pinned run's process ends** (planned). A pinned run never moves to
+  another process, since its per-run state lived in the one that ended. Its
+  invocation in flight there fails as `escaped`, as any does. If the run
+  then starts another invocation or calls a hook, that latches
+  `pinned_process_lost` ([H5](0008-host-hooks.md#the-hooks)), as a host-mode run ends with
+  `harness_lost` (§Host mode item 6).
+- **Recycle triggers** (planned). The pool replaces a process whose
+  resident set, its heartbeat's `rss`, reaches a threshold on consecutive
+  heartbeats, or that has loaded more script modules than a cap, counted
+  from the scripts that the engine sent it. The process then takes no new
+  invocations but its pinned runs', a replacement starts beside it outside
+  the maximum, and the process leaves once nothing is in flight in it and
+  no pinned run holds it.
+- **Overlap** (planned). A replacement runs beside the process it replaces
+  until that process leaves, which waits for its steps in flight and its
+  pinned runs. While one process leaves for a recycle trigger, memory or
+  module count alike, another that trips keeps serving.
+- Every process counts from its start until it has exited: serving,
+  starting, tainted, recycling, surplus, or draining after its last pin
+  ended. Without a bound their number has no limit, since a replacement can
+  start while earlier processes still finish their work and their pins.
+- **A bound on live processes** (planned). With `max_live` set, the pool
+  starts no process while that many are alive. Routing does not change: an
+  invocation goes at once to a serving process that can take it, and waits
+  only when none can and the process it needs cannot start.
+- A leaving process first waits until no pinned run holds it and no
+  invocation is active in it. Then it drains within the recycle timeout, and
+  its slot frees once its exit is observed. `max_live` below the pool's
+  maximum refuses to open, since the pool could not reach its size.
+- **Memory.** A threshold is sampled at heartbeats and is not a cap: a
+  process can pass it between samples, and while it waits to leave. So the
+  container's memory limit is the one hard bound on bytes. A host sizes it
+  from `max_live`, times its workload's measured peak per process, plus the
+  engine's peak and headroom.
+- **Limits per run** (planned). A run may bound its invocations in
+  flight, so its parallel iterations and branches wait: a host-set cap that
+  deviation [D15](0001-equivalence-contract.md#5-named-deviations) is to cover per run as well as per process. It may
+  bound its arguments' size, which refuses it before it starts, and the
+  bytes that the engine holds for its stored values, which latches
+  `run_memory_limit` once passed.
+- **A byte budget per run** (planned). A run may have a budget of bytes
+  that its steps and its host plugin draw on with `wl.reserve(bytes)` in
+  the step API, for data that a step holds, such as a source it downloads.
+  The engine keeps the account, so the budget holds across processes. A
+  reservation past the budget throws in the step, and each reservation
+  returns to the budget when the invocation that made it settles.
+- **A total for the runtime** (planned). A runtime may also set a total of
+  bytes that every run's reservations share, so a reservation must fit both
+  its run's budget and the runtime's total.
+- A shared process has no measure of one run's JavaScript heap, so a
+  run's limits count only what the engine holds and what its steps
+  reserve.
 - Processes that are tainted or being recycled (§Cancellation and deadlines
   item 4) do not count toward the maximum: they are leaving the pool, and a
   replacement takes the new invocations, so one abandoned step does not
@@ -870,6 +956,20 @@ answered by a `host_reply`.
    clock (H10). The hard deadline bounds the run until it has settled, so
    steps a latch or a cancellation left running are abandoned at it.
    `run_done` reports `may_have_mutated` and the trace's `deviations`.
+7. **A plugin in the bundle** (planned). The host contract may name a
+   plugin module, which the build bundles into the bundle's `plugins/` with
+   the same Bun build helper and the same shims of host-provided modules as
+   the steps. In each process, the plugin and the steps then share those
+   modules' instances.
+8. **Loading it.** The manifest records the plugin, so the bundle digest
+   covers it, and a `warm` runtime loads it as it loads the module that
+   `Options.Plugin` names. A runtime given both refuses to open, and a
+   `fresh` runtime takes neither.
+9. **Run data** (planned). A run's data ([H11](0008-host-hooks.md#the-hooks)) reaches a process with
+   the first `invoke` or `host_call` of the run that the process gets, so
+   the plugin's hooks and its `around` wrappers read it as `wl.run.data`.
+   The engine tells the process when the run has settled, and the process
+   then drops the data.
 
 ### Parallel loops
 
@@ -924,6 +1024,39 @@ is a timer on the flow's context, not a step's. When it fires, the flow
 and its steps are canceled as in item 3, with canceler `timeout`; the
 flow's failure module still runs once, and the flow ends canceled.
 
+**A deadline ends only its run.** A run's hard deadline, and its pre-write
+deadline until the first write is approved, end that run alone, `canceled`,
+as a cancellation does in item 3. Other runs and the harness processes go
+on, and so, once the host-mode rule below is built, does a host's
+connection. A deadline that has passed when the run arrives ends it before
+its first module, as `wl` ends a flow run whose pre-write deadline is past.
+
+**Expired deadlines in host mode** (planned). Until then, a `run` frame
+whose `deadline_ms` or `pre_write_deadline_ms` is 0 or negative fails to
+decode. That protocol error ends the connection, and with it every run of
+the host and the engine (§Transport and framing item 3).
+
+The planned rule: each field is optional, and its absence means no
+deadline. Both codecs keep whether it is present and write a present 0. A
+present value of 0 or less is a deadline that has passed, and one above
+the longest duration that the engine holds, about 292 years, counts as that
+duration.
+
+The host SDK sends a rest rounded up to whole milliseconds and at least 0.
+It refuses, itself, a rest that is not a finite number or that is above
+2^53 − 1 ms, the frame rules' largest integer, so no budget that a host
+gives it can end the connection.
+
+**The cause** (planned). A canceled run's outcome names why it was
+canceled: `deadline`, `pre_write_deadline`, `canceled` (the host's
+cancellation, or the end of the call that carried the run), `closing` (the
+runtime closes) or `flow_timeout` (the flow's own limit). `wl`'s `Result`
+carries it, and so do host mode's `run_done` and the `Runner`'s
+`RunResult`, as `cancel_cause`
+([host adapters](0009-host-adapters.md#deadlines-and-outcomes)). The
+status stays Windmill's `canceled`, and so does the `Canceled` error in the
+result.
+
 ## Consequences
 
 - One socket per harness process carries everything; Go never decodes step
@@ -968,8 +1101,10 @@ flow's failure module still runs once, and the flow ends canceled.
   - `run` carries `id`, `kind` (`flow` or `script`), `path`, raw `args` and
     an optional raw `intercept` (H1's static form,
     [host hooks](0008-host-hooks.md)), and `run_done` carries `status` and
-    an optional raw `result`. These fields stand in for the JSON mapping of
-    `runner.proto` until the go-plugin adapter defines it.
+    an optional raw `result`. `runner.proto`'s messages are planned to
+    hold these fields under the same names, with the JSON values in
+    `bytes` fields
+    ([host adapters](0009-host-adapters.md#the-runner-service)).
   - A run's `id` is its id in the engine, so the host finds the scope of
     each invocation by its `run`.
   - The SDK passes the engine a socketpair as fd 3 (Node's extra `"pipe"`
