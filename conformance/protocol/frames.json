@@ -669,6 +669,30 @@
       "payload": "{\"t\":\"run\",\"id\":\"r4\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"write_capable\":[{\"module\":\"b\"}],\"fatal_error_names\":[\"HostFatal\"],\"deadline_ms\":30000,\"pre_write_deadline_ms\":5000,\"clock\":\"record\"}"
     },
     {
+      "case": "run-deadline-passed",
+      "title": "a run's deadline_ms of 0 is a deadline that has passed: it decodes, present, and is written again",
+      "message_text": "{\"t\":\"run\",\"id\":\"r4\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"deadline_ms\":0}",
+      "payload": "{\"t\":\"run\",\"id\":\"r4\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"deadline_ms\":0}"
+    },
+    {
+      "case": "run-pre-write-deadline-passed",
+      "title": "a run's negative pre_write_deadline_ms is a pre-write deadline that has passed: it decodes, present, and is written again",
+      "message_text": "{\"t\":\"run\",\"id\":\"r4\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"pre_write_deadline_ms\":-5}",
+      "payload": "{\"t\":\"run\",\"id\":\"r4\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"pre_write_deadline_ms\":-5}"
+    },
+    {
+      "case": "run-deadlines-absent",
+      "title": "a run without deadline_ms and pre_write_deadline_ms has no deadline, and neither field is written",
+      "message_text": "{\"t\":\"run\",\"id\":\"r4\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{}}",
+      "payload": "{\"t\":\"run\",\"id\":\"r4\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{}}"
+    },
+    {
+      "case": "run-deadlines-null",
+      "title": "a null deadline counts as absent, not as one that has passed",
+      "message_text": "{\"t\":\"run\",\"id\":\"r4\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"deadline_ms\":null,\"pre_write_deadline_ms\":null}",
+      "payload": "{\"t\":\"run\",\"id\":\"r4\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{}}"
+    },
+    {
       "case": "run-halts",
       "title": "a run with its own halts: selectors before or after whose modules the run ends halted (H8), after its write-capable selectors in the canonical order",
       "message_text": "{\"t\":\"run\",\"id\":\"r5\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"fatal_error_names\":[\"HostFatal\"],\"halt_after\":[{\"flow\":\"f/w1/flow\",\"module\":\"a\"}],\"halt_before\":[{\"flow\":\"f/w1/flow\",\"module\":\"b\",\"occurrence\":1}],\"write_capable\":[{\"module\":\"b\"}]}",
@@ -792,6 +816,23 @@
       "payload": "{\"t\":\"run_done\",\"id\":\"r4\",\"status\":\"latched\",\"may_have_mutated\":true,\"latched\":\"FatalError: HostFatal: stop\",\"deviations\":[\"H7\",\"H10\"]}"
     },
     {
+      "case": "run-done-cancel-cause",
+      "title": "a canceled run's run_done names why it was canceled, after every other field",
+      "message_text": "{\"cancel_cause\":\"pre_write_deadline\",\"deviations\":[\"H10\"],\"t\":\"run_done\",\"warnings\":[{\"code\":\"c\",\"message\":\"m\"}],\"id\":\"r4\",\"status\":\"canceled\",\"result\":{\"error\":{\"name\":\"Canceled\",\"message\":\"Job canceled: no reason given by unknown\"}}}",
+      "payload": "{\"t\":\"run_done\",\"id\":\"r4\",\"status\":\"canceled\",\"result\":{\"error\":{\"name\":\"Canceled\",\"message\":\"Job canceled: no reason given by unknown\"}},\"warnings\":[{\"code\":\"c\",\"message\":\"m\"}],\"deviations\":[\"H10\"],\"cancel_cause\":\"pre_write_deadline\"}"
+    },
+    {
+      "case": "run-done-cancel-cause-empty",
+      "title": "an empty cancel_cause counts as absent, and is not written",
+      "message": {
+        "t": "run_done",
+        "id": "r4",
+        "status": "success",
+        "cancel_cause": ""
+      },
+      "payload": "{\"t\":\"run_done\",\"id\":\"r4\",\"status\":\"success\"}"
+    },
+    {
       "case": "host-call",
       "title": "the engine asks the host plugin to answer a hook for a run at a site, with a raw payload (F2c)",
       "message": {
@@ -868,6 +909,34 @@
         "id": "r2"
       },
       "payload": "{\"t\":\"run_cancel\",\"id\":\"r2\"}"
+    },
+    {
+      "case": "run-cancel-reason",
+      "title": "the host cancels a run with a reason and a canceler, which the cancellation's error names",
+      "message_text": "{\"t\":\"run_cancel\",\"canceler\":\"tenant-admin\",\"reason\":\"the tenant was suspended\",\"id\":\"r2\"}",
+      "payload": "{\"t\":\"run_cancel\",\"id\":\"r2\",\"reason\":\"the tenant was suspended\",\"canceler\":\"tenant-admin\"}"
+    },
+    {
+      "case": "run-cancel-reason-empty",
+      "title": "an empty reason counts as absent, and is not written",
+      "message": {
+        "t": "run_cancel",
+        "id": "r2",
+        "reason": "",
+        "canceler": "tenant-admin"
+      },
+      "payload": "{\"t\":\"run_cancel\",\"id\":\"r2\",\"canceler\":\"tenant-admin\"}"
+    },
+    {
+      "case": "run-cancel-canceler-empty",
+      "title": "an empty canceler counts as absent, and is not written",
+      "message": {
+        "t": "run_cancel",
+        "id": "r2",
+        "reason": "the tenant was suspended",
+        "canceler": ""
+      },
+      "payload": "{\"t\":\"run_cancel\",\"id\":\"r2\",\"reason\":\"the tenant was suspended\"}"
     },
     {
       "case": "ping-health",
@@ -1648,10 +1717,10 @@
       "error": "bad_field"
     },
     {
-      "case": "run-deadline-not-positive",
-      "title": "a run's deadline_ms is positive",
+      "case": "run-deadline-not-safe-integer",
+      "title": "a run's deadline_ms is an integer of at most 2^53 - 1, the largest that every harness's JSON reader holds exactly",
       "frames": [
-        "{\"t\":\"run\",\"id\":\"r4\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"deadline_ms\":0}"
+        "{\"t\":\"run\",\"id\":\"r4\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"deadline_ms\":9007199254740992}"
       ],
       "error": "bad_field"
     },
@@ -1676,6 +1745,30 @@
       "title": "a run_done's deviations are strings",
       "frames": [
         "{\"t\":\"run_done\",\"id\":\"r4\",\"status\":\"success\",\"deviations\":[7]}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "run-done-cancel-cause-not-string",
+      "title": "a run_done's cancel_cause is a string",
+      "frames": [
+        "{\"t\":\"run_done\",\"id\":\"r4\",\"status\":\"canceled\",\"cancel_cause\":1}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "run-cancel-reason-not-string",
+      "title": "a run_cancel's reason is a string",
+      "frames": [
+        "{\"t\":\"run_cancel\",\"id\":\"r2\",\"reason\":[\"late\"]}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "run-cancel-canceler-not-string",
+      "title": "a run_cancel's canceler is a string",
+      "frames": [
+        "{\"t\":\"run_cancel\",\"id\":\"r2\",\"canceler\":7}"
       ],
       "error": "bad_field"
     },

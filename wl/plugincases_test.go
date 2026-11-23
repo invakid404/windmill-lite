@@ -90,7 +90,7 @@ func casePluginInput(f *conformance.PluginFile) []map[string]any {
 
 // pluginOutcome is a run's outcome as a case checks it.
 func pluginOutcome(res *Result) conformance.PluginOutcome {
-	o := conformance.PluginOutcome{Status: res.Status, MayHaveMutated: res.MayHaveMutated, Result: res.Result, Ran: map[string]bool{}}
+	o := conformance.PluginOutcome{Status: res.Status, MayHaveMutated: res.MayHaveMutated, Result: res.Result, Ran: map[string]bool{}, CancelCause: res.CancelCause}
 	if res.Latched != nil {
 		o.Latched = res.Latched.Error()
 	}
@@ -114,8 +114,8 @@ func pluginOutcome(res *Result) conformance.PluginOutcome {
 // own hooks), for the case's flow.
 func caseRun(c conformance.PluginCase, r conformance.PluginRun, base RunOptions) (context.Context, context.CancelFunc, RunOptions) {
 	ctx, cancel := context.Background(), context.CancelFunc(func() {})
-	if r.DeadlineMS > 0 {
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(r.DeadlineMS)*time.Millisecond)
+	if r.DeadlineMS != nil {
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(*r.DeadlineMS)*time.Millisecond)
 	}
 	opts := base
 	if len(r.WriteCapable) > 0 || len(r.HaltBefore) > 0 || len(r.HaltAfter) > 0 || len(r.FatalErrorNames) > 0 {
@@ -136,8 +136,8 @@ func caseRun(c conformance.PluginCase, r conformance.PluginRun, base RunOptions)
 		h.FatalErrorNames = append(slices.Clone(h.FatalErrorNames), r.FatalErrorNames...)
 		opts.Hooks = &h
 	}
-	if r.PreWriteDeadlineMS > 0 {
-		opts.PreWriteDeadline = time.Now().Add(time.Duration(r.PreWriteDeadlineMS) * time.Millisecond)
+	if r.PreWriteDeadlineMS != nil {
+		opts.PreWriteDeadline = time.Now().Add(time.Duration(*r.PreWriteDeadlineMS) * time.Millisecond)
 	}
 	if r.Clock == "record" {
 		opts.Clock = &RecordClock{}
