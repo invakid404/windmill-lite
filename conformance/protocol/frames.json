@@ -824,7 +824,12 @@
     {
       "case": "run-done-cancel-cause-empty",
       "title": "an empty cancel_cause counts as absent, and is not written",
-      "message_text": "{\"t\":\"run_done\",\"id\":\"r4\",\"status\":\"success\",\"cancel_cause\":\"\"}",
+      "message": {
+        "t": "run_done",
+        "id": "r4",
+        "status": "success",
+        "cancel_cause": ""
+      },
       "payload": "{\"t\":\"run_done\",\"id\":\"r4\",\"status\":\"success\"}"
     },
     {
@@ -914,13 +919,23 @@
     {
       "case": "run-cancel-reason-empty",
       "title": "an empty reason counts as absent, and is not written",
-      "message_text": "{\"t\":\"run_cancel\",\"id\":\"r2\",\"reason\":\"\",\"canceler\":\"tenant-admin\"}",
+      "message": {
+        "t": "run_cancel",
+        "id": "r2",
+        "reason": "",
+        "canceler": "tenant-admin"
+      },
       "payload": "{\"t\":\"run_cancel\",\"id\":\"r2\",\"canceler\":\"tenant-admin\"}"
     },
     {
       "case": "run-cancel-canceler-empty",
       "title": "an empty canceler counts as absent, and is not written",
-      "message_text": "{\"t\":\"run_cancel\",\"id\":\"r2\",\"reason\":\"the tenant was suspended\",\"canceler\":\"\"}",
+      "message": {
+        "t": "run_cancel",
+        "id": "r2",
+        "reason": "the tenant was suspended",
+        "canceler": ""
+      },
       "payload": "{\"t\":\"run_cancel\",\"id\":\"r2\",\"reason\":\"the tenant was suspended\"}"
     },
     {
