@@ -177,12 +177,13 @@ process.
 | `providers` | For each named provider of the host contract: a static value, or `broker` for the host's hooks service | none |
 | `plugin_timeout_ms` | The bound of each hook call, to a host plugin or over the broker | 60000 |
 | `read_cache` | The read cache of each run ([D21](0001-equivalence-contract.md#5-named-deviations)) | off |
-| `pool` | A `warm` pool's size, cap, pinned runs, recycle triggers and warm start ([harness protocol](0004-harness-protocol.md#pooling-processes-the-engine-spawns)) | one process, no cap |
+| `pool` | A `warm` pool's size, cap, bound on live processes, pinned runs, recycle triggers and warm start ([harness protocol](0004-harness-protocol.md#pooling-processes-the-engine-spawns)) | one process, no cap |
 | `result_polls_for_all_jobs` | Whether the result polls answer for every job of a live run that the job read answers for ([platform interface](0007-platform-interface.md#services)) | off |
 | `foreign_windmill_origins` | The origins of real Windmill instances, whose requests from steps lose windmill-lite's job ids ([platform interface](0007-platform-interface.md#async-dispatch)) | none |
 | `engine_recycle_rss` | The engine's own resident set, in bytes, at which it stops serving | off |
 | `drain_timeout_ms` | How long a drain lets the runs in flight go on | 60000 |
 | `max_message_bytes` | The largest gRPC message in either direction | 536870912, the harness protocol's limit |
+| `bytes_total` | The runtime's byte total, which every run's reservations share ([harness protocol](0004-harness-protocol.md#pooling-processes-the-engine-spawns)) | off |
 | `labels` | Names and values that build information echoes, such as a deployment's region | none |
 
 - **Secrets by reference.** A secret variable's value names a variable of
@@ -221,13 +222,14 @@ process.
 #### The Runner service
 
 The engine serves `windmill_lite.v1.Runner`, which
-`proto/windmill_lite/v1/runner.proto` defines. Version 1 has three calls:
+`proto/windmill_lite/v1/runner.proto` defines. Version 1 has four calls:
 
 | Call | What it does |
 |---|---|
 | `GetBuildInfo` | Returns the build identity ([Build identity and pinning](#build-identity-and-pinning)) |
 | `Run` | Runs a flow or a root script of the bundle to its end, as `Runtime.Run` does, and returns its outcome: one unary call per run |
 | `Cancel` | Cancels a run in flight by its id, with a reason and a canceler, which the run's `Canceled` error names ([FX-38](../semantics/execution.md#fx-38)). Host mode's `run_cancel` is planned to carry the same two fields |
+| `GetRun` | Says whether the engine still holds the run of a hooks registration, by its id and token: in flight, or ended and not yet released ([Hooks across the plugin boundary](#hooks-across-the-plugin-boundary)) |
 
 A `RunRequest` holds:
 
@@ -381,7 +383,7 @@ The host then compares `GetBuildInfo` with the release record that it ships, at
 least the bundle digest, the engine version, the Bun version, the labels
 and the configuration's digest, and refuses the process otherwise. The
 executable's digest is not in build information: a process cannot vouch for
-its own file, and `SecureConfig` has already checked it.
+its own file, and the runner has already checked it.
 
 #### The client package
 
@@ -394,7 +396,7 @@ its own file, and `SecureConfig` has already checked it.
 | `VersionedPlugins` | The plugin sets by `Runner` version, for both sides |
 | `RunnerPlugin` | The go-plugin plugin type. On the engine's side it registers the `Runner` server; on the host's it returns a `Client` |
 | `Client` | Typed calls: `BuildInfo`, `Run`, `Cancel` and `Health`. `Run` serves the run's Go hooks on the broker |
-| `ClientConfig` | go-plugin's client configuration for one launch: the runner that checks the executable's SHA-256 and starts it with its configuration file, gRPC only, a fresh private socket directory, a literal environment and the message limits |
+| `ClientConfig` | go-plugin's client configuration for one launch: the runner that checks the executable's SHA-256 and starts it with its configuration file, gRPC only, a fresh private socket directory, a literal environment with go-plugin's `SkipHostEnv` on, and the message limits |
 | `Supervisor` | The optional supervisor ([The supervisor](#the-supervisor)) |
 
 `Client.Run` gives the run the earlier of two hard deadlines: the
@@ -472,14 +474,20 @@ A hook takes the cheapest of three routes that serves it:
   failed `onRunSettled` is a diagnostic line, and a hook whose run has
   already ended latches nothing.
 - **Registration.** `Client` gives a run without an id a fresh UUID, and
-  registers its hooks under that id before it sends the request, since
-  hook calls can come before the reply and after it. It refuses a new run
-  with the id of a run whose registration it still holds.
-- **Release.** `Client` drops a run's registration when the engine refuses
-  the run, when the engine reports that the run has settled, or when the
-  generation ends. The engine reports settlement with a release call on
-  the broker, which it sends whatever hooks the run declared. A hook call
-  for a dropped run answers an error that latches nothing.
+  registers its hooks before it sends the request, since hook calls can come
+  before the reply and after it. Each registration has a fresh token that
+  the request carries and every hook call echoes, so a delayed call of an
+  earlier run with the same id never reaches a later registration.
+- **Release.** `Client` drops a registration when the engine refuses the
+  run, when the engine's release call says that the run has settled, or
+  when the generation ends. The engine sends that call whatever hooks the
+  run declared. A hook call that names no held registration answers an
+  error that latches nothing.
+- **Reconciliation.** A refusal or a release call can be lost. So when a
+  `Run` call ends without an outcome, and for any registration older than
+  its run's hard deadline plus `plugin_timeout_ms`, `Client` asks `GetRun`,
+  and drops the registration once the engine no longer holds the run. The
+  caller's unknown outcome stays unknown either way.
 - **One listener.** The broker connection lives as long as the `Client`,
   so a run opens no listener of its own.
 - **Providers on the broker.** A named provider that the configuration

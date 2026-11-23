@@ -658,18 +658,20 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
   until that process leaves, which waits for its steps in flight and its
   pinned runs. While one process leaves for a recycle trigger, memory or
   module count alike, another that trips keeps serving.
-- So the processes alive at once are the pool's maximum, at most one
-  process leaving for a trigger, the tainted ones, and the surplus ones
-  that still serve pinned runs after their taint cleared.
-- A tainted or surplus process leaves once its pinned runs have ended, so a
-  host that pins runs bounds the number of such processes with the runs'
-  hard deadlines.
+- Every process counts from its start until it has exited: serving,
+  starting, tainted, recycling, surplus, or draining after its last pin
+  ended. Without a bound their number has no limit, since a replacement can
+  start while earlier processes still finish their work and their pins.
+- **A bound on live processes** (planned). With `max_live` set, the pool
+  starts no process while that many are alive, and new unpinned
+  invocations wait, as at a full cap. A replacement then waits for a
+  leaving process to exit, which a tainted one does within the recycle
+  timeout once no pinned run holds it.
 - **Memory.** A threshold is sampled at heartbeats and is not a cap: a
-  process can pass it between samples, and while it waits to leave. Nothing
-  in windmill-lite bounds the bytes, so the container's memory limit is the
-  one hard bound. A host sizes it from its workload's measured peaks per
-  process, times the processes that can be alive at once, plus the engine's
-  peak and headroom.
+  process can pass it between samples, and while it waits to leave. So the
+  container's memory limit is the one hard bound on bytes. A host sizes it
+  from `max_live`, times its workload's measured peak per process, plus the
+  engine's peak and headroom.
 - **Limits per run** (planned). A run may bound its invocations in
   flight, so its parallel iterations and branches wait: a host-set cap that
   deviation [D15](0001-equivalence-contract.md#5-named-deviations) is to cover per run as well as per process. It may
