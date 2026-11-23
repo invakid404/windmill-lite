@@ -114,46 +114,72 @@ func TestRunCancelCause(t *testing.T) {
 func TestScriptRunCancelCause(t *testing.T) {
 	bun := bunOrSkip(t)
 	out, runtimeDir := buildBundle(t, bun)
-	// f/t/set waits a minute after it reads "slow".
+	// f/t/set sets u/t/v to "second", then waits a minute when it read
+	// "slow".
 	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Variables: map[string]Variable{"u/t/v": {Value: "slow"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rt.Close()
-	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
-	defer cancelExpired()
-	waiting, cancelWaiting := context.WithCancelCause(context.Background())
-	defer cancelWaiting(nil)
-	time.AfterFunc(500*time.Millisecond, func() {
-		cancelWaiting(&Cancellation{Reason: "the tenant was suspended", Canceler: "tenant-admin"})
-	})
-	for _, tc := range []struct {
-		name   string
-		ctx    context.Context
-		cause  string
-		killed string
-	}{
-		{"a deadline that has passed", expired, CauseDeadline, "cancelled by unknown (reason: no reason given)"},
-		{"the caller's cancellation while the step waits", waiting, CauseCanceled, "cancelled by tenant-admin (reason: the tenant was suspended)"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			res, err := rt.Run(tc.ctx, "f/t/set", json.RawMessage(`{"v":"u/t/v"}`), RunOptions{Kind: KindScript})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if res.Status != StatusCanceled || res.CancelCause != tc.cause {
-				t.Fatalf("status %s, cause %q (result %s); want canceled, cause %q", res.Status, res.CancelCause, res.Result, tc.cause)
-			}
-			var killed struct {
-				Error struct{ Name, Message string } `json:"error"`
-			}
-			if json.Unmarshal(res.Result, &killed) != nil || killed.Error.Name != "ExecutionErr" || !strings.Contains(killed.Error.Message, tc.killed) {
-				t.Fatalf("result %s; want the killed job's ExecutionErr, %q", res.Result, tc.killed)
-			}
-		})
+	check := func(t *testing.T, res *Result, err error, cause, killed string) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Status != StatusCanceled || res.CancelCause != cause {
+			t.Fatalf("status %s, cause %q (result %s); want canceled, cause %q", res.Status, res.CancelCause, res.Result, cause)
+		}
+		var e struct {
+			Error struct{ Name, Message string } `json:"error"`
+		}
+		if json.Unmarshal(res.Result, &e) != nil || e.Error.Name != "ExecutionErr" || !strings.Contains(e.Error.Message, killed) {
+			t.Fatalf("result %s; want the killed job's ExecutionErr, %q", res.Result, killed)
+		}
 	}
-	// The same script with time left runs; the canceled run's step set the
-	// variable before it waited.
+	t.Run("a deadline that has passed", func(t *testing.T) {
+		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+		defer cancel()
+		res, err := rt.Run(ctx, "f/t/set", json.RawMessage(`{"v":"u/t/v"}`), RunOptions{Kind: KindScript})
+		check(t, res, err, CauseDeadline, "cancelled by unknown (reason: no reason given)")
+	})
+	t.Run("the caller's cancellation while the step waits", func(t *testing.T) {
+		ctx, cancel := context.WithCancelCause(context.Background())
+		defer cancel(nil)
+		type outcome struct {
+			res *Result
+			err error
+		}
+		done := make(chan outcome, 1)
+		go func() {
+			res, err := rt.Run(ctx, "f/t/set", json.RawMessage(`{"v":"u/t/v"}`), RunOptions{Kind: KindScript})
+			done <- outcome{res, err}
+		}()
+		// The step has read "slow" and set the variable, and waits.
+		deadline := time.After(10 * time.Second)
+		for {
+			if v, err := rt.services.VariableValue(context.Background(), "u/t/v"); err != nil {
+				t.Fatal(err)
+			} else if v == "second" {
+				break
+			}
+			select {
+			case <-deadline:
+				t.Fatal("the step never updated the variable")
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
+		// The update's answer reaches the step after the store changed.
+		time.Sleep(100 * time.Millisecond)
+		cancel(&Cancellation{Reason: "the tenant was suspended", Canceler: "tenant-admin"})
+		select {
+		case o := <-done:
+			check(t, o.res, o.err, CauseCanceled, "cancelled by tenant-admin (reason: the tenant was suspended)")
+		case <-time.After(10 * time.Second):
+			t.Fatal("the canceled run did not return")
+		}
+	})
+	// The same script with time left runs, and reads the canceled run's
+	// update.
 	if res, err := rt.Run(context.Background(), "f/t/set", json.RawMessage(`{"v":"u/t/v"}`), RunOptions{Kind: KindScript}); err != nil || res.Status != StatusSuccess || res.CancelCause != "" || string(res.Result) != `"second"` {
 		t.Fatalf("%+v, %v; want success, \"second\", with no cause", res, err)
 	}
