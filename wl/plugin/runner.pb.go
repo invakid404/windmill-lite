@@ -826,8 +826,10 @@ type RunResult struct {
 	// status is "success", "failure", "canceled", "skipped", "latched" or
 	// "halted".
 	Status string `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
-	// result is the run's final result in its stored form, as JSON text.
-	// It is empty when the run has none, such as a canceled run.
+	// result is the run's final result in its stored form, as JSON text. A
+	// canceled run keeps one too: a flow's Canceled error, or a root script's
+	// stored failure value. It is empty for a latched or halted run, which has
+	// none.
 	Result []byte `protobuf:"bytes,3,opt,name=result,proto3" json:"result,omitempty"`
 	// may_have_mutated says, for a flow run, that the launch of its first
 	// write-capable step was approved, in a failed or canceled run too; only

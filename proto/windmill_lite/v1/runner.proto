@@ -217,8 +217,10 @@ message RunResult {
   // status is "success", "failure", "canceled", "skipped", "latched" or
   // "halted".
   string status = 2;
-  // result is the run's final result in its stored form, as JSON text.
-  // It is empty when the run has none, such as a canceled run.
+  // result is the run's final result in its stored form, as JSON text. A
+  // canceled run keeps one too: a flow's Canceled error, or a root script's
+  // stored failure value. It is empty for a latched or halted run, which has
+  // none.
   bytes result = 3;
   // may_have_mutated says, for a flow run, that the launch of its first
   // write-capable step was approved, in a failed or canceled run too; only
