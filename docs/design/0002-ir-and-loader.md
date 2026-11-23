@@ -262,6 +262,12 @@ everywhere. A `{script: <path>}` selector names a `script` step by its path
 and an inline step by `<flow path>/<module id>`. The contract also lists the
 host-provided modules ([packaging](0010-packaging.md)).
 
+The contract may also name a **host plugin** (`plugin: <path>`): the file of
+a Bun script of the folder, not a codebase script and not a host-provided
+module. The compiler only records it, and the build bundles it with the
+steps' shims of the host-provided modules
+([harness protocol](0004-harness-protocol.md#host-plugins), item 7).
+
 1. The loader walks the dependency closure from the roots only. At a
    provided site it stops: the site's target (a by-path subflow or script)
    is **opaque**: it is not loaded, validated or bundled, and need not be in
