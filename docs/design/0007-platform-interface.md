@@ -27,9 +27,7 @@ default `fail` policy a step that called an unsupported route fails with
 - the option that makes the result polls answer for a job of a live run
   that the dispatcher did not start (§Services);
 - the settings of the job identity in `wl` and in the go-plugin adapter,
-  and a workspace per run (§Job identity);
-- removing windmill-lite's job ids from a step's own dispatch to a real
-  Windmill (§Async dispatch).
+  and a workspace per run (§Job identity).
 
 ## Context
 
@@ -355,16 +353,22 @@ handles a request to a real Windmill:
   `root_job` from `WM_ROOT_FLOW_JOB_ID` when it is not empty, on a script's
   dispatch and on `runFlow`, while `runFlowAsync` sends neither by default
   ([WA-15](../semantics/client-api.md#wa-15)).
-- A runtime setting that names such a Windmill's origins is planned. On a
-  request from a step, a native step's included, to one of them under
-  `/api/w/{workspace}/jobs/run/`, the harness's `fetch` view then removes a
-  `parent_job` or `root_job` query parameter whose value is one of the
-  invocation's own job ids.
+- A runtime setting names such a Windmill's origins: `wl`'s
+  `ForeignWindmillOrigins`, the Bun host SDK's `foreignWindmillOrigins` and
+  `windmill-lite host -foreign-windmill`. The engine sends them to each
+  harness process in its welcome. The go-plugin adapter's configuration is
+  planned to carry them (`foreign_windmill_origins`).
+- On a request from a step, a native step's included, to one of them under
+  `/api/w/{workspace}/jobs/run/`, the harness's `fetch` view removes each
+  `parent_job` and `root_job` query parameter whose value is one of the
+  invocation's own job ids. Those are its `WM_JOB_ID`, `WM_FLOW_JOB_ID`,
+  `WM_ROOT_FLOW_JOB_ID` and `WM_ROOT_JOB_ID`, as the engine set them; the
+  rest of the request stays as the step sent it.
 - A request that windmill-lite does not handle keeps them. That is one to
   an origin that the setting does not name, one made outside the `fetch`
-  view (by a child process or a socket that the step opens), and, until the
-  setting exists, every such call. A host that runs such code removes the
-  links itself.
+  view (by a child process or a socket that the step opens), and every
+  such call while the setting is empty, its default. A host that runs such
+  code removes the links itself.
 
 ### Hybrid dispatch to a real Windmill
 

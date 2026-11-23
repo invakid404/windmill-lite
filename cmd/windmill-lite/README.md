@@ -331,6 +331,7 @@ The host that starts it passes:
 | `-redis-prefix`, `-redis-allow-eviction` | As for `run` | As for `run` | The Redis store's key prefix, and its start on an evicting policy |
 | `-read-cache` | None | Off | Each run keeps the answer of its first read of a host's or bundle's resource or variable, and answers its later reads of that path from it. An error is not kept, and a variable that a step updates and a stored state are read again ([the read cache](../../internal/platform/README.md#the-read-cache)). Windmill reads each time, so this is a named [deviation](../../docs/glossary.md#deviation) of the [equivalence contract](../../docs/design/0001-equivalence-contract.md#5-named-deviations). |
 | `-skip-args-file` | None | Off | The host states that its own code never reads `args.json`. Then, for a bundle none of whose scripts can read it, the engine writes no `args.json` for a step. |
+| `-foreign-windmill` | An origin, such as `https://windmill.example.com`; repeat the flag for each | None | A real [Windmill](../../docs/glossary.md#windmill) that the host's steps call through their own client. A step's dispatch there loses its links to the step's own job ids ([wl](../../wl/README.md#job-ids-on-a-real-windmill)). |
 | `-quickjs-only` | None | Off | As for `run`: the Go evaluator of expressions is off |
 | `-cpuprofile` | A file | None | Writes a CPU profile of the engine to the file ([Profiling](#profiling)) |
 
@@ -340,7 +341,7 @@ The engine refuses the host in the handshake, with one of these codes:
 |---|---|
 | `workdir_not_writable` | `--workdir` is not a directory that the engine can write. |
 | `workdir_mismatch` | `--workdir` is not the directory that the host's hello names. |
-| `engine_refused` | The bundle does not open, another engine version built it, or a file of `-variables`, `-resources` or `-cpuprofile` does not open. Or the resource store does not start: `-resource-store` names a store other than `memory` or `redis`, or the Redis store fails as for `run`. The message gives the reason. |
+| `engine_refused` | The bundle does not open, another engine version built it, or a file of `-variables`, `-resources` or `-cpuprofile` does not open. Or the resource store does not start: `-resource-store` names a store other than `memory` or `redis`, or the Redis store fails as for `run`. Or a `-foreign-windmill` value is not an `http` or `https` origin. The message gives the reason. |
 
 The other codes of the handshake, such as `version_mismatch`, are the
 host SDK's errors
@@ -452,7 +453,7 @@ gives the setup.
 | `main_test.go` | The version output, the link-time version, the usage errors and `selfcheck`. `build` and `verify` end to end: the fixture of `internal/bundle`, built as a directory and as an archive, gives one digest. `verify` confirms it against the release manifest, a changed file fails verification, and `build` does not overwrite an archive. |
 | `runcmd_test.go` | `run`'s usage errors, which exit with status 2. Arguments, a bundle or a profile file that do not open exit with status 1, and print nothing on standard output. A synthetic folder's flow, run `warm` and `fresh`, reads a host's secret through its arguments. A run that succeeds exits 0 with its result, trace and CPU profile, a run that fails exits 1, and a run without the harness runtime does not start. |
 | `runcmd_test.go`, the resource store | On `-resource-store memory`, each run starts without the state the last one wrote. An unknown store, `redis` without `WL_REDIS_URL`, an unreachable Redis or Sentinel, and URLs that do not parse do not start; each runs in an engine process of its own, whose whole standard error holds no password. With `WL_TEST_REDIS_URL` ([wl/redisstore](../../wl/redisstore/README.md#tests)), two engine processes on one Redis share the state: the second's create is refused as taken, and it reads the first's value. |
-| `host_test.go`, `argsfile_test.go`, `readcache_test.go`, `tracedetail_test.go` | Host mode end to end, on the Bun host `testdata/host/host.ts` ([Host-mode tests](#host-mode-tests)) |
+| `host_test.go`, `argsfile_test.go`, `readcache_test.go`, `tracedetail_test.go`, `foreign_test.go` | Host mode end to end, on the Bun host `testdata/host/host.ts` ([Host-mode tests](#host-mode-tests)) |
 | `memory_test.go` | What `warm` step modules cost a host process ([Memory tests](#memory-tests)) |
 | `realm_test.go` | What native invocations leave in a long-lived Bun process ([Native realm tests](#native-realm-tests)) |
 | `retain_test.go` | `TestSettledRunLetsGoOfItsValuesOnHosts`: on the plain host and on the plugin host, a run's step results are unreachable once the run has settled, while the runtime and its host go on |
@@ -464,7 +465,7 @@ gives the setup.
 |---|---|
 | `testdata/hostfolder/` | A synthetic sync folder and its host contract (`contract.yaml`). The tests build it once with `bundle.Build`. |
 | `testdata/hostlib/` | `tenant.ts`, a host-provided module outside the sync folder. It is the `relative_path` of a codebases entry, whose script `f/hostout/read.ts` imports it. |
-| `testdata/host/` | `host.ts`, a Bun host that embeds the SDK and registers its instances of the folder's host-provided modules. It serves its callers over HTTP on a Unix socket, and submits each run inside the caller's tenant scope. With `WL_SKIP_ARGS_FILE=1`, it connects with `skipArgsFile`. |
+| `testdata/host/` | `host.ts`, a Bun host that embeds the SDK and registers its instances of the folder's host-provided modules. It serves its callers over HTTP on a Unix socket, and submits each run inside the caller's tenant scope. With `WL_SKIP_ARGS_FILE=1`, it connects with `skipArgsFile`, and with origins in `WL_FOREIGN_WINDMILL`, with `foreignWindmillOrigins`. |
 | `testdata/haltfolder/`, `testdata/halthost/` | A two-step flow `f/repro/prefix`, and a Bun host that `bun run` starts, for `TestHostRunHalts` |
 | `testdata/memhost/` | A Bun host for the memory tests: it answers its resident set and peak (`/rss`) and the outcome of runs that it submits (`/run`) |
 | `testdata/memory/` | `closure.package.json` and `closure.bun.lock`, which pin the packages of `TestModuleMemoryClosure`'s closure |
@@ -519,6 +520,7 @@ How these tests run:
 | `TestHostResourceStoreOption` | The SDK's `resourceStore` of kind `memory` reaches the engine, and the run lists the memory store's deviation, as it does without the option. |
 | `TestReadCacheHostCalls` | On the plugin host, the read cache makes one call of the plugin's hook for each run and path, and every step sees the first read's value. Without it, each read is a call, as on Windmill. A value that holds `$WM_JOB_ID` resolves for each step's own job either way. |
 | `TestHostArgsFileSharedReader`, `TestHostArgsFileHookReader` | By default, a step that reads `args.json` while the eight-step chain runs reads the chain's latest arguments, and a plugin's `onRunEnd` reads the run's last invocation's arguments. |
+| `TestHostForeignWindmillLinks` | The SDK's `foreignWindmillOrigins` reach the host's steps through the engine. On the cases of [wl's fixture](../../wl/README.md#tests), a step's dispatch to the listed loopback server loses the step's own job ids, from the stock client and from a native step, and every other request keeps them. Without the option, every request keeps them. It also needs `WL_WINDMILL_CLIENT`. |
 | `TestHostSkipArgsFile`, `TestHostSkipArgsFileOption` | The engine leaves `args.json` out only for a bundle with no reader whose host opted in. The SDK's `skipArgsFile` reaches the engine. |
 | `TestHostArgsFileReaders` | Steps that read `args.json` through a host-provided module, or by a file name that they build, read their own arguments back. |
 | `TestPluginTraceDetailHost` | The plugin's `onRunEnd` gets the trace detail that it declares through `WL_BENCH_TRACE`: the whole trace by default and for `full`, the run's own fields for `summary`, and its id and status for `none`. |

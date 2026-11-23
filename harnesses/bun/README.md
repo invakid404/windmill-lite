@@ -80,7 +80,7 @@ code sees:
 | Channel | What the step sees |
 |---|---|
 | `process.env`, `Bun.env`, `import.meta.env` | Its invocation's variables first, and its writes and deletes stay with the invocation. Two exceptions, through `Bun.env` or `import.meta.env` in code that the build does not rewrite: a write of a process variable that no invocation has claimed reaches the process, and so does a delete ([the limits](#inside-the-per-invocation-context)). Outside every invocation, each reads the process environment. |
-| `fetch` | A request to the [platform facade](../../docs/glossary.md#platform-facade) becomes a platform call of the invocation. Any other request goes out as usual. |
+| `fetch` | A request to the [platform facade](../../docs/glossary.md#platform-facade) becomes a platform call of the invocation. Any other request goes out as usual, except that a dispatch to a real [Windmill](../../docs/glossary.md#windmill) that the engine names first loses its links to the invocation's own job ids ([the fetch view](#inside-the-per-invocation-context)). |
 | `setTimeout`, `setInterval`, `setImmediate` | The timers work as usual, and are registered with the invocation, on `globalThis` and on `node:timers`. |
 | `console`, `process.stdout`, `process.stderr` | Each line goes to the invocation's log ([WR-23](../../docs/semantics/languages.md#wr-23)). `Bun.stdout`, a raw file descriptor and a child's inherited output are not attributed. |
 | Child processes | A child started without an `env` gets the invocation's variables. In a `warm` process, a child that the invocation starts asynchronously, and not detached, leads a process group of its own. The engine kills that group on the step's timeout or cancellation ([WR-55](../../docs/semantics/languages.md#wr-55)). A synchronous call's child stays in the harness's group, unless the step starts it detached ([process groups](#inside-the-per-invocation-context)). |
@@ -264,8 +264,9 @@ ordinary `Error` instead ([Errors and refusals](#errors-and-refusals)):
    left out: a step that imports it fails when it loads.
 4. It extracts the bundle's codebase assets into `workdir` (`assets`).
 5. It starts the engine as `<engine> host --bundle <bundle> --workdir
-   <workdir> --kill-after <ms>ms`, then `-read-cache`, `-skip-args-file`
-   and `engineFlags` as the options ask (`engine_start`). The
+   <workdir> --kill-after <ms>ms`, then `-read-cache`, `-skip-args-file`,
+   a `-foreign-windmill` flag for each origin, and `engineFlags`, as the
+   options ask (`engine_start`). The
    [`host` command](../../cmd/windmill-lite/README.md#host) describes
    those flags.
 6. It runs the harness runtime in this process, and greets the engine.
@@ -297,6 +298,7 @@ sees them.
 | `readCache` | `boolean` | `false` | Each run keeps the answer of its first read of a host's or bundle's resource or variable, the plugin's `resource` and `variable` hooks included, and answers its later reads of that path from it. An error is not kept, and a variable that a step updates and a stored state are read again ([the read cache](../../internal/platform/README.md#the-read-cache)). Windmill reads them for each job, so this is a named deviation of the [equivalence contract](../../docs/design/0001-equivalence-contract.md#5-named-deviations). |
 | `resourceStore` | `{ kind: "memory" }` or `{ kind: "redis"; url: string; prefix?: string; allowEviction?: boolean }` | `{ kind: "memory" }` | The store of the resources that steps write through the job API, such as the stock client's state ([The resource store](#the-resource-store)). Available from version 0.4.0. |
 | `skipArgsFile` | `boolean` | `false` | States that the host's own code, its plugin included, never reads `args.json`. For a bundle none of whose scripts can read it, the engine then writes none. |
+| `foreignWindmillOrigins` | `string[]` | None | The origins of real Windmill instances that the host's steps call through their own client, such as `https://windmill.example.com`. A step's dispatch to one of them loses its links to the step's own job ids ([wl](../../wl/README.md#job-ids-on-a-real-windmill)). The engine refuses the host with `engine_refused` when one is not an `http` or `https` origin. |
 | `recycle` | `{ rss?: number; samples?: number; modules?: number; retired?: { max: number; count: () => number } }` | None | Recycle triggers ([Recycle a host](#recycle-a-host)) |
 | `onRecycle` | `(reason: string) => void` | None | Called once, with the first trigger that trips |
 | `collect` | `{ rss: number; cooldown?: number; policy?: "idle" \| "heartbeat"; quiet?: number }` | None | A full garbage collection at a soft mark on the resident set ([Collect garbage](#collect-garbage)). Available from version 0.3.0. |
@@ -902,6 +904,18 @@ The fetch view:
   (`res.text.call(other)`) calls the native one and leaves the request
   registered.
 - A response with no body ends the request at once.
+- A request made in an invocation's context to one of the welcome's
+  `foreign_windmill_origins`, each compared as a URL's origin, under
+  `/api/w/{workspace}/jobs/run/` loses each `parent_job` and `root_job`
+  query parameter whose value is one of the invocation's own job ids. Those
+  are the values of `WM_JOB_ID`, `WM_FLOW_JOB_ID`, `WM_ROOT_FLOW_JOB_ID` and
+  `WM_ROOT_JOB_ID` in its `invoke` frame, which the step's writes to its
+  environment do not change.
+- That edit removes only those pairs from the query, and keeps every other
+  byte of the URL. A `Request` is made again with its method, headers,
+  body and signal. A native realm's `fetch` calls this view, so a native
+  step's request gets the same edit. The welcome of every module state,
+  `fresh` included, carries the origins.
 
 The timer fence:
 
