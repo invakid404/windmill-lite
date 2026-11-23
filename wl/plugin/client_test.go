@@ -181,7 +181,9 @@ func TestClientHealth(t *testing.T) {
 	c := newClient(cc, nil, DefaultReplyMargin)
 	ctx := context.Background()
 
-	// go-plugin's own health server answers only for the service "plugin".
+	// Like go-plugin's server, which uses gRPC's standard health server,
+	// it answers SERVING for "" and for "plugin", and has no status for
+	// the Runner service.
 	hs.SetServingStatus("plugin", healthpb.HealthCheckResponse_SERVING)
 	if st, err := c.Health(ctx); status.Code(err) != codes.NotFound {
 		t.Errorf("Health without the Runner service = %v, %v; want the error NotFound", st, err)
@@ -285,15 +287,38 @@ func TestClientRunOutcomes(t *testing.T) {
 	})
 
 	t.Run("an answer after the call's deadline", func(t *testing.T) {
+		received := make(chan struct{})
+		answered := make(chan time.Time, 1)
 		fake := &fakeRunner{run: func(ctx context.Context, req *RunRequest) (*RunResult, error) {
+			close(received)
 			<-ctx.Done()
+			answered <- time.Now()
 			return &RunResult{Id: req.GetId(), Status: "success"}, nil
 		}}
 		cc, _ := serve(t, fake, nil)
 		c := newClient(cc, nil, DefaultReplyMargin)
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		// A first call sets the connection up, so the run's call reaches the
+		// server well before its deadline.
+		if _, err := c.Cancel(context.Background(), &CancelRequest{Id: "warm-up"}); err != nil {
+			t.Fatal(err)
+		}
+		dl := time.Now().Add(200 * time.Millisecond)
+		ctx, cancel := context.WithDeadline(context.Background(), dl)
 		defer cancel()
 		_, err := c.Run(ctx, &RunRequest{Id: "r"})
+		select {
+		case <-received:
+		default:
+			t.Fatalf("Run = %v before the server got the run", err)
+		}
+		select {
+		case at := <-answered:
+			if at.Before(dl) {
+				t.Errorf("the server answered at %v, before the call's deadline %v", at, dl)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("the server did not answer within 5 s of the call's deadline")
+		}
 		if !errors.Is(err, ErrOutcomeUnknown) || errors.Is(err, ErrNotStarted) || status.Code(err) != codes.DeadlineExceeded {
 			t.Errorf("Run = %v, want ErrOutcomeUnknown with DeadlineExceeded", err)
 		}

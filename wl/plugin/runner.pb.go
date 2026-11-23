@@ -249,19 +249,20 @@ type RunRequest struct {
 	// milliseconds from the engine's receipt of the request: it cancels the
 	// run only until the first write is approved. Absent means no deadline.
 	PreWriteDeadlineMs *int64 `protobuf:"varint,6,opt,name=pre_write_deadline_ms,json=preWriteDeadlineMs,proto3,oneof" json:"pre_write_deadline_ms,omitempty"`
-	// write_capable selects the write-capable sites of the flow, as a JSON
-	// selector.
+	// write_capable selects the write-capable sites of the flow: a JSON array
+	// of selector objects, as host mode's run frame carries it.
 	WriteCapable []byte `protobuf:"bytes,7,opt,name=write_capable,json=writeCapable,proto3" json:"write_capable,omitempty"`
-	// halt_before selects the sites before which the flow run halts, as a
-	// JSON selector.
+	// halt_before selects the sites before which the flow run halts: a JSON
+	// array of selector objects.
 	HaltBefore []byte `protobuf:"bytes,8,opt,name=halt_before,json=haltBefore,proto3" json:"halt_before,omitempty"`
-	// halt_after selects the sites after which the flow run halts, as a
-	// JSON selector.
+	// halt_after selects the sites after which the flow run halts: a JSON
+	// array of selector objects.
 	HaltAfter []byte `protobuf:"bytes,9,opt,name=halt_after,json=haltAfter,proto3" json:"halt_after,omitempty"`
 	// fatal_error_names are the error names that latch the flow run instead
 	// of passing through retries, continue_on_error and skipped failures.
 	FatalErrorNames []string `protobuf:"bytes,10,rep,name=fatal_error_names,json=fatalErrorNames,proto3" json:"fatal_error_names,omitempty"`
-	// intercept is the flow run's static interceptions, as JSON.
+	// intercept is the flow run's static interceptions: a JSON object that
+	// maps module ids to the results that stand in for those modules.
 	Intercept []byte `protobuf:"bytes,11,opt,name=intercept,proto3" json:"intercept,omitempty"`
 	// clock is the flow run's clock: "real" or "record". Empty means "real".
 	Clock string `protobuf:"bytes,12,opt,name=clock,proto3" json:"clock,omitempty"`
@@ -828,9 +829,11 @@ type RunResult struct {
 	// result is the run's final result in its stored form, as JSON text.
 	// It is empty when the run has none, such as a canceled run.
 	Result []byte `protobuf:"bytes,3,opt,name=result,proto3" json:"result,omitempty"`
-	// may_have_mutated says that the launch of the run's first write-capable
-	// step was approved. Only false means that no write-capable step
-	// started.
+	// may_have_mutated says, for a flow run, that the launch of its first
+	// write-capable step was approved, in a failed or canceled run too; only
+	// false means that no write-capable step started. For a root script's
+	// run, whose writes windmill-lite cannot see, it is true once the
+	// script's invocation was sent.
 	MayHaveMutated bool `protobuf:"varint,4,opt,name=may_have_mutated,json=mayHaveMutated,proto3" json:"may_have_mutated,omitempty"`
 	// cancel_cause is, for a canceled run, "deadline", "pre_write_deadline",
 	// "canceled", "closing" or "flow_timeout"; empty otherwise.
@@ -1155,7 +1158,8 @@ type HookCall struct {
 	Run string `protobuf:"bytes,2,opt,name=run,proto3" json:"run,omitempty"`
 	// token is the token of the run's hooks registration.
 	Token string `protobuf:"bytes,3,opt,name=token,proto3" json:"token,omitempty"`
-	// site is the flow site that the call is about, if any.
+	// site is the flow site that the call is about; empty for a hook of the
+	// run as a whole.
 	Site string `protobuf:"bytes,4,opt,name=site,proto3" json:"site,omitempty"`
 	// payload is the hook's input, a JSON object as text.
 	Payload       []byte `protobuf:"bytes,5,opt,name=payload,proto3" json:"payload,omitempty"`

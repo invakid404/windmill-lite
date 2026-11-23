@@ -74,9 +74,10 @@ func (c *Client) Cancel(ctx context.Context, req *CancelRequest) (*CancelRespons
 //
 // The run's hard deadline is the earlier of req.DeadlineMs and the
 // deadline of ctx less the client's reply margin, in whole milliseconds,
-// so that the run ends and answers before the call does. Without either,
-// the run has no hard deadline. A ctx that has already ended starts no
-// call.
+// which leaves the engine the margin to end the run and answer before the
+// call ends; it cannot guarantee that the answer arrives in time. Without
+// either, the run has no hard deadline. A ctx that has already ended
+// starts no call.
 //
 // An error wraps ErrNotStarted when the run did not start, or
 // ErrOutcomeUnknown otherwise. The error of a call that Run made also

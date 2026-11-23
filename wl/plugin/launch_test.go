@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -99,14 +100,15 @@ func writeConfig(t *testing.T, c pluginConfig) string {
 
 var quiet = hclog.New(&hclog.LoggerOptions{Output: hclog.DefaultOutput, Level: hclog.Off})
 
-// newLaunch returns go-plugin's client for l, killed when the test ends,
-// and the base directory of its configuration.
-func newLaunch(t *testing.T, l Launch) (*goplugin.Client, string) {
+// newLaunch returns go-plugin's client for l, the base directory of its
+// configuration and the launch's cleanup. When the test ends, it kills the
+// client and then runs the cleanup.
+func newLaunch(t *testing.T, l Launch) (*goplugin.Client, string, func() error) {
 	t.Helper()
 	if l.Logger == nil {
 		l.Logger = quiet
 	}
-	cfg, err := ClientConfig(l)
+	cfg, cleanup, err := ClientConfig(l)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,8 +116,11 @@ func newLaunch(t *testing.T, l Launch) (*goplugin.Client, string) {
 		t.Fatal("ClientConfig gave go-plugin no base directory for its sockets")
 	}
 	client := goplugin.NewClient(cfg)
-	t.Cleanup(client.Kill)
-	return client, cfg.UnixSocketConfig.TempDir
+	t.Cleanup(func() {
+		client.Kill()
+		cleanup()
+	})
+	return client, cfg.UnixSocketConfig.TempDir, cleanup
 }
 
 // dispense connects client and returns its Client.
@@ -165,6 +170,28 @@ func checkPrivateDir(t *testing.T, what, path string) {
 	}
 }
 
+func checkEmpty(t *testing.T, what, dir string) {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("%s %s holds %d entries, want none", what, dir, len(entries))
+	}
+}
+
+func copyExecutable(t *testing.T, from, to string) {
+	t.Helper()
+	data, err := os.ReadFile(from)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(to, data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestVersionNegotiationRealHandshake launches two real plugin executables
 // through ClientConfig, which lists only Runner version 1: go-plugin's
 // handshake refuses the one that serves only version 2, and dispenses from
@@ -173,12 +200,12 @@ func TestVersionNegotiationRealHandshake(t *testing.T) {
 	buildPlugins(t)
 	ctx := context.Background()
 
-	v2, _ := newLaunch(t, Launch{Path: testPlugins.v2, SHA256: testPlugins.sum2, Config: writeConfig(t, pluginConfig{})})
+	v2, _, _ := newLaunch(t, Launch{Path: testPlugins.v2, SHA256: testPlugins.sum2, Config: writeConfig(t, pluginConfig{})})
 	if _, err := v2.Client(); err == nil {
 		t.Fatal("the version 2 plugin connected; want go-plugin's handshake to refuse it")
 	}
 
-	v1, _ := newLaunch(t, Launch{Path: testPlugins.v1, SHA256: testPlugins.sum1, Config: writeConfig(t, pluginConfig{})})
+	v1, _, _ := newLaunch(t, Launch{Path: testPlugins.v1, SHA256: testPlugins.sum1, Config: writeConfig(t, pluginConfig{})})
 	c := dispense(t, v1)
 	if n := v1.NegotiatedVersion(); n != 1 {
 		t.Errorf("NegotiatedVersion = %d, want 1", n)
@@ -204,7 +231,7 @@ func TestClientConfigPin(t *testing.T) {
 
 	t.Run("matching", func(t *testing.T) {
 		marker := filepath.Join(t.TempDir(), "started")
-		client, base := newLaunch(t, Launch{
+		client, base, _ := newLaunch(t, Launch{
 			Path:   testPlugins.v1,
 			SHA256: testPlugins.sum1,
 			Config: writeConfig(t, pluginConfig{Marker: marker, Env: env}),
@@ -237,7 +264,7 @@ func TestClientConfigPin(t *testing.T) {
 
 	t.Run("mismatching", func(t *testing.T) {
 		marker := filepath.Join(t.TempDir(), "started")
-		client, base := newLaunch(t, Launch{
+		client, base, _ := newLaunch(t, Launch{
 			Path:   testPlugins.v1,
 			SHA256: testPlugins.sum2,
 			Config: writeConfig(t, pluginConfig{Marker: marker}),
@@ -255,23 +282,66 @@ func TestClientConfigPin(t *testing.T) {
 	})
 }
 
+// TestClientConfigBareFilename launches the engine by a bare file name: the
+// launch hashes and starts the same file, the one in the current
+// directory, and never the one of that name that PATH finds.
+func TestClientConfigBareFilename(t *testing.T) {
+	buildPlugins(t)
+	cwd, onPath := t.TempDir(), t.TempDir()
+	copyExecutable(t, testPlugins.v1, filepath.Join(cwd, "engine"))
+	copyExecutable(t, testPlugins.v2, filepath.Join(onPath, "engine"))
+	config := writeConfig(t, pluginConfig{})
+	t.Chdir(cwd)
+	t.Setenv("PATH", onPath)
+
+	client, _, _ := newLaunch(t, Launch{Path: "engine", SHA256: testPlugins.sum1, Config: config})
+	info, err := dispense(t, client).BuildInfo(context.Background())
+	if err != nil {
+		t.Fatalf("BuildInfo: %v", err)
+	}
+	if info.GetProtocolVersion() != 1 {
+		t.Errorf("the launch started the plugin of version %d, want the version 1 plugin it hashed", info.GetProtocolVersion())
+	}
+}
+
+// fakeHostHooks is a host's HostHooks service that records each call and
+// answers with reply.
+type fakeHostHooks struct {
+	UnimplementedHostHooksServer
+	reply []byte
+	mu    sync.Mutex
+	calls []*HookCall
+}
+
+func (h *fakeHostHooks) Call(_ context.Context, call *HookCall) (*HookReply, error) {
+	h.mu.Lock()
+	h.calls = append(h.calls, call)
+	h.mu.Unlock()
+	return &HookReply{Payload: h.reply}, nil
+}
+
 // TestClientConfigSocketPlacement launches the test plugin, which serves
-// with umask 0077 as the engine does: its socket and the host's broker
-// listener lie in a directory of mode 0700 in the base directory of mode
-// 0700, also when the host's umask is 0277, and both directories are gone
-// after Kill and after a failed launch.
+// with umask 0077 as the engine does, from a host whose umask is 0277 while
+// the launch makes its directories: the plugin's socket and the host's
+// broker listener lie in a directory of mode 0700 in the base directory of
+// mode 0700, the plugin calls the host over that broker connection, and
+// both directories are gone after Kill and after a failed launch.
+//
+// The umask belongs to the whole process; no test of the package runs in
+// parallel, so only this launch makes files while it is narrowed.
 func TestClientConfigSocketPlacement(t *testing.T) {
 	buildPlugins(t)
 
-	// The base directory is private and writable whatever the host's umask:
-	// under 0277, a directory made with mode 0700 would be 0500.
+	// Under the umask 0277, a directory made with mode 0700 is 0500, and the
+	// plugin could not create its socket in it.
 	l := Launch{Path: testPlugins.v1, SHA256: testPlugins.sum1, Config: writeConfig(t, pluginConfig{})}
 	old := syscall.Umask(0o277)
-	client, base := func() (*goplugin.Client, string) {
+	client, base, addr, err := func() (*goplugin.Client, string, net.Addr, error) {
 		defer syscall.Umask(old)
-		return newLaunch(t, l)
+		client, base, _ := newLaunch(t, l)
+		addr, err := client.Start()
+		return client, base, addr, err
 	}()
-	addr, err := client.Start()
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -293,24 +363,43 @@ func TestClientConfigSocketPlacement(t *testing.T) {
 		t.Errorf("the plugin's socket has mode %v, want a socket with no group or other permission", fi.Mode())
 	}
 
-	// The host's side of one broker connection listens in the same private
-	// directory.
+	// The host serves HostHooks on one broker connection, and the plugin
+	// dials it and calls it while it runs a run that names it.
 	c := dispense(t, client)
-	go c.broker.AcceptAndServe(c.broker.NextId(), func(opts []grpc.ServerOption) *grpc.Server { return grpc.NewServer(opts...) })
+	id := c.broker.NextId()
+	hooks := &fakeHostHooks{reply: []byte(`{"from":"host"}`)}
+	go c.broker.AcceptAndServe(id, func(opts []grpc.ServerOption) *grpc.Server {
+		s := grpc.NewServer(opts...)
+		RegisterHostHooksServer(s, hooks)
+		return s
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	res, err := c.Run(ctx, &RunRequest{Id: "r-1", Hooks: &Hooks{BrokerId: id, Token: "tok-1"}})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := string(res.GetResult()); got != `{"from":"host"}` {
+		t.Errorf("the run's result is %q, want the host's reply", got)
+	}
+	hooks.mu.Lock()
+	calls := append([]*HookCall(nil), hooks.calls...)
+	hooks.mu.Unlock()
+	if len(calls) != 1 || calls[0].GetHook() != "probe" || calls[0].GetRun() != "r-1" || calls[0].GetToken() != "tok-1" || string(calls[0].GetPayload()) != `{"from":"plugin"}` {
+		t.Errorf("the host got the calls %v, want one probe of r-1 with tok-1", calls)
+	}
 	var listener string
-	for deadline := time.Now().Add(10 * time.Second); listener == "" && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-		entries, err := os.ReadDir(sockDir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, e := range entries {
-			if p := filepath.Join(sockDir, e.Name()); p != sock && e.Type()&fs.ModeSocket != 0 {
-				listener = p
-			}
+	entries, err := os.ReadDir(sockDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if p := filepath.Join(sockDir, e.Name()); p != sock && e.Type()&fs.ModeSocket != 0 {
+			listener = p
 		}
 	}
 	if listener == "" {
-		t.Fatalf("no broker listener appeared in %s", sockDir)
+		t.Errorf("the host's broker listener is not in %s", sockDir)
 	}
 
 	client.Kill()
@@ -320,7 +409,7 @@ func TestClientConfigSocketPlacement(t *testing.T) {
 	// A launch that fails after its process started: go-plugin's handshake
 	// refuses a plugin of another version.
 	marker := filepath.Join(t.TempDir(), "started")
-	failed, failedBase := newLaunch(t, Launch{Path: testPlugins.v2, SHA256: testPlugins.sum2, Config: writeConfig(t, pluginConfig{Marker: marker})})
+	failed, failedBase, _ := newLaunch(t, Launch{Path: testPlugins.v2, SHA256: testPlugins.sum2, Config: writeConfig(t, pluginConfig{Marker: marker})})
 	if _, err := failed.Start(); err == nil {
 		t.Fatal("the version 2 plugin started")
 	}
@@ -328,6 +417,193 @@ func TestClientConfigSocketPlacement(t *testing.T) {
 		t.Fatalf("the failed launch started no process: %v", err)
 	}
 	waitGone(t, "the base directory of the failed launch", failedBase)
+}
+
+// TestClientConfigCleanup checks that the cleanup that ClientConfig returns
+// removes the base directory where the launch itself cannot: when
+// go-plugin's Start fails before it calls the runner, and when the
+// configuration is never started. After Kill it has nothing left to do.
+func TestClientConfigCleanup(t *testing.T) {
+	buildPlugins(t)
+	l := Launch{Path: testPlugins.v1, SHA256: testPlugins.sum1, Config: writeConfig(t, pluginConfig{}), Logger: quiet}
+
+	t.Run("a start that fails before the runner", func(t *testing.T) {
+		cfg, cleanup, err := ClientConfig(l)
+		if err != nil {
+			t.Fatal(err)
+		}
+		base := cfg.UnixSocketConfig.TempDir
+		// go-plugin makes the socket directory, then fails to give it a
+		// group that does not exist, before it calls the runner.
+		cfg.UnixSocketConfig.Group = "wl-plugin-test-no-such-group"
+		client := goplugin.NewClient(cfg)
+		defer client.Kill()
+		if _, err := client.Start(); err == nil {
+			t.Fatal("Start with an unknown socket group succeeded")
+		}
+		if client.ID() != "" {
+			t.Fatalf("go-plugin reports the process %q", client.ID())
+		}
+		if entries, err := os.ReadDir(base); err != nil || len(entries) != 1 {
+			t.Fatalf("the failed start left %d entries in the base directory (%v), want its socket directory", len(entries), err)
+		}
+		client.Kill()
+		if err := cleanup(); err != nil {
+			t.Fatalf("cleanup: %v", err)
+		}
+		checkGone(t, "the base directory", base)
+	})
+
+	t.Run("never started", func(t *testing.T) {
+		cfg, cleanup, err := ClientConfig(l)
+		if err != nil {
+			t.Fatal(err)
+		}
+		base := cfg.UnixSocketConfig.TempDir
+		checkPrivateDir(t, "the base directory", base)
+		if err := cleanup(); err != nil {
+			t.Fatalf("cleanup: %v", err)
+		}
+		checkGone(t, "the base directory", base)
+	})
+
+	t.Run("after Kill", func(t *testing.T) {
+		client, base, cleanup := newLaunch(t, l)
+		dispense(t, client)
+		client.Kill()
+		checkGone(t, "the base directory", base)
+		if err := cleanup(); err != nil {
+			t.Errorf("cleanup after Kill: %v", err)
+		}
+		if err := cleanup(); err != nil {
+			t.Errorf("a second cleanup: %v", err)
+		}
+	})
+}
+
+// TestClientConfigStartTimeout launches an executable whose read never
+// ends, a named pipe with a silent writer: the launch's start timeout ends
+// the SHA-256 check, Start returns the timeout's error, no process starts,
+// and the base directory is gone.
+func TestClientConfigStartTimeout(t *testing.T) {
+	fifo := filepath.Join(t.TempDir(), "engine")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sum := hex.EncodeToString(make([]byte, sha256.Size))
+	client, base, _ := newLaunch(t, Launch{Path: fifo, SHA256: sum, Config: "unused", StartTimeout: 300 * time.Millisecond})
+	// The test holds the pipe open for writing, so the launch's open of it
+	// succeeds and its read waits. Its cleanup, registered after the
+	// launch's, closes the pipe first, which ends a read that still waits.
+	w, err := os.OpenFile(fifo, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { w.Close() })
+	done := make(chan error, 1)
+	go func() {
+		_, err := client.Start()
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("Start = %v, want context.DeadlineExceeded", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Start did not return within 10 s of its start timeout of 300 ms")
+	}
+	if id := client.ID(); id != "" {
+		t.Errorf("go-plugin reports the process %q", id)
+	}
+	checkGone(t, "the base directory", base)
+}
+
+// endsAfterFirstCheck is a context whose Err is nil once, at the runner's
+// first check, and DeadlineExceeded from then on. Its Done never closes, so
+// the SHA-256 check runs to its end.
+type endsAfterFirstCheck struct {
+	context.Context
+	mu     sync.Mutex
+	checks int
+}
+
+func (c *endsAfterFirstCheck) Done() <-chan struct{} { return nil }
+
+func (c *endsAfterFirstCheck) Err() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.checks++
+	if c.checks == 1 {
+		return nil
+	}
+	return context.DeadlineExceeded
+}
+
+// TestLauncherStartEndsBeforeTheSpawn ends the start context between the
+// SHA-256 check, which the executable passes, and the start of its
+// process: the runner starts no process and removes the base directory.
+func TestLauncherStartEndsBeforeTheSpawn(t *testing.T) {
+	buildPlugins(t)
+	base := t.TempDir()
+	sum, err := hex.DecodeString(testPlugins.sum1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &launcher{path: testPlugins.v1, sum: sum, config: writeConfig(t, pluginConfig{}), base: base}
+	if err := r.Start(&endsAfterFirstCheck{Context: context.Background()}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Start = %v, want context.DeadlineExceeded", err)
+	}
+	if id := r.ID(); id != "" {
+		t.Errorf("the runner started the process %s", id)
+	}
+	checkGone(t, "the base directory", base)
+}
+
+// TestClientConfigRelativeTempDir gives a relative TempDir, then changes the
+// working directory during the launch: the base directory is absolute, in
+// the TempDir that the relative path named, and gone after Kill.
+func TestClientConfigRelativeTempDir(t *testing.T) {
+	buildPlugins(t)
+	config := writeConfig(t, pluginConfig{})
+	// A short directory, so that the socket paths fit macOS's limit.
+	root, err := os.MkdirTemp("/tmp", "wlr-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(root) })
+	first, second := filepath.Join(root, "first"), filepath.Join(root, "second")
+	for _, d := range []string{filepath.Join(first, "rel"), second} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Chdir(first)
+
+	client, base, _ := newLaunch(t, Launch{Path: testPlugins.v1, SHA256: testPlugins.sum1, Config: config, TempDir: "rel"})
+	if !filepath.IsAbs(base) {
+		t.Fatalf("the base directory %s is relative", base)
+	}
+	got, err := filepath.EvalSymlinks(filepath.Dir(base))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(filepath.Join(first, "rel"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("the base directory %s is not in %s", base, want)
+	}
+
+	if err := os.Chdir(second); err != nil {
+		t.Fatal(err)
+	}
+	dispense(t, client)
+	client.Kill()
+	checkGone(t, "the base directory", base)
+	checkEmpty(t, "the relative TempDir", filepath.Join(first, "rel"))
+	checkEmpty(t, "the working directory during the launch", second)
 }
 
 // TestClientConfigRefusals checks the Launch fields that ClientConfig
@@ -352,16 +628,10 @@ func TestClientConfigRefusals(t *testing.T) {
 		{"socket paths over the limit", Launch{Path: "p", SHA256: sum, Config: "c", TempDir: long}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := ClientConfig(tc.l); err == nil {
+			if _, _, err := ClientConfig(tc.l); err == nil {
 				t.Error("ClientConfig accepted the launch")
 			}
 		})
 	}
-	entries, err := os.ReadDir(long)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 0 {
-		t.Errorf("a refused launch left %d entries in its TempDir", len(entries))
-	}
+	checkEmpty(t, "the TempDir of the refused launch", long)
 }

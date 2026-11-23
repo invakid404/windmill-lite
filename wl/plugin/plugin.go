@@ -54,9 +54,10 @@ type RunnerPlugin struct {
 	Runner RunnerServer
 
 	// ReplyMargin is how long before the deadline of a call's context
-	// Client.Run sets the run's hard deadline, so that the run's outcome
-	// reaches the host before the call ends. Zero means
-	// DefaultReplyMargin; a negative margin refuses to dispense.
+	// Client.Run sets the run's hard deadline: the time that the engine has
+	// to end the run and send its outcome before the call ends, which a
+	// slow run-end hook can exceed. Zero means DefaultReplyMargin; a
+	// negative margin refuses to dispense.
 	ReplyMargin time.Duration
 }
 

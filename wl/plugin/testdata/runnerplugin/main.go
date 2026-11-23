@@ -13,7 +13,10 @@
 // With "marker", it writes that file first, so a test can tell whether the
 // process started. GetBuildInfo reports the version it serves as
 // protocol_version, and each listed variable of its environment that is
-// set as the label "env:NAME". Like the engine, it serves with umask 0077.
+// set as the label "env:NAME". Run with hooks dials the host's broker
+// connection hooks.broker_id, calls HostHooks.Call with the hook "probe",
+// and answers the reply's payload as its result. Like the engine, it
+// serves with umask 0077.
 package main
 
 import (
@@ -27,6 +30,7 @@ import (
 
 	"github.com/hashicorp/go-hclog"
 	goplugin "github.com/hashicorp/go-plugin"
+	"google.golang.org/grpc"
 
 	"github.com/invakid404/windmill-lite/wl/plugin"
 )
@@ -43,6 +47,41 @@ type runner struct {
 	plugin.UnimplementedRunnerServer
 	version int
 	env     []string
+	broker  *goplugin.GRPCBroker
+}
+
+// brokered is the Runner plugin with access to go-plugin's broker, which
+// RunnerPlugin keeps to itself.
+type brokered struct {
+	plugin.RunnerPlugin
+	r *runner
+}
+
+func (p *brokered) GRPCServer(b *goplugin.GRPCBroker, s *grpc.Server) error {
+	p.r.broker = b
+	return p.RunnerPlugin.GRPCServer(b, s)
+}
+
+func (r *runner) Run(ctx context.Context, req *plugin.RunRequest) (*plugin.RunResult, error) {
+	hooks := req.GetHooks()
+	if hooks == nil {
+		return &plugin.RunResult{Id: req.GetId(), Status: "success"}, nil
+	}
+	conn, err := r.broker.Dial(hooks.GetBrokerId())
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	reply, err := plugin.NewHostHooksClient(conn).Call(ctx, &plugin.HookCall{
+		Hook:    "probe",
+		Run:     req.GetId(),
+		Token:   hooks.GetToken(),
+		Payload: []byte(`{"from":"plugin"}`),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &plugin.RunResult{Id: req.GetId(), Status: "success", Result: reply.GetPayload()}, nil
 }
 
 func (r *runner) GetBuildInfo(context.Context, *plugin.GetBuildInfoRequest) (*plugin.BuildInfo, error) {
@@ -89,10 +128,11 @@ func run() error {
 		return err
 	}
 	syscall.Umask(0o077)
+	r := &runner{version: version, env: cfg.Env}
 	goplugin.Serve(&goplugin.ServeConfig{
 		HandshakeConfig: plugin.Handshake,
 		VersionedPlugins: map[int]goplugin.PluginSet{
-			version: {plugin.PluginName: &plugin.RunnerPlugin{Runner: &runner{version: version, env: cfg.Env}}},
+			version: {plugin.PluginName: &brokered{RunnerPlugin: plugin.RunnerPlugin{Runner: r}, r: r}},
 		},
 		GRPCServer: goplugin.DefaultGRPCServer,
 		Logger:     hclog.New(&hclog.LoggerOptions{Output: os.Stderr, Level: hclog.Error}),

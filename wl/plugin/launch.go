@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -40,7 +41,9 @@ const socketPathSlack = len("/plugin-dir") + 10 + len("/plugin") + 10
 
 // Launch is what ClientConfig needs to start the engine as a plugin.
 type Launch struct {
-	// Path is the engine executable.
+	// Path is the engine executable. ClientConfig resolves a relative
+	// path against the current directory, once, and the launch both hashes
+	// and starts that absolute path: it never searches PATH.
 	Path string
 	// SHA256 is the SHA-256 that the executable must have, in hexadecimal.
 	// The launch hashes the file just before it starts it, and refuses
@@ -56,6 +59,7 @@ type Launch struct {
 	// variable wins over an entry of the same name.
 	Env []string
 	// TempDir is where ClientConfig creates the launch's private base
+	// directory; ClientConfig resolves a relative one against the current
 	// directory. Empty means os.TempDir().
 	TempDir string
 	// MaxMessageBytes is the largest gRPC message that the host sends or
@@ -64,8 +68,10 @@ type Launch struct {
 	MaxMessageBytes int
 	// ReplyMargin is the Client's RunnerPlugin.ReplyMargin.
 	ReplyMargin time.Duration
-	// StartTimeout bounds the engine's start, until its handshake line.
-	// Zero means go-plugin's default, 1 minute.
+	// StartTimeout is go-plugin's start timeout. It bounds two intervals
+	// one after the other: the check of the executable's SHA-256 and the
+	// start of its process, and then the wait for the engine's handshake
+	// line. Zero means go-plugin's default, 1 minute.
 	StartTimeout time.Duration
 	// Logger receives go-plugin's log and the engine's standard error.
 	// Nil means go-plugin's default logger.
@@ -73,7 +79,8 @@ type Launch struct {
 }
 
 // ClientConfig returns go-plugin's client configuration for one launch of
-// the engine, for go-plugin's NewClient. The configuration:
+// the engine, for go-plugin's NewClient, and the launch's cleanup. The
+// configuration:
 //
 //   - starts the engine through a runner that checks the executable's
 //     SHA-256 first (go-plugin's SecureConfig cannot, since a runner leaves
@@ -83,58 +90,74 @@ type Launch struct {
 //     empty standard input;
 //   - speaks gRPC only, with Launch.MaxMessageBytes as the message limit;
 //   - creates a fresh private base directory, of mode 0700, in which
-//     go-plugin makes a directory of mode 0700 for the engine's socket and
-//     both sides' broker sockets.
+//     go-plugin makes the directory for the engine's socket and both sides'
+//     broker sockets, which the runner sets to mode 0700 before the engine
+//     starts.
 //
 // The launch removes the base directory once the engine has exited, or
-// when it fails to start; go-plugin's Kill returns after that. A
-// configuration that go-plugin never starts leaves its empty base
-// directory, UnixSocketConfig.TempDir, to the host. Use each configuration
-// for one launch.
-func ClientConfig(l Launch) (*goplugin.ClientConfig, error) {
+// when the runner fails to start it; go-plugin's Kill returns after that.
+// cleanup removes the base directory in every other case too, such as a
+// failure of go-plugin's Start before it calls the runner, or a
+// configuration that is never started. Call it once go-plugin's Kill has
+// returned or its Start has failed; a second call does nothing. Use each
+// configuration for one launch.
+func ClientConfig(l Launch) (cfg *goplugin.ClientConfig, cleanup func() error, err error) {
 	if l.Path == "" {
-		return nil, errors.New("wl/plugin: Launch.Path is empty")
+		return nil, nil, errors.New("wl/plugin: Launch.Path is empty")
 	}
 	if l.Config == "" {
-		return nil, errors.New("wl/plugin: Launch.Config is empty")
+		return nil, nil, errors.New("wl/plugin: Launch.Config is empty")
 	}
 	sum, err := hex.DecodeString(l.SHA256)
 	if err != nil || len(sum) != sha256.Size {
-		return nil, fmt.Errorf("wl/plugin: Launch.SHA256 %q is not a SHA-256 in hexadecimal", l.SHA256)
+		return nil, nil, fmt.Errorf("wl/plugin: Launch.SHA256 %q is not a SHA-256 in hexadecimal", l.SHA256)
 	}
 	if l.MaxMessageBytes < 0 {
-		return nil, fmt.Errorf("wl/plugin: negative Launch.MaxMessageBytes %d", l.MaxMessageBytes)
+		return nil, nil, fmt.Errorf("wl/plugin: negative Launch.MaxMessageBytes %d", l.MaxMessageBytes)
 	}
 	if l.ReplyMargin < 0 {
-		return nil, fmt.Errorf("wl/plugin: negative Launch.ReplyMargin %v", l.ReplyMargin)
+		return nil, nil, fmt.Errorf("wl/plugin: negative Launch.ReplyMargin %v", l.ReplyMargin)
 	}
 	limit := l.MaxMessageBytes
 	if limit == 0 {
 		limit = DefaultMaxMessageBytes
 	}
+	path, err := filepath.Abs(l.Path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("wl/plugin: resolve Launch.Path: %w", err)
+	}
 	parent := l.TempDir
 	if parent == "" {
 		parent = os.TempDir()
 	}
+	if parent, err = filepath.Abs(parent); err != nil {
+		return nil, nil, fmt.Errorf("wl/plugin: resolve Launch.TempDir: %w", err)
+	}
 	base, err := os.MkdirTemp(parent, "wlp-")
 	if err != nil {
-		return nil, fmt.Errorf("wl/plugin: create the base directory: %w", err)
+		return nil, nil, fmt.Errorf("wl/plugin: create the base directory: %w", err)
 	}
 	if err := os.Chmod(base, 0o700); err != nil {
 		os.RemoveAll(base)
-		return nil, fmt.Errorf("wl/plugin: create the base directory: %w", err)
+		return nil, nil, fmt.Errorf("wl/plugin: create the base directory: %w", err)
 	}
 	if n := len(base) + socketPathSlack; n > maxSocketPath {
 		os.RemoveAll(base)
-		return nil, fmt.Errorf("wl/plugin: the base directory %s gives socket paths of up to %d bytes, over the limit of %d; set Launch.TempDir to a shorter directory", base, n, maxSocketPath)
+		return nil, nil, fmt.Errorf("wl/plugin: the base directory %s gives socket paths of up to %d bytes, over the limit of %d; set Launch.TempDir to a shorter directory", base, n, maxSocketPath)
 	}
-	l.Env = append([]string(nil), l.Env...)
+	env := append([]string(nil), l.Env...)
+	cleanup = func() error { return os.RemoveAll(base) }
 	return &goplugin.ClientConfig{
 		HandshakeConfig:  Handshake,
 		VersionedPlugins: VersionedPlugins(&RunnerPlugin{ReplyMargin: l.ReplyMargin}),
-		RunnerFunc: func(_ hclog.Logger, cmd *exec.Cmd, _ string) (runner.Runner, error) {
-			env := append(append([]string(nil), l.Env...), cmd.Env...)
-			return &launcher{path: l.Path, sum: sum, config: l.Config, env: env, base: base}, nil
+		RunnerFunc: func(_ hclog.Logger, cmd *exec.Cmd, socketDir string) (runner.Runner, error) {
+			// go-plugin made socketDir with mode 0700 less the host's
+			// umask, which may leave the engine unable to create its socket.
+			if err := os.Chmod(socketDir, 0o700); err != nil {
+				os.RemoveAll(base)
+				return nil, fmt.Errorf("wl/plugin: make the socket directory private: %w", err)
+			}
+			return &launcher{path: path, sum: sum, config: l.Config, env: append(append([]string(nil), env...), cmd.Env...), base: base}, nil
 		},
 		AllowedProtocols: []goplugin.Protocol{goplugin.ProtocolGRPC},
 		SkipHostEnv:      true,
@@ -144,7 +167,7 @@ func ClientConfig(l Launch) (*goplugin.ClientConfig, error) {
 		},
 		StartTimeout: l.StartTimeout,
 		Logger:       l.Logger,
-	}, nil
+	}, cleanup, nil
 }
 
 // launcher is the runner.Runner of one launch: it checks the executable's
@@ -168,8 +191,8 @@ type launcher struct {
 
 var _ runner.Runner = (*launcher)(nil)
 
-// Start checks the executable and starts it. It removes the base directory
-// when it fails.
+// Start checks the executable and starts it, unless ctx, go-plugin's start
+// context, ends first. It removes the base directory when it fails.
 func (r *launcher) Start(ctx context.Context) (err error) {
 	defer func() {
 		if err != nil {
@@ -179,7 +202,7 @@ func (r *launcher) Start(ctx context.Context) (err error) {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	got, err := fileSHA256(r.path)
+	got, err := fileSHA256(ctx, r.path)
 	if err != nil {
 		return fmt.Errorf("wl/plugin: hash %s: %w", r.path, err)
 	}
@@ -194,6 +217,12 @@ func (r *launcher) Start(ctx context.Context) (err error) {
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
+		stdout.Close()
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		stdout.Close()
+		stderr.Close()
 		return err
 	}
 	if err := cmd.Start(); err != nil {
@@ -205,17 +234,55 @@ func (r *launcher) Start(ctx context.Context) (err error) {
 	return nil
 }
 
-func fileSHA256(path string) ([]byte, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
+// fileSHA256 returns the SHA-256 of the file at path, or ctx's error once
+// ctx ends, even while the open or a read blocks. On an ended ctx it closes
+// the file, which ends a read that blocks on a pipe; a read that blocks on
+// a regular file ends with the file system, in the background.
+func fileSHA256(ctx context.Context, path string) ([]byte, error) {
+	type result struct {
+		sum []byte
+		err error
 	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return nil, err
+	var (
+		mu       sync.Mutex
+		file     *os.File
+		canceled bool
+	)
+	done := make(chan result, 1)
+	go func() {
+		f, err := os.Open(path)
+		if err != nil {
+			done <- result{err: err}
+			return
+		}
+		mu.Lock()
+		file = f
+		stop := canceled
+		mu.Unlock()
+		defer f.Close()
+		if stop {
+			done <- result{err: context.Canceled}
+			return
+		}
+		h := sha256.New()
+		if _, err := io.Copy(h, f); err != nil {
+			done <- result{err: err}
+			return
+		}
+		done <- result{sum: h.Sum(nil)}
+	}()
+	select {
+	case res := <-done:
+		return res.sum, res.err
+	case <-ctx.Done():
+		mu.Lock()
+		canceled = true
+		if file != nil {
+			file.Close()
+		}
+		mu.Unlock()
+		return nil, ctx.Err()
 	}
-	return h.Sum(nil), nil
 }
 
 // Wait waits for the process to exit, then removes the base directory.

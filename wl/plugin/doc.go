@@ -9,9 +9,11 @@
 //
 // A host launches the engine in four steps:
 //
-//  1. ClientConfig turns a Launch into go-plugin's client configuration.
+//  1. ClientConfig turns a Launch into go-plugin's client configuration
+//     and a cleanup, which the host calls once the launch has ended.
 //  2. go-plugin's NewClient and Client start the engine and connect.
-//  3. Dispense(PluginName) returns a *Client.
+//  3. Dispense(PluginName) returns a *Client, whose BuildInfo the host
+//     compares with the release record that it ships.
 //  4. The Client's calls run flows and scripts, and Kill stops the engine.
 //
 // The engine's command that serves this plugin, `windmill-lite plugin`, is
