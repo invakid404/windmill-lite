@@ -16,8 +16,7 @@ itself.
 
 - `runner.proto`, whose messages the `run`, `run_done` and `run_cancel`
   frames share their fields with, and log limits in the welcome;
-- the pool's settings in `wl`, pinned runs, recycle triggers and limits per
-  run (§Pooling);
+- pinned runs and limits per run (§Pooling);
 - a host plugin built into the bundle, and run data in its processes
   (§Host plugins);
 - the named cause of a canceled run, and host-mode deadlines that have
@@ -615,15 +614,18 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
 - Routing prefers the run's process (affinity), then the least-loaded one.
   When the event loop of a process lags past a threshold (a CPU-bound step),
   the pool starts another process, up to the maximum.
-- **The settings in `wl`** (planned). The minimum, the maximum, the cap
-  and the lag threshold are settings of the pool in `internal/harness`.
-  `wl` is planned to expose them with the rules below, and the go-plugin
-  adapter's configuration as `pool`
+- **The settings in `wl`.** `wl.Options.Pool` sets the minimum, the
+  maximum, the cap, the lag threshold, the recycle timeout, the recycle
+  triggers, the bound on live processes and a warm start, with the rules
+  below. The go-plugin adapter's configuration is planned to carry them as
+  `pool`
   ([host adapters](0009-host-adapters.md#process-affinity-and-limits)).
-  Until then a `warm` runtime of `wl` keeps one process in service, with
-  no cap, and a `fresh` one starts a process for each invocation.
+- Their zero values keep one process in service, with no cap, started on
+  the first step. A warm start starts the minimum, and waits for their
+  handshakes, before `wl.Open` returns.
 - These settings, pinned runs and recycle triggers are a `warm` pool's: a
-  `fresh` pool and host mode have none of them.
+  `fresh` pool and host mode have none of them, and `wl.Open` refuses
+  settings that are not zero there.
 - **Pinned runs** (planned), for a runtime or for one run. A run is pinned
   to the process that serves its first invocation or host-plugin call, and
   each later one of the run goes there while that process lives, even when
@@ -647,29 +649,32 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
   then starts another invocation or calls a hook, that latches
   `pinned_process_lost` ([H5](0008-host-hooks.md#the-hooks)), as a host-mode run ends with
   `harness_lost` (§Host mode item 6).
-- **Recycle triggers** (planned). The pool replaces a process whose
-  resident set, its heartbeat's `rss`, reaches a threshold on consecutive
-  heartbeats, or that has loaded more script modules than a cap, counted
-  from the scripts that the engine sent it. The process then takes no new
-  invocations but its pinned runs', a replacement starts beside it outside
-  the maximum, and the process leaves once nothing is in flight in it and
-  no pinned run holds it.
-- **Overlap** (planned). A replacement runs beside the process it replaces
-  until that process leaves, which waits for its steps in flight and its
-  pinned runs. While one process leaves for a recycle trigger, memory or
-  module count alike, another that trips keeps serving.
+- **Recycle triggers.** The pool replaces a process whose resident set,
+  its heartbeat's `rss`, reaches a threshold on consecutive heartbeats (2
+  by default), or that has loaded more script modules than a cap, counted
+  from the distinct scripts that the engine sent it. The process then takes
+  no new invocations, a replacement starts beside it outside the maximum,
+  and the process leaves once nothing is in flight in it.
+- With pinned runs (planned), such a process still takes its pinned runs'
+  invocations, and leaves only once no pinned run holds it either.
+- **Overlap.** A replacement runs beside the process it replaces until that
+  process leaves, which waits for its steps in flight. While one process
+  leaves for a recycle trigger, memory or module count alike, another that
+  trips keeps serving, and leaves once the first has exited.
 - Every process counts from its start until it has exited: serving,
-  starting, tainted, recycling, surplus, or draining after its last pin
-  ended. Without a bound their number has no limit, since a replacement can
-  start while earlier processes still finish their work and their pins.
-- **A bound on live processes** (planned). With `max_live` set, the pool
-  starts no process while that many are alive. Routing does not change: an
-  invocation goes at once to a serving process that can take it, and waits
-  only when none can and the process it needs cannot start.
-- A leaving process first waits until no pinned run holds it and no
-  invocation is active in it. Then it drains within the recycle timeout, and
-  its slot frees once its exit is observed. `max_live` below the pool's
-  maximum refuses to open, since the pool could not reach its size.
+  starting, tainted, recycling, surplus, or draining. Without a bound their
+  number has no limit, since a replacement can start while earlier
+  processes still finish their work.
+- **A bound on live processes.** With `max_live` set (`MaxLive` in
+  `wl.Options.Pool`), the pool starts no process while that many are
+  alive. Routing does not change: an invocation goes at once to a serving
+  process that can take it, and waits only when none can and the process
+  it needs cannot start.
+- A leaving process first waits until no invocation is active in it, and
+  with pinned runs (planned) until no pinned run holds it. Then it drains
+  within the recycle timeout, and its slot frees once its exit is
+  observed. `max_live` below the pool's maximum refuses to open, since the
+  pool could not reach its size.
 - **Memory.** A threshold is sampled at heartbeats and is not a cap: a
   process can pass it between samples, and while it waits to leave. So the
   container's memory limit is the one hard bound on bytes. A host sizes it

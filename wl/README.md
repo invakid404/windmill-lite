@@ -1,7 +1,8 @@
 # wl
 
 **Current state:** `wl` opens a bundle and runs its flows and root
-scripts, with host hooks, providers, budgets, host mode and host plugins.
+scripts, with host hooks, providers, budgets, pool settings, host mode and
+host plugins.
 Only Bun steps run, and the go-plugin, gRPC and HTTP adapters of the
 [host adapters ADR](../docs/design/0009-host-adapters.md) do not exist yet.
 This README covers `wl/`, the Go package
@@ -118,8 +119,9 @@ checks fails:
 5. The engine runs every feature that the bundle's flows use
    (`ErrUnsupported`).
 
-Harness processes start on the first step. Only a host plugin makes
-`Open` start one earlier, to read the plugin's declaration.
+Harness processes start on the first step. A host plugin makes `Open`
+start one earlier, to read the plugin's declaration, and a warm start
+([The harness pool](#the-harness-pool)) makes it start the pool's minimum.
 
 The engine version is `opts.EngineVersion`, or else `Version()`.
 `Version()` takes the first of these: the version linked in with
@@ -147,6 +149,7 @@ The zero value of each field is its default.
 | `Providers` | The named providers of the bundle's [provided sites](../docs/glossary.md#provided-site) | None | When the host contract names providers ([Providers](#providers)) |
 | `Plugin` | The path of a [host plugin](../docs/glossary.md#host-plugin) module, which every `warm` harness process loads | None | To give [hooks](../docs/glossary.md#hook) in TypeScript ([Host plugins](#host-plugins)) |
 | `PluginTimeout` | How long each call to the host plugin waits for its reply | `DefaultPluginTimeout`, 60 s | To change that bound |
+| `Pool` | The pool of `warm` harness processes: its size, cap, lag threshold, recycle timeout, recycle triggers, bound on live processes and warm start ([The harness pool](#the-harness-pool)) | One process, no cap, started on the first step | To run CPU-bound steps beside others, to replace processes that grow, or to start processes before the first run |
 | `ReadCache` | Gives each flow run a read cache: the run reads each of the host's and the bundle's resources and variables once, and answers its later reads from that read. A provider's error is not kept, so the next read asks again, and an update of a variable through the run drops its cached value ([the read cache](../internal/platform/README.md#the-read-cache)). A state that steps wrote to the `ResourceStore` is read again each time, so a run sees its latest value. | Off | When a run reads the same values often and need not see a change during the run |
 | `Host` | Opens the runtime in [host mode](#host-mode) | Nil | Only for host mode |
 
@@ -163,6 +166,43 @@ a resource or variable again for each step and each call. The
 [equivalence contract](../docs/design/0001-equivalence-contract.md#5-named-deviations)
 names it, and the [trace](../docs/glossary.md#trace) of a run with it
 lists `D21`.
+
+### The harness pool
+
+`Options.Pool`, a `PoolOptions`, sets the pool of a `warm` runtime's
+harness processes, by the rules of the
+[harness protocol ADR](../docs/design/0004-harness-protocol.md#pooling-processes-the-engine-spawns).
+Its zero value keeps one process in service, with no cap, started on the
+first step. A `fresh` runtime and host mode have no pool, so `Open`
+refuses a `Pool` that is not zero there.
+
+| Field | What it sets | Default |
+|---|---|---|
+| `Min`, `Max` | How many processes the pool keeps serving, and how many may serve. A process that is tainted, because an abandoned step of its own still runs, or that leaves for a recycle trigger, does not count toward `Max`. | 1 and 1 |
+| `Cap` | The steps in flight in each process | No cap |
+| `LagThreshold` | The event-loop lag past which a process is busy with a CPU-bound step: the next step goes to another process, which starts if the pool is below `Max`. A negative value turns this off. | 250 ms |
+| `RecycleTimeout` | How long a leaving process may drain, after its last step in flight, before it is killed | 5 s |
+| `Recycle.RSS`, `Recycle.Samples` | A process whose heartbeats report a resident set of `RSS` bytes or more `Samples` times in a row is replaced | Off; 2 heartbeats |
+| `Recycle.Modules` | A process that has run steps of more distinct scripts than this is replaced. The step of the one more still runs there. | Off |
+| `MaxLive` | The processes alive at once, each from its start until its exit. No process starts while `MaxLive` are alive. `Open` refuses a value below `Max`. | No bound |
+| `WarmStart` | `Open` starts `Min` processes, and waits for their handshakes, before it returns | Off |
+
+- **A replaced process** takes no new steps, and its replacement starts
+  beside it, outside `Max`. It leaves once no step is in flight in it. One
+  process leaves for a trigger at a time: another that trips meanwhile
+  keeps serving until the first has exited.
+- **A threshold is not a cap.** The pool samples the resident set at each
+  heartbeat, every second, and a process can grow past it between two of
+  them, or while it waits to leave. Size the container from `MaxLive`
+  times the measured peak of one process, plus the engine's own.
+- **`MaxLive` does not change routing.** A step goes at once to a serving
+  process that can take it, and waits only when none can and the process
+  that it needs cannot start.
+- **The cap is a [deviation](../docs/glossary.md#deviation).** Steps that
+  wait on each other can wait until their timeout under a cap. The
+  [trace](../docs/glossary.md#trace) of every flow run of a runtime with a
+  cap lists `D15`
+  ([equivalence contract](../docs/design/0001-equivalence-contract.md#5-named-deviations)).
 
 ### The resource store
 
@@ -528,7 +568,7 @@ This section is for contributors who change `wl`.
 
 | File | Contents |
 |---|---|
-| `wl.go` | `Options`, `Resource`, `Variable`, `ResultCache`, `ResourceStore`, `MemoryResourceStore`, `NewMemoryResourceStore`, `Runtime`, `Open`, `BuildInfo`, `PlatformOrigin`, `Close`, `Version`, and `ErrUnsupported`, `ErrEngineVersion`, `ErrClosed` |
+| `wl.go` | `Options`, `PoolOptions`, `RecycleTriggers`, `Resource`, `Variable`, `ResultCache`, `ResourceStore`, `MemoryResourceStore`, `NewMemoryResourceStore`, `Runtime`, `Open`, `BuildInfo`, `PlatformOrigin`, `Close`, `Version`, and `ErrUnsupported`, `ErrEngineVersion`, `ErrClosed` |
 | `run.go` | `RunOptions`, `RunPlatform`, `Result`, `Run`; the clock and jitter types; `ErrPreWriteDeadline`, `ErrRunInFlight`; the trace types, which alias the engine's; the executor that collects each run's platform calls |
 | `hooks.go` | `Hooks` and the types of their callbacks, `Selector`, `Site`, `FatalError` and the selector and provider errors; selector matching, and the adapter to the engine's hook interface |
 | `host.go` | `Host`, `Runtime.Done`, `Host.Refuse`, `HandshakeError` and the reject codes: host mode, its handshake, and the runs that it serves |
@@ -552,8 +592,9 @@ This section is for contributors who change `wl`.
   an object store in `<data>/objects`, the job registry and flow user
   state, the result cache, the facade, and the default dispatcher. The
   dispatcher runs a root that a step dispatches as a run of its own.
-- Harness processes start on the first step: a pool of `warm` processes,
-  or one process for each step in `fresh` mode, with working directories
+- Harness processes start on the first step, or at `Open` with a warm
+  start: a pool of `warm` processes, or one process for each step in
+  `fresh` mode, with working directories
   in `<data>/work`. Their handshake checks the harness's kind, Bun 1.4.3
   and the bundle's digest.
 - A `warm` process reaches the facade through its intercepted `fetch`, and
@@ -658,4 +699,5 @@ build helper's dependencies, and skip without them unless
 | `outside_test.go` | A bundle whose host contract lists two modules outside the [sync folder](../docs/glossary.md#sync-folder), without a host | Yes |
 | `plugincases_test.go` | The cases of `conformance/plugins/hooks.yaml`, through the TypeScript case plugin and through Go callbacks built from the same plugins | Yes |
 | `store_test.go` | `Options.ResourceStore` on real steps (`TestResourceStoreOnBun`): two runtimes that share a memory store, one with its own, a failing store's warning, and `D24` in the trace; a run id in flight refused (`TestRunIDInFlight`). Without Bun: `Close` releasing its own store while readers use it (`TestCloseReleasesItsOwnStore`), and a late answer kept from a later run of the same id (`TestLateAnswerAcrossIDReuse`) | Yes, but for the last two |
+| `pool_test.go` | `Options.Pool`. Without Bun: `Open`'s refusals in `fresh` and host mode (`TestPoolOptionsRefusedFresh`) and of `MaxLive` below `Max` (`TestPoolMaxLiveBelowMax`), and `D15` in the trace. On real steps: a second process for a step beside a CPU-bound one and under `Cap`, the module and RSS triggers (`TestWlPoolOptions`), and the warm start (`TestWarmStart`) | Yes, but for the refusals and `D15` |
 | `example_test.go` | Compiles the README's example | No |

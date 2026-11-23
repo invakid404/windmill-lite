@@ -266,6 +266,9 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	if rt.memoryStore {
 		req.Deviations = append(req.Deviations, "D24")
 	}
+	if rt.capped {
+		req.Deviations = append(req.Deviations, "D15")
+	}
 	switch {
 	case h != nil && extra != nil:
 		// Host mode's static intercepts answer first, then the hooks.
