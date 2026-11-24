@@ -353,8 +353,8 @@ its run's workspace.
   flow job.
 - **Reuse within a workspace.** In the services' own store, a run whose
   id is registered again starts with no state. A host's registry or store,
-  which serves `windmill-lite` alone, keeps the state of a reused id as
-  before, by the job's id.
+  which serves the engine's configured workspace alone, keeps the state of
+  a reused id as before, by the job's id.
 - **A hook's `WM_WORKSPACE`** ([H12](0008-host-hooks.md#the-hooks)) is the
   workspace of a run without a configured one, as it always was. A run
   with a configured workspace stays in it: its token is valid there only,

@@ -1560,9 +1560,10 @@ root through `Run` for `jobs/run/f`.
   job's runnable path, from the job registry) are taken when the dispatch
   is accepted. So a run that starts after its parent has ended, after
   `scheduled_in_secs` or at once, keeps them.
-- **An id of another workspace.** `Run` and `RunScript` refuse a run
-  whose id a job of another workspace holds in the job registry, live or
-  ended and kept (`platform.BeginExclusive`), before it starts.
+- **An id of another workspace.** With the services' own job registry,
+  `Run` and `RunScript` refuse a run whose id a job of another workspace
+  holds, live or ended and kept (`platform.BeginExclusive`), before it
+  starts. A host's registry registers the run as it always did.
 - **The services a workspace needs.** They also refuse a run in a
   workspace other than the engine's configured one (`Config.Host`,
   `Config.Workspace`) when the engine's services keep jobs or flow user

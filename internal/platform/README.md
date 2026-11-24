@@ -119,7 +119,7 @@ Every exported name, grouped by concern. "Engine", "facade", "`wl`" and
 | `JobView` | interface | Renders a live run's job records | engine implements it |
 | `FlowUserState`, `FlowUserStateLister`, `UserStates`, `NewUserStates` | interfaces, struct, constructor | Flow user state and its local default | the package; hosts implement `FlowUserState` |
 | `JobLookup` | function type | Finds the job an interpolated read names | facade |
-| `Services.Registry`, `JobRegistry`, `RootJob`, `JobEnv`, `ReadJobEnv`, `GetJob`, `GetJobArgs`, `FlowUserState`, `FlowUserStates`, `SetFlowUserState`, `JobScope`, and `RootJobIn`, `ReadJobEnvIn`, `GetJobIn`, `GetJobArgsIn`, `FlowUserStateIn`, `SetFlowUserStateIn` | methods | The lookups ([Lookups](#lookups)) and the job reads | engine, facade, `wltest` (`JobRegistry`); `Services.Registry` only inside the package |
+| `Services.Registry`, `JobRegistry`, `RootJob`, `JobEnv`, `ReadJobEnv`, `GetJob`, `GetJobArgs`, `FlowUserState`, `FlowUserStates`, `SetFlowUserState`, `JobScope`, `ScopedJob`, and `RootJobIn`, `ReadJobEnvIn`, `GetJobIn`, `GetJobArgsIn`, `FlowUserStateIn`, `SetFlowUserStateIn` | methods | The lookups ([Lookups](#lookups)) and the job reads | engine, facade, `wltest` (`JobRegistry`); `Services.Registry` only inside the package |
 
 ### Objects, dispatch and results
 
@@ -568,6 +568,7 @@ windmill-lite bounds the memory by count instead.
 | `Services.ReadJobEnv` | The job that a resource read's `job_id` names: a live script job of the path's workspace, whose variables the read's `$WM_*` strings resolve from (`APIEnv`), as Windmill looks it up among the queued and running jobs ([WA-12](../../docs/semantics/client-api.md#wa-12)) | `Not found: Job not found at name <id>` (404) for an unknown id, an ended job or another workspace's job; `ErrNoJobVariables` for a live flow job |
 | `Services.JobRegistry` | The registry that the engine and the facade register with: `Jobs`, or the services' own | — |
 | `Services.JobScope` | The workspace scope of a known job, live or ended: the effective workspace of its `Host` | false for an unknown id |
+| `Services.ScopedJob` | The job as the registry holds it, with the `Host` of the job its `Run` names when the registry left its own zero, as a host's `Jobs` that keeps jobs as submitted does; every lookup's workspace scope comes from it | false for an unknown id |
 | `Services.RootJobIn`, `ReadJobEnvIn`, `GetJobIn`, `GetJobArgsIn`, `FlowUserStateIn`, `SetFlowUserStateIn` | The lookups for a caller of one workspace scope (`""` for every scope): a job of another scope is unknown. Each checks the scope on the registry entry that it answers from, and a flow user state read looks the job up again after the read | as for an unknown id |
 
 ### Job reads of a live run
