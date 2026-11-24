@@ -21,7 +21,8 @@ import (
 // TypeScript host plugin in warm harness processes (Options.Plugin, over
 // host_call), and through Go callbacks built from the same declarative
 // plugins (the path a Go host's hooks take): every case must give its
-// expected outcome both ways. cmd/windmill-lite runs them in host mode.
+// expected outcome each way it runs. cmd/windmill-lite runs them in host
+// mode, but for those with a pool of their own, which run only here.
 // They need the pinned Bun (WL_BUN) and the build helper's dependencies.
 
 func loadPluginCases(t *testing.T) *conformance.PluginFile {
@@ -111,10 +112,10 @@ func bundledCasePlugin(t *testing.T, f *conformance.PluginFile) (files map[strin
 	return files, contract, report
 }
 
-// runTypeScriptCases runs every case on rt, whose host plugin is the
-// TypeScript case plugin that reports to report.
-// A case with a pool of its own runs on a runtime that open makes with
-// the case's pool settings, closed once every run has settled.
+// runTypeScriptCases runs every case through the TypeScript case plugin,
+// which reports to report: on rt, or, for a case with a pool of its own,
+// on a runtime that open makes with the case's pool settings, closed once
+// every run has settled.
 func runTypeScriptCases(t *testing.T, rt *Runtime, open func(PoolOptions) (*Runtime, error), f *conformance.PluginFile, report string) {
 	var own []*Runtime
 	defer func() {
