@@ -406,7 +406,8 @@ warm start when the configuration asks for it, until the host stops it.
   runs. The engine then closes the runtime, which cancels any run left
   with the cause `closing` and removes a temporary data directory. An open
   still running at shutdown gets a second to complete, and its runtime is
-  then closed too; past that second, the runtime ends with the process.
+  then closed too; past that second, the runtime ends with the process and
+  leaves its temporary data directory behind.
 - **Signals.** go-plugin ignores SIGINT. SIGTERM ends the engine at once,
   without a drain, and leaves a temporary data directory behind.
 - **Diagnostics.** The harness processes' output that no step owns, and
@@ -427,7 +428,7 @@ whose digest passed.
 | `digest` | A digest | None | The digest that the bundle must have |
 | `bun` | A path | `bun` on the engine's `PATH` | The Bun 1.4.3 executable of the harness processes |
 | `harness_runtime` | A directory | None | The [harness runtime](../../docs/glossary.md#harness-runtime) that the bundle was built for, needed by a bundle with steps |
-| `data_dir` | A directory | A temporary directory, which the runtime's close removes after go-plugin's shutdown call, and which a signal leaves behind | The data directory that the runtime writes into |
+| `data_dir` | A directory | A temporary directory, which the runtime's close removes after go-plugin's shutdown call. A signal leaves it behind, as does a shutdown call that comes over a second before the runtime's open completes | The data directory that the runtime writes into |
 | `resources` | An object of `{"resource_type", "value"}` by path | None | The host's resources, as in a bundle's `data/resources.json` |
 | `variables` | An object of variables by path | None | The host's variables: each `value` or `value_env`, and `is_secret` and `encrypted` ([Secrets by reference](#secrets-by-reference)) |
 | `resource_store` | `{"kind": "memory"}`, or `{"kind": "redis", "url_env", "prefix", "allow_eviction"}` | `memory` | The store of the resources that steps write, as `run`'s `-resource-store` and its Redis flags |
@@ -670,7 +671,7 @@ synthetic folders that the test file holds.
 | `TestPluginErrorCodes` | `UNAVAILABLE` for a run while the engine starts. `ALREADY_EXISTS` for a second run with the id of a run in its step. `NOT_FOUND` for a path that names no flow or root script. `INVALID_ARGUMENT` for the request's other refusals, such as unknown fields at the top or in `identity` or a resource, and selectors that are `null` or followed by more JSON. |
 | `TestPluginDispatchedID` | The id of a run that a step dispatched refuses a run with `ALREADY_EXISTS` and the `RUN_NOT_STARTED` detail. One run is dispatched to start in a day, which the test cannot outlast, so it waits for its start; another runs its step. The second then goes on to its end. |
 | `TestPluginServesBundle` | With the runtime's open held by the engine's test hook (`WL_TEST_PLUGIN_HOLD_OPEN`), the engine has completed the handshake, health answers `NOT_SERVING` and `GetBuildInfo` `UNAVAILABLE`. Released, health answers `SERVING`, and `GetBuildInfo` returns `wl`'s build information with the labels, the configuration's digest and the protocol version. With a Bun that cannot start a harness process, the engine serves without a warm start; with one, it never serves, and exits with status 1 after the handshake, naming the warm start. |
-| `TestPluginShutdownWhileStarting` | go-plugin's shutdown call, with the runtime's open held, ends the engine within 10 seconds. With the runtime opened and the engine held before it serves (`WL_TEST_PLUGIN_HOLD_PUBLISH`), the engine closes the runtime, whose temporary data directory is then gone, before it exits. |
+| `TestPluginShutdownWhileStarting` | go-plugin's shutdown call, with the runtime's open held, ends the engine within 10 seconds of the call's start. With the runtime opened and the engine held before it serves (`WL_TEST_PLUGIN_HOLD_PUBLISH`), the engine closes the runtime, whose temporary data directory is then gone, before it exits. |
 | `TestPluginHealthMethods` | `Check` and `List` answer the engine's state for the three names, while it starts and once it serves. Another name answers `NOT_FOUND` to `Check` and `SERVICE_UNKNOWN` to `Watch`. A `Watch` opened while the engine starts receives `NOT_SERVING`, then `SERVING`. |
 | `TestPluginNonRootFlow` | A flow that only a root calls by path runs, as `wl`'s `Runtime.Run` runs it. |
 | `TestPluginRefusalDetail` | Each of those refusals, the one while the engine starts included, carries the `RUN_NOT_STARTED` detail, so `Client.Run` reports `ErrNotStarted`. A run that started and failed, or was canceled, answers its result. |
@@ -680,6 +681,7 @@ synthetic folders that the test file holds.
 | `TestPluginSocketPrivate` | Started under the umask `0027`, the engine serves on a socket of mode `0700`, and a step creates a file of mode `0640`. |
 | `TestRunnerResultPolls` | `result_polls_for_all_jobs`, through `Client.Run` on the result-polls fixture: on, the run gets the recorded answers; off, the default, the polls answer 501, which fails the step. |
 | `TestPluginHandshakeFirstLine` | With a configuration whose warm start starts a harness process, go-plugin's handshake line is the first line of the engine's standard output. |
+| `TestPluginHandshakeUnwritable` | With a standard output open read-only, the engine exits with status 1 within 30 seconds, naming the handshake line. |
 | `TestPluginFlowRequest` | A flow run's `intercept` stands in for its module, `trace` gives the `summary` and `full` traces of a host plugin's run-end hook, and the run's own `variables` replace the runtime's. |
 
 ### Memory tests

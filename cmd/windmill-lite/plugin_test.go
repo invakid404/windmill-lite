@@ -27,10 +27,12 @@ import (
 	"github.com/hashicorp/go-hclog"
 	goplugin "github.com/hashicorp/go-plugin"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protowire"
+	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/invakid404/windmill-lite/internal/bundle"
 	"github.com/invakid404/windmill-lite/internal/host"
@@ -318,6 +320,8 @@ type pluginEngine struct {
 	runner *plugin.Client
 	// health is a gRPC health client of the engine's connection.
 	health healthpb.HealthClient
+	// conn is go-plugin's gRPC connection to the engine.
+	conn   *grpc.ClientConn
 	stderr *lineLog
 	// addr is the address of the engine's socket.
 	addr string
@@ -404,6 +408,7 @@ func connectPlugin(t *testing.T, cfg map[string]any, env ...string) *pluginEngin
 		t.Fatalf("go-plugin's client is %T, want a gRPC client", rpc)
 	}
 	e.health = healthpb.NewHealthClient(g.Conn)
+	e.conn = g.Conn
 	return e
 }
 
@@ -942,8 +947,8 @@ func startFails(t *testing.T, cfg map[string]any, env ...string) (int, string) {
 	if !errors.As(err, &exit) || ctx.Err() != nil {
 		t.Fatalf("the engine exited with %v (context %v), want a failed start\nits standard error:\n%s", err, ctx.Err(), stderr.String())
 	}
-	first, _, _ := strings.Cut(stdout.String(), "\n")
-	if !handshakeLine.MatchString(first + "\n") {
+	first, _, whole := strings.Cut(stdout.String(), "\n")
+	if !whole || !handshakeLine.MatchString(first+"\n") {
 		t.Errorf("the engine's standard output starts %q, want go-plugin's handshake line before the start fails\nits standard error:\n%s", first, stderr.String())
 	}
 	return exit.ExitCode(), stderr.String()
@@ -1239,19 +1244,21 @@ func TestPluginShutdownWhileStarting(t *testing.T) {
 }
 
 // shutdown sends e go-plugin's shutdown call, as the host's Kill does before
-// it waits 2 seconds and kills the engine, and waits up to 10 seconds for
-// the engine to exit.
+// it waits 2 seconds and kills the engine, and requires the engine to exit
+// within 10 seconds of the call's start: one deadline bounds the call, which
+// the engine may end by stopping its server, and the exit.
 func shutdown(t *testing.T, e *pluginEngine) {
 	t.Helper()
-	rpc, err := e.client.Client()
-	if err != nil {
-		t.Fatal(err)
-	}
-	rpc.Close()
-	for until := time.Now().Add(10 * time.Second); !e.client.Exited(); time.Sleep(10 * time.Millisecond) {
-		if time.Now().After(until) {
-			t.Fatalf("the engine did not exit within 10 seconds of the shutdown call\nits standard error:\n%s", e.stderr)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	// go-plugin's controller service, whose Empty message has no fields, as
+	// emptypb.Empty.
+	err := e.conn.Invoke(ctx, "/plugin.GRPCController/Shutdown", &emptypb.Empty{}, &emptypb.Empty{})
+	for !e.client.Exited() {
+		if ctx.Err() != nil {
+			t.Fatalf("the engine did not exit within 10 seconds of the shutdown call's start (the call: %v)\nits standard error:\n%s", err, e.stderr)
 		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -1545,6 +1552,41 @@ func TestPluginHandshakeFirstLine(t *testing.T) {
 		}
 	case <-time.After(2 * time.Minute):
 		t.Fatalf("no line on the engine's standard output\nits standard error:\n%s", stderr.String())
+	}
+}
+
+// TestPluginHandshakeUnwritable checks a standard output that refuses
+// writes, open read-only: go-plugin's handshake line cannot reach a host,
+// so the engine exits with status 1 within 30 seconds, naming the line,
+// rather than wait for a host that has not its address.
+func TestPluginHandshakeUnwritable(t *testing.T) {
+	bun, out := pluginBundle(t)
+	exe, _ := engineExecutable(t)
+	sockets, err := os.MkdirTemp("", "wlh-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(sockets)
+	path := filepath.Join(t.TempDir(), "stdout")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	readOnly, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer readOnly.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, exe, "plugin", "-config", writePluginConfig(t, pluginConfigOf(t, bun, out)))
+	cmd.Env = engineEnv(plugin.Handshake.MagicCookieKey+"="+plugin.Handshake.MagicCookieValue, "PLUGIN_UNIX_SOCKET_DIR="+sockets)
+	cmd.Stdout = readOnly
+	var stderr syncBuffer
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || ctx.Err() != nil || exit.ExitCode() != 1 || !strings.Contains(stderr.String(), "handshake line") {
+		t.Fatalf("an engine whose standard output refuses writes: %v (context %v), want exit status 1 naming the handshake line\nits standard error:\n%s", err, ctx.Err(), stderr.String())
 	}
 }
 

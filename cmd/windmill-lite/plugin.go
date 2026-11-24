@@ -100,8 +100,10 @@ func runPlugin(args []string, stderr io.Writer) int {
 	// The engine serves in the state Starting while the runtime opens. The
 	// open starts once go-plugin has written its handshake line, so an
 	// open that fails cannot end the engine before the host has its
-	// address, and the engine serves only on a server that exists.
-	handshook, err := watchHandshake()
+	// address, and the engine serves only on a server that exists. A line
+	// that does not reach standard output ends the engine: no host can
+	// reach it.
+	handshake, err := watchHandshake()
 	if err != nil {
 		return fail(err)
 	}
@@ -130,7 +132,11 @@ func runPlugin(args []string, stderr io.Writer) int {
 	opened := make(chan openResult, 1)
 	go func() {
 		select {
-		case <-handshook:
+		case err := <-handshake:
+			if err != nil {
+				opened <- openResult{err: err}
+				return
+			}
 		case <-served:
 			// go-plugin did not serve: nothing opens.
 			opened <- openResult{}
@@ -191,23 +197,29 @@ const openGrace = time.Second
 
 // watchHandshake puts a pipe in place of os.Stdout, to which go-plugin
 // writes its handshake line before it puts a pipe of its own there. What
-// the pipe receives goes on to the engine's standard output, and the
-// channel closes once a whole first line has been written there.
-func watchHandshake() (<-chan struct{}, error) {
+// the pipe receives goes on to the engine's standard output. The channel
+// receives nil once a whole first line has been written there, or the
+// error that kept it from there.
+func watchHandshake() (<-chan error, error) {
 	r, w, err := os.Pipe()
 	if err != nil {
 		return nil, fmt.Errorf("the handshake's pipe: %w", err)
 	}
 	out := os.Stdout
 	os.Stdout = w
-	done := make(chan struct{})
+	done := make(chan error, 1)
 	go func() {
 		br := bufio.NewReader(r)
 		line, err := br.ReadBytes('\n')
-		if _, werr := out.Write(line); err == nil && werr == nil {
-			_ = out.Sync()
-			close(done)
+		if err == nil {
+			_, err = out.Write(line)
 		}
+		if err != nil {
+			done <- fmt.Errorf("go-plugin's handshake line did not reach standard output: %w", err)
+			return
+		}
+		_ = out.Sync()
+		done <- nil
 		_, _ = io.Copy(out, br)
 	}()
 	return done, nil
