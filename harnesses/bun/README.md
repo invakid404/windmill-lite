@@ -118,7 +118,8 @@ The runtime sets `wl` on `globalThis` for step code:
   engine cancels the invocation.
 
 Both throw a `TypeError` outside an open invocation. A step cannot replace
-`wl`, and a native step has none.
+`wl`, and a native step has none. `wl.run.data` is for host plugins
+([Host plugins](#host-plugins)): step code reads `undefined`.
 
 #### The process scope
 
@@ -377,6 +378,7 @@ gives each hook's rules.
 | `deadlineMs` | `number` | None | The run's hard deadline, in ms from its submission. The run ends `canceled`, with `cancelCause` `deadline`, and steps that it left running are abandoned. |
 | `preWriteDeadlineMs` | `number` | None | Ends the run `canceled`, with `cancelCause` `pre_write_deadline`, if it passes before the first write is approved |
 | `clock` | `"real"` or `"record"` | `"real"` | `"record"` returns every sleep and retry delay at once, and the run's deviations then say so |
+| `data` | any JSON value | None | The run's data, which the host plugin reads as `wl.run.data` until the run has settled. `null` means none. A value that `JSON.stringify` cannot encode rejects the run with its error. |
 | `signal` | `AbortSignal` | None | Cancels the run when it aborts |
 | `onSettled` | `() => void` | None | Called once every invocation of the run has settled, after its outcome, which may be never. Release here the resources that an abandoned step may still use. It runs in the run's scope, outside every invocation. |
 
@@ -429,6 +431,7 @@ For example, `{ flow: "f/app/main", module: "report" }` names the module
 | `lag_ms` | The event loop's lag: how late the heartbeat timer fired |
 | `rss` | The resident set, in bytes |
 | `modules` | The script modules loaded |
+| `runs_held` | The runs whose data the process holds, until the engine releases each |
 | `runs` | Runs submitted and not yet done |
 | `draining` | Whether `drain()` was called |
 | `recycle` | The recycle trigger that tripped, or `null` |
@@ -606,6 +609,11 @@ the rules of each hook.
   or a provider that the host contract names and the plugin lacks.
 - **A wrong shape** is refused before the hello: an interception with both
   or neither of `static` and `fn`, or a hook that is not a function.
+- **Run data.** `wl.run.data` is the data of the run that a hook or an
+  `around` wrapper serves: the host's `data` run option, or
+  `wl.RunOptions.Data`. It is frozen, and `undefined` for a run without
+  data, at load, in step code and inside `next()`, where an inner wrapper
+  reads its own. The process holds it until the run has settled.
 
 Every hook may return a promise. `Site` is `{ path, flow, module, script }`,
 and `Call` is `{ run, site, args }`. The hooks with a selector apply only
@@ -1202,6 +1210,11 @@ The registry:
   step after its invocation settled.
 - **The step API** is `installStepAPI` in `context.ts`. `wl.latch(error)`
   is sent as a `latch` warning ahead of the step's result.
+- **Run data.** The runtime keeps the `run_data` of an `invoke` or a
+  `host_call`, deeply frozen, by run (`keepRunData`), and drops it at the
+  run's `run_released`. `asPlugin` runs a hook or a wrapper inside
+  `pluginRun`, an `AsyncLocalStorage` whose store `wl.run.data` reads, and
+  `next()` leaves it. Health's `runs_held` counts the runs kept.
 - `test/caseplugin.ts` is the plugin of the cases of
   `conformance/plugins/hooks.yaml`, which the Go tests load in `warm`
   processes and in a compiled host. Its `onRunSettled` writes a report
@@ -1487,7 +1500,7 @@ cd harnesses/bun && bun test
 | `test/sender.test.ts` | The send queue, against a socket that accepts a few bytes at a time: priority, the order per invocation, partial writes, `whenFlushed`, and the barrier of a host's `drain` behind large runs, with a pong still overtaking them |
 | `test/context.test.ts` | The environment view's rules in one process, the registry, the process scope, the exit status and the step API |
 | `test/fence.test.ts` | The settle-time fence: timers and `refresh()`, the fetch view and the evidence that ends a transfer, the log view, the `Bun.env` write trap, children's environment, and their process groups |
-| `test/plugin.test.ts` | Host plugins: the declaration, its trace detail, each hook's answer, the `unknown_hook` and `plugin_error` refusals, and the answer in the run's scope |
+| `test/plugin.test.ts` | Host plugins: the declaration, its trace detail, each hook's answer, the `unknown_hook` and `plugin_error` refusals, the answer in the run's scope, and a run's data as `wl.run.data` until `run_released` |
 | `test/host.test.ts` | The SDK: the shared working-directory cases (`conformance/protocol/host/workdir.json`) through `checkWorkdir`, the shared version cases (`versions.json`) through `versionsPair`, the refusals before the engine starts, the assets, a run's `onSettled` in its own scope, and the run frame's selectors, halts and deadlines. `test/argsengine.ts`, a stand-in engine, records the flags that `resourceStore` passes, and whether its `WL_REDIS_URL` is set and equals the expected URL. With the variable unset and set in the test, the URL reaches the engine's environment, never its arguments. |
 | `test/host.test.ts`, the collect trigger | Hosts that `test/heartbeatengine.ts` welcomes, mostly with a 10 ms heartbeat, with a stand-in for `Bun.gc`. The tests check the mark, the cooldown, the counters, failed collections and the `options` refusals. For the default policy, `"idle"`, they check its waits for runs, steps and the quiet period, and how `close()` and an engine exit clear its timer. They also check `"heartbeat"`, the recycle triggers left as they are, and when the heartbeat observer runs. |
 | `test/load.test.ts` | How a step module is evaluated: the caller's context at an ES module's top level, its static imports and a CommonJS module, after a top-level `await`, `import()`'s namespace, one evaluation, and a failure's own error |

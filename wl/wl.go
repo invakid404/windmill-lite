@@ -304,6 +304,9 @@ type Runtime struct {
 	pool      *harness.Pool
 	host      *harness.Process // host mode's connection (Options.Host)
 	hostProc  atomic.Pointer[harness.Process]
+	// runData holds the data of the runs in flight (RunOptions.Data),
+	// which reaches the host plugin of each process that a run uses.
+	runData   *harness.RunData
 	exec      *recorder
 	prog      *ir.Program
 	store     *platform.Store
@@ -396,7 +399,7 @@ func Version() string {
 // store under the data directory, and the default dispatcher over the
 // bundle's program. The facade serves them to its steps.
 func Open(path string, opts Options) (_ *Runtime, err error) {
-	rt := &Runtime{version: opts.EngineVersion, readCache: opts.ReadCache, capped: opts.Pool.Cap > 0}
+	rt := &Runtime{version: opts.EngineVersion, readCache: opts.ReadCache, capped: opts.Pool.Cap > 0, runData: harness.NewRunData()}
 	if opts.Diagnostics != nil && opts.Pool != (PoolOptions{}) {
 		// The harness processes, the pool and the host plugin's calls write
 		// to it from goroutines of their own, and the pool settings let
@@ -648,6 +651,7 @@ func (rt *Runtime) harness(opts Options) (*harness.Pool, error) {
 		Bundle: rt.digest, EngineVersion: rt.version,
 		Diagnostics: opts.Diagnostics, Facade: rt.PlatformOrigin(), Platform: rt.fac.Platform(),
 		ForeignWindmillOrigins: rt.foreign,
+		RunData:                rt.runData,
 	}
 	return harness.NewPool(cfg)
 }

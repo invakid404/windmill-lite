@@ -103,6 +103,7 @@ func (rt *Runtime) attachHost(h *Host, diag io.Writer, opts Options) error {
 		Facade:        rt.fac.WarmOrigin(),
 		Platform:      rt.fac.Platform(),
 		Workdir:       h.Workdir,
+		RunData:       rt.runData,
 		// The host's steps drop their job ids from their own dispatch to
 		// these origins, as a spawned process's do.
 		ForeignWindmillOrigins: rt.foreign,
@@ -212,7 +213,8 @@ func hostDeadline(ctx context.Context, r harness.RunRequest) (context.Context, c
 	return context.WithTimeout(ctx, budgetDuration(*r.DeadlineMS))
 }
 
-// hostBudgets are the RunOptions of a run frame: its id and kind, and what
+// hostBudgets are the RunOptions of a run frame: its id, kind and data
+// (H11), and what
 // a Go host gives in RunOptions (ADR 0008): write-capable selectors (H3),
 // halts (H8) and fatal error names (H7), as the run's own hooks, which
 // come ahead of the plugin's (mergeHooks); the pre-write deadline (H4),
@@ -223,6 +225,10 @@ func hostDeadline(ctx context.Context, r harness.RunRequest) (context.Context, c
 // haltAfter[0].
 func hostBudgets(r harness.RunRequest, prog *ir.Program) (RunOptions, error) {
 	opts := RunOptions{ID: r.ID, Kind: r.Kind}
+	if !r.RunData.IsZero() {
+		// The run's data, for the host's plugin (H11).
+		opts.Data = json.RawMessage(r.RunData.Producer())
+	}
 	var h Hooks
 	for _, f := range []struct {
 		field, option string

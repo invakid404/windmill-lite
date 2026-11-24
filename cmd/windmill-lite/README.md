@@ -468,7 +468,7 @@ gives the setup.
 | `testdata/hostlib/` | `tenant.ts`, a host-provided module outside the sync folder. It is the `relative_path` of a codebases entry, whose script `f/hostout/read.ts` imports it. |
 | `testdata/host/` | `host.ts`, a Bun host that embeds the SDK and registers its instances of the folder's host-provided modules. It serves its callers over HTTP on a Unix socket, and submits each run inside the caller's tenant scope. With `WL_SKIP_ARGS_FILE=1`, it connects with `skipArgsFile`, and with origins in `WL_FOREIGN_WINDMILL`, with `foreignWindmillOrigins`. |
 | `testdata/haltfolder/`, `testdata/halthost/` | A two-step flow `f/repro/prefix`, and a Bun host that `bun run` starts, for `TestHostRunHalts` |
-| `testdata/pluginhost/` | A Bun host that `bun run` starts, for the bundled-plugin host tests: a reconnect, one connect, and two releases at one path |
+| `testdata/pluginhost/` | A Bun host that `bun run` starts, for the bundled-plugin host tests: a reconnect, one connect, two releases at one path, and runs with data |
 | `testdata/memhost/` | A Bun host for the memory tests: it answers its resident set and peak (`/rss`) and the outcome of runs that it submits (`/run`) |
 | `testdata/memory/` | `closure.package.json` and `closure.bun.lock`, which pin the packages of `TestModuleMemoryClosure`'s closure |
 | `testdata/benchhost/` | `host.ts`, the benchmarks' warm host; `inproc.ts`, the in-process side of `BenchmarkEmbedder`; `threadcpu_darwin.c`, which reads CPU time by thread on macOS |
@@ -515,6 +515,7 @@ How these tests run:
 | `TestHostBundledPluginCases` | The same cases with the case plugin built into the bundle and no `plugin` option: the SDK loads the bundle's plugin, and every case and every run's settlement hold. |
 | `TestHostBundledPluginFetchOrder` | A `fetch` wrapper that the bundle's plugin installs at load reaches an ordinary step and not a native one: the SDK loads it after the runtime's hooks, as a spawned harness does. |
 | `TestHostReconnectKeepsNativeFetch` | A host that connects on a bundle whose plugin wraps `fetch` at load, closes, and connects again on a bundle with no plugin: the native step never gets the wrapper, which the ordinary step still goes through. |
+| `TestHostRunData` | The `data` of three concurrent runs reaches the bundled plugin's `around` wrapper as `wl.run.data`, each run's own, or `undefined` for the run without; an intercept hook reads its run's data. Once every run has settled, the host holds no run's data. |
 | `TestHostReconnectKeepsHostFetch` | A host with no bundled plugin that wraps `fetch` itself between two connections: the second connection's native and ordinary steps both go through its wrapper. |
 | `TestHostVerifiesBundleBeforePlugin` | The bundle's plugin runs on the bundle as built, with no `-digest` pin, a matching one, or an empty `-digest=`. With a pin that the bundle does not match, also after `-data --`, or once another file of the bundle changes, `connect()` rejects with `bundle` and the plugin never runs. |
 | `TestHostCheckBundle` | `host -check-bundle` exits 0 or 1 for a matching digest, a pin, an empty pin, a pin after `-data --`, another digest, an archive and another engine version. |

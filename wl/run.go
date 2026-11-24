@@ -77,10 +77,10 @@ const (
 	KindScript = "script"
 )
 
-// RunOptions configure one run. A script run reads only Kind and ID; the
-// other fields, among them the hooks, the run's own providers and the
-// pre-write deadline, configure a flow run. The zero value of every field
-// is a default.
+// RunOptions configure one run. A script run reads only Kind, ID and
+// Data; the other fields, among them the hooks, the run's own providers
+// and the pre-write deadline, configure a flow run. The zero value of
+// every field is a default.
 type RunOptions struct {
 	// Kind is KindFlow, the default, or KindScript: a root script of the
 	// bundle, run as a script job (WA-4).
@@ -114,6 +114,13 @@ type RunOptions struct {
 	// Jitter is the flow run's retry-jitter source (H10, FX-26); nil draws
 	// from one seeded with Seed. SeededJitter fixes it.
 	Jitter Jitter
+	// Data is the run's data (H11), any JSON value, which the host plugin
+	// of each process that the run uses reads as wl.run.data, in its hooks
+	// and its around wrappers, until the run has settled; a script run
+	// reads it too. Nil, empty or JSON null means none: wl.run.data is
+	// then undefined. Data that is not JSON is refused before the run
+	// starts.
+	Data json.RawMessage
 }
 
 // Clock is a run's clock (H10): Now, and Wait, which waits for a duration
@@ -218,6 +225,10 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	if len(bytes.TrimSpace(args)) == 0 {
 		args = json.RawMessage("{}")
 	}
+	data, err := runData(opts.Data)
+	if err != nil {
+		return nil, err
+	}
 	switch opts.Kind {
 	case "", KindFlow:
 	case KindScript:
@@ -235,6 +246,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		defer rt.exec.end(id)
 		ctx = calls.reportStoreFailures(ctx)
 		req := engine.ScriptRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Around: rt.aroundAt()}
+		settled, release := rt.holdRunData(id, data, settled)
 		var s *engine.RunSettlement
 		if settled != nil {
 			// A script job has its own one invocation, which settles it.
@@ -243,6 +255,8 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		}
 		res, err := rt.eng.RunScript(ctx, req)
 		if err != nil {
+			// The job did not start, and never settles.
+			release()
 			return nil, err
 		}
 		out := &Result{ID: res.ID, Status: StatusSuccess, Result: storedText(res.Result), Warnings: calls.warned()}
@@ -307,6 +321,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	case extra != nil:
 		req.Hooks = extra
 	}
+	settled, release := rt.holdRunData(id, data, settled)
 	if settled != nil {
 		if req.Hooks == nil {
 			req.Hooks = engine.NoHooks{}
@@ -316,6 +331,8 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	ctx = calls.reportStoreFailures(ctx)
 	tr, err := rt.eng.Run(ctx, req)
 	if err != nil {
+		// The run did not start, and never settles.
+		release()
 		return nil, err
 	}
 	if h != nil {
@@ -529,4 +546,36 @@ func (x *recorder) released(inv string, _ []facade.Record) {
 	if in, ok := x.invs[inv]; ok && x.runs[in.run] == nil {
 		delete(x.invs, inv)
 	}
+}
+
+// runData returns a run's data (RunOptions.Data) as the frames carry it:
+// zero for none (nil, empty or JSON null), or an error for data that is
+// not JSON.
+func runData(data json.RawMessage) (jsonval.Value, error) {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || string(trimmed) == "null" {
+		return jsonval.Value{}, nil
+	}
+	if !json.Valid(trimmed) {
+		return jsonval.Value{}, errors.New("wl: the run's data is not JSON")
+	}
+	return jsonval.FromProducer(trimmed), nil
+}
+
+// holdRunData records run's data, if it has any, for the processes the run
+// uses, and returns the run's settled callback, which then also releases
+// the data, and release, which releases it at once for a run that did not
+// start. A run without data keeps settled as it is.
+func (rt *Runtime) holdRunData(run string, data jsonval.Value, settled func()) (func(), func()) {
+	if data.IsZero() {
+		return settled, func() {}
+	}
+	rt.runData.Set(run, data)
+	release := func() { rt.runData.Release(run) }
+	return func() {
+		release()
+		if settled != nil {
+			settled()
+		}
+	}, release
 }

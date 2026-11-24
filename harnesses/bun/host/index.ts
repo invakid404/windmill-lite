@@ -215,6 +215,12 @@ export type RunOptions = {
   /** The flow run's clock (H10): "record" returns every sleep and retry
    * delay at once, and the run's deviations then list H10. */
   clock?: "real" | "record";
+  /** The run's data (H11), any JSON value: the host plugin reads it as
+   * wl.run.data in its hooks and around wrappers, in this run's calls
+   * only, until the run has settled. Absent or null means none, and
+   * wl.run.data is then undefined. A value JSON.stringify cannot encode
+   * rejects the run with the error it throws. */
+  data?: unknown;
   /** Cancels the run when it aborts. */
   signal?: AbortSignal;
   /** Called once the run has settled, after its outcome: every invocation
@@ -1015,6 +1021,7 @@ async function connectOnce(o: ConnectOptions, held: { release?: () => void }): P
             fatal_error_names: opts.fatalErrorNames,
             ...budgets,
             clock: opts.clock,
+            run_data: opts.data === undefined ? undefined : JSON.stringify(opts.data),
           },
           opts.onSettled,
         );

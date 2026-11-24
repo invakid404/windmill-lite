@@ -1659,6 +1659,56 @@ func TestHostBundledPluginFetchOrder(t *testing.T) {
 	}
 }
 
+// runDataPlugin is a host plugin whose around wrapper of f/app/plain_flow
+// records what it reads as wl.run.data in globalThis.wlRunData, by run, and
+// whose intercept hook answers f/app/facade_flow with what it reads.
+const runDataPlugin = "const seen = ((globalThis as any).wlRunData ??= new Map());\n" +
+	"const read = () => (globalThis as any).wl.run.data ?? \"undefined\";\n" +
+	"export default {\n" +
+	"  around: [{ selector: { flow: \"f/app/plain_flow\", module: \"a\" }, fn: async (c: { run: string }, next: () => Promise<unknown>) => {\n" +
+	"    seen.set(c.run, read());\n" +
+	"    await next();\n" +
+	"  } }],\n" +
+	"  intercept: [{ selector: { flow: \"f/app/facade_flow\", module: \"a\" }, fn: () => ({ result: read() }) }],\n" +
+	"};\n"
+
+// TestHostRunData: in host mode, the data a host gives in its run options
+// reaches the host's bundled plugin as wl.run.data. Of three concurrent
+// runs, the around wrapper of each reads its own run's data, or undefined
+// for the run without; an intercept hook reads its run's data. Once every
+// run has settled, the host holds no run's data.
+func TestHostRunData(t *testing.T) {
+	bun := bunForTest(t)
+	srv := headerServer(t)
+	var r struct {
+		Around   []json.RawMessage
+		Statuses []string
+		Hook     json.RawMessage
+		Held     *int
+	}
+	runPluginHost(t, bun, &r, "WL_SCENARIO=run-data", "WL_URL="+srv.URL, "WL_BUNDLE="+pluginHostBundle(t, bun, runDataPlugin))
+	want := []string{`{"tenant":"a"}`, `{"tenant":"b"}`, `"undefined"`}
+	if len(r.Around) != len(want) {
+		t.Fatalf("around wrappers read %s, want %v", r.Around, want)
+	}
+	for i, w := range want {
+		if string(r.Around[i]) != w {
+			t.Errorf("run %d: the around wrapper read %s, want %s", i, r.Around[i], w)
+		}
+	}
+	if string(r.Hook) != `{"tenant":"c"}` {
+		t.Errorf("the intercept hook read %s, want {\"tenant\":\"c\"}", r.Hook)
+	}
+	for i, s := range r.Statuses {
+		if s != "success" {
+			t.Errorf("run %d: status %s", i, s)
+		}
+	}
+	if r.Held == nil || *r.Held != 0 {
+		t.Errorf("once every run has settled, the host holds %v runs' data, want 0", r.Held)
+	}
+}
+
 // reconnectReport is what the reconnect scenario prints: each flow's
 // result, the header its request carried, on each connection.
 type reconnectReport struct{ Plain, Native, PlainAgain, NativeAgain json.RawMessage }

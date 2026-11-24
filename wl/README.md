@@ -325,9 +325,10 @@ its own reason and canceler.
 | `PreWriteDeadline` | A deadline that applies until the run's first write is approved ([Budgets](#budgets)) | None |
 | `Clock` | The clock of every sleep and retry delay: `wl.RealClock`, or a `*wl.RecordClock` that returns each wait at once | The real clock |
 | `Jitter` | The source of the retry jitter. `SeededJitter(seed)` fixes it. | One seeded with `Seed` |
+| `Data` | The run's data, any JSON value, which the host plugin reads as `wl.run.data` ([Host plugins](#host-plugins)). JSON null means none, and data that is not JSON refuses the run. | None |
 
-A script run uses only `Kind` and `ID`. The other fields apply to flow
-runs.
+A script run uses only `Kind`, `ID` and `Data`. The other fields apply to
+flow runs.
 
 ### Result
 
@@ -598,6 +599,11 @@ to write one.
   error names too.
 - A plugin's `around` wrappers run a step inside them, in the step's
   invocation; the Bun harness README describes them.
+- **Run data.** The plugin's hooks and `around` wrappers read a run's
+  `RunOptions.Data` as `wl.run.data`, frozen; step code reads `undefined`.
+  The data reaches each process that the run uses with the run's first
+  frame there, and the process drops it once the run has settled. In host
+  mode it is the `data` run option of the host's `run`.
 - A plugin's `resource` and `variable` answer after the run's own
   platform data and before the runtime's.
 - A failed `onRunEnd` adds a `plugin_error` warning, and a failed
@@ -786,6 +792,7 @@ build helper's dependencies, and skip without them unless
 | `outside_test.go` | A bundle whose host contract lists two modules outside the [sync folder](../docs/glossary.md#sync-folder), without a host | Yes |
 | `plugincases_test.go` | The cases of `conformance/plugins/hooks.yaml`, through the TypeScript case plugin, named by `Options.Plugin` and built into the bundle, and through Go callbacks built from the same plugins | Yes |
 | `bundledplugin_test.go` | A bundle's own plugin. Its `around` wrapper and the step share a host-provided module in 16 concurrent runs (`TestBundledPluginSharesHostModule`), and a bundle with no step starts processes for it (`TestBundledPluginWithoutSteps`). `Open` refuses it with `Options.Plugin` and in `fresh` (`TestOpenRefusesTwoPlugins`), and refuses a manifest that names a module outside the bundle (`TestOpenRefusesUnverifiedPlugin`). A `fetch` wrapper it installs at load reaches an ordinary step and not a native one (`TestPluginFetchWrapperOrder`) | Yes |
+| `rundata_test.go` | `RunOptions.Data`: in one fresh process, an `around`-only plugin's wrappers read their own run's data in three concurrent runs, and the step reads `undefined` (`TestRunDataAroundOnly`). A hook reads it, frozen, as the run's first frame (`TestRunDataHook`). The process holds it until a flow run or a script job settles, and a run that does not start, or whose data is not JSON, keeps none (`TestRunDataReleased`, `TestRunDataRefusesInvalid`). A process without a plugin gets none (`TestRunDataNeedsPlugin`). | Yes |
 | `store_test.go` | `Options.ResourceStore` on real steps (`TestResourceStoreOnBun`): two runtimes that share a memory store, one with its own, a failing store's warning, and `D24` in the trace; a run id in flight refused (`TestRunIDInFlight`). Without Bun: `Close` releasing its own store while readers use it (`TestCloseReleasesItsOwnStore`), and a late answer kept from a later run of the same id (`TestLateAnswerAcrossIDReuse`) | Yes, but for the last two |
 | `pool_test.go` | `Options.Pool`. Without Bun: `Open`'s refusals in `fresh` and host mode (`TestPoolOptionsRefusedFresh`) and of `MaxLive` below `Max` (`TestPoolMaxLiveBelowMax`), and the cap's entry in the trace. On real steps: a second process for a step beside a CPU-bound one and under `Cap`, the module and RSS triggers (`TestWlPoolOptions`), and the warm start (`TestWarmStart`). A step reads a plugin's resource under `Cap: 1` (`TestPoolCapLeavesPluginCalls`) and while its process leaves (`TestPoolRecyclingProcessServesPluginCalls`); zero settings call the diagnostics writer as before (`TestDiagnosticsZeroSettings`) | Yes, but for the refusals and the trace |
 | `foreign_test.go` | `ForeignWindmillOrigins` in the welcome, and its refusals (`TestForeignWindmillOrigins`). The stock client's and a native step's dispatch to two loopback servers that stand in for real Windmill instances, in `warm` and `fresh`, with and without the option (`TestForeignWindmillLinks`, on the cases of `testdata/foreign/cases.json`). That test also needs `WL_WINDMILL_CLIENT`. | Yes, but for the first |
