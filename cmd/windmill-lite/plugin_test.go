@@ -919,33 +919,46 @@ func TestPluginConfigRefusals(t *testing.T) {
 }
 
 // TestPluginDispatchedID checks that the id of a run that a step dispatched
-// refuses a run until that run ends (ADR 0009, runs that do not start): a
-// script dispatches the flow f/plugin/gate to start 5 s later, and returns
-// its id. A request with that id is refused with ALREADY_EXISTS and the
-// RUN_NOT_STARTED detail while the dispatched run waits for its start, and
-// again once its step, which signals its entry and waits for the test's
-// release, runs. The dispatched run then goes on to its end.
+// refuses a run until that run ends (ADR 0009, runs that do not start).
+//
+//   - Before the dispatched run starts: a script dispatches the flow
+//     f/plugin/gate to start in a day, so the dispatcher holds it, before
+//     its job exists, for longer than the test may run (its deadline is
+//     checked). A request with its id is refused with ALREADY_EXISTS and the
+//     RUN_NOT_STARTED detail.
+//   - While it runs and after: another dispatch starts the flow at once. A
+//     request with its id is refused while its step, which signals its entry
+//     and waits for the test's release, runs; released, the run goes on to
+//     its end.
 func TestPluginDispatchedID(t *testing.T) {
 	bun, out := pluginBundle(t)
 	e := launchPlugin(t, pluginConfigOf(t, bun, out))
+	dispatch := func(dir string, delay int) string {
+		t.Helper()
+		args, err := json.Marshal(map[string]any{"dir": dir, "delay": delay})
+		if err != nil {
+			t.Fatal(err)
+		}
+		res := e.mustRun(t, &plugin.RunRequest{Kind: "script", Path: "f/plugin/dispatch", Args: args})
+		var id string
+		if err := json.Unmarshal(res.GetResult(), &id); err != nil || res.GetStatus() != "success" || id == "" {
+			t.Fatalf("the dispatch: %s %s (%v)", res.GetStatus(), res.GetResult(), err)
+		}
+		return id
+	}
+
+	const day = 24 * 60 * 60
+	if dl, ok := t.Deadline(); !ok || time.Until(dl) >= day*time.Second {
+		t.Fatalf("the test may run past the held run's start in %d s (deadline %v, %t): run it with a -timeout under a day", day, dl, ok)
+	}
+	held := dispatch(t.TempDir(), day)
+	_, err := e.run(&plugin.RunRequest{Id: held, Path: "f/plugin/echo", Args: []byte(`{"x":1}`)})
+	checkRefused(t, "a run with the id of a dispatched run that waits for its start", err, codes.AlreadyExists, held)
+
 	dir := t.TempDir()
-	args, err := json.Marshal(map[string]any{"dir": dir, "delay": 5})
-	if err != nil {
-		t.Fatal(err)
-	}
-	res := e.mustRun(t, &plugin.RunRequest{Kind: "script", Path: "f/plugin/dispatch", Args: args})
-	var child string
-	if err := json.Unmarshal(res.GetResult(), &child); err != nil || res.GetStatus() != "success" || child == "" {
-		t.Fatalf("the dispatch: %s %s (%v)", res.GetStatus(), res.GetResult(), err)
-	}
-	same := &plugin.RunRequest{Id: child, Path: "f/plugin/echo", Args: []byte(`{"x":1}`)}
-	_, err = e.run(same)
-	if _, statErr := os.Stat(filepath.Join(dir, "entered")); statErr == nil {
-		t.Fatal("the dispatched run started before the request with its id: the wait for its start was not exercised")
-	}
-	checkRefused(t, "a run with the id of a dispatched run that waits for its start", err, codes.AlreadyExists, child)
+	child := dispatch(dir, 0)
 	waitFile(t, dir, "entered")
-	_, err = e.run(same)
+	_, err = e.run(&plugin.RunRequest{Id: child, Path: "f/plugin/echo", Args: []byte(`{"x":1}`)})
 	checkRefused(t, "a run with the id of a dispatched run in its step", err, codes.AlreadyExists, child)
 	release(t, dir)
 	waitFile(t, dir, "left")

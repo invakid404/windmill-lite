@@ -127,8 +127,8 @@ func (s *Server) Run(ctx context.Context, req *plugin.RunRequest) (*plugin.RunRe
 	if r.intercept != nil {
 		ctx = wlext.WithStaticIntercepts(ctx, r.intercept)
 	}
-	// The id of a live job of the runtime, such as a run that a step
-	// dispatched, refuses the run too.
+	// The id of a run that a step dispatched refuses the run too, from
+	// before the dispatch returned it until that run ends.
 	ctx = wlext.WithExclusiveID(ctx)
 	res, err := s.rt.Run(ctx, req.GetPath(), req.GetArgs(), r.opts)
 	if err != nil {
