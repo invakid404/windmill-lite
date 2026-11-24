@@ -249,10 +249,12 @@ Two further rules complete it:
     request outside every invocation. So only an `around` wrapper's calls,
     made in the invocation, reach the facade. Giving plugin calls the
     site's identity is planned.
-  - **Step code** has `wl.latch` and `wl.signal` (on `globalThis`,
-    [harness protocol](0004-harness-protocol.md#host-plugins)). A step's
-    latch latches its run, a script job's included. Its signal is the
-    invocation's, which aborts when the engine abandons the step.
+  - **Step code** has `wl.latch`, `wl.signal` and `wl.reserve` (on
+    `globalThis`, [harness protocol](0004-harness-protocol.md#host-plugins)).
+    A step's latch latches its run, a script job's included. Its signal
+    is the invocation's, which aborts when the engine abandons the step.
+    Its reservations draw on the run's byte budget
+    ([pooling](0004-harness-protocol.md#pooling-processes-the-engine-spawns)).
   - **No signal for plugin hooks.** A hook runs outside every invocation,
     and the run's end only stops the engine waiting for it.
   - **Settlement.** A hook holds the run's settlement from the moment it

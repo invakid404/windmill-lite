@@ -1,0 +1,318 @@
+{
+  "observation": {
+    "status": "success",
+    "result": [
+      1,
+      {
+        "a": {
+          "maybe": {
+            "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":{\"k\": [1, 2.5]}}",
+            "type": "application/json",
+            "status": 200
+          },
+          "result": {
+            "body": "{\"k\": [1, 2.5]}",
+            "type": "application/json",
+            "status": 200
+          },
+          "started": {
+            "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":{\"k\": [1, 2.5]}}",
+            "type": "application/json",
+            "status": 200
+          }
+        },
+        "c": {
+          "maybe": {
+            "body": "{\"started\":true,\"success\":false,\"completed\":true,\"result\":{\"error\": {\"name\": \"Error\", \"stack\": \"(stack)\", \"job_id\": \"<job:m:c/m:x>\", \"message\": \"e\", \"step_id\": \"x\", \"flow_path\": \"f/wl_rp/fails\"}}}",
+            "type": "application/json",
+            "status": 200
+          },
+          "result": {
+            "body": "{\"error\": {\"name\": \"Error\", \"stack\": \"(stack)\", \"job_id\": \"<job:m:c/m:x>\", \"message\": \"e\", \"step_id\": \"x\", \"flow_path\": \"f/wl_rp/fails\"}}",
+            "type": "application/json",
+            "status": 200
+          },
+          "started": {
+            "body": "{\"started\":true,\"success\":false,\"completed\":true,\"result\":{\"error\": {\"name\": \"Error\", \"stack\": \"(stack)\", \"job_id\": \"<job:m:c/m:x>\", \"message\": \"e\", \"step_id\": \"x\", \"flow_path\": \"f/wl_rp/fails\"}}}",
+            "type": "application/json",
+            "status": 200
+          }
+        },
+        "w": {
+          "maybe": {
+            "body": "{\"started\":null,\"success\":null,\"completed\":false,\"result\":null}",
+            "type": "application/json",
+            "status": 200
+          },
+          "result": {
+            "body": "Not found: Completed Job not found at name <job:m:p/b:0/m:w>",
+            "type": "text/plain",
+            "status": 404
+          },
+          "started": {
+            "body": "{\"started\":true,\"success\":null,\"completed\":false,\"result\":null}",
+            "type": "application/json",
+            "status": 200
+          }
+        }
+      }
+    ],
+    "steps": {
+      "m:a": {
+        "status": "success",
+        "args": {},
+        "result": {
+          "k": [
+            1,
+            2.5
+          ]
+        }
+      },
+      "m:c": {
+        "status": "failure",
+        "args": {},
+        "result": {
+          "error": {
+            "name": "Error",
+            "stack": "<stack>",
+            "job_id": "<job:m:c/m:x>",
+            "message": "e",
+            "step_id": "x",
+            "flow_path": "f/wl_rp/fails"
+          }
+        }
+      },
+      "m:c/m:x": {
+        "status": "failure",
+        "args": {},
+        "result": {
+          "error": {
+            "name": "Error",
+            "stack": "<stack>",
+            "job_id": "<job:m:c/m:x>",
+            "message": "e",
+            "step_id": "x",
+            "flow_path": "f/wl_rp/fails"
+          }
+        }
+      },
+      "m:p": {
+        "status": "success",
+        "result": [
+          1,
+          {
+            "a": {
+              "maybe": {
+                "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":{\"k\": [1, 2.5]}}",
+                "type": "application/json",
+                "status": 200
+              },
+              "result": {
+                "body": "{\"k\": [1, 2.5]}",
+                "type": "application/json",
+                "status": 200
+              },
+              "started": {
+                "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":{\"k\": [1, 2.5]}}",
+                "type": "application/json",
+                "status": 200
+              }
+            },
+            "c": {
+              "maybe": {
+                "body": "{\"started\":true,\"success\":false,\"completed\":true,\"result\":{\"error\": {\"name\": \"Error\", \"stack\": \"(stack)\", \"job_id\": \"<job:m:c/m:x>\", \"message\": \"e\", \"step_id\": \"x\", \"flow_path\": \"f/wl_rp/fails\"}}}",
+                "type": "application/json",
+                "status": 200
+              },
+              "result": {
+                "body": "{\"error\": {\"name\": \"Error\", \"stack\": \"(stack)\", \"job_id\": \"<job:m:c/m:x>\", \"message\": \"e\", \"step_id\": \"x\", \"flow_path\": \"f/wl_rp/fails\"}}",
+                "type": "application/json",
+                "status": 200
+              },
+              "started": {
+                "body": "{\"started\":true,\"success\":false,\"completed\":true,\"result\":{\"error\": {\"name\": \"Error\", \"stack\": \"(stack)\", \"job_id\": \"<job:m:c/m:x>\", \"message\": \"e\", \"step_id\": \"x\", \"flow_path\": \"f/wl_rp/fails\"}}}",
+                "type": "application/json",
+                "status": 200
+              }
+            },
+            "w": {
+              "maybe": {
+                "body": "{\"started\":null,\"success\":null,\"completed\":false,\"result\":null}",
+                "type": "application/json",
+                "status": 200
+              },
+              "result": {
+                "body": "Not found: Completed Job not found at name <job:m:p/b:0/m:w>",
+                "type": "text/plain",
+                "status": 404
+              },
+              "started": {
+                "body": "{\"started\":true,\"success\":null,\"completed\":false,\"result\":null}",
+                "type": "application/json",
+                "status": 200
+              }
+            }
+          }
+        ]
+      },
+      "m:p/b:0/m:w": {
+        "status": "success",
+        "args": {},
+        "result": 1
+      },
+      "m:p/b:1/m:d": {
+        "status": "success",
+        "args": {},
+        "result": {
+          "a": {
+            "maybe": {
+              "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":{\"k\": [1, 2.5]}}",
+              "type": "application/json",
+              "status": 200
+            },
+            "result": {
+              "body": "{\"k\": [1, 2.5]}",
+              "type": "application/json",
+              "status": 200
+            },
+            "started": {
+              "body": "{\"started\":true,\"success\":true,\"completed\":true,\"result\":{\"k\": [1, 2.5]}}",
+              "type": "application/json",
+              "status": 200
+            }
+          },
+          "c": {
+            "maybe": {
+              "body": "{\"started\":true,\"success\":false,\"completed\":true,\"result\":{\"error\": {\"name\": \"Error\", \"stack\": \"(stack)\", \"job_id\": \"<job:m:c/m:x>\", \"message\": \"e\", \"step_id\": \"x\", \"flow_path\": \"f/wl_rp/fails\"}}}",
+              "type": "application/json",
+              "status": 200
+            },
+            "result": {
+              "body": "{\"error\": {\"name\": \"Error\", \"stack\": \"(stack)\", \"job_id\": \"<job:m:c/m:x>\", \"message\": \"e\", \"step_id\": \"x\", \"flow_path\": \"f/wl_rp/fails\"}}",
+              "type": "application/json",
+              "status": 200
+            },
+            "started": {
+              "body": "{\"started\":true,\"success\":false,\"completed\":true,\"result\":{\"error\": {\"name\": \"Error\", \"stack\": \"(stack)\", \"job_id\": \"<job:m:c/m:x>\", \"message\": \"e\", \"step_id\": \"x\", \"flow_path\": \"f/wl_rp/fails\"}}}",
+              "type": "application/json",
+              "status": 200
+            }
+          },
+          "w": {
+            "maybe": {
+              "body": "{\"started\":null,\"success\":null,\"completed\":false,\"result\":null}",
+              "type": "application/json",
+              "status": 200
+            },
+            "result": {
+              "body": "Not found: Completed Job not found at name <job:m:p/b:0/m:w>",
+              "type": "text/plain",
+              "status": 404
+            },
+            "started": {
+              "body": "{\"started\":true,\"success\":null,\"completed\":false,\"result\":null}",
+              "type": "application/json",
+              "status": 200
+            }
+          }
+        }
+      }
+    }
+  },
+  "provenance": {
+    "oracle": {
+      "version": "CE v1.862.0",
+      "image": "ghcr.io/windmill-labs/windmill:1.862.0@sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_id": "sha256:dcb1d1541b8f97db5b01efa83bfe152ce07ccb35c7af5e480d38be48e3707c19",
+      "image_revision": "120415af151593716d39140c8a7d7f3bbe9d99cf",
+      "postgres_image": "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "postgres_image_id": "sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab",
+      "cli": "windmill-cli@1.862.0",
+      "cli_version_output": "CLI version: 1.862.0\nCLI is outdated. Latest version 1.882.0 is available. Run `wmill upgrade` to update."
+    },
+    "harness": {
+      "name": "wltest",
+      "version": "v0.0.0-20261124025040-2bf7c1cde32c",
+      "revision": "2bf7c1cde32c8156b6102cd22f2b85666eb62351",
+      "go": "go1.27.3"
+    },
+    "host": {
+      "os": "linux",
+      "arch": "amd64",
+      "docker_arch": "amd64",
+      "ci": "github-actions",
+      "run_url": "https://github.com/invakid404/windmill-lite/actions/runs/45315316830"
+    },
+    "recorded_at": "2026-11-24T02:54:00Z",
+    "workers": 2,
+    "env": {
+      "BASE_URL": "http://localhost:8000",
+      "LISTEN_NEW_EVENTS_INTERVAL_SEC": "10",
+      "MODE": "standalone",
+      "WHITELIST_ENVS": "WL_EFFECT_SINK",
+      "WL_EFFECT_SINK": "http://host.docker.internal:33129"
+    },
+    "repeats": 2,
+    "timings": {
+      "submit_to_complete_ms": 696,
+      "jobs": {
+        "": {
+          "kind": "flow",
+          "created_at": "2026-11-24T02:54:00.042571Z",
+          "started_at": "2026-11-24T02:54:00.109022Z",
+          "completed_at": "2026-11-24T02:54:00.647302Z",
+          "duration_ms": 538
+        },
+        "m:a": {
+          "kind": "flowscript",
+          "created_at": "2026-11-24T02:54:00.115339Z",
+          "started_at": "2026-11-24T02:54:00.129151Z",
+          "completed_at": "2026-11-24T02:54:00.181622Z",
+          "duration_ms": 45
+        },
+        "m:c": {
+          "kind": "flow",
+          "created_at": "2026-11-24T02:54:00.193451Z",
+          "started_at": "2026-11-24T02:54:00.198492Z",
+          "completed_at": "2026-11-24T02:54:00.317975Z",
+          "duration_ms": 119
+        },
+        "m:c/m:x": {
+          "kind": "flowscript",
+          "created_at": "2026-11-24T02:54:00.214815Z",
+          "started_at": "2026-11-24T02:54:00.224233Z",
+          "completed_at": "2026-11-24T02:54:00.309603Z",
+          "duration_ms": 85
+        },
+        "m:p/b:0": {
+          "kind": "flowpreview",
+          "created_at": "2026-11-24T02:54:00.329085Z",
+          "started_at": "2026-11-24T02:54:00.371453Z",
+          "completed_at": "2026-11-24T02:54:00.636672Z",
+          "duration_ms": 265
+        },
+        "m:p/b:0/m:w": {
+          "kind": "flowscript",
+          "created_at": "2026-11-24T02:54:00.385445Z",
+          "started_at": "2026-11-24T02:54:00.404181Z",
+          "completed_at": "2026-11-24T02:54:00.629545Z",
+          "duration_ms": 218
+        },
+        "m:p/b:1": {
+          "kind": "flowpreview",
+          "created_at": "2026-11-24T02:54:00.329085Z",
+          "started_at": "2026-11-24T02:54:00.391263Z",
+          "completed_at": "2026-11-24T02:54:00.599624Z",
+          "duration_ms": 208
+        },
+        "m:p/b:1/m:d": {
+          "kind": "flowscript",
+          "created_at": "2026-11-24T02:54:00.398128Z",
+          "started_at": "2026-11-24T02:54:00.401845Z",
+          "completed_at": "2026-11-24T02:54:00.594114Z",
+          "duration_ms": 186
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+summary: result polls, a sub-flow whose only step fails
+value:
+  modules:
+    - id: x
+      value:
+        type: rawscript
+        content: '!inline x.ts'
+        input_transforms: {}
+        lock: '!inline x.lock'
+        language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

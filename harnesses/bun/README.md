@@ -116,9 +116,17 @@ The runtime sets `wl` on `globalThis` for step code:
   `error`, after the step's result.
 - `wl.signal()` is the invocation's abort signal, which aborts when the
   engine cancels the invocation.
+- `wl.reserve(bytes)` reserves `bytes` of the run's byte budget and the
+  runtime's total, which the engine keeps across processes: it resolves
+  once they are reserved, and rejects with a `RangeError` when they do
+  not fit. What an invocation reserves returns when it settles. Only an
+  `invoke` with `budget` makes it send `reserve` frames; without one it
+  takes nothing and resolves at once.
 
-Both throw a `TypeError` outside an open invocation. A step cannot replace
-`wl`, and a native step has none. `wl.run.data` is for host plugins
+All three throw a `TypeError` outside an open invocation (`wl.reserve`
+rejects with it). An `around` wrapper runs inside its step's invocation,
+so it can call them too. A step cannot replace `wl`, and a native step
+has none. `wl.run.data` is for host plugins
 ([Host plugins](#host-plugins)): step code reads `undefined`.
 
 #### The process scope
@@ -275,7 +283,8 @@ shape with `bundle` ([Errors and refusals](#errors-and-refusals)):
 4. It extracts the bundle's codebase assets into `workdir` (`assets`).
 5. It starts the engine as `<engine> host --bundle <bundle> --workdir
    <workdir> --kill-after <ms>ms`, then `-read-cache`, `-skip-args-file`,
-   a `-foreign-windmill` flag for each origin, and `engineFlags`, as the
+   `-result-polls-for-all-jobs`, a `-foreign-windmill` flag for each
+   origin, and `engineFlags`, as the
    options ask (`engine_start`). The
    [`host` command](../../cmd/windmill-lite/README.md#host) describes
    those flags. For a bundle with a plugin of its own, it first runs the
@@ -319,6 +328,7 @@ sees them.
 | `resourceStore` | `{ kind: "memory" }` or `{ kind: "redis"; url: string; prefix?: string; allowEviction?: boolean }` | `{ kind: "memory" }` | The store of the resources that steps write through the job API, such as the stock client's state ([The resource store](#the-resource-store)). Available from version 0.4.0. |
 | `skipArgsFile` | `boolean` | `false` | States that the host's own code, its plugin included, never reads `args.json`. For a bundle none of whose scripts can read it, the engine then writes none. |
 | `foreignWindmillOrigins` | `string[]` | None | The origins of real Windmill instances that the host's steps call through their own client, such as `https://windmill.example.com`. A step's dispatch to one of them loses its links to the step's own job ids ([wl](../../wl/README.md#job-ids-on-a-real-windmill)). `connect()` refuses a value with user information, a query or a fragment (`options`) before it starts the engine, and the engine refuses the host with `engine_refused` when a value is not an origin that `wl` accepts. Neither message repeats the value. |
+| `resultPollsForAllJobs` | `boolean` | `false` | A step's result polls answer for every job of a live run that its job read answers for, as Windmill answers them, and not only for the runs that the host's steps dispatched (`ResultPollsForAllJobs` in [wl](../../wl/README.md#options)). The engine gets it as `-result-polls-for-all-jobs`. |
 | `recycle` | `{ rss?: number; samples?: number; modules?: number; retired?: { max: number; count: () => number } }` | None | Recycle triggers ([Recycle a host](#recycle-a-host)) |
 | `onRecycle` | `(reason: string) => void` | None | Called once, with the first trigger that trips |
 | `collect` | `{ rss: number; cooldown?: number; policy?: "idle" \| "heartbeat"; quiet?: number }` | None | A full garbage collection at a soft mark on the resident set ([Collect garbage](#collect-garbage)). Available from version 0.3.0. |

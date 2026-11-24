@@ -98,9 +98,11 @@ function hostRuntime(plugin?: Plugin) {
   const runtime = new Runtime({ bundleDir: "/nonexistent", bundleDigest: "sha256:b", host: true, plugin, transport: { write: (b) => (written.push(b.slice()), b.length), end: () => {} }, exit: () => {} });
   runtime.start();
   const send = (m: Record<string, unknown>) => runtime.onData(frame(encode(m as { t: string })));
+  // A frame as a peer may write it, not through the canonical encoder.
+  const sendRaw = (text: string) => runtime.onData(frame(new TextEncoder().encode(text)));
   send({ t: "welcome", proto: 1, engine: "test", bundle: "sha256:b", config: { module_state: "warm", heartbeat_ms: 60000, max_message: 1 << 20 } });
   const messages = () => decodeAll(new FrameReader().push(Buffer.concat(written)));
-  return { runtime, send, messages };
+  return { runtime, send, sendRaw, messages };
 }
 
 /** What plugin code reads as wl.run.data here. */
@@ -215,6 +217,50 @@ describe("the runtime", () => {
     expect(later).toBeUndefined();
   });
 
+  test("wl.reserve resolves on a reserve_reply without refused, an empty one included, and rejects with its refusal", async () => {
+    const outcomes: string[] = [];
+    const { runtime, send, sendRaw, messages } = hostRuntime({
+      around: [
+        {
+          selector: { flow: "f/x", module: "a" },
+          fn: async (_c, next) => {
+            const wl = (globalThis as unknown as { wl: { reserve(n: number): Promise<void> } }).wl;
+            outcomes.push(await wl.reserve(10).then(() => "ok", (e: Error) => `${e.name}: ${e.message}`));
+            return next();
+          },
+        },
+      ],
+    });
+    const invoke = (id: string, budget?: boolean) =>
+      send({ t: "invoke", id, run: "r", site: "m:a", script: "f/x/a", entry: "main", args: {}, env: {}, boundary: "bun", around: [0], budget });
+    const reserveOf = async (inv: string) => {
+      for (let i = 0; i < 200; i++) {
+        const r = messages().find((m) => m.t === "reserve" && m.inv === inv);
+        if (r) return r;
+        await Bun.sleep(5);
+      }
+      throw new Error(`no reserve frame from ${inv}`);
+    };
+    const settled = async (n: number) => {
+      for (let i = 0; i < 200 && outcomes.length < n; i++) await Bun.sleep(5);
+    };
+    invoke("i1", true);
+    const r1 = await reserveOf("i1");
+    expect(r1).toEqual({ t: "reserve", id: r1.id, inv: "i1", bytes: 10 });
+    // An explicit empty refused, which the canonical encoder would leave
+    // out, as a peer may still write it.
+    sendRaw(`{"t":"reserve_reply","id":${JSON.stringify(r1.id)},"refused":""}`);
+    await settled(1);
+    invoke("i2", true);
+    send({ t: "reserve_reply", id: (await reserveOf("i2")).id, refused: "no room" });
+    await settled(2);
+    // Without budget the step reserves nothing, and sends no frame.
+    invoke("i3");
+    await settled(3);
+    expect(outcomes).toEqual(["ok", "RangeError: no room", "ok"]);
+    expect(messages().filter((m) => m.t === "reserve").length).toBe(2);
+    runtime.onClose();
+  });
   test("answers unknown_hook when it loaded no plugin, and plugin_error when the hook throws", async () => {
     const plain = hostRuntime();
     plain.send({ t: "host_call", id: "hc1", hook: "intercept", run: "r", site: "", payload: {} });

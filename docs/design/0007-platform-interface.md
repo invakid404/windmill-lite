@@ -24,8 +24,6 @@ default `fail` policy a step that called an unsupported route fails with
 - the job routes other than the root lookup, the job reads, flow user
   state, dispatch, the result polls and the flow restart, which answer 501
   too;
-- the option that makes the result polls answer for a job of a live run
-  that the dispatcher did not start (§Services);
 - the settings of the job identity in `wl` and in the go-plugin adapter,
   and a workspace per run (§Job identity).
 
@@ -92,17 +90,23 @@ as a subflow's flow job whose id it took from its flow's status:
   a failure, a flow with a preprocessor module, and a flow whose provided
   site waits for a sleep or a retry delay.
 - The result polls (`jobs_u/completed/get_result_maybe/{id}` and
-  `get_result/{id}`) answer only for the runs that the dispatcher started.
-  For another job that the job registry knows in the caller's workspace
-  they answer 501, and for an id that it does not know, Windmill's answer
-  for a job with no row.
-- A runtime option is planned to make the result polls answer for every
-  job of a live run that the job read answers for, from the run registry,
-  with the shapes of [WA-V2](../semantics/client-api.md#wa-v2) and
-  [WA-19](../semantics/client-api.md#wa-19). A job of an ended run then
-  answers as the job read does
-  ([D22](0001-equivalence-contract.md#5-named-deviations)), and the 501s
-  stay the default.
+  `get_result/{id}`) answer for the runs that the dispatcher started. By
+  default, another job that the job registry knows in the caller's
+  workspace answers 501, and an id that it does not know answers as
+  Windmill answers for a job with no row.
+- The runtime option `ResultPollsForAllJobs`, off by default, makes the
+  result polls answer for every job of a live run that the job read
+  answers for, from the run that holds the job, with the shapes of
+  [WA-V2](../semantics/client-api.md#wa-v2) and
+  [WA-19](../semantics/client-api.md#wa-19).
+- The oracle recorded these answers (fixture
+  `conformance/flows/client-api/result-polls`): a completed job's success,
+  and its whole result in `jsonb`'s text output inside the compact answer;
+  for a job that has not completed, the unfinished answer and
+  `get_result`'s 404. A job that the job read does not serve answers its
+  501, and a job of an ended run answers as the job read does, a
+  [named deviation](0001-equivalence-contract.md#5-named-deviations). The
+  dispatcher still answers the runs that it started.
 - A provided site has no job, so a step that reads its outcome gets it
   from a provider too
   ([host hooks](0008-host-hooks.md#patterns-built-from-the-hooks)).
@@ -627,18 +631,18 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     with `UnsupportedPlatformCall`, `dispatch target not in bundle:
     <path>`, as
     [§5a of the equivalence contract](0001-equivalence-contract.md#5a-restrictions)
-    says. A result
-    poll whose id is not a UUID answers the web framework's `400` (Request
-    extraction, below), so a `waitJob` handed the refusal's body as an id
-    fails at once. A UUID that names no job
-    answers WA-V2's shapes; a windmill-lite job the dispatcher did not
-    start answers the polls with a 501, since the result polls answer
-    only for dispatched runs.
+    says.
+  - **The polls around it.** A result poll whose id is not a UUID answers
+    the web framework's `400` (Request extraction, below), so a `waitJob`
+    handed the refusal's body as an id fails at once. A UUID that names no
+    job answers WA-V2's shapes. By default, a windmill-lite job that the
+    dispatcher did not start answers the polls with a 501 (§Services).
   - **Not yet:** deletion, generated keys and presigning in the object
     store are `later`. So are the job routes other than the root lookup,
-    the job reads (below), flow user state, dispatch, the result polls of
-    dispatched runs and the flow restart. The flow restart answers
-    CE's `400`, since restarting a flow is `EE`.
+    the job reads (below), flow user state, dispatch, the result polls and
+    the flow restart. By default the result polls answer only for
+    dispatched runs (§Services). The flow restart answers CE's `400`,
+    since restarting a flow is `EE`.
 
 - The result cache ([internal/platform](../../internal/platform/README.md),
   the engine's use of it in [internal/engine](../../internal/engine/README.md))

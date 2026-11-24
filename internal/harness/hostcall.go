@@ -50,14 +50,22 @@ func (e *LateHostCallError) Unwrap() error { return e.Err }
 // reply is a *HostCallError. The run's data that ctx carries (RunData)
 // goes with the call.
 func (p *Process) HostCall(ctx context.Context, hook, run, site string, payload jsonval.Value) (jsonval.Value, error) {
+	out, _, err := p.hostCall(ctx, hook, run, site, payload)
+	return out, err
+}
+
+// hostCall is HostCall, which also reports whether the call was sent: once
+// it is, the plugin may have begun to run the hook, whatever then ends the
+// call, the harness's exit included.
+func (p *Process) hostCall(ctx context.Context, hook, run, site string, payload jsonval.Value) (jsonval.Value, bool, error) {
 	if p.Hello().Plugin.IsZero() {
-		return jsonval.Value{}, ErrNoPlugin
+		return jsonval.Value{}, false, ErrNoPlugin
 	}
 	reply := make(chan HostReply, 1)
 	p.mu.Lock()
 	if p.state != stateServing && p.state != stateDraining || p.ending {
 		p.mu.Unlock()
-		return jsonval.Value{}, errUnavailable
+		return jsonval.Value{}, false, errUnavailable
 	}
 	p.hostCallSeq++
 	id := "hc" + strconv.FormatUint(p.hostCallSeq, 10)
@@ -75,14 +83,14 @@ func (p *Process) HostCall(ctx context.Context, hook, run, site string, payload 
 	rd := RunDataOf(ctx).take(p)
 	if err := p.conn.sendPlaced(HostCall{ID: id, Hook: hook, Run: run, Site: site, Payload: payload, RunDataID: rd.id, RunData: rd.data}, rd.placedFunc()); err != nil {
 		forget()
-		return jsonval.Value{}, fmt.Errorf("harness: host_call %s: %w", hook, err)
+		return jsonval.Value{}, false, fmt.Errorf("harness: host_call %s: %w", hook, err)
 	}
 	select {
 	case r := <-reply:
 		if r.Error != nil {
-			return jsonval.Value{}, &HostCallError{Hook: hook, Code: r.Error.Code, Message: r.Error.Message}
+			return jsonval.Value{}, true, &HostCallError{Hook: hook, Code: r.Error.Code, Message: r.Error.Message}
 		}
-		return r.Payload, nil
+		return r.Payload, true, nil
 	case <-ctx.Done():
 		// The call is remembered until its reply comes, however many
 		// others ended meanwhile, so that the reply is told apart from one
@@ -108,13 +116,13 @@ func (p *Process) HostCall(ctx context.Context, hook, run, site string, payload 
 			}
 			close(done)
 		}()
-		return jsonval.Value{}, &LateHostCallError{Err: context.Cause(ctx), Done: done}
+		return jsonval.Value{}, true, &LateHostCallError{Err: context.Cause(ctx), Done: done}
 	case <-p.exited:
 		forget()
 		if p.host != nil {
-			return jsonval.Value{}, ErrHostLost
+			return jsonval.Value{}, true, ErrHostLost
 		}
-		return jsonval.Value{}, fmt.Errorf("harness: host_call %s: the harness exited (%s)", hook, p.ExitStatus())
+		return jsonval.Value{}, true, fmt.Errorf("harness: host_call %s: the harness exited (%s)", hook, p.ExitStatus())
 	}
 }
 
@@ -143,13 +151,13 @@ func (pl *Pool) HostCall(ctx context.Context, hook, run, site string, payload js
 		return jsonval.Value{}, errors.New("harness: a fresh pool has no process to ask a host plugin")
 	}
 	for {
-		m, err := pl.acquire(ctx, run, false)
+		m, pn, err := pl.acquire(ctx, run, false)
 		if err != nil {
 			return jsonval.Value{}, err
 		}
-		out, err := m.p.HostCall(ctx, hook, run, site, payload)
+		out, sent, err := m.p.hostCall(ctx, hook, run, site, payload)
 		unavailable := errors.Is(err, errUnavailable)
-		pl.release(m, unavailable, false, "")
+		pl.release(m, pn, sent, unavailable, false, "")
 		if unavailable {
 			continue
 		}
@@ -164,10 +172,10 @@ func (pl *Pool) Plugin(ctx context.Context) (jsonval.Value, error) {
 	if pl.isFresh() {
 		return jsonval.Value{}, nil
 	}
-	m, err := pl.acquire(ctx, "", false)
+	m, _, err := pl.acquire(ctx, "", false)
 	if err != nil {
 		return jsonval.Value{}, err
 	}
-	defer pl.release(m, false, false, "")
+	defer pl.release(m, nil, true, false, false, "")
 	return m.p.Hello().Plugin, nil
 }

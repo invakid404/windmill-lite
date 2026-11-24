@@ -1,0 +1,14 @@
+summary: a child flow whose step latches its run
+value:
+  modules:
+    - id: z
+      value:
+        type: rawscript
+        content: '!inline z.ts'
+        input_transforms: {}
+        language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []
