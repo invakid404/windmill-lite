@@ -5,8 +5,8 @@ pins its executable by SHA-256, and calls its `Runner` service: build
 information, runs, cancellation and health. The engine's side is the
 `windmill-lite plugin` command
 ([cmd/windmill-lite](../../cmd/windmill-lite/README.md#plugin)), which
-answers every call but `Health`: the engine serves no health service of
-its own yet. This package's tests launch a test plugin. The supervisor,
+answers every call, `Health` included, from its own state. This
+package's tests launch a test plugin. The supervisor,
 and the serving of a run's Go hooks on the broker, are planned.
 
 This README covers `wl/plugin/`, the Go package
@@ -38,12 +38,16 @@ is generated into this package: the message types, such as `RunRequest`,
    client's `Kill`, which then runs before the cleanup.
 4. Connect with the client's `Client`, then call `Dispense(PluginName)`,
    which returns a `*Client`.
-5. Compare `BuildInfo` with the release record that the host ships: at
+5. Wait, within your deadline, until `Health` answers `SERVING`. The
+   engine serves while it opens its bundle: until then health answers
+   `NOT_SERVING`, and `BuildInfo` and `Run` answer `UNAVAILABLE`.
+6. Compare `BuildInfo` with the release record that the host ships: at
    least the bundle digest, the engine version, the Bun version, the
    configuration's digest and the labels.
-6. Run flows and scripts with `Run`.
+7. Run flows and scripts with `Run`.
 
-This example, from `example_test.go`, does the six steps; its `admit`
+This example, from `example_test.go`, does the seven steps. Its
+`waitServing` polls `Health` until the context ends, and its `admit`
 compares those five fields with the release record `want`:
 
 ```go
@@ -70,6 +74,9 @@ if err != nil {
 }
 engine := raw.(*plugin.Client)
 
+if err := waitServing(ctx, engine); err != nil {
+	return err
+}
 info, err := engine.BuildInfo(ctx)
 if err != nil {
 	return err

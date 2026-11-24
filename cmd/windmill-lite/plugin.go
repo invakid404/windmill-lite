@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -33,11 +34,14 @@ const pluginUsage = "usage: windmill-lite plugin -config <file>"
 
 // runPlugin is `windmill-lite plugin -config <file>` (ADR 0009, the
 // go-plugin adapter): the engine as a go-plugin plugin, which a Go host
-// launches with wl/plugin. It reads its configuration, opens the bundle
-// with wl, with the pool's warm start when the configuration asks for it,
-// and only then serves windmill_lite.v1.Runner until its host stops it. A
-// start that fails writes its reason to standard error, which go-plugin
-// passes to the host's logger, and exits with status 1.
+// launches with wl/plugin. It reads and checks its configuration, completes
+// go-plugin's handshake, and then serves while it opens the bundle with wl,
+// with the pool's warm start when the configuration asks for it: health
+// answers NOT_SERVING and the Runner calls UNAVAILABLE until the open
+// completes, then SERVING, and windmill_lite.v1.Runner serves until the
+// host stops it. A start that fails, before the handshake or after it,
+// writes its reason to standard error, which go-plugin passes to the
+// host's logger, and exits with status 1.
 func runPlugin(args []string, stderr io.Writer) int {
 	fs := newFlagSet("plugin", stderr)
 	configPath := fs.String("config", "", "the configuration `file`, JSON, which the host writes")
@@ -53,7 +57,8 @@ func runPlugin(args []string, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "windmill-lite plugin: %v\n", err)
 		return 1
 	}
-	// go-plugin's handshake would refuse it after the runtime has opened.
+	// Checked first: go-plugin's own check comes only once the
+	// configuration and the bundle have been read.
 	if os.Getenv(plugin.Handshake.MagicCookieKey) != plugin.Handshake.MagicCookieValue {
 		return fail(errors.New("the engine was not started as a go-plugin plugin: a host launches it with wl/plugin"))
 	}
@@ -92,21 +97,86 @@ func runPlugin(args []string, stderr io.Writer) int {
 		return fail(err)
 	}
 	harness.SetLaunchUmask(launch)
-	rt, err := wl.Open(cfg.Bundle, opts)
+	// The engine serves in the state Starting while the runtime opens. The
+	// open starts once go-plugin has written its handshake line, so an
+	// open that fails cannot end the engine before the host has its
+	// address, and the engine serves only on a server that exists. A line
+	// that does not reach standard output ends the engine: no host can
+	// reach it.
+	handshake, err := watchHandshake()
 	if err != nil {
 		return fail(err)
 	}
-	defer rt.Close()
+	gate := host.NewGate()
 	limit := cfg.maxMessageBytes()
-	srv := &servedRunner{RunnerPlugin: plugin.RunnerPlugin{Runner: host.New(host.Config{Runtime: rt, Labels: cfg.Labels, ConfigDigest: digest})}}
-	goplugin.Serve(&goplugin.ServeConfig{
-		HandshakeConfig:  plugin.Handshake,
-		VersionedPlugins: map[int]goplugin.PluginSet{plugin.ProtocolVersion: {plugin.PluginName: srv}},
-		GRPCServer: func(o []grpc.ServerOption) *grpc.Server {
-			return grpc.NewServer(append(o, grpc.MaxRecvMsgSize(limit), grpc.MaxSendMsgSize(limit))...)
-		},
-		Logger: hclog.New(&hclog.LoggerOptions{Name: "windmill-lite", Output: stderr, Level: hclog.Error}),
-	})
+	srv := &servedRunner{RunnerPlugin: plugin.RunnerPlugin{Runner: gate.Runner()}}
+	served := make(chan struct{})
+	go func() {
+		defer close(served)
+		goplugin.Serve(&goplugin.ServeConfig{
+			HandshakeConfig:  plugin.Handshake,
+			VersionedPlugins: map[int]goplugin.PluginSet{plugin.ProtocolVersion: {plugin.PluginName: srv}},
+			GRPCServer: func(o []grpc.ServerOption) *grpc.Server {
+				if beforeHandshake != nil {
+					beforeHandshake()
+				}
+				o = append(o, grpc.MaxRecvMsgSize(limit), grpc.MaxSendMsgSize(limit))
+				return grpc.NewServer(append(o, gate.ServerOptions()...)...)
+			},
+			Logger: hclog.New(&hclog.LoggerOptions{Name: "windmill-lite", Output: stderr, Level: hclog.Error}),
+		})
+	}()
+	// The opener only opens. This goroutine owns what it opens: it closes
+	// the runtime before the engine exits, and makes it serve only once
+	// that Close is deferred.
+	opened := make(chan openResult, 1)
+	go func() {
+		select {
+		case err := <-handshake:
+			if err != nil {
+				opened <- openResult{err: err}
+				return
+			}
+		case <-served:
+			// go-plugin did not serve: nothing opens.
+			opened <- openResult{}
+			return
+		}
+		if beforeOpen != nil {
+			beforeOpen()
+		}
+		rt, err := wl.Open(cfg.Bundle, opts)
+		if err == nil && beforePublish != nil {
+			beforePublish(served)
+		}
+		opened <- openResult{rt, err}
+	}()
+	select {
+	case r := <-opened:
+		if r.err != nil {
+			// The process exits, and go-plugin's server with it.
+			return fail(r.err)
+		}
+		if r.rt != nil {
+			defer r.rt.Close()
+			gate.Serve(host.New(host.Config{Runtime: r.rt, Labels: cfg.Labels, ConfigDigest: digest}))
+		}
+		<-served
+	case <-served:
+		// Shutdown while the runtime opens, or go-plugin did not serve. An
+		// open that completes within openGrace is closed; past it, the
+		// runtime ends with the process.
+		select {
+		case r := <-opened:
+			if r.err != nil {
+				return fail(r.err)
+			}
+			if r.rt != nil {
+				defer r.rt.Close()
+			}
+		case <-time.After(openGrace):
+		}
+	}
 	if !srv.served.Load() {
 		// go-plugin returns without serving when it cannot listen or set
 		// its server up, having logged why.
@@ -114,9 +184,67 @@ func runPlugin(args []string, stderr io.Writer) int {
 	}
 	// go-plugin's shutdown call, which the host's Kill sends, stopped the
 	// server, which ends the calls in flight and so the runs that they
-	// started. The deferred Close then cancels any run left (cause closing).
+	// started. The deferred Close then cancels any run left (cause
+	// closing).
 	return 0
 }
+
+// openGrace is how long an engine whose shutdown comes while its runtime
+// opens waits for the open, to close the runtime: go-plugin's Kill waits 2
+// seconds for the engine to exit before it kills it, which leaves the
+// Close a second.
+const openGrace = time.Second
+
+// watchHandshake puts a pipe in place of os.Stdout, to which go-plugin
+// writes its handshake line before it puts a pipe of its own there. What
+// the pipe receives goes on to the engine's standard output. The channel
+// receives nil once a whole first line has been written there, or the
+// error that kept it from there.
+func watchHandshake() (<-chan error, error) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		return nil, fmt.Errorf("the handshake's pipe: %w", err)
+	}
+	out := os.Stdout
+	os.Stdout = w
+	done := make(chan error, 1)
+	go func() {
+		br := bufio.NewReader(r)
+		line, err := br.ReadBytes('\n')
+		if err == nil {
+			_, err = out.Write(line)
+		}
+		if err != nil {
+			done <- fmt.Errorf("go-plugin's handshake line did not reach standard output: %w", err)
+			return
+		}
+		_ = out.Sync()
+		done <- nil
+		_, _ = io.Copy(out, br)
+	}()
+	return done, nil
+}
+
+// openResult is the outcome of the runtime's open.
+type openResult struct {
+	rt  *wl.Runtime
+	err error
+}
+
+// beforeOpen, when set, is called after go-plugin's handshake, just before
+// the runtime opens. Tests use it to hold the engine in the state Starting;
+// it is nil otherwise.
+var beforeOpen func()
+
+// beforePublish, when set, is called with a channel that closes at shutdown,
+// between the runtime's open and its serving. Tests use it to stop the
+// engine there; it is nil otherwise.
+var beforePublish func(stopped <-chan struct{})
+
+// beforeHandshake, when set, is called as go-plugin sets its server up,
+// before it writes its handshake line. Tests use it to delay the handshake;
+// it is nil otherwise.
+var beforeHandshake func()
 
 // servedRunner is the Runner plugin, which notes that go-plugin set its
 // server up: go-plugin prints its handshake line and serves only after

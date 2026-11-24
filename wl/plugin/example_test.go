@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"time"
 
 	goplugin "github.com/hashicorp/go-plugin"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
 	"github.com/invakid404/windmill-lite/wl/plugin"
 )
@@ -40,8 +42,25 @@ func admit(info *plugin.BuildInfo, want release) error {
 	return nil
 }
 
-// launchAndRun is the README's example: it launches the engine, admits it
-// against the release record and runs a flow.
+// waitServing polls the engine's health until it answers SERVING, or ctx
+// ends: the engine serves while it opens its bundle, and until then health
+// answers NOT_SERVING, and BuildInfo and Run answer UNAVAILABLE.
+func waitServing(ctx context.Context, engine *plugin.Client) error {
+	for {
+		st, err := engine.Health(ctx)
+		if err == nil && st == healthpb.HealthCheckResponse_SERVING {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("the engine did not serve (last health %v, %v): %w", st, err, ctx.Err())
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
+// launchAndRun is the README's example: it launches the engine, waits until
+// it serves, admits it against the release record and runs a flow.
 func launchAndRun(ctx context.Context, want release) error {
 	cfg, cleanup, err := plugin.ClientConfig(plugin.Launch{
 		Path:   "/opt/windmill-lite/windmill-lite",
@@ -66,6 +85,9 @@ func launchAndRun(ctx context.Context, want release) error {
 	}
 	engine := raw.(*plugin.Client)
 
+	if err := waitServing(ctx, engine); err != nil {
+		return err
+	}
 	info, err := engine.BuildInfo(ctx)
 	if err != nil {
 		return err
@@ -90,8 +112,8 @@ func launchAndRun(ctx context.Context, want release) error {
 	return nil
 }
 
-// This example launches the engine of a release, admits it against the
-// release record, and runs a flow. It needs an engine that serves the
+// This example launches the engine of a release, waits until it serves,
+// admits it against the release record, and runs a flow. It needs an engine that serves the
 // Runner plugin, so it is compiled but not run.
 func Example() {
 	_ = launchAndRun

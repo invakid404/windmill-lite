@@ -19,10 +19,7 @@ and a Go host launches, pins, checks and supervises it with the package
 
 **Not built yet:**
 
-- the plugin command's health and readiness: until they exist, it opens
-  the runtime, with its warm start, before go-plugin's handshake, and
-  go-plugin's own health service answers;
-- its drain, and the engine's memory trigger;
+- the plugin command's drain, and the engine's memory trigger;
 - its calls of the host-hooks service on the broker: a request's `hooks`,
   a provider set to `broker`, and `GetRun`;
 - its serving of the configuration's `engine_recycle_rss` and
@@ -91,8 +88,7 @@ Every adapter below is a transport over these calls.
 
 ### Adapters, in order of delivery
 
-1. **go-plugin** (the engine's `Runner` health and readiness, its drain and
-   broker hooks are planned). The engine binary,
+1. **go-plugin** (the engine's drain and broker hooks are planned). The engine binary,
    started as `windmill-lite plugin`, serves the `windmill_lite.v1.Runner`
    gRPC service to a Go host that launches it with hashicorp/go-plugin,
    and `wl/plugin` gives the host the client side and, planned, an
@@ -339,7 +335,7 @@ sets its service `plugin` to `SERVING` for good (go-plugin v1.8.0,
 `GRPCServer.Init`). A second health service cannot be registered on that
 server. So the engine builds the server that go-plugin uses
 (`ServeConfig.GRPCServer`) with interceptors that answer
-`grpc.health.v1.Health`'s `Check` and `Watch` from the engine's own state,
+`grpc.health.v1.Health`'s `Check`, `List` and `Watch` from the engine's own state,
 for the services `""`, `plugin` and `windmill_lite.v1.Runner`.
 
 | Engine state | Health | A new `Run` |
@@ -356,8 +352,8 @@ for the services `""`, `plugin` and `windmill_lite.v1.Runner`.
   `Watch` of one streams `SERVICE_UNKNOWN`, as gRPC's own health server
   does. A `Watch` that is open sends each change of state.
 
-- **Readiness.** The engine completes go-plugin's handshake at once. It
-  serves, `GetBuildInfo` included, only once `wl.Open` has returned and,
+- **Readiness.** The engine completes go-plugin's handshake at once, and
+  starts `wl.Open` once the handshake line is written. It serves, `GetBuildInfo` included, only once `wl.Open` has returned and,
   with the pool's warm start, its minimum of harness processes has started.
   A start that fails writes its reason to standard error, which go-plugin
   passes to the host's logger, and exits with status 1.

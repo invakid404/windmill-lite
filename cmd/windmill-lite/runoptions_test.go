@@ -500,7 +500,8 @@ func TestRunnerBytesTotal(t *testing.T) {
 
 	cfg = pluginConfigOf(t, bun, out)
 	cfg["bytes_total"] = -1
-	if code, stderr := startRefused(t, cfg); code != 1 || !strings.Contains(stderr, "Limits.Bytes is -1") {
+	// wl.Open refuses it, so the start fails after go-plugin's handshake.
+	if code, stderr := startFails(t, cfg); code != 1 || !strings.Contains(stderr, "Limits.Bytes is -1") {
 		t.Errorf("a negative bytes_total: exit %d, stderr %q; want 1, naming the total", code, stderr)
 	}
 }
@@ -545,7 +546,8 @@ func TestRunnerMaxLive(t *testing.T) {
 	bun, out := runOptionBundle(t)
 	cfg := pluginConfigOf(t, bun, out)
 	cfg["pool"] = map[string]any{"max": 2, "max_live": 1}
-	if code, stderr := startRefused(t, cfg); code != 1 || !strings.Contains(stderr, "MaxLive 1 is below its Max 2") {
+	// wl.Open refuses it, so the start fails after go-plugin's handshake.
+	if code, stderr := startFails(t, cfg); code != 1 || !strings.Contains(stderr, "MaxLive 1 is below its Max 2") {
 		t.Errorf("pool.max_live below pool.max: exit %d, stderr %q; want 1, naming the bound", code, stderr)
 	}
 	cfg = pluginConfigOf(t, bun, out)
@@ -633,7 +635,8 @@ func TestRunnerForeignOrigins(t *testing.T) {
 
 	cfg = pluginConfigOf(t, bun, out)
 	cfg["foreign_windmill_origins"] = []string{listed.URL, listed.URL + "/api"}
-	if code, stderr := startRefused(t, cfg); code != 1 || !strings.Contains(stderr, "ForeignWindmillOrigins[1]") {
+	// wl.Open refuses it, so the start fails after go-plugin's handshake.
+	if code, stderr := startFails(t, cfg); code != 1 || !strings.Contains(stderr, "ForeignWindmillOrigins[1]") {
 		t.Errorf("an origin with a path: exit %d, stderr %q; want 1, naming its position", code, stderr)
 	}
 }
