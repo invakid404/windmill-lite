@@ -118,14 +118,18 @@ function pluginBundle(source: string, o: { file?: string; digest?: string; liste
   return dir;
 }
 
-// A stand-in engine, run by /bin/sh: it passes the SDK's verify, writes its
-// pid to pidFile, and then runs script (its host command).
+// A stand-in engine, run by /bin/sh: it passes the SDK's check of the
+// bundle (host -check-bundle), and as the host command writes its pid to
+// pidFile and then runs script.
 function standIn(pidFile: string, script: string): Partial<ConnectOptions> {
-  return { engine: "/bin/sh", engineArgs: ["-c", `case "$1" in verify) exit 0;; esac; echo $$ > '${pidFile}'; ${script}`, "sh"] };
+  return { engine: "/bin/sh", engineArgs: ["-c", `case "$2" in -check-bundle) exit 0;; esac; echo $$ > '${pidFile}'; ${script}`, "sh"] };
 }
 
-// Whether the process whose pid is in pidFile exits within a second.
+// Whether the stand-in whose pid file is pidFile is gone within a second:
+// one stopped before it wrote its pid never writes it.
 async function exits(pidFile: string): Promise<boolean> {
+  for (let i = 0; i < 30 && !existsSync(pidFile); i++) await Bun.sleep(10);
+  if (!existsSync(pidFile)) return true;
   const pid = Number((await Bun.file(pidFile).text()).trim());
   for (let i = 0; i < 100; i++) {
     try {
@@ -191,11 +195,59 @@ test("connect runs the plugin bytes it verified, though the file changes while t
   const dir = pluginBundle(plugin("verified"));
   const swapped = join(tempDir("wl-host-swap-"), "plugin.mjs");
   writeFileSync(swapped, plugin("swapped"));
-  // The stand-in engine's verify replaces the plugin, as a release would
+  // The stand-in engine's check replaces the plugin, as a release would
   // during startup, and passes; its host command ends after a second.
-  const engine = { engine: "/bin/sh", engineArgs: ["-c", `case "$1" in verify) cp '${swapped}' "$2/plugins/f/app/plugin.mjs"; exit 0;; esac; sleep 1`, "sh"] };
+  const engine = { engine: "/bin/sh", engineArgs: ["-c", `case "$2" in -check-bundle) cp '${swapped}' "$5/plugins/f/app/plugin.mjs"; exit 0;; esac; sleep 1`, "sh"] };
   expect(await connectIn(dir, engine)).toBe("rejected");
   expect(readFileSync(marker, "utf8")).toBe("verified");
+}, 20_000);
+
+test("of two overlapping connects that checked different plugin bytes at one path, the later is refused and its plugin never runs", async () => {
+  const sig = tempDir("wl-host-overlap-");
+  const at = (name: string) => join(sig, name);
+  const plugin = (name: string) => `require("node:fs").writeFileSync(${JSON.stringify(at(name + "-loaded"))}, "ran");\nexport default {};\n`;
+  const dir = pluginBundle(plugin("a"));
+  const release = pluginBundle(plugin("b"));
+  const waitFor = (name: string) => `while [ ! -e '${at(name)}' ]; do sleep 0.01; done`;
+  // A's check replaces the bundle with release B, then waits until B has
+  // checked it; B's check waits until A's plugin has run. Each host
+  // command ends after a second.
+  const engineA = {
+    engine: "/bin/sh",
+    engineArgs: ["-c", `case "$2" in -check-bundle) cp '${release}/manifest.json' "$5/manifest.json"; cp '${release}/plugins/f/app/plugin.mjs' "$5/plugins/f/app/plugin.mjs"; touch '${at("swapped")}'; ${waitFor("b-checked")}; exit 0;; esac; sleep 1`, "sh"],
+  };
+  const engineB = { engine: "/bin/sh", engineArgs: ["-c", `case "$2" in -check-bundle) touch '${at("b-checked")}'; ${waitFor("a-loaded")}; exit 0;; esac; sleep 1`, "sh"] };
+  const a = connectIn(dir, engineA);
+  while (!existsSync(at("swapped"))) await Bun.sleep(5);
+  const b = connectIn(dir, engineB);
+  expect(await b).toBe("bundle");
+  expect(await a).toBe("rejected");
+  expect(existsSync(at("a-loaded"))).toBe(true);
+  expect(existsSync(at("b-loaded"))).toBe(false);
+}, 20_000);
+
+test("connect stops the engine and rejects with bundle when it cannot copy the plugin, and a later connect copies it", async () => {
+  const marker = join(tempDir("wl-host-marker-"), "ran");
+  const dir = pluginBundle(`require("node:fs").writeFileSync(${JSON.stringify(marker)}, "ran");\nexport default {};\n`);
+  const notADirectory = join(tempDir("wl-host-tmp-"), "file");
+  writeFileSync(notADirectory, "");
+  const pidFile = join(tempDir("wl-host-pid-"), "pid");
+  const saved = process.env.TMPDIR;
+  process.env.TMPDIR = notADirectory;
+  let got: string | undefined;
+  try {
+    got = await connectIn(dir, standIn(pidFile, "exec sleep 30"));
+  } finally {
+    if (saved === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = saved;
+  }
+  expect(got).toBe("bundle");
+  expect(await exits(pidFile)).toBe(true);
+  expect(existsSync(marker)).toBe(false);
+  // Nothing of the failed attempt stays in the way: the next one copies the
+  // plugin and runs it, and ends when its stand-in does.
+  expect(await connectIn(dir, standIn(join(tempDir("wl-host-pid-"), "pid"), "sleep 1"))).toBe("rejected");
+  expect(existsSync(marker)).toBe(true);
 }, 20_000);
 
 test("connect rejects at once when the engine ends while the bundle's plugin loads", async () => {

@@ -1697,14 +1697,16 @@ func TestHostReconnectKeepsHostFetch(t *testing.T) {
 	}
 }
 
-// TestHostVerifiesBundleBeforePlugin: the host SDK has the engine verify
-// the whole bundle, against the host's own -digest pin when engineFlags
-// gives one, before it evaluates the bundle's own plugin, whose top level
-// writes a marker file. On the bundle as built, connect() resolves and the
-// marker appears, with no pin and with a matching one. With a pin that the
-// bundle does not match, and once another file of the bundle changes with
-// the plugin itself untouched, connect() rejects with bundle and the plugin
-// never runs.
+// TestHostVerifiesBundleBeforePlugin: the host SDK has the engine check
+// the whole bundle (host -check-bundle), with the host command's own flags,
+// engineFlags included, before it evaluates the bundle's own plugin, whose
+// top level writes a marker file. On the bundle as built, connect()
+// resolves and the marker appears: with no pin, with a matching one, and
+// with an empty -digest=, which the host command reads as no pin. With a
+// pin that the bundle does not match, also one after a -data whose value
+// is "--", and once another file of the bundle changes with the plugin
+// itself untouched, connect() rejects with bundle and the plugin never
+// runs.
 func TestHostVerifiesBundleBeforePlugin(t *testing.T) {
 	bun := bunForTest(t)
 	marker := filepath.Join(t.TempDir(), "plugin-ran")
@@ -1731,13 +1733,16 @@ func TestHostVerifiesBundleBeforePlugin(t *testing.T) {
 		}
 		return err == nil
 	}
-	for _, pin := range []string{"", "WL_ENGINE_FLAGS=-digest " + bundle.Digest(manifest)} {
-		if r := connect(pin); !r.Connected || !ran() {
-			t.Fatalf("connect on the bundle as built (%q): %+v; want connected, and the plugin run", pin, r)
+	for _, flags := range []string{"", "WL_ENGINE_FLAGS=-digest " + bundle.Digest(manifest), "WL_ENGINE_FLAGS=-digest="} {
+		if r := connect(flags); !r.Connected || !ran() {
+			t.Fatalf("connect on the bundle as built (%q): %+v; want connected, and the plugin run", flags, r)
 		}
 	}
-	if r := connect("WL_ENGINE_FLAGS=-digest sha256:" + strings.Repeat("0", 64)); r.Connected || r.Code != "bundle" || !strings.Contains(r.Message, "engineFlags pins it to") || ran() {
-		t.Errorf("connect with a pin the bundle does not match: %+v; want a HostError bundle, and no plugin run", r)
+	zero := "sha256:" + strings.Repeat("0", 64)
+	for _, flags := range []string{"WL_ENGINE_FLAGS=-digest " + zero, "WL_ENGINE_FLAGS=-data -- -digest " + zero} {
+		if r := connect(flags); r.Connected || r.Code != "bundle" || !strings.Contains(r.Message, "want "+zero) || ran() {
+			t.Errorf("connect with a pin the bundle does not match (%q): %+v; want a HostError bundle naming the pin, and no plugin run", flags, r)
+		}
 	}
 	step := filepath.Join(dir, "scripts", "bun", "f", "app", "plain.mjs")
 	data, err := os.ReadFile(step)
@@ -1747,8 +1752,49 @@ func TestHostVerifiesBundleBeforePlugin(t *testing.T) {
 	if err := os.WriteFile(step, append(data, []byte("\n// changed\n")...), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if r := connect(); r.Connected || r.Code != "bundle" || !strings.Contains(r.Message, "verify refused the bundle") || ran() {
-		t.Errorf("connect on the changed bundle: %+v; want a HostError bundle from the engine's verify, and no plugin run", r)
+	if r := connect(); r.Connected || r.Code != "bundle" || !strings.Contains(r.Message, "check refused the bundle") || ran() {
+		t.Errorf("connect on the changed bundle: %+v; want a HostError bundle from the engine's check, and no plugin run", r)
+	}
+}
+
+// TestHostCheckBundle: host -check-bundle reads the host command's flags,
+// checks the bundle and exits without connecting. It exits 0 when the
+// bundle verifies against its manifest and any -digest pin, has the digest
+// given, and this engine built it; else 1, naming why. An empty -digest=
+// pins nothing, and a -data whose value is "--" leaves a later -digest in
+// force.
+func TestHostCheckBundle(t *testing.T) {
+	bun := bunForTest(t)
+	dir := pluginHostBundle(t, bun, "")
+	manifest, err := os.ReadFile(filepath.Join(dir, bundle.ManifestFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, zero := bundle.Digest(manifest), "sha256:"+strings.Repeat("0", 64)
+	base := []string{"host", "--bundle", dir, "--workdir", t.TempDir()}
+	for _, c := range []struct {
+		flags []string
+		code  int
+		says  string
+	}{
+		{[]string{"-check-bundle", d}, 0, ""},
+		{[]string{"-check-bundle", d, "-digest", d}, 0, ""},
+		{[]string{"-check-bundle", d, "-digest="}, 0, ""},
+		{[]string{"-check-bundle", d, "-data", "--", "-digest", zero}, 1, "want " + zero},
+		{[]string{"-check-bundle", zero}, 1, "not " + zero},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := run(append(slices.Clone(base), c.flags...), &stdout, &stderr); code != c.code || !strings.Contains(stderr.String(), c.says) {
+			t.Errorf("%v: exit %d, stderr %q; want %d, saying %q", c.flags, code, stderr.String(), c.code, c.says)
+		}
+	}
+	// An engine of another version would not open the bundle.
+	saved := version
+	version = "v9.9.9"
+	defer func() { version = saved }()
+	var stdout, stderr bytes.Buffer
+	if code := run(append(slices.Clone(base), "-check-bundle", d), &stdout, &stderr); code != 1 || !strings.Contains(stderr.String(), "this engine is v9.9.9") {
+		t.Errorf("another engine version: exit %d, stderr %q; want 1", code, stderr.String())
 	}
 }
 

@@ -392,44 +392,47 @@ function thrownText(e: unknown): string {
  * imported from, so a plugin at the same bundle path with other bytes, after
  * a release replaced its file, would give back the module first imported. */
 const loadedPlugins = new Map<string, { digest: string; copy: string }>();
-// The private directory of those copies, made on first use and removed when
-// the process exits.
-let copies: string | undefined;
+// The private directories of those copies, by the temporary directory they
+// are made in: each is made on first use and removed when the process exits.
+const copyBases = new Map<string, string>();
 
-/** The URL of a private copy of a plugin's verified bytes, which this
+/** The URL of a private copy of a plugin's checked bytes, which this
  * process imports in place of the bundle's file: a file that changes after
  * the check cannot run in its place. A plugin already imported from the
- * same bundle path, with the same digest, keeps its copy, so a reconnect
- * gets the module Bun already holds, as for any module. */
+ * same bundle path with the same digest keeps its copy, so a reconnect gets
+ * the module Bun already holds, as for any module. One imported from that
+ * path with other bytes, by a connect() that overlapped this one, is a
+ * HostError bundle. A copy that cannot be written leaves nothing behind,
+ * and the error is thrown. */
 function pluginCopy(plugin: { url: string; digest: string; bytes: Uint8Array; file: string }): string {
   const known = loadedPlugins.get(plugin.url);
-  if (known !== undefined) return known.copy;
-  if (copies === undefined) {
-    const dir = mkdtempSync(join(tmpdir(), "windmill-lite-plugins-"));
-    process.once("exit", () => rmSync(dir, { recursive: true, force: true }));
-    copies = dir;
+  if (known !== undefined) {
+    if (known.digest === plugin.digest) return known.copy;
+    throw new HostError(
+      "bundle",
+      `cannot load the bundle's host plugin: another connect() of this process imported other bytes from ${plugin.file}, and Bun would give back that module; restart the host to load this one`,
+    );
   }
-  const path = join(copies, String(loadedPlugins.size), plugin.file);
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, plugin.bytes, { flag: "wx", mode: 0o400 });
-  const copy = pathToFileURL(path).href;
-  loadedPlugins.set(plugin.url, { digest: plugin.digest, copy });
-  return copy;
-}
-
-/** The digest that the host pins the bundle to with the host command's
- * -digest flag in engineFlags (the last one, as Go's flag package takes
- * it), if any. */
-function digestPin(flags: string[] | undefined): string | undefined {
-  let pin: string | undefined;
-  for (let i = 0; i < (flags?.length ?? 0); i++) {
-    const f = flags![i];
-    if (f === "--") break;
-    if (f === "-digest" || f === "--digest") pin = flags![++i];
-    else if (f.startsWith("-digest=")) pin = f.slice("-digest=".length);
-    else if (f.startsWith("--digest=")) pin = f.slice("--digest=".length);
+  const tmp = tmpdir();
+  let base = copyBases.get(tmp);
+  if (base === undefined) {
+    const made = mkdtempSync(join(tmp, "windmill-lite-plugins-"));
+    process.once("exit", () => rmSync(made, { recursive: true, force: true }));
+    copyBases.set(tmp, made);
+    base = made;
   }
-  return pin;
+  const dir = mkdtempSync(join(base, "plugin-"));
+  try {
+    const path = join(dir, plugin.file);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, plugin.bytes, { flag: "wx", mode: 0o400 });
+    const copy = pathToFileURL(path).href;
+    loadedPlugins.set(plugin.url, { digest: plugin.digest, copy });
+    return copy;
+  } catch (e) {
+    rmSync(dir, { recursive: true, force: true });
+    throw e;
+  }
 }
 
 /** The bundle's own plugin, once it is known to be one of the bundle's
@@ -487,13 +490,15 @@ function verifiedPlugin(
   return { url, digest, bytes, file };
 }
 
-/** Runs the engine's verify command on the bundle, pinned to the digest of
- * the manifest that this process read: every file of the bundle against
- * the manifest, as the engine checks it at start. Else a HostError
- * bundle, or engine_start when the engine does not start. The caller has
- * checked that digest against the host's own pin, if engineFlags has one. */
-async function engineVerifies(spawn: typeof import("node:child_process").spawn, o: ConnectOptions, digest: string): Promise<void> {
-  const child = spawn(o.engine, [...(o.engineArgs ?? []), "verify", o.bundle, "-digest", digest], { stdio: ["ignore", "ignore", "pipe"] });
+/** Runs the host command with -check-bundle and the flags that connect()
+ * starts it with, engineFlags included: the engine reads them as it reads
+ * them at start, a -digest pin among them, checks the bundle as Open does
+ * before the handshake, against its manifest, that pin and the digest of
+ * the manifest this process read, and exits. Else a HostError bundle
+ * (exit 1), rejected (another failure, such as a usage error), or
+ * engine_start when the engine does not start. */
+async function engineChecks(spawn: typeof import("node:child_process").spawn, o: ConnectOptions, hostFlags: string[], digest: string): Promise<void> {
+  const child = spawn(o.engine, [...(o.engineArgs ?? []), "host", "-check-bundle", digest, ...hostFlags], { stdio: ["ignore", "ignore", "pipe"] });
   let stderr = "";
   child.stderr?.on("data", (d: Buffer) => {
     if (stderr.length < 4096) stderr += d.toString();
@@ -503,8 +508,9 @@ async function engineVerifies(spawn: typeof import("node:child_process").spawn, 
     child.once("close", (code) => resolve({ code }));
   });
   if (end.error !== undefined) throw new HostError("engine_start", `${o.engine}: ${end.error.message}`);
+  if (end.code === 1) throw new HostError("bundle", `the engine's check refused the bundle, so its plugin was not loaded: ${stderr.trim()}`);
   if (end.code !== 0) {
-    throw new HostError("bundle", `the engine's verify refused the bundle, so its plugin was not loaded (exit ${end.code}): ${stderr.trim()}`);
+    throw new HostError("rejected", `the engine's check of the bundle failed (exit ${end.code}), so its plugin was not loaded: ${stderr.trim()}`);
   }
 }
 
@@ -617,32 +623,29 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   // its ESM bindings for every later importer, so a step's named import of
   // node:child_process would miss the runtime's wrappers (ADR 0004, item 7).
   const { spawn } = createRequire(import.meta.url)("node:child_process") as typeof import("node:child_process");
-  if (plugin !== undefined) {
-    // The host command refuses a bundle whose digest is not the host's pin,
-    // but only in the handshake, after the plugin has run.
-    const pin = digestPin(o.engineFlags);
-    if (pin !== undefined && pin !== digest) {
-      throw new HostError("bundle", `the bundle's digest is ${digest}, not ${pin}, the -digest that engineFlags pins it to; its plugin was not loaded`);
-    }
-    await engineVerifies(spawn, o, digest);
-  }
+  // The host command's flags. A -digest pin among engineFlags means what
+  // the host command makes of it, so the check before a bundle's own plugin
+  // runs gets the same flags.
+  const hostFlags = [
+    ...["--bundle", o.bundle, "--workdir", workdir, "--kill-after", `${killAfter}ms`],
+    ...(o.readCache ? ["-read-cache"] : []),
+    ...(o.skipArgsFile ? ["-skip-args-file"] : []),
+    ...foreignFlags,
+    ...(store ? ["-resource-store", store.kind] : []),
+    ...(store?.kind === "redis" && store.prefix !== undefined ? ["-redis-prefix", store.prefix] : []),
+    ...(store?.kind === "redis" && store.allowEviction ? ["-redis-allow-eviction"] : []),
+    ...(o.engineFlags ?? []),
+  ];
+  // The handshake reports the engine's checks of the bundle only after the
+  // plugin has run, so the engine checks it first.
+  if (plugin !== undefined) await engineChecks(spawn, o, hostFlags, digest);
   // The second one, the child's fd 4, carries only the child frames that
   // announce the steps' child groups (WR-55), written synchronously: the
   // socket may hold bytes it has not written yet, which such a write would
   // overtake, and the step may block the event loop right after.
   const child = spawn(
     o.engine,
-    [
-      ...(o.engineArgs ?? []),
-      ...["host", "--bundle", o.bundle, "--workdir", workdir, "--kill-after", `${killAfter}ms`],
-      ...(o.readCache ? ["-read-cache"] : []),
-      ...(o.skipArgsFile ? ["-skip-args-file"] : []),
-      ...foreignFlags,
-      ...(store ? ["-resource-store", store.kind] : []),
-      ...(store?.kind === "redis" && store.prefix !== undefined ? ["-redis-prefix", store.prefix] : []),
-      ...(store?.kind === "redis" && store.allowEviction ? ["-redis-allow-eviction"] : []),
-      ...(o.engineFlags ?? []),
-    ],
+    [...(o.engineArgs ?? []), "host", ...hostFlags],
     {
       stdio: ["ignore", "inherit", "inherit", "pipe", "pipe"],
       // The Redis URL reaches the engine only in its environment: a
@@ -909,20 +912,30 @@ export async function connect(o: ConnectOptions): Promise<Host> {
     // From here on this process's later runtimes give their native realms
     // the first fetch view, which a wrapper that this plugin installs on
     // globalThis.fetch does not replace.
-    noteBundledPlugin();
-    const load = loadPlugin(pluginCopy(plugin)).then(
-      (p) => ({ plugin: p }),
-      (failed: unknown) => ({ failed }),
-    );
+    // The copy is part of the guarded start: a copy that cannot be made, or
+    // a conflict with an overlapping connect(), stops the engine as a load
+    // failure does.
+    let load: Promise<{ plugin: Plugin } | { failed: unknown } | { copyFailed: unknown }>;
+    try {
+      const copy = pluginCopy(plugin);
+      noteBundledPlugin();
+      load = loadPlugin(copy).then(
+        (p) => ({ plugin: p }),
+        (failed: unknown) => ({ failed }),
+      );
+    } catch (e) {
+      load = Promise.resolve({ copyFailed: e });
+    }
     const outcome = await Promise.race([load, engineEnded]);
-    let failed: { error: unknown; engine: boolean } | undefined;
-    if (outcome === undefined) failed = { error: engineError, engine: true };
-    else if ("failed" in outcome) failed = { error: outcome.failed, engine: false };
+    let failed: { error: unknown; kind: "engine" | "load" | "copy" } | undefined;
+    if (outcome === undefined) failed = { error: engineError, kind: "engine" };
+    else if ("copyFailed" in outcome) failed = { error: outcome.copyFailed, kind: "copy" };
+    else if ("failed" in outcome) failed = { error: outcome.failed, kind: "load" };
     else {
       try {
         runtime.usePlugin(outcome.plugin);
       } catch (e) {
-        failed = { error: e, engine: false };
+        failed = { error: e, kind: "load" };
       }
     }
     if (failed !== undefined) {
@@ -933,10 +946,11 @@ export async function connect(o: ConnectOptions): Promise<Host> {
       } finally {
         child.kill();
       }
-      if (failed.engine && failed.error instanceof HostError) throw failed.error;
-      throw failed.engine
-        ? new HostError("rejected", thrownText(failed.error))
-        : new HostError("bundle", `cannot load the bundle's host plugin: ${thrownText(failed.error)}`);
+      // Only the engine's and the copy's errors, which this module makes,
+      // may be HostErrors; a plugin's thrown value is never inspected.
+      if (failed.kind !== "load" && failed.error instanceof HostError) throw failed.error;
+      if (failed.kind === "engine") throw new HostError("rejected", thrownText(failed.error));
+      throw new HostError("bundle", `cannot ${failed.kind === "copy" ? "copy" : "load"} the bundle's host plugin: ${thrownText(failed.error)}`);
     }
   }
   runtime.start();

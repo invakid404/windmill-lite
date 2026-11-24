@@ -273,14 +273,15 @@ shape with `bundle` ([Errors and refusals](#errors-and-refusals)):
    a `-foreign-windmill` flag for each origin, and `engineFlags`, as the
    options ask (`engine_start`). The
    [`host` command](../../cmd/windmill-lite/README.md#host) describes
-   those flags. For a bundle with a plugin of its own, it first runs
-   `<engine> verify <bundle> -digest <digest>`, pinned to the manifest it
-   read. It stops with `bundle` unless that exits 0 and any `-digest` in
-   `engineFlags` is that digest.
+   those flags. For a bundle with a plugin of its own, it first runs the
+   same command with `-check-bundle` and the digest of the manifest it read.
+   The engine reads the flags as at start and checks the bundle against its
+   manifest, any `-digest` pin and that digest; unless that exits 0,
+   `connect` stops with `bundle`.
 6. It runs the harness runtime in this process, loads the bundle's own
    plugin from a private copy of the bytes it checked, and greets the
-   engine. A plugin that does not load rejects with `bundle`, and an
-   engine that ends while it loads with `rejected`.
+   engine. A plugin that cannot be copied or loaded rejects with `bundle`,
+   and an engine that ends while it loads with `rejected`.
    The engine checks the host's Bun, the bundle, the working directory, the
    SDK's version and the plugin, and welcomes or refuses the host. A
    refusal rejects `connect` with the engine's code.
@@ -669,7 +670,7 @@ error that has no `code`:
 | `workdir_mismatch` | `connect`, or the engine | `workdir` is not the process's working directory. | `process.chdir(workdir)` before `connect`, or pass `process.cwd()`. |
 | `options` | `connect` | The `collect` option has an `rss` that is not above 0 (missing, 0, negative or `NaN`), a `cooldown` or a `quiet` that is negative, `NaN` or infinite, or a `policy` other than `"idle"` and `"heartbeat"`. The `rss` check compares values and does not test the type, so a numeric string such as `"1"` passes it; pass a number, as the type says. `cooldown` and `quiet` must be finite numbers, so a string is refused. | Fix the option. The message names the rule that failed. |
 | `options` | `connect` | The bundle has a host plugin of its own, and the `plugin` option gives another. | Leave the option out, or build the bundle without the contract's `plugin`. |
-| `bundle` | `connect` | The bundle's `manifest.json` does not read, or the bundle's own host plugin is not a module of `plugins/` that the manifest lists, does not have the manifest's digest, does not load or has a wrong shape. | Pass the bundle directory, as an absolute path. Rebuild the bundle, or fix the plugin, whose message the error carries. |
+| `bundle` | `connect` | The bundle's `manifest.json` does not read. Or the bundle's own host plugin is not a module of `plugins/` that the manifest lists, does not have the manifest's digest, fails the engine's check, cannot be copied, does not load or has a wrong shape. | Pass the bundle directory, as an absolute path. Rebuild the bundle, or fix the plugin, whose message the error carries. |
 | `assets` | `connect` | The bundle's assets do not extract into `workdir`. | Check the directory's space and permissions. |
 | `engine_start` | `connect` | The engine binary does not start. | Check `engine`'s path and its execute permission. |
 | `version_mismatch` | The engine, or the SDK | The SDK's version is not the engine's. An unversioned engine or SDK pairs with any. | Take the SDK and the engine from the same release. |

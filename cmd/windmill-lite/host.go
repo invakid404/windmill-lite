@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/invakid404/windmill-lite/internal/bundle"
 	"github.com/invakid404/windmill-lite/internal/harness"
 	"github.com/invakid404/windmill-lite/wl"
 )
@@ -38,6 +39,7 @@ func runHost(args []string, stderr io.Writer) int {
 	})
 	store := storeFlags(fs)
 	quickJSOnly := fs.Bool("quickjs-only", false, "evaluate every expression the shortcuts and member paths do not answer in QuickJS, without the Go evaluator (ADR 0003)")
+	checkBundle := fs.String("check-bundle", "", "check the bundle against its manifest, -digest and this `digest`, as Open does, and exit without connecting (the host SDK runs it before it loads a bundle's own plugin)")
 	pos, ok := parse(fs, args)
 	if !ok {
 		return 2
@@ -49,6 +51,9 @@ func runHost(args []string, stderr io.Writer) int {
 	fail := func(err error) int {
 		fmt.Fprintf(stderr, "windmill-lite host: %v\n", err)
 		return 1
+	}
+	if *checkBundle != "" {
+		return checkHostBundle(*bundlePath, *digest, *checkBundle, fail)
 	}
 	// The host passes the side channel of its steps' child groups as
 	// file descriptor 4 (WR-55); a host that passes none announces them on
@@ -102,6 +107,27 @@ func runHost(args []string, stderr io.Writer) int {
 	select {
 	case <-rt.Done():
 	case <-sig:
+	}
+	return 0
+}
+
+// checkHostBundle is `host -check-bundle`: the checks of the bundle that
+// wl.Open makes in host mode before the handshake, with the flags as this
+// command reads them. The bundle must verify against its manifest and the
+// -digest pin, if any; its digest must be want, the digest of the manifest
+// that the host read; and this engine version must have built it. The
+// host SDK runs it before it loads a bundle's own plugin, which runs before
+// the handshake could report a refusal.
+func checkHostBundle(dir, pin, want string, fail func(error) int) int {
+	v, err := bundle.Verify(dir, bundle.VerifyOptions{Digest: pin})
+	if err != nil {
+		return fail(err)
+	}
+	if v.Digest != want {
+		return fail(fmt.Errorf("the bundle's digest is %s, not %s, the digest of the manifest that the host read", v.Digest, want))
+	}
+	if engine := resolveVersion(); v.Manifest.Engine.Version != engine {
+		return fail(fmt.Errorf("engine %s built the bundle; this engine is %s", v.Manifest.Engine.Version, engine))
 	}
 	return 0
 }
