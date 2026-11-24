@@ -128,6 +128,14 @@ The [module state](#module-state) that runs each
 each ordinary Bun [job](#job) in a new process
 ([module state ADR](design/0006-module-state.md#decision)).
 
+### generation
+
+One process of the [engine](#engine), or of a host in
+[host mode](#host-mode), that a supervisor runs until it replaces it with
+the next one. `wl/plugin`'s supervisor admits each generation before it
+sends it calls
+([host adapters ADR](design/0009-host-adapters.md#the-supervisor)).
+
 ### harness
 
 The process that runs step [scripts](#script) for the [engine](#engine),

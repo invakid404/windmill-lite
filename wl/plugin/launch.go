@@ -108,21 +108,38 @@ type Launch struct {
 // never removes a later directory of the same name; after a failed
 // removal, cleanup tries again. Use each configuration for one launch.
 func ClientConfig(l Launch) (cfg *goplugin.ClientConfig, cleanup func() error, err error) {
+	cfg, cleanup, _, err = clientConfig(l)
+	return cfg, cleanup, err
+}
+
+// check returns the SHA-256 that l pins, or why ClientConfig refuses l.
+func (l *Launch) check() ([]byte, error) {
 	if l.Path == "" {
-		return nil, nil, errors.New("wl/plugin: Launch.Path is empty")
+		return nil, errors.New("wl/plugin: Launch.Path is empty")
 	}
 	if l.Config == "" {
-		return nil, nil, errors.New("wl/plugin: Launch.Config is empty")
+		return nil, errors.New("wl/plugin: Launch.Config is empty")
 	}
 	sum, err := hex.DecodeString(l.SHA256)
 	if err != nil || len(sum) != sha256.Size {
-		return nil, nil, fmt.Errorf("wl/plugin: Launch.SHA256 %q is not a SHA-256 in hexadecimal", l.SHA256)
+		return nil, fmt.Errorf("wl/plugin: Launch.SHA256 %q is not a SHA-256 in hexadecimal", l.SHA256)
 	}
 	if l.MaxMessageBytes < 0 {
-		return nil, nil, fmt.Errorf("wl/plugin: negative Launch.MaxMessageBytes %d", l.MaxMessageBytes)
+		return nil, fmt.Errorf("wl/plugin: negative Launch.MaxMessageBytes %d", l.MaxMessageBytes)
 	}
 	if l.ReplyMargin < 0 {
-		return nil, nil, fmt.Errorf("wl/plugin: negative Launch.ReplyMargin %v", l.ReplyMargin)
+		return nil, fmt.Errorf("wl/plugin: negative Launch.ReplyMargin %v", l.ReplyMargin)
+	}
+	return sum, nil
+}
+
+// clientConfig is ClientConfig, and also returns the launch's engine
+// process, through which a Supervisor stops the engine and learns when it
+// has exited.
+func clientConfig(l Launch) (*goplugin.ClientConfig, func() error, *engineProcess, error) {
+	sum, err := l.check()
+	if err != nil {
+		return nil, nil, nil, err
 	}
 	limit := l.MaxMessageBytes
 	if limit == 0 {
@@ -130,30 +147,30 @@ func ClientConfig(l Launch) (cfg *goplugin.ClientConfig, cleanup func() error, e
 	}
 	path, err := filepath.Abs(l.Path)
 	if err != nil {
-		return nil, nil, fmt.Errorf("wl/plugin: resolve Launch.Path: %w", err)
+		return nil, nil, nil, fmt.Errorf("wl/plugin: resolve Launch.Path: %w", err)
 	}
 	parent := l.TempDir
 	if parent == "" {
 		parent = os.TempDir()
 	}
 	if parent, err = filepath.Abs(parent); err != nil {
-		return nil, nil, fmt.Errorf("wl/plugin: resolve Launch.TempDir: %w", err)
+		return nil, nil, nil, fmt.Errorf("wl/plugin: resolve Launch.TempDir: %w", err)
 	}
 	base, err := os.MkdirTemp(parent, "wlp-")
 	if err != nil {
-		return nil, nil, fmt.Errorf("wl/plugin: create the base directory: %w", err)
+		return nil, nil, nil, fmt.Errorf("wl/plugin: create the base directory: %w", err)
 	}
 	if err := os.Chmod(base, 0o700); err != nil {
 		os.RemoveAll(base)
-		return nil, nil, fmt.Errorf("wl/plugin: create the base directory: %w", err)
+		return nil, nil, nil, fmt.Errorf("wl/plugin: create the base directory: %w", err)
 	}
 	if n := len(base) + socketPathSlack; n > maxSocketPath {
 		os.RemoveAll(base)
-		return nil, nil, fmt.Errorf("wl/plugin: the base directory %s gives socket paths of up to %d bytes, over the limit of %d; set Launch.TempDir to a shorter directory", base, n, maxSocketPath)
+		return nil, nil, nil, fmt.Errorf("wl/plugin: the base directory %s gives socket paths of up to %d bytes, over the limit of %d; set Launch.TempDir to a shorter directory", base, n, maxSocketPath)
 	}
 	env := append([]string(nil), l.Env...)
 	dir := &baseDir{path: base}
-	cleanup = dir.remove
+	proc := &engineProcess{}
 	return &goplugin.ClientConfig{
 		HandshakeConfig:  Handshake,
 		VersionedPlugins: VersionedPlugins(&RunnerPlugin{ReplyMargin: l.ReplyMargin}),
@@ -164,7 +181,9 @@ func ClientConfig(l Launch) (cfg *goplugin.ClientConfig, cleanup func() error, e
 				dir.remove()
 				return nil, fmt.Errorf("wl/plugin: make the socket directory private: %w", err)
 			}
-			return &launcher{path: path, sum: sum, config: l.Config, env: append(append([]string(nil), env...), cmd.Env...), base: dir}, nil
+			r := &launcher{path: path, sum: sum, config: l.Config, env: append(append([]string(nil), env...), cmd.Env...), base: dir, exited: make(chan struct{})}
+			proc.set(r)
+			return r, nil
 		},
 		AllowedProtocols: []goplugin.Protocol{goplugin.ProtocolGRPC},
 		SkipHostEnv:      true,
@@ -174,7 +193,44 @@ func ClientConfig(l Launch) (cfg *goplugin.ClientConfig, cleanup func() error, e
 		},
 		StartTimeout: l.StartTimeout,
 		Logger:       l.Logger,
-	}, cleanup, nil
+	}, dir.remove, proc, nil
+}
+
+// engineProcess is a launch's engine process, as its runner holds it.
+// go-plugin makes the runner when its Start begins, so a launch that fails
+// before that has no runner.
+type engineProcess struct {
+	mu sync.Mutex
+	r  *launcher
+}
+
+func (p *engineProcess) set(r *launcher) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.r = r
+}
+
+// runner returns the launch's runner, or nil before go-plugin made it.
+func (p *engineProcess) runner() *launcher {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.r
+}
+
+// exited returns a channel that is closed once the engine's process has
+// exited and been reaped, or nil when no process started. Once go-plugin's
+// Start has returned, whether a process started no longer changes.
+func (p *engineProcess) exited() <-chan struct{} {
+	r := p.runner()
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.proc == nil {
+		return nil
+	}
+	return r.exited
 }
 
 // baseDir is a launch's private base directory. The runner and the
@@ -223,6 +279,8 @@ type launcher struct {
 	stderr *os.File
 	// proc is the engine's process, through which Kill stops it.
 	proc *os.Process
+	// exited, when not nil, is closed once Wait has reaped the process.
+	exited chan struct{}
 }
 
 var _ runner.Runner = (*launcher)(nil)
@@ -348,6 +406,9 @@ func (r *launcher) Wait(context.Context) error {
 	stdout.Close()
 	stderr.Close()
 	r.base.remove()
+	if r.exited != nil {
+		close(r.exited)
+	}
 	return err
 }
 

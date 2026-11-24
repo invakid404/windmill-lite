@@ -118,3 +118,52 @@ func launchAndRun(ctx context.Context, want release) error {
 func Example() {
 	_ = launchAndRun
 }
+
+// superviseAndRun is the README's example of the supervisor: it runs the
+// engine of a release under a Supervisor until ctx ends, and runs a flow on
+// the generation that serves.
+func superviseAndRun(ctx context.Context, want release) error {
+	sup, err := plugin.NewSupervisor(plugin.SupervisorConfig{
+		Launch: plugin.Launch{
+			Path:   "/opt/windmill-lite/windmill-lite",
+			SHA256: want.EngineSHA256,
+			Config: "/etc/windmill-lite/plugin.json",
+			Env:    []string{"PATH=/usr/local/bin:/usr/bin:/bin"},
+		},
+		Identity: plugin.PinnedIdentity{
+			BundleDigest:  want.Bundle,
+			EngineVersion: want.Engine,
+			BunVersion:    want.Bun,
+			ConfigDigest:  want.ConfigDigest,
+			Labels:        want.Labels,
+		},
+		// The configuration's drain_timeout_ms.
+		DrainTimeout: 30 * time.Second,
+	})
+	if err != nil {
+		return err
+	}
+	done := make(chan error, 1)
+	go func() { done <- sup.Run(ctx) }()
+
+	err = sup.Call(ctx, func(engine *plugin.Client) error {
+		res, err := engine.Run(ctx, &plugin.RunRequest{
+			Path: "f/app/main",
+			Args: []byte(`{"name": "lite"}`),
+		})
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%s: %s\n", res.GetStatus(), res.GetResult())
+		return nil
+	})
+	<-done
+	return err
+}
+
+// This example supervises the engine of a release, runs a flow on the
+// generation that serves, and stops the engine when ctx ends. It needs an
+// engine that serves the Runner plugin, so it is compiled but not run.
+func ExampleSupervisor() {
+	_ = superviseAndRun
+}
