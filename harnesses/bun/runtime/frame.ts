@@ -36,6 +36,9 @@ export type Health = {
   errors: number;
   lag_ms: number;
   rss: number;
+  /** How many runs' data the process holds, until their run_released;
+   * written only when not 0. */
+  runs_held?: number;
 };
 
 /** A message as it is encoded: raw values are Raw, the rest plain. */
@@ -45,7 +48,7 @@ export type Outgoing = { t: string; [k: string]: unknown };
 const FIELDS: Record<string, readonly string[]> = {
   hello: ["proto", "harness", "runtime", "caps", "bundle", "pid", "workdir", "plugin"],
   welcome: ["proto", "engine", "bundle", "config", "reject"],
-  invoke: ["id", "run", "site", "script", "entry", "args", "env", "boundary", "around"],
+  invoke: ["id", "run", "site", "script", "entry", "args", "env", "boundary", "around", "run_data"],
   result: ["id", "outcome", "body", "origin", "tail", "exit_code", "settled"],
   late: ["id", "kind", "body", "settled"],
   cancel: ["id", "reason"],
@@ -54,14 +57,15 @@ const FIELDS: Record<string, readonly string[]> = {
   child: ["id", "pid", "token"],
   platform: ["id", "inv", "method", "url", "headers", "body"],
   platform_reply: ["id", "status", "headers", "body"],
-  run: ["id", "kind", "path", "args", "intercept", "write_capable", "halt_before", "halt_after", "fatal_error_names", "deadline_ms", "pre_write_deadline_ms", "clock"],
+  run: ["id", "kind", "path", "args", "intercept", "write_capable", "halt_before", "halt_after", "fatal_error_names", "deadline_ms", "pre_write_deadline_ms", "clock", "run_data"],
   run_done: ["id", "status", "result", "may_have_mutated", "warnings", "latched", "deviations", "error", "cancel_cause"],
   run_cancel: ["id", "reason", "canceler"],
   run_settled: ["id"],
-  host_call: ["id", "hook", "run", "site", "payload"],
+  host_call: ["id", "hook", "run", "site", "payload", "run_data"],
   host_reply: ["id", "payload", "error"],
-  ping: ["id", "in_flight", "abandoned", "errors", "lag_ms", "rss"],
-  pong: ["id", "in_flight", "abandoned", "errors", "lag_ms", "rss"],
+  run_released: ["run"],
+  ping: ["id", "in_flight", "abandoned", "errors", "lag_ms", "rss", "runs_held"],
+  pong: ["id", "in_flight", "abandoned", "errors", "lag_ms", "rss", "runs_held"],
   part: ["id", "seq", "last", "chunk"],
   drain: [],
   bye: [],
@@ -116,6 +120,8 @@ const WRITTEN_WHEN_TRUE = new Set(["run_done.may_have_mutated"]);
 /** String fields written only when not empty, as Go writes them: an empty
  * one counts as absent, on decoding too. */
 const WRITTEN_WHEN_NOT_EMPTY = new Set(["run_done.cancel_cause", "run_cancel.reason", "run_cancel.canceler"]);
+/** Integer fields that Go writes only when they are not 0. */
+const WRITTEN_WHEN_NOT_ZERO = new Set(["ping.runs_held", "pong.runs_held"]);
 
 /** The canonical payload text of a message. */
 export function encodeText(m: Outgoing): string {
@@ -124,7 +130,7 @@ export function encodeText(m: Outgoing): string {
   let s = '{"t":' + JSON.stringify(m.t);
   for (const k of order) {
     const v = m[k];
-    if (v === undefined || (v === false && WRITTEN_WHEN_TRUE.has(`${m.t}.${k}`)) || (v === "" && WRITTEN_WHEN_NOT_EMPTY.has(`${m.t}.${k}`))) continue;
+    if (v === undefined || (v === false && WRITTEN_WHEN_TRUE.has(`${m.t}.${k}`)) || (v === "" && WRITTEN_WHEN_NOT_EMPTY.has(`${m.t}.${k}`)) || (v === 0 && WRITTEN_WHEN_NOT_ZERO.has(`${m.t}.${k}`))) continue;
     s += "," + JSON.stringify(k) + ":" + value(v, NESTED[k]);
   }
   return s + "}";
@@ -192,6 +198,7 @@ const REQUIRED: Record<string, Record<string, Check>> = {
   run_settled: { id: "string" },
   host_call: { id: "string", hook: "string", run: "string", site: "string", payload: "raw" },
   host_reply: { id: "string" },
+  run_released: { run: "string" },
   ping: { id: "string" },
   pong: { id: "string" },
   part: { id: "string", seq: "int", last: "bool", chunk: "string" },
@@ -381,6 +388,8 @@ export function decode(payload: Uint8Array): Message {
       // Null counts as absent here too, as everywhere outside raw values.
       const present = ["in_flight", "abandoned", "errors", "lag_ms", "rss"].filter((k) => m[k] !== undefined && m[k] !== null);
       if (present.length > 0) for (const k of ["in_flight", "abandoned", "errors", "lag_ms", "rss"]) checkField(m.t, m, k, "int");
+      if (m.runs_held === null) m.runs_held = undefined;
+      if (present.length > 0 && m.runs_held !== undefined) checkField(m.t, m, "runs_held", "int");
       break;
     }
     case "part":
@@ -397,13 +406,13 @@ const RUN_STATUSES = ["success", "failure", "canceled", "skipped", "latched", "h
 /** Raw values: JSON that the codec splices in and never re-encodes. An
  * optional raw field that is null counts as absent, as in Go. */
 export const RAW_FIELDS: Record<string, readonly string[]> = {
-  invoke: ["args"],
+  invoke: ["args", "run_data"],
   result: ["body"],
   late: ["body"],
-  run: ["args", "intercept", "write_capable", "halt_before", "halt_after"],
+  run: ["args", "intercept", "write_capable", "halt_before", "halt_after", "run_data"],
   run_done: ["result", "warnings"],
   hello: ["plugin"],
-  host_call: ["payload"],
+  host_call: ["payload", "run_data"],
   host_reply: ["payload"],
 };
 
@@ -427,7 +436,7 @@ function resultField(outcome: unknown, k: string): boolean {
 function own(m: Message): Message {
   const out: Message = { t: m.t };
   for (const k of FIELDS[m.t]) {
-    if (m[k] === undefined || (m[k] === "" && WRITTEN_WHEN_NOT_EMPTY.has(`${m.t}.${k}`))) continue;
+    if (m[k] === undefined || (m[k] === "" && WRITTEN_WHEN_NOT_EMPTY.has(`${m.t}.${k}`)) || (m[k] === 0 && WRITTEN_WHEN_NOT_ZERO.has(`${m.t}.${k}`))) continue;
     if (m.t === "result" && !resultField(m.outcome, k)) continue;
     if ((m.t === "ping" || m.t === "pong") && k !== "id" && (m.in_flight === undefined || m.in_flight === null)) continue;
     const nested = Object.hasOwn(NESTED, k) ? NESTED[k] : undefined;

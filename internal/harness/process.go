@@ -117,6 +117,10 @@ type ProcessConfig struct {
 	// there (WelcomeConfig.ForeignWindmillOrigins). nil names none, and
 	// the welcome then has no such field.
 	ForeignWindmillOrigins []string
+	// RunData, when not nil, holds the data of the runtime's runs, which
+	// the process's first invoke or host_call of a run carries (RunData).
+	// Every process of a runtime shares one.
+	RunData *RunData
 
 	// ExpectPlugin, when not nil, is the host plugin declaration the
 	// harness's hello must carry, byte for byte: a pool sets it for the
@@ -1779,6 +1783,12 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 		}
 		env["BASE_URL"] = p.cfg.Facade
 	}
+	// The run's data, if the invoke must carry it (RunData): only the host
+	// plugin reads it.
+	var rd runDataSend
+	if !p.Hello().Plugin.IsZero() {
+		rd = p.cfg.RunData.take(p, inv.Run)
+	}
 	payload, err := Encode(Invoke{
 		ID:       inv.ID,
 		Run:      inv.Run,
@@ -1789,6 +1799,7 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 		Env:      env,
 		Boundary: string(inv.Boundary),
 		Around:   inv.Around,
+		RunData:  rd.data,
 	})
 	if err != nil {
 		return engine.StepOutcome{}, notDispatched, fmt.Errorf("harness: invoke %q: %w", inv.ID, err)
@@ -1827,7 +1838,7 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 	}
 	// The invoke is queued here, in dispatch order, and written below, once
 	// p.mu is released, by this goroutine when the writer is idle.
-	if err := p.conn.queuePayload(payload, inv.ID); err != nil {
+	if err := p.conn.queuePlaced(payload, inv.ID, rd.placedFunc()); err != nil {
 		p.mu.Unlock()
 		if errors.Is(err, net.ErrClosed) {
 			return engine.StepOutcome{}, notDispatched, errUnavailable

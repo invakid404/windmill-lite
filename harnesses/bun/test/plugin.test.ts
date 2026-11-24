@@ -127,6 +127,33 @@ describe("the runtime", () => {
     runtime.onClose();
   });
 
+  test("gives a hook its run's data as wl.run.data, frozen, until run_released, in plugin code alone (H11)", async () => {
+    const read = () => (globalThis as { wl?: { run: { data: unknown } } }).wl!.run.data;
+    const seen: unknown[] = [];
+    const { runtime, send, messages } = hostRuntime({
+      onModuleStart: () => {
+        seen.push(read());
+      },
+    });
+    const call = (id: string, run: string, data?: unknown) => send({ t: "host_call", id, hook: "on_module_start", run, site: "m:a", payload: { site }, run_data: data });
+    call("hc1", "r1", { tenant: "a", list: [1] });
+    call("hc2", "r2");
+    call("hc3", "r1");
+    send({ t: "ping", id: "e1" });
+    await Bun.sleep(5);
+    send({ t: "run_released", run: "r1" });
+    call("hc4", "r1");
+    send({ t: "ping", id: "e2" });
+    await Bun.sleep(5);
+    expect(seen).toEqual([{ tenant: "a", list: [1] }, undefined, { tenant: "a", list: [1] }, undefined]);
+    const data = seen[0] as { list: number[] };
+    expect(Object.isFrozen(data) && Object.isFrozen(data.list)).toBe(true);
+    expect(read()).toBeUndefined();
+    expect(messages().filter((m) => m.t === "pong").map((m) => m.runs_held ?? 0)).toEqual([1, 0]);
+    expect(runtime.hostHealth().runs_held).toBe(0);
+    runtime.onClose();
+  });
+
   test("answers unknown_hook when it loaded no plugin, and plugin_error when the hook throws", async () => {
     const plain = hostRuntime();
     plain.send({ t: "host_call", id: "hc1", hook: "intercept", run: "r", site: "", payload: {} });

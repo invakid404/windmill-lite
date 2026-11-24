@@ -70,7 +70,9 @@ func (p *Process) HostCall(ctx context.Context, hook, run, site string, payload 
 		delete(p.hostCalls, id)
 		p.mu.Unlock()
 	}
-	if err := p.conn.send(HostCall{ID: id, Hook: hook, Run: run, Site: site, Payload: payload}); err != nil {
+	// The run's data, if the host_call must carry it (RunData).
+	rd := p.cfg.RunData.take(p, run)
+	if err := p.conn.sendPlaced(HostCall{ID: id, Hook: hook, Run: run, Site: site, Payload: payload, RunData: rd.data}, rd.placedFunc()); err != nil {
 		forget()
 		return jsonval.Value{}, fmt.Errorf("harness: host_call %s: %w", hook, err)
 	}

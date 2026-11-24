@@ -74,7 +74,8 @@ the code.
 | `RecycleTriggers` | struct | `PoolConfig.Recycle`: the resident set and the count of distinct scripts that replace a warm process ([Warm pools](#warm-pools)) | `wl` |
 | `Key` | struct | What a pool serves: harness class, runtime pin, dependency set, module-state mode | `wl` |
 | `ProcessStats` | struct | One process's figures in `Pool.Stats` | tests |
-| `Health` | struct | A harness's health, from its heartbeat `ping` or a `pong` | tests |
+| `Health` | struct | A harness's health, from its heartbeat `ping` or a `pong`; `RunsHeld` counts the runs whose data it holds | tests |
+| `RunData`, `NewRunData` | struct, func | The data of a runtime's runs, which its processes' plugins read ([Run data](#run-data)): `Set`, `Release`, `Len` | `wl` |
 | `ExitStatus` | struct | How a process ended: code or signal | tests |
 | `BaseEnv` | func | The base environment of a spawned process | `ProcessConfig`'s default, `wltest` |
 | `BunCommand` | func | The command line that starts the Bun harness runtime on a bundle | `wl`, `wltest` |
@@ -99,6 +100,7 @@ the code.
 | `LateHostCallError` | struct | A host call whose context ended first; `Done` closes when its reply comes | `wl` |
 | `ErrNoPlugin` | var | The harness loaded no plugin | tests |
 | `RunRequest`, `RunDone`, `RunError`, `RunCancel`, `RunSettled` | structs | The host-mode run frames ([Host-mode run frames](#host-mode-run-frames)) | `wl` (the first three) |
+| `RunReleased` | struct | A run whose data a process holds has settled ([Run data](#run-data)) | tests |
 | `RunFlow`, `RunScript` | const | A run frame's kinds | tests |
 | `ClockReal`, `ClockRecord` | const | A run frame's clocks: real waits, or recorded waits | `wl` (`ClockRecord`) |
 | `RunDraining`, `RunRefused` | const | A `RunError`'s codes | `wl` |
@@ -786,6 +788,22 @@ hooks ([harnesses/bun](../../harnesses/bun/README.md#host-plugins)).
   `invoke` as `around`. One with wrappers is not dispatched to a harness
   that loaded no plugin.
 
+### Run data
+
+`ProcessConfig.RunData` and `HostConfig.RunData` name a `RunData`, which
+every process of a runtime shares. `wl` sets a run's data before the run
+starts, and releases it once the run has settled.
+
+- **Which frames carry it.** An `invoke` to a process with a plugin, or a
+  `host_call`, carries the run's data as `run_data` until one frame that
+  carries it holds its place on the wire. A whole frame holds it once
+  queued, and a part stream once its last part is taken (the connection's
+  `placed` callback). A small frame can overtake a large one, so a later
+  frame of the run carries the data too while the first is still in parts.
+- **Release.** `Release` sends `run_released` to each process that the
+  data reached. A frame that carries the data and is placed after the
+  release sends one of its own.
+
 ## Pools
 
 A `Pool` serves one `Key`: a harness class, a runtime pin, a dependency set
@@ -926,7 +944,8 @@ and `WL_REQUIRE_BUN` set ([docs/ci.md](../../docs/ci.md#the-go-jobs)).
 | Variable | Value | Tests that need it | When it is not set |
 |---|---|---|---|
 | `WL_BUN` | The path of a Bun 1.4.3 executable | Every test that runs the real Bun harness: `bun_test.go`, `exchange_test.go`, `children_test.go`, `reap_linux_test.go` (all but `TestFreshLandedKillReapsALaterOrphan`), `qwa4_test.go`, the `TestBunWarm*` tests of `childgroup_test.go`, `TestTimesHook`, `TestBenchEcho`; and `BenchmarkHarnessCodec` and `BenchmarkTransport`, which fail rather than skip | The test skips, or fails when `WL_REQUIRE_BUN` is set |
-| `WL_WINDMILL_CLIENT` | A directory whose `node_modules` holds `windmill-client@1.862.0` | `qwa4_test.go` | The test skips, or fails when `WL_REQUIRE_BUN` is set |
+| `WL_WINDMILL_CLIENT` | A directory whose `node_modules` holds `windmill-client@1.862.0` | `rundata_test.go` | A run's large first invoke held after its first part. A `host_call` of the run overtakes it and carries the data, and `runs_held` follows `Release` (`TestRunDataOvertakingFrame`). A release while the invoke is held still reaches the process (`TestRunDataReleasedWhileQueued`). | `WL_BUN` |
+| `qwa4_test.go` | The test skips, or fails when `WL_REQUIRE_BUN` is set |
 | `WL_REQUIRE_BUN` | Any non-empty value | All of the above | Missing tools skip their tests |
 | `WL_FAKE_HARNESS`, `WL_FAKE_CTL`, `WL_SUBREAPER`, `WL_WAIT_ALL`, `WL_DRIP_CHILD` | Set by the tests and their fixture steps (`spawn-waitall` sets `WL_WAIT_ALL`), when they re-run the test binary as a fake harness, a subreaper, a process that waits for all its children, or a child that keeps writing. `WL_FAKE_CTL` is a fake harness's control directory | `fake_test.go`, `pool_test.go`, `reap_linux_test.go`, `children_test.go` | Not for you to set |
 

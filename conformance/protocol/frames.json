@@ -167,6 +167,21 @@
       "payload": "{\"t\":\"invoke\",\"id\":\"i1\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{},\"boundary\":\"bun\",\"around\":[0,2]}"
     },
     {
+      "case": "invoke-run-data",
+      "title": "the first invoke of a run that a process gets carries the run's data, raw: the host plugin reads it as wl.run.data (ADR 0004 host plugins, item 9)",
+      "message_text": "{\"t\":\"invoke\",\"id\":\"i3\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{},\"boundary\":\"bun\",\"around\":[0],\"run_data\":{\"tenant\":\"t-1\",\"n\":2}}",
+      "raw": {
+        "run_data": "{\"tenant\":\"t-1\",\"n\":2}"
+      },
+      "payload": "{\"t\":\"invoke\",\"id\":\"i3\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{},\"boundary\":\"bun\",\"around\":[0],\"run_data\":{\"tenant\":\"t-1\",\"n\":2}}"
+    },
+    {
+      "case": "invoke-run-data-null",
+      "title": "a null run_data counts as absent, as any optional raw field does: the run has no data",
+      "message_text": "{\"t\":\"invoke\",\"id\":\"i4\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{},\"boundary\":\"bun\",\"run_data\":null}",
+      "payload": "{\"t\":\"invoke\",\"id\":\"i4\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{},\"boundary\":\"bun\"}"
+    },
+    {
       "case": "invoke-env-escaping",
       "title": "env values with every escape class",
       "message": {
@@ -661,11 +676,11 @@
       "sides": [
         "go"
       ],
-      "message_text": "{\"args\":{\"n\":1.50,\"b\":2},\"path\":\"f/w1/flow\",\"kind\":\"flow\",\"id\":\"0b6f0e2c-0000-4000-8000-000000000001\",\"t\":\"run\"}",
+      "message_text": "{\"args\":{\"n\":2,\"b\":2},\"path\":\"f/w1/flow\",\"kind\":\"flow\",\"id\":\"0b6f0e2c-0000-4000-8000-000000000001\",\"t\":\"run\"}",
       "raw": {
-        "args": "{\"n\":1.50,\"b\":2}"
+        "args": "{\"n\":2,\"b\":2}"
       },
-      "payload": "{\"t\":\"run\",\"id\":\"0b6f0e2c-0000-4000-8000-000000000001\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{\"n\":1.50,\"b\":2}}"
+      "payload": "{\"t\":\"run\",\"id\":\"0b6f0e2c-0000-4000-8000-000000000001\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{\"n\":2,\"b\":2}}"
     },
     {
       "case": "run-intercept",
@@ -746,6 +761,24 @@
         "halt_before": "[{\"flow\":\"f/w1/flow\",\"module\":\"b\",\"occurrence\":1}]"
       },
       "payload": "{\"t\":\"run\",\"id\":\"r5\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"write_capable\":[{\"module\":\"b\"}],\"halt_before\":[{\"flow\":\"f/w1/flow\",\"module\":\"b\",\"occurrence\":1}],\"halt_after\":[{\"flow\":\"f/w1/flow\",\"module\":\"a\"}],\"fatal_error_names\":[\"HostFatal\"]}"
+    },
+    {
+      "case": "run-run-data",
+      "title": "a host's run carries its data, raw, which the host's plugin reads as wl.run.data",
+      "message": {
+        "t": "run",
+        "id": "r9",
+        "kind": "flow",
+        "path": "f/x",
+        "args": {},
+        "run_data": {
+          "tenant": "t-2"
+        }
+      },
+      "raw": {
+        "run_data": "{\"tenant\":\"t-2\"}"
+      },
+      "payload": "{\"t\":\"run\",\"id\":\"r9\",\"kind\":\"flow\",\"path\":\"f/x\",\"args\":{},\"run_data\":{\"tenant\":\"t-2\"}}"
     },
     {
       "case": "run-done",
@@ -922,6 +955,34 @@
       "payload": "{\"t\":\"host_call\",\"id\":\"hc2\",\"hook\":\"on_run_end\",\"run\":\"r1\",\"site\":\"\",\"payload\":{\"trace\":{\"run\":\"r1\"}}}"
     },
     {
+      "case": "host-call-run-data",
+      "title": "a host_call that is the first message of a run that a process gets carries the run's data, raw",
+      "message": {
+        "t": "host_call",
+        "id": "hc3",
+        "hook": "on_run_end",
+        "run": "r1",
+        "site": "",
+        "payload": {},
+        "run_data": {
+          "tenant": "t-1"
+        }
+      },
+      "raw": {
+        "run_data": "{\"tenant\":\"t-1\"}"
+      },
+      "payload": "{\"t\":\"host_call\",\"id\":\"hc3\",\"hook\":\"on_run_end\",\"run\":\"r1\",\"site\":\"\",\"payload\":{},\"run_data\":{\"tenant\":\"t-1\"}}"
+    },
+    {
+      "case": "run-released",
+      "title": "the engine tells a process that holds a run's data that the run has settled: the process drops the data",
+      "message": {
+        "t": "run_released",
+        "run": "r1"
+      },
+      "payload": "{\"t\":\"run_released\",\"run\":\"r1\"}"
+    },
+    {
       "case": "host-reply",
       "title": "the plugin's answer, a raw object",
       "message": {
@@ -1077,6 +1138,39 @@
       "title": "fields of another outcome or message type are not read",
       "message_text": "{\"t\":\"result\",\"id\":\"i1\",\"outcome\":\"ok\",\"body\":1,\"exit_code\":\"x\",\"tail\":5,\"lines\":[null],\"settled\":true}",
       "payload": "{\"t\":\"result\",\"id\":\"i1\",\"outcome\":\"ok\",\"body\":1,\"settled\":true}"
+    },
+    {
+      "case": "pong-runs-held",
+      "title": "a pong whose health counts the runs whose data the process holds, until their run_released",
+      "message": {
+        "t": "pong",
+        "id": "e1",
+        "in_flight": 0,
+        "abandoned": 0,
+        "errors": 0,
+        "lag_ms": 0,
+        "rss": 1,
+        "runs_held": 2
+      },
+      "payload": "{\"t\":\"pong\",\"id\":\"e1\",\"in_flight\":0,\"abandoned\":0,\"errors\":0,\"lag_ms\":0,\"rss\":1,\"runs_held\":2}"
+    },
+    {
+      "case": "pong-runs-held-zero",
+      "title": "runs_held of 0, or null, is left out: a process that holds no run's data",
+      "message_text": "{\"t\":\"pong\",\"id\":\"e1\",\"in_flight\":0,\"abandoned\":0,\"errors\":0,\"lag_ms\":0,\"rss\":1,\"runs_held\":0}",
+      "payload": "{\"t\":\"pong\",\"id\":\"e1\",\"in_flight\":0,\"abandoned\":0,\"errors\":0,\"lag_ms\":0,\"rss\":1}"
+    },
+    {
+      "case": "ping-runs-held-null",
+      "title": "a null runs_held counts as absent",
+      "message_text": "{\"t\":\"ping\",\"id\":\"h2\",\"in_flight\":0,\"abandoned\":0,\"errors\":0,\"lag_ms\":0,\"rss\":1,\"runs_held\":null}",
+      "payload": "{\"t\":\"ping\",\"id\":\"h2\",\"in_flight\":0,\"abandoned\":0,\"errors\":0,\"lag_ms\":0,\"rss\":1}"
+    },
+    {
+      "case": "ping-runs-held-alone",
+      "title": "runs_held belongs to the health group: without it, the ping is bare",
+      "message_text": "{\"t\":\"ping\",\"id\":\"h3\",\"runs_held\":1}",
+      "payload": "{\"t\":\"ping\",\"id\":\"h3\"}"
     },
     {
       "case": "health-one-null",

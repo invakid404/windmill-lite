@@ -60,6 +60,9 @@ type HostConfig struct {
 	// ForeignWindmillOrigins is as in ProcessConfig: the host's welcome
 	// names them, and its fetch view applies them to its steps' requests.
 	ForeignWindmillOrigins []string
+	// RunData is as in ProcessConfig: the host's first invoke or host_call
+	// of a run carries the run's data.
+	RunData *RunData
 	// Workdir is the working directory the host passed to the engine,
 	// which must be a writable directory and the host's own working
 	// directory, the workdir of its hello (ADR 0004, the shared-process
@@ -279,6 +282,7 @@ func AttachHost(ctx context.Context, cfg HostConfig) (*Process, error) {
 		Platform:         cfg.Platform,
 
 		ForeignWindmillOrigins: cfg.ForeignWindmillOrigins,
+		RunData:                cfg.RunData,
 	})
 	if err != nil {
 		cfg.Conn.Close()

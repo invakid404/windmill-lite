@@ -58,6 +58,7 @@ import {
   installProcessScope,
   installStepAPI,
   installTimers,
+  pluginRun,
   type InvocationContext,
   InvocationLog,
   InvocationResources,
@@ -220,7 +221,8 @@ export type RunOutcome = {
  * host gives in its run options: write-capable selectors (H3), halts
  * before and after the modules selectors match (H8), fatal error names
  * (H7), the hard and pre-write deadlines in milliseconds (H4), present
- * when given, 0 or less for one that has passed, and the clock (H10). */
+ * when given, 0 or less for one that has passed, the clock (H10), and the
+ * run's data (H11, JSON text). */
 export type RunFields = {
   intercept?: string;
   write_capable?: Selector[];
@@ -230,6 +232,7 @@ export type RunFields = {
   deadline_ms?: number;
   pre_write_deadline_ms?: number;
   clock?: "real" | "record";
+  run_data?: string;
 };
 
 /** A run the engine did not start (run_done with an error): code is
@@ -254,6 +257,16 @@ const PLUGIN_ERROR = "plugin_error";
 /** The warning code of a step's wl.latch, which latches the run
  * (engine.WarningLatch). */
 const LATCH = "latch";
+
+/** v with every object and array in it frozen: run data is read, never
+ * changed. */
+function deepFreeze(v: unknown): unknown {
+  if (typeof v === "object" && v !== null && !Object.isFrozen(v)) {
+    Object.freeze(v);
+    for (const x of Object.values(v)) deepFreeze(x);
+  }
+  return v;
+}
 
 /** An outcome as an around wrapper's next() gives it. */
 function stepView(o: Outcome): StepOutcome {
@@ -316,6 +329,10 @@ export class Runtime {
   private platformCalls = new Map<string, PendingCall>();
   private runs = new Map<string, { resolve: (o: RunOutcome) => void; reject: (e: Error) => void }>();
   private scopes = new Map<string, <R>(fn: () => R) => R>();
+  /** The data of the runs that reached this process with an invoke or a
+   * host_call that carried it, deeply frozen, until their run_released
+   * (ADR 0004 host plugins, item 9). */
+  private runData = new Map<string, unknown>();
   /** Host mode: what to call when a run settles, from its submission
    * until run_settled (onRunSettled), bound to the run's scope. */
   private settledHandlers = new Map<string, () => void>();
@@ -459,6 +476,9 @@ export class Runtime {
       case "host_call":
         this.onHostCall(m);
         break;
+      case "run_released":
+        this.runData.delete(m.run);
+        break;
       case "drain":
         if (this.opts.host) throw new ProtocolError("unexpected_message", "drain from the engine in host mode");
         this.drain();
@@ -557,11 +577,24 @@ export class Runtime {
       rss: process.memoryUsage.rss(),
       oldest_abandoned_ms: oldest,
       modules: this.modules.size,
+      runs_held: this.runData.size,
     };
+  }
+
+  /** Keeps the run data that m carries, if any, for its run. */
+  private keepRunData(m: Message) {
+    if (m.run_data !== undefined && m.run_data !== null) this.runData.set(m.run, deepFreeze(m.run_data));
+  }
+
+  /** Runs fn, the host plugin's code for run, with the run's data as
+   * wl.run.data. */
+  private asPlugin<R>(run: string, fn: () => R): R {
+    return pluginRun.run({ data: this.runData.get(run) }, fn);
   }
 
   private invoke(m: Message) {
     if (this.invocations.has(m.id)) throw new ProtocolError("unexpected_message", `invocation ${JSON.stringify(m.id)} is already in flight`);
+    this.keepRunData(m);
     if (this.mode === "fresh") {
       if (this.served) throw new ProtocolError("unexpected_message", "a fresh process serves one invocation");
       this.served = true;
@@ -635,10 +668,12 @@ export class Runtime {
         if (closed || inv.state !== "running") {
           return Promise.reject(new TypeError(`windmill-lite: around[${indices[k]}] at ${m.site} called next() after it returned or its invocation ended`));
         }
-        return (inner = at(k + 1).then(() => stepView(result!)));
+        // What runs inside, the step included, does not read this
+        // wrapper's wl.run.data; an inner wrapper reads its own.
+        return (inner = pluginRun.exit(() => at(k + 1)).then(() => stepView(result!)));
       };
       try {
-        await wrappers[k]!.fn(call, next);
+        await this.asPlugin(m.run, () => wrappers[k]!.fn(call, next));
       } catch (e) {
         failed(indices[k], `it threw ${describe(e)}`);
       }
@@ -664,11 +699,12 @@ export class Runtime {
         this.send({ t: "host_reply", id: m.id, error: { code: "plugin_error", message: `the answer cannot be sent: ${describe(e)}` } });
       }
     };
+    this.keepRunData(m);
     if (!plugin) {
       reply(undefined, { code: "unknown_hook", message: "the harness loaded no host plugin" });
       return;
     }
-    const answer = () => invocations.exit(() => dispatch(plugin, m.hook, m.run, m.payload as Record<string, unknown>));
+    const answer = () => invocations.exit(() => this.asPlugin(m.run, () => dispatch(plugin, m.hook, m.run, m.payload as Record<string, unknown>)));
     const scope = this.scopes.get(m.run);
     let p: Promise<Record<string, unknown>>;
     try {
@@ -1169,7 +1205,7 @@ export class Runtime {
       // connection ends.
       if (onSettled) this.settledHandlers.set(id, () => scope(() => invocations.exit(onSettled)));
       try {
-        const { intercept, write_capable, halt_before, halt_after, ...budgets } = fields;
+        const { intercept, write_capable, halt_before, halt_after, run_data, ...budgets } = fields;
         const selectors = (s: Selector[] | undefined) => (s === undefined ? undefined : new Raw(JSON.stringify(s)));
         this.send({
           t: "run",
@@ -1182,6 +1218,7 @@ export class Runtime {
           halt_before: selectors(halt_before),
           halt_after: selectors(halt_after),
           ...budgets,
+          run_data: run_data === undefined ? undefined : new Raw(run_data),
         });
       } catch (e) {
         this.runs.delete(id);
