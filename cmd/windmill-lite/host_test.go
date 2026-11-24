@@ -1631,8 +1631,13 @@ func pluginHostBundle(t *testing.T, bun, plugin string) string {
 			"  return { status: r.status, value: await r.json() };\n}\n",
 		"f/app/greeting.variable.yaml":     "value: hello from the bundle\nis_secret: false\ndescription: A synthetic variable that the facade step reads\n",
 		"f/app/facade_flow.flow/flow.yaml": `{"summary":"f","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/app/facade","input_transforms":{}}}]}}`,
+		// A step that returns what it reads as wl.run.data, and a flow that
+		// a plugin may answer instead.
+		"f/app/data.ts":                  "export async function main() {\n  const d = (globalThis as any).wl.run.data;\n  return d === undefined ? \"undefined\" : d;\n}\n",
+		"f/app/data_flow.flow/flow.yaml": `{"summary":"f","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/app/data","input_transforms":{}}}]}}`,
+		"f/app/nest_flow.flow/flow.yaml": `{"summary":"f","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/app/data","input_transforms":{}}}]}}`,
 	}
-	contract := "roots: [{flow: f/app/plain_flow}, {flow: f/app/native_flow}, {flow: f/app/facade_flow}]\n"
+	contract := "roots: [{flow: f/app/plain_flow}, {flow: f/app/native_flow}, {flow: f/app/facade_flow}, {flow: f/app/data_flow}, {flow: f/app/nest_flow}]\n"
 	if plugin != "" {
 		files["f/app/plugin.ts"] = plugin
 		contract += "plugin: f/app/plugin.ts\n"
@@ -1730,6 +1735,83 @@ func TestHostBundledPluginFetchOrder(t *testing.T) {
 			t.Errorf("%s: %s %s, want the header x-plugin-wrap %s", c.flow, r.Status, r.Result, c.want)
 		}
 	}
+}
+
+// runDataPlugin is a host plugin whose around wrapper of f/app/plain_flow
+// records what it reads as wl.run.data in globalThis.wlRunData, by run, and
+// whose intercept hook answers f/app/facade_flow with what it reads. Its
+// intercept hook of f/app/nest_flow submits a run of f/app/data_flow
+// through the host (globalThis.wlHost), whose unwrapped step returns what
+// it reads, and answers with what the hook, that step and the nested run's
+// onSettled read.
+const runDataPlugin = "const seen = ((globalThis as any).wlRunData ??= new Map());\n" +
+	"const read = () => (globalThis as any).wl.run.data ?? \"undefined\";\n" +
+	"export default {\n" +
+	"  around: [{ selector: { flow: \"f/app/plain_flow\", module: \"a\" }, fn: async (c: { run: string }, next: () => Promise<unknown>) => {\n" +
+	"    seen.set(c.run, read());\n" +
+	"    await next();\n" +
+	"  } }],\n" +
+	"  intercept: [\n" +
+	"    { selector: { flow: \"f/app/facade_flow\", module: \"a\" }, fn: () => ({ result: read() }) },\n" +
+	"    { selector: { flow: \"f/app/nest_flow\", module: \"a\" }, fn: async () => {\n" +
+	"      let onSettled: unknown = \"not called\";\n" +
+	"      let settled!: () => void;\n" +
+	"      const done = new Promise<void>((r) => (settled = r));\n" +
+	"      const r = await (globalThis as any).wlHost.run(\"f/app/data_flow\", {}, { onSettled: () => { onSettled = read(); settled(); } });\n" +
+	"      await done;\n" +
+	"      return { result: { hook: read(), step: r.result, onSettled } };\n" +
+	"    } },\n" +
+	"  ],\n" +
+	"};\n"
+
+// TestHostRunData: in host mode, the data a host gives in its run options
+// reaches the host's bundled plugin as wl.run.data. Of three concurrent
+// runs, the around wrapper of each reads its own run's data, or undefined
+// for the run without; an intercept hook reads its run's data. A run that
+// a plugin hook submits through the host is not the hook's run: its
+// unwrapped step and its onSettled read undefined, and the hook still
+// reads its own run's data. Once every run has settled, the host holds no
+// run's data.
+func TestHostRunData(t *testing.T) {
+	bun := bunForTest(t)
+	srv := headerServer(t)
+	var r struct {
+		Around   []json.RawMessage
+		Statuses []string
+		Hook     json.RawMessage
+		Nest     json.RawMessage
+		Held     *int
+	}
+	runPluginHost(t, bun, &r, "WL_SCENARIO=run-data", "WL_URL="+srv.URL, "WL_BUNDLE="+pluginHostBundle(t, bun, runDataPlugin))
+	want := []string{`{"tenant":"a"}`, `{"tenant":"b"}`, `"undefined"`}
+	if len(r.Around) != len(want) {
+		t.Fatalf("around wrappers read %s, want %v", r.Around, want)
+	}
+	for i, w := range want {
+		if string(r.Around[i]) != w {
+			t.Errorf("run %d: the around wrapper read %s, want %s", i, r.Around[i], w)
+		}
+	}
+	if want := `{"hook":{"tenant":"d"},"step":"undefined","onSettled":"undefined"}`; !jsonValueIs(r.Nest, want) {
+		t.Errorf("the nested run: %s, want %s", r.Nest, want)
+	}
+	if string(r.Hook) != `{"tenant":"c"}` {
+		t.Errorf("the intercept hook read %s, want {\"tenant\":\"c\"}", r.Hook)
+	}
+	for i, s := range r.Statuses {
+		if s != "success" {
+			t.Errorf("run %d: status %s", i, s)
+		}
+	}
+	if r.Held == nil || *r.Held != 0 {
+		t.Errorf("once every run has settled, the host holds %v runs' data, want 0", r.Held)
+	}
+}
+
+// jsonValueIs reports whether got is the JSON value that want spells.
+func jsonValueIs(got json.RawMessage, want string) bool {
+	var a, b any
+	return json.Unmarshal(got, &a) == nil && json.Unmarshal([]byte(want), &b) == nil && reflect.DeepEqual(a, b)
 }
 
 // reconnectReport is what the reconnect scenario prints: each flow's

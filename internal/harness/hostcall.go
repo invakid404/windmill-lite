@@ -47,7 +47,8 @@ func (e *LateHostCallError) Unwrap() error { return e.Err }
 // (ADR 0008). It waits until the harness replies, ctx ends
 // (it then returns a *LateHostCallError with ctx's cause, and the reply
 // that comes later is dropped), or the connection does. A plugin's error
-// reply is a *HostCallError.
+// reply is a *HostCallError. The run's data that ctx carries (RunData)
+// goes with the call.
 func (p *Process) HostCall(ctx context.Context, hook, run, site string, payload jsonval.Value) (jsonval.Value, error) {
 	out, _, err := p.hostCall(ctx, hook, run, site, payload)
 	return out, err
@@ -78,7 +79,9 @@ func (p *Process) hostCall(ctx context.Context, hook, run, site string, payload 
 		delete(p.hostCalls, id)
 		p.mu.Unlock()
 	}
-	if err := p.conn.send(HostCall{ID: id, Hook: hook, Run: run, Site: site, Payload: payload}); err != nil {
+	// The run's data, which ctx carries (RunData).
+	rd := RunDataOf(ctx).take(p)
+	if err := p.conn.sendPlaced(HostCall{ID: id, Hook: hook, Run: run, Site: site, Payload: payload, RunDataID: rd.id, RunData: rd.data}, rd.placedFunc()); err != nil {
 		forget()
 		return jsonval.Value{}, false, fmt.Errorf("harness: host_call %s: %w", hook, err)
 	}

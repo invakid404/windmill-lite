@@ -21,6 +21,15 @@
 //     f/app/plain_flow and keeps its warnings, and closes; then replaces
 //     WL_DIR with the bundle WL_RELEASE_B and connects again, in the same
 //     process, reporting its warnings or the HostError's code and message.
+//   - run-data: connects on WL_BUNDLE, whose plugin records what its around
+//     wrapper of f/app/plain_flow reads as wl.run.data in
+//     globalThis.wlRunData, by run, and answers f/app/facade_flow with an
+//     intercept hook that returns what it reads. It runs plain_flow three
+//     times at once, with the data {tenant: "a"}, {tenant: "b"} and none,
+//     then facade_flow with {tenant: "c"}, then f/app/nest_flow with
+//     {tenant: "d"}, whose hook submits a run through the host it finds as
+//     globalThis.wlHost, and reports what each read and how many runs' data
+//     the host holds once every run has settled.
 //
 // Environment: WL_ENGINE (the engine binary) and the scenario's variables.
 
@@ -132,6 +141,30 @@ switch (env.WL_SCENARIO) {
       await got.close();
     }
     report = { first: r.warnings, second };
+    break;
+  }
+  case "run-data": {
+    const host = await open(env.WL_BUNDLE!);
+    (globalThis as any).wlHost = host;
+    const settled: Promise<void>[] = [];
+    const run = (flow: string, data?: unknown) => {
+      let onSettled!: () => void;
+      settled.push(new Promise<void>((r) => (onSettled = r)));
+      return host.run(flow, args, data === undefined ? { onSettled } : { data, onSettled });
+    };
+    const plain = await Promise.all([run("f/app/plain_flow", { tenant: "a" }), run("f/app/plain_flow", { tenant: "b" }), run("f/app/plain_flow")]);
+    const hook = await run("f/app/facade_flow", { tenant: "c" });
+    const nest = await run("f/app/nest_flow", { tenant: "d" });
+    await Promise.all(settled);
+    const seen = (globalThis as any).wlRunData as Map<string, unknown>;
+    report = {
+      around: plain.map((r) => seen.get(r.id) ?? null),
+      statuses: [...plain, hook, nest].map((r) => r.status),
+      hook: hook.result,
+      nest: nest.result,
+      held: host.health().runs_held,
+    };
+    await host.close();
     break;
   }
   default:

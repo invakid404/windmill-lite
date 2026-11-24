@@ -70,8 +70,10 @@ only engine API. In outline:
    warnings. `runOptions` carries the run's kind, job id, seed, hooks
    ([host hooks](0008-host-hooks.md)), per-run platform providers
    ([platform interface](0007-platform-interface.md)), pre-write deadline,
-   clock and jitter source; the hard deadline is the context's.
-   - Run data and a per-run module-state override are planned. Until then
+   clock, jitter source and run data
+   ([H11](0008-host-hooks.md#the-hooks)); the hard deadline is the
+   context's.
+   - A per-run module-state override is planned. Until then
      `wl.Options.ModuleState` sets the override once per runtime, since one
      harness pool and one engine hold one mode.
    - A canceled run's result names its cause, such as its deadline

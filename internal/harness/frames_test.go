@@ -168,8 +168,11 @@ func runEncode(t *testing.T, c *frameCase) {
 		var raw []byte
 		switch v := m.(type) {
 		case Invoke:
-			if field == "args" {
+			switch field {
+			case "args":
 				raw = v.Args.Producer()
+			case "run_data":
+				raw = v.RunData.Producer()
 			}
 		case Result:
 			raw = v.Body.Producer()
@@ -187,6 +190,8 @@ func runEncode(t *testing.T, c *frameCase) {
 				raw = v.HaltAfter.Producer()
 			case "identity":
 				raw = v.Identity.Producer()
+			case "run_data":
+				raw = v.RunData.Producer()
 			}
 		case RunDone:
 			raw = v.Result.Producer()
@@ -195,6 +200,9 @@ func runEncode(t *testing.T, c *frameCase) {
 			}
 		case HostCall:
 			raw = v.Payload.Producer()
+			if field == "run_data" {
+				raw = v.RunData.Producer()
+			}
 		case HostReply:
 			raw = v.Payload.Producer()
 		}

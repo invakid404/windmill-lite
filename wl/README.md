@@ -397,11 +397,12 @@ its own reason and canceler.
 | `Clock` | The clock of every sleep and retry delay: `wl.RealClock`, or a `*wl.RecordClock` that returns each wait at once | The real clock |
 | `Jitter` | The source of the retry jitter. `SeededJitter(seed)` fixes it. | One seeded with `Seed` |
 | `Identity` | The run's own [job identity](#job-identity): each field that it sets replaces the runtime's for this run's jobs | The runtime's |
+| `Data` | The run's data, any JSON value, which the host plugin reads as `wl.run.data` ([Host plugins](#host-plugins)). JSON null means none, and data that is not JSON, or has other whitespace than JSON's around it, refuses the run. `Run` copies it, so the buffer may be reused once `Run` returns. | None |
 | `Pin` | Pins the run to one `warm` process ([Pinned runs](#pinned-runs)) | Off |
 | `Limits` | The run's own limits: `MaxInFlight`, `MaxArgsBytes`, `MaxHeldBytes` and `Bytes` ([Budgets](#budgets)) | None |
 
-A script run uses only `Kind`, `ID`, `Identity`, `Pin` and `Limits`. The
-other fields apply to flow runs.
+A script run uses only `Kind`, `ID`, `Identity`, `Data`, `Pin` and
+`Limits`. The other fields apply to flow runs.
 
 ### Result
 
@@ -688,6 +689,15 @@ to write one.
   error names too.
 - A plugin's `around` wrappers run a step inside them, in the step's
   invocation; the Bun harness README describes them.
+- **Run data.** The plugin's hooks and `around` wrappers read a run's
+  `RunOptions.Data` as `wl.run.data`, frozen; step code reads `undefined`.
+  The data reaches each process that the run uses with the run's first
+  frame there, and the process drops it once the run has settled. In host
+  mode it is the `data` run option of the host's `run`.
+  - It is one run's own: a run that reuses the `ID` of one that has
+    returned but not settled reads its own data, or none, never the
+    other's. A run that a Go hook starts with the hook's context reads
+    its own data too, or none.
 - A plugin's `resource` and `variable` answer after the run's own
   platform data and before the runtime's.
 - A failed `onRunEnd` adds a `plugin_error` warning, and a failed
@@ -881,6 +891,8 @@ build helper's dependencies, and skip without them unless
 | `outside_test.go` | A bundle whose host contract lists two modules outside the [sync folder](../docs/glossary.md#sync-folder), without a host | Yes |
 | `plugincases_test.go` | The cases of `conformance/plugins/hooks.yaml`, through the TypeScript case plugin, named by `Options.Plugin` and built into the bundle, and through Go callbacks built from the same plugins | Yes |
 | `bundledplugin_test.go` | A bundle's own plugin. Its `around` wrapper and the step share a host-provided module in 16 concurrent runs (`TestBundledPluginSharesHostModule`), and a bundle with no step starts processes for it (`TestBundledPluginWithoutSteps`). `Open` refuses it with `Options.Plugin` and in `fresh` (`TestOpenRefusesTwoPlugins`), and refuses a manifest that names a module outside the bundle (`TestOpenRefusesUnverifiedPlugin`). A `fetch` wrapper it installs at load reaches an ordinary step and not a native one (`TestPluginFetchWrapperOrder`) | Yes |
+| `rundata_test.go` | `RunOptions.Data` on real runs. Wrappers of an `around`-only plugin read their own run's data and steps `undefined` (`TestRunDataAroundOnly`), a hook reads it frozen (`TestRunDataHook`), and a run that a Go hook starts does not inherit it (`TestRunDataNotInherited`). The process holds it until a flow run or a script job settles (`TestRunDataReleased`), and one without a plugin gets none (`TestRunDataNeedsPlugin`). Data that is not JSON or not UTF-8 is refused (`TestRunDataRefusesInvalid`, `TestRunDataRefusesInvalidUTF8`). | Yes |
+| `rundatalate_test.go` | Run data after `Run` returns, while a plugin hook that outlived the plugin timeout holds the run's settlement. A later run of the same `ID`, with data or without, reads its own, and the earlier run's hook and `onRunSettled` read theirs (`TestRunDataReusedID`). A buffer reused once `Run` returns does not reach a new process (`TestRunDataOwnsBuffer`). | Yes |
 | `store_test.go` | `Options.ResourceStore` on real steps (`TestResourceStoreOnBun`): two runtimes that share a memory store, one with its own, a failing store's warning, and `D24` in the trace; a run id in flight refused (`TestRunIDInFlight`). Without Bun: `Close` releasing its own store while readers use it (`TestCloseReleasesItsOwnStore`), and a late answer kept from a later run of the same id (`TestLateAnswerAcrossIDReuse`) | Yes, but for the last two |
 | `pool_test.go` | `Options.Pool`. Without Bun: `Open`'s refusals in `fresh` and host mode (`TestPoolOptionsRefusedFresh`) and of `MaxLive` below `Max` (`TestPoolMaxLiveBelowMax`), and the cap's entry in the trace. On real steps: a second process for a step beside a CPU-bound one and under `Cap`, the module and RSS triggers (`TestWlPoolOptions`), and the warm start (`TestWarmStart`). A step reads a plugin's resource under `Cap: 1` (`TestPoolCapLeavesPluginCalls`) and while its process leaves (`TestPoolRecyclingProcessServesPluginCalls`); zero settings call the diagnostics writer as before (`TestDiagnosticsZeroSettings`) | Yes, but for the refusals and the trace |
 | `pin_test.go` | A pinned run whose process is killed between two steps latches `ErrPinnedProcessLost`, and one whose process dies in its last step fails with no latch (`TestPinnedRunProcessLost`). A later run that takes an unsettled pinned run's id is routed as its own, while the earlier run's late calls keep to its process (`TestPinnedRunIDReuse`). Runs that steps dispatch take the runtime's total and pinning (`TestDispatchedRunsTakeRuntimeSettings`) | Yes |

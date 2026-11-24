@@ -20,8 +20,10 @@ const ProtocolVersion = 1
 // Message types (the `t` field, ADR 0004). Among them,
 // `platform`/`platform_reply` carry the platform calls that the facade
 // serves, `run`/`run_done`/`run_cancel`/`run_settled` carry host mode's
-// runs, `host_call`/`host_reply` carry the calls to a host plugin, and
-// `reserve`/`reserve_reply` a step's draws on its run's byte budget.
+// runs, `host_call`/`host_reply` carry the calls to a host plugin,
+// `reserve`/`reserve_reply` a step's draws on its run's byte budget, and
+// `run_released` tells a process that a run whose data it holds has
+// settled.
 const (
 	TypeHello         = "hello"
 	TypeWelcome       = "welcome"
@@ -42,6 +44,7 @@ const (
 	TypeHostReply     = "host_reply"
 	TypeReserve       = "reserve"
 	TypeReserveReply  = "reserve_reply"
+	TypeRunReleased   = "run_released"
 	TypePing          = "ping"
 	TypePong          = "pong"
 	TypePart          = "part"
@@ -187,18 +190,23 @@ func VersionsPair(sdk, engine string) bool {
 // the harness runs the step inside them. Budget, written only when true, says
 // that the step's run has a byte budget or the runtime a total: the
 // step's wl.reserve then sends reserve frames, and takes nothing without
-// it.
+// it. RunDataID, when not empty, names the run's data (RunData), which the
+// host plugin reads as wl.run.data until a run_released names it; RunData,
+// when not zero, is that data, which the engine sends with the first
+// invoke or host_call of the run that the process gets.
 type Invoke struct {
-	ID       string
-	Run      string
-	Site     string
-	Script   string
-	Entry    string
-	Args     jsonval.Value
-	Env      map[string]string
-	Boundary string
-	Around   []int
-	Budget   bool
+	ID        string
+	Run       string
+	Site      string
+	Script    string
+	Entry     string
+	Args      jsonval.Value
+	Env       map[string]string
+	Boundary  string
+	Around    []int
+	Budget    bool
+	RunDataID string
+	RunData   jsonval.Value
 }
 
 // Result is an invocation's outcome.
@@ -399,6 +407,9 @@ type RunRequest struct {
 	PreWriteDeadlineMS *int64
 	Clock              string
 	Identity           jsonval.Value
+	// RunData, when not zero, is the run's data (H11), which the host's
+	// plugin reads as wl.run.data.
+	RunData jsonval.Value
 }
 
 // RunDone is a run's outcome, answering a RunRequest with the same id.
@@ -450,13 +461,15 @@ const (
 // Hook names it, Run and Site are the run and the site it
 // serves (Site is "" for a hook of the run as a whole), and Payload, a
 // JSON object, is what the hook gets. The harness answers with a
-// HostReply under the same id.
+// HostReply under the same id. RunDataID and RunData are as on Invoke.
 type HostCall struct {
-	ID      string
-	Hook    string
-	Run     string
-	Site    string
-	Payload jsonval.Value
+	ID        string
+	Hook      string
+	Run       string
+	Site      string
+	Payload   jsonval.Value
+	RunDataID string
+	RunData   jsonval.Value
 }
 
 // HostReply answers a HostCall with the same id: Payload, a JSON object,
@@ -509,6 +522,14 @@ type RunSettled struct {
 	ID string
 }
 
+// RunReleased tells a process that a run whose data it holds has settled
+// (ADR 0004 host plugins, item 9): the process drops the data that
+// RunDataID names. Run is the run's id.
+type RunReleased struct {
+	Run       string
+	RunDataID string
+}
+
 // RunCancel cancels a run the harness submitted. Reason and Canceler, when
 // either is set, are what the cancellation's error names (FX-38); "" for
 // both names Windmill's defaults. Both codecs write neither when empty.
@@ -528,6 +549,9 @@ type Health struct {
 	LagMS int64
 	// RSS is the resident set size in bytes.
 	RSS int64
+	// RunsHeld counts the runs whose data the process holds, until their
+	// run_released (optional: zero is left out).
+	RunsHeld int
 }
 
 // Ping is a health request. A harness also sends one on its own every
@@ -578,6 +602,7 @@ func (HostCall) Type() string        { return TypeHostCall }
 func (HostReply) Type() string       { return TypeHostReply }
 func (ReserveRequest) Type() string  { return TypeReserve }
 func (ReserveReply) Type() string    { return TypeReserveReply }
+func (RunReleased) Type() string     { return TypeRunReleased }
 func (Ping) Type() string            { return TypePing }
 func (Pong) Type() string            { return TypePong }
 func (Part) Type() string            { return TypePart }
@@ -658,6 +683,7 @@ func (m Invoke) appendPayload(b []byte) ([]byte, error) {
 	if m.Budget {
 		e.bool("budget", true)
 	}
+	appendRunData(e, m.RunDataID, m.RunData)
 	return e.end()
 }
 
@@ -799,6 +825,9 @@ func (m RunRequest) appendPayload(b []byte) ([]byte, error) {
 	if !m.Identity.IsZero() {
 		e.raw("identity", m.Identity.Producer())
 	}
+	if !m.RunData.IsZero() {
+		e.raw("run_data", m.RunData.Producer())
+	}
 	return e.end()
 }
 
@@ -848,7 +877,19 @@ func (m HostCall) appendPayload(b []byte) ([]byte, error) {
 	e.str("run", m.Run)
 	e.str("site", m.Site)
 	e.raw("payload", m.Payload.Producer())
+	appendRunData(e, m.RunDataID, m.RunData)
 	return e.end()
+}
+
+// appendRunData writes an invoke's or a host_call's run_data_id and
+// run_data, each when present.
+func appendRunData(e *envelope, id string, data jsonval.Value) {
+	if id != "" {
+		e.str("run_data_id", id)
+	}
+	if !data.IsZero() {
+		e.raw("run_data", data.Producer())
+	}
 }
 
 func (m ReserveRequest) appendPayload(b []byte) ([]byte, error) {
@@ -870,7 +911,6 @@ func (m ReserveReply) appendPayload(b []byte) ([]byte, error) {
 	}
 	return e.end()
 }
-
 func (m HostReply) appendPayload(b []byte) ([]byte, error) {
 	if m.Payload.IsZero() == (m.Error == nil) {
 		return b, protoErr(CodeBadField, "host_reply needs exactly one of payload and error")
@@ -895,6 +935,13 @@ func (m RunSettled) appendPayload(b []byte) ([]byte, error) {
 	return e.end()
 }
 
+func (m RunReleased) appendPayload(b []byte) ([]byte, error) {
+	e := newEnvelope(b, TypeRunReleased)
+	e.str("run", m.Run)
+	e.str("run_data_id", m.RunDataID)
+	return e.end()
+}
+
 func (m RunCancel) appendPayload(b []byte) ([]byte, error) {
 	e := newEnvelope(b, TypeRunCancel)
 	e.str("id", m.ID)
@@ -916,6 +963,9 @@ func appendHealth(e *envelope, h *Health) {
 	e.int("errors", int64(h.Errors))
 	e.int("lag_ms", h.LagMS)
 	e.int("rss", h.RSS)
+	if h.RunsHeld != 0 {
+		e.int("runs_held", int64(h.RunsHeld))
+	}
 }
 
 func (m Ping) appendPayload(b []byte) ([]byte, error) {
@@ -1055,16 +1105,15 @@ func Decode(payload []byte) (Message, error) {
 			Env:      d.env("env"),
 			Boundary: d.str("boundary"),
 		}
+		inv := m.(Invoke)
 		if d.present("around") {
-			inv := m.(Invoke)
 			inv.Around = d.ints("around")
-			m = inv
 		}
 		if d.present("budget") {
-			inv := m.(Invoke)
 			inv.Budget = d.bool("budget")
-			m = inv
 		}
+		inv.RunDataID, inv.RunData = d.runData()
+		m = inv
 	case TypeResult:
 		r := Result{ID: d.str("id"), Outcome: d.str("outcome"), Settled: d.bool("settled")}
 		switch r.Outcome {
@@ -1193,6 +1242,9 @@ func Decode(payload []byte) (Message, error) {
 				d.fail(CodeBadField, "run identity is not an object")
 			}
 		}
+		if d.present("run_data") {
+			r.RunData = d.raw("run_data")
+		}
 		m = r
 	case TypeRunDone:
 		r := RunDone{ID: d.str("id")}
@@ -1249,7 +1301,10 @@ func Decode(payload []byte) (Message, error) {
 		if derr == nil && !isObject(c.Payload) {
 			d.fail(CodeBadField, "host_call payload is not an object")
 		}
+		c.RunDataID, c.RunData = d.runData()
 		m = c
+	case TypeRunReleased:
+		m = RunReleased{Run: d.str("run"), RunDataID: d.str("run_data_id")}
 	case TypeReserve:
 		r := ReserveRequest{ID: d.str("id"), Inv: d.str("inv"), Bytes: d.int64("bytes")}
 		if derr == nil && r.Bytes <= 0 {
@@ -1526,7 +1581,20 @@ func (d *decoder) intMap(name string) map[string]int {
 	return out
 }
 
-// health decodes the optional health group: all five fields or none.
+// runData decodes an invoke's or a host_call's optional run_data_id and
+// run_data.
+func (d *decoder) runData() (id string, data jsonval.Value) {
+	if d.present("run_data_id") {
+		id = d.str("run_data_id")
+	}
+	if d.present("run_data") {
+		data = d.raw("run_data")
+	}
+	return id, data
+}
+
+// health decodes the optional health group: all five fields or none, and
+// runs_held, which only the group may carry.
 func (d *decoder) health() *Health {
 	n := 0
 	for _, k := range []string{"in_flight", "abandoned", "errors", "lag_ms", "rss"} {
@@ -1537,11 +1605,15 @@ func (d *decoder) health() *Health {
 	if n == 0 {
 		return nil
 	}
-	return &Health{
+	h := &Health{
 		InFlight:  d.int("in_flight"),
 		Abandoned: d.int("abandoned"),
 		Errors:    d.int("errors"),
 		LagMS:     d.int64("lag_ms"),
 		RSS:       d.int64("rss"),
 	}
+	if d.present("runs_held") {
+		h.RunsHeld = d.int("runs_held")
+	}
+	return h
 }

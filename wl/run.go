@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/engine"
@@ -79,7 +80,7 @@ const (
 )
 
 // RunOptions configure one run. A script run reads only Kind, ID,
-// Identity, Pin and Limits, whose MaxInFlight has no effect on its one
+// Identity, Data, Pin and Limits, whose MaxInFlight has no effect on its one
 // invocation; the other fields, among them the hooks, the run's own
 // providers and the pre-write deadline, configure a flow run. The zero
 // value of every field is a default.
@@ -122,6 +123,13 @@ type RunOptions struct {
 	// Jitter is the flow run's retry-jitter source (H10, FX-26); nil draws
 	// from one seeded with Seed. SeededJitter fixes it.
 	Jitter Jitter
+	// Data is the run's data (H11), any JSON value, which the host plugin
+	// of each process that the run uses reads as wl.run.data, in its hooks
+	// and its around wrappers, until the run has settled; a script run
+	// reads it too. Nil, empty or JSON null means none: wl.run.data is
+	// then undefined. Data that is not JSON is refused before the run
+	// starts.
+	Data json.RawMessage
 	// Pin pins the run to one warm harness process (ADR 0004 §Pooling), as
 	// Options.Pool.PinRuns does for every run: its first invocation or
 	// host-plugin call goes to a serving process, and every later one goes
@@ -336,6 +344,10 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	if opts.Pin && (rt.state == engine.ModuleStateFresh || rt.host != nil) {
 		return nil, errors.New("wl: a pinned run needs a warm runtime's pool: a fresh runtime starts a process for each step, and in host mode the host is the one process (RunOptions.Pin)")
 	}
+	data, err := runData(opts.Data)
+	if err != nil {
+		return nil, err
+	}
 	switch opts.Kind {
 	case "", KindFlow:
 	case KindScript:
@@ -360,6 +372,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		}
 		defer unpin()
 		ctx = harness.WithPin(ctx, p)
+		ctx, _, settled = withRunData(ctx, id, data, settled)
 		var s *engine.RunSettlement
 		if settled != nil {
 			// A script job has its own one invocation, which settles it.
@@ -402,7 +415,9 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		return nil, ErrRunInFlight
 	}
 	defer rt.exec.end(id)
-	h, err := engineHooks(rt.withPlugin(opts.Hooks), rt.prog)
+	var rd *harness.RunData
+	ctx, rd, settled = withRunData(ctx, id, data, settled)
+	h, err := engineHooks(rt.withPlugin(opts.Hooks, rd), rt.prog)
 	if err != nil {
 		return nil, err
 	}
@@ -682,5 +697,47 @@ func (x *recorder) released(inv string, _ []facade.Record) {
 	defer x.mu.Unlock()
 	if in, ok := x.invs[inv]; ok && x.runs[in.run] == nil {
 		delete(x.invs, inv)
+	}
+}
+
+// runData returns a copy of a run's data (RunOptions.Data) as the frames
+// carry it: zero for none (nil, JSON whitespace alone, or JSON null), or
+// an error for data that is not JSON or not UTF-8, which a harness would
+// refuse as a broken frame. The copy is the run's own, so a caller may
+// reuse its buffer once Run returns, while the run's late frames still
+// carry the data.
+func runData(data json.RawMessage) (jsonval.Value, error) {
+	// Only JSON's own whitespace: anything else around the value, such as
+	// a no-break space, is not JSON.
+	trimmed := bytes.Trim(data, " \t\r\n")
+	if len(trimmed) == 0 || string(trimmed) == "null" {
+		return jsonval.Value{}, nil
+	}
+	if !json.Valid(trimmed) {
+		return jsonval.Value{}, errors.New("wl: the run's data is not JSON")
+	}
+	if !utf8.Valid(trimmed) {
+		return jsonval.Value{}, errors.New("wl: the run's data is not UTF-8")
+	}
+	return jsonval.FromProducer(bytes.Clone(trimmed)), nil
+}
+
+// withRunData returns ctx carrying run's data, if it has any, so that the
+// run's invocations and hook calls take it to the processes they reach,
+// the data, and the run's settled callback, which then also releases the
+// data. A run without data keeps settled as it is, and ctx too, unless ctx
+// carries another run's data, which it then hides.
+func withRunData(ctx context.Context, run string, data jsonval.Value, settled func()) (context.Context, *harness.RunData, func()) {
+	rd := harness.NewRunData(run, data)
+	if rd == nil {
+		// A run without data: none that ctx carries from another run, as
+		// one that a Go hook starts with its context does, reaches it.
+		return harness.WithRunData(ctx, nil), nil, settled
+	}
+	return harness.WithRunData(ctx, rd), rd, func() {
+		rd.Release()
+		if settled != nil {
+			settled()
+		}
 	}
 }

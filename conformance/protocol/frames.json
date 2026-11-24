@@ -167,6 +167,21 @@
       "payload": "{\"t\":\"invoke\",\"id\":\"i1\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{},\"boundary\":\"bun\",\"around\":[0,2]}"
     },
     {
+      "case": "invoke-run-data",
+      "title": "the first invoke of a run that a process gets carries the run's data, raw, and the run_data_id that names it: the host plugin reads it as wl.run.data (ADR 0004 host plugins, item 9)",
+      "message_text": "{\"t\":\"invoke\",\"id\":\"i3\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{},\"boundary\":\"bun\",\"around\":[0],\"run_data_id\":\"7\",\"run_data\":{\"tenant\":\"t-1\",\"n\":2}}",
+      "raw": {
+        "run_data": "{\"tenant\":\"t-1\",\"n\":2}"
+      },
+      "payload": "{\"t\":\"invoke\",\"id\":\"i3\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{},\"boundary\":\"bun\",\"around\":[0],\"run_data_id\":\"7\",\"run_data\":{\"tenant\":\"t-1\",\"n\":2}}"
+    },
+    {
+      "case": "invoke-run-data-null",
+      "title": "a later invoke of the run carries the run_data_id alone; a null run_data counts as absent, as any optional raw field does",
+      "message_text": "{\"t\":\"invoke\",\"id\":\"i4\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{},\"boundary\":\"bun\",\"run_data_id\":\"7\",\"run_data\":null}",
+      "payload": "{\"t\":\"invoke\",\"id\":\"i4\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{},\"boundary\":\"bun\",\"run_data_id\":\"7\"}"
+    },
+    {
       "case": "invoke-budget",
       "title": "an invoke whose run has a byte budget says so, after around; without one it has no budget field",
       "message": {
@@ -791,6 +806,24 @@
       "payload": "{\"t\":\"run\",\"id\":\"r5\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"write_capable\":[{\"module\":\"b\"}],\"halt_before\":[{\"flow\":\"f/w1/flow\",\"module\":\"b\",\"occurrence\":1}],\"halt_after\":[{\"flow\":\"f/w1/flow\",\"module\":\"a\"}],\"fatal_error_names\":[\"HostFatal\"]}"
     },
     {
+      "case": "run-run-data",
+      "title": "a host's run carries its data, raw, which the host's plugin reads as wl.run.data",
+      "message": {
+        "t": "run",
+        "id": "r9",
+        "kind": "flow",
+        "path": "f/x",
+        "args": {},
+        "run_data": {
+          "tenant": "t-2"
+        }
+      },
+      "raw": {
+        "run_data": "{\"tenant\":\"t-2\"}"
+      },
+      "payload": "{\"t\":\"run\",\"id\":\"r9\",\"kind\":\"flow\",\"path\":\"f/x\",\"args\":{},\"run_data\":{\"tenant\":\"t-2\"}}"
+    },
+    {
       "case": "run-done",
       "title": "a run's outcome with its final result",
       "message": {
@@ -963,6 +996,36 @@
         }
       },
       "payload": "{\"t\":\"host_call\",\"id\":\"hc2\",\"hook\":\"on_run_end\",\"run\":\"r1\",\"site\":\"\",\"payload\":{\"trace\":{\"run\":\"r1\"}}}"
+    },
+    {
+      "case": "host-call-run-data",
+      "title": "a host_call that is the first message of a run that a process gets carries the run's data, raw",
+      "message": {
+        "t": "host_call",
+        "id": "hc3",
+        "hook": "on_run_end",
+        "run": "r1",
+        "site": "",
+        "payload": {},
+        "run_data_id": "7",
+        "run_data": {
+          "tenant": "t-1"
+        }
+      },
+      "raw": {
+        "run_data": "{\"tenant\":\"t-1\"}"
+      },
+      "payload": "{\"t\":\"host_call\",\"id\":\"hc3\",\"hook\":\"on_run_end\",\"run\":\"r1\",\"site\":\"\",\"payload\":{},\"run_data_id\":\"7\",\"run_data\":{\"tenant\":\"t-1\"}}"
+    },
+    {
+      "case": "run-released",
+      "title": "the engine tells a process that holds a run's data that the run has settled: the process drops the data that run_data_id names",
+      "message": {
+        "t": "run_released",
+        "run": "r1",
+        "run_data_id": "7"
+      },
+      "payload": "{\"t\":\"run_released\",\"run\":\"r1\",\"run_data_id\":\"7\"}"
     },
     {
       "case": "host-reply",
@@ -1160,6 +1223,39 @@
       "title": "fields of another outcome or message type are not read",
       "message_text": "{\"t\":\"result\",\"id\":\"i1\",\"outcome\":\"ok\",\"body\":1,\"exit_code\":\"x\",\"tail\":5,\"lines\":[null],\"settled\":true}",
       "payload": "{\"t\":\"result\",\"id\":\"i1\",\"outcome\":\"ok\",\"body\":1,\"settled\":true}"
+    },
+    {
+      "case": "pong-runs-held",
+      "title": "a pong whose health counts the runs whose data the process holds, until their run_released",
+      "message": {
+        "t": "pong",
+        "id": "e1",
+        "in_flight": 0,
+        "abandoned": 0,
+        "errors": 0,
+        "lag_ms": 0,
+        "rss": 1,
+        "runs_held": 2
+      },
+      "payload": "{\"t\":\"pong\",\"id\":\"e1\",\"in_flight\":0,\"abandoned\":0,\"errors\":0,\"lag_ms\":0,\"rss\":1,\"runs_held\":2}"
+    },
+    {
+      "case": "pong-runs-held-zero",
+      "title": "runs_held of 0, or null, is left out: a process that holds no run's data",
+      "message_text": "{\"t\":\"pong\",\"id\":\"e1\",\"in_flight\":0,\"abandoned\":0,\"errors\":0,\"lag_ms\":0,\"rss\":1,\"runs_held\":0}",
+      "payload": "{\"t\":\"pong\",\"id\":\"e1\",\"in_flight\":0,\"abandoned\":0,\"errors\":0,\"lag_ms\":0,\"rss\":1}"
+    },
+    {
+      "case": "ping-runs-held-null",
+      "title": "a null runs_held counts as absent",
+      "message_text": "{\"t\":\"ping\",\"id\":\"h2\",\"in_flight\":0,\"abandoned\":0,\"errors\":0,\"lag_ms\":0,\"rss\":1,\"runs_held\":null}",
+      "payload": "{\"t\":\"ping\",\"id\":\"h2\",\"in_flight\":0,\"abandoned\":0,\"errors\":0,\"lag_ms\":0,\"rss\":1}"
+    },
+    {
+      "case": "ping-runs-held-alone",
+      "title": "runs_held belongs to the health group: without it, the ping is bare",
+      "message_text": "{\"t\":\"ping\",\"id\":\"h3\",\"runs_held\":1}",
+      "payload": "{\"t\":\"ping\",\"id\":\"h3\"}"
     },
     {
       "case": "health-one-null",
@@ -1771,6 +1867,22 @@
         "{\"t\":\"hello\",\"proto\":1,\"harness\":{\"kind\":\"bun\",\"version\":\"v\"},\"runtime\":\"1.4.3\",\"caps\":{\"fetch\":true,\"native\":true,\"fresh\":false,\"host\":true},\"bundle\":\"b\",\"pid\":1,\"plugin\":[]}"
       ],
       "error": "bad_field"
+    },
+    {
+      "case": "invoke-run-data-id-not-string",
+      "title": "a run_data_id that is not a string",
+      "frames": [
+        "{\"t\":\"invoke\",\"id\":\"i5\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{},\"boundary\":\"bun\",\"run_data_id\":7}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "run-released-without-id",
+      "title": "a run_released that names no run data",
+      "frames": [
+        "{\"t\":\"run_released\",\"run\":\"r1\"}"
+      ],
+      "error": "missing_field"
     },
     {
       "case": "invoke-around-not-integers",

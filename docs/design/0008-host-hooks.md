@@ -14,8 +14,7 @@ and signals from step code. A host's signals reach a run as a
 [latch](../glossary.md#latch) or a cancellation, never as an error value that
 the flow could turn into data.
 
-**Not built yet:** run data that a host attaches for plugins to read as
-`wl.run.data` (H11). Platform calls that a plugin hook makes outside an
+**Not built yet:** platform calls that a plugin hook makes outside an
 [invocation](../glossary.md#invocation) are refused, not attributed to its
 site. Go callbacks over go-plugin's broker, for a host that runs the engine
 as a go-plugin plugin, are planned too.

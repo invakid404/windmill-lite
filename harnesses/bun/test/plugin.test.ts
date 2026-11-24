@@ -105,6 +105,16 @@ function hostRuntime(plugin?: Plugin) {
   return { runtime, send, sendRaw, messages };
 }
 
+/** What plugin code reads as wl.run.data here. */
+const readRunData = () => (globalThis as { wl?: { run: { data: unknown } } }).wl!.run.data;
+
+/** Sends a host_call of on_module_start for run, at module, carrying the
+ * run_data_id and run_data given. */
+function runDataCall(send: (m: Record<string, unknown>) => void) {
+  return (id: string, run: string, dataId?: string, data?: unknown, module = "a") =>
+    send({ t: "host_call", id, hook: "on_module_start", run, site: "m:" + module, payload: { site: { ...site, path: "m:" + module, module } }, run_data_id: dataId, run_data: data });
+}
+
 describe("the runtime", () => {
   test("its hello carries the plugin's declaration", () => {
     const { messages, runtime } = hostRuntime({ onModuleStart: () => {} });
@@ -127,6 +137,84 @@ describe("the runtime", () => {
     expect(seen).toBe("tenant-1");
     expect(messages().find((m) => m.t === "host_reply")).toEqual({ t: "host_reply", id: "hc1", payload: {} });
     runtime.onClose();
+  });
+
+  test("gives a hook its run's data as wl.run.data, frozen, until run_released, in plugin code alone (H11)", async () => {
+    const seen: unknown[] = [];
+    const { runtime, send, messages } = hostRuntime({
+      onModuleStart: () => {
+        seen.push(readRunData());
+      },
+    });
+    const call = runDataCall(send);
+    call("hc1", "r1", "7", { tenant: "a", list: [1] });
+    call("hc2", "r2");
+    call("hc3", "r1", "7");
+    send({ t: "ping", id: "e1" });
+    await Bun.sleep(5);
+    send({ t: "run_released", run: "r1", run_data_id: "7" });
+    call("hc4", "r1", "7");
+    send({ t: "ping", id: "e2" });
+    await Bun.sleep(5);
+    expect(seen).toEqual([{ tenant: "a", list: [1] }, undefined, { tenant: "a", list: [1] }, undefined]);
+    const data = seen[0] as { list: number[] };
+    expect(Object.isFrozen(data) && Object.isFrozen(data.list)).toBe(true);
+    expect(readRunData()).toBeUndefined();
+    expect(messages().filter((m) => m.t === "pong").map((m) => m.runs_held ?? 0)).toEqual([1, 0]);
+    expect(runtime.hostHealth().runs_held).toBe(0);
+    runtime.onClose();
+  });
+
+  test("keeps the data of two runs of one id apart by run_data_id, and empties a run's data for plugin code that runs on past its release", async () => {
+    const seen: unknown[] = [];
+    let later: unknown = "not read";
+    let goOn!: () => void;
+    const gate = new Promise<void>((r) => (goOn = r));
+    const { runtime, send } = hostRuntime({
+      onModuleStart: (e) => {
+        seen.push(readRunData());
+        // A continuation that the hook leaves behind, which reads the
+        // data for the first time once the test lets it go on.
+        if (e.site.module === "late") void gate.then(() => (later = readRunData()));
+      },
+    });
+    const call = runDataCall(send);
+    call("hc1", "dup", "1", { tag: "a" }, "late");
+    call("hc2", "dup", "2", { tag: "b" });
+    call("hc3", "dup");
+    await Bun.sleep(5);
+    send({ t: "run_released", run: "dup", run_data_id: "1" });
+    await Bun.sleep(5);
+    goOn();
+    await gate;
+    await Bun.sleep(1);
+    call("hc4", "dup", "2");
+    call("hc5", "dup", "1");
+    await Bun.sleep(5);
+    expect(seen).toEqual([{ tag: "a" }, { tag: "b" }, undefined, { tag: "b" }, undefined]);
+    expect(later).toBeUndefined();
+    expect(runtime.hostHealth().runs_held).toBe(1);
+    runtime.onClose();
+  });
+
+  test("drops every run's data when the connection ends, also for plugin code that runs on", async () => {
+    let later: unknown = "not read";
+    let goOn!: () => void;
+    const gate = new Promise<void>((r) => (goOn = r));
+    const { runtime, send } = hostRuntime({
+      onModuleStart: () => {
+        void gate.then(() => (later = readRunData()));
+      },
+    });
+    runDataCall(send)("hc1", "r1", "3", { tag: "held" });
+    await Bun.sleep(5);
+    expect(runtime.hostHealth().runs_held).toBe(1);
+    runtime.onClose();
+    expect(runtime.hostHealth().runs_held).toBe(0);
+    goOn();
+    await gate;
+    await Bun.sleep(1);
+    expect(later).toBeUndefined();
   });
 
   test("wl.reserve resolves on a reserve_reply without refused, an empty one included, and rejects with its refusal", async () => {
@@ -173,7 +261,6 @@ describe("the runtime", () => {
     expect(messages().filter((m) => m.t === "reserve").length).toBe(2);
     runtime.onClose();
   });
-
   test("answers unknown_hook when it loaded no plugin, and plugin_error when the hook throws", async () => {
     const plain = hostRuntime();
     plain.send({ t: "host_call", id: "hc1", hook: "intercept", run: "r", site: "", payload: {} });

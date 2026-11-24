@@ -14,8 +14,7 @@ itself.
 
 **Not built yet:**
 
-- log limits in the welcome;
-- run data in a host plugin's processes (§Host plugins).
+- log limits in the welcome.
 
 ## Context
 
@@ -113,7 +112,9 @@ step without failing the others.
 | `reserve` / `reserve_reply` | harness → engine / back | `reserve`: `id`, `inv` (invocation id), `bytes` (positive); `reserve_reply`: `id`, then `refused` (why not) when the bytes were not reserved; an empty one counts as absent | a step's `wl.reserve(bytes)`, sent only for an invocation whose `invoke` has `budget` (§Pooling) |
 | `run` / `run_done` / `run_cancel` | harness → engine / back / harness → engine | the fields that they share with `runner.proto`'s `RunRequest`, `RunResult` and `CancelRequest`, under the same names, JSON values raw ([host adapters](0009-host-adapters.md#the-runner-service)). `run`: `id`, `kind`, `path`, `args`, `intercept`, `write_capable`, `halt_before` and `halt_after` (raw arrays of selectors), `fatal_error_names`, `deadline_ms`, `pre_write_deadline_ms`, `clock` (`real` or `record`) and `identity`. `run_done`: `id`, then `status`, `result`, `may_have_mutated`, `warnings` (raw, each a `code` and a `message`), `latched` and `deviations`, or `error` for a run the engine did not start (`code`: `draining` or `refused`); then `cancel_cause`. `run_cancel`: `id`, `reason`, `canceler` | host mode: a harness that is also the host submits runs |
 | `run_settled` | engine → harness | `id` | host mode: one of the host's runs has settled, after its `run_done` (host mode item 5) |
-| `ping` / `pong` | either way | `id`; from a harness also `in_flight`, `abandoned`, `errors` (process-level errors no invocation owned), `lag_ms` (event-loop lag), `rss` | health; a harness also pings on its own every `heartbeat_ms` |
+| `run`, `invoke`, `host_call` | as above | also `run_data` (raw, optional): the run's data, which a `run` carries as its host gives it. An `invoke` or a `host_call` of a run with data carries `run_data_id`, which names the data, and `run_data` too when it is the first of the run that the process gets | the host plugin's `wl.run.data` (§Host plugins item 9) |
+| `run_released` | engine → harness | `run`, `run_data_id` | a run whose data the process holds has settled; the process drops the data that `run_data_id` names (§Host plugins item 9) |
+| `ping` / `pong` | either way | `id`; from a harness also `in_flight`, `abandoned`, `errors` (process-level errors no invocation owned), `lag_ms` (event-loop lag), `rss`, and `runs_held` (the runs whose data it holds, written when not 0) | health; a harness also pings on its own every `heartbeat_ms` |
 | `part` | either way | `id`, `seq`, `last`, `chunk` | one piece of a message over 1 MiB |
 | `drain` / `bye` | engine → harness / back; in host mode harness → engine / back | — | orderly shutdown; in host mode the host's drain (host mode item 3) |
 
@@ -998,11 +999,36 @@ answered by a `host_reply`.
      load thus wraps the fetch view for ordinary steps, which read
      `globalThis.fetch` on each call, and reaches no native step, on a
      host's later connections too.
-9. **Run data** (planned). A run's data ([H11](0008-host-hooks.md#the-hooks)) reaches a process with
-   the first `invoke` or `host_call` of the run that the process gets, so
-   the plugin's hooks and its `around` wrappers read it as `wl.run.data`.
-   The engine tells the process when the run has settled, and the process
-   then drops the data.
+9. **Run data.** A run's data ([H11](0008-host-hooks.md#the-hooks)) is any JSON value that the host
+   gives with the run. It reaches a process that has a plugin with the
+   first `invoke` or `host_call` of the run that the process gets, as the
+   frame's raw `run_data`. The plugin's hooks and its `around` wrappers
+   read it as `wl.run.data`, frozen.
+   - **Plugin code only.** Step code reads `undefined`, and so does what
+     runs inside a wrapper's `next()`; an inner wrapper reads the data
+     itself. A run without data reads `undefined` too. A run that a plugin
+     hook submits through its host reads the data given with it, or
+     `undefined` without any, never the hook's.
+   - **One run's own.** The engine gives each run's data an id, unique in
+     the engine, which each `invoke` and `host_call` of the run carries as
+     `run_data_id`, and the process keeps the data by it. So a run that
+     reuses the id of one that has not settled never reads or releases the
+     other's data. A run without data reads none, also one that a Go hook
+     starts with the context of a run that has data.
+   - **Order.** A small frame may leave before a large one that is still
+     being sent in parts. So each `invoke` and `host_call` of the run to a
+     process carries the data until one that carries it holds its place
+     on the wire: queued as a whole frame, or with its last part taken.
+     Later frames of the run to that process carry none.
+   - **Release.** Once the run has settled, the engine sends
+     `run_released` to each process that the data reached, and the
+     process drops it. A frame that carries the data and is placed after
+     the release is followed by a `run_released` of its own.
+   - **After the release.** Plugin code that runs on, such as a
+     continuation that a hook left behind, reads `undefined` from then on.
+     A process also drops every run's data when its connection ends. The
+     harness's health counts the runs whose data it holds, as
+     `runs_held`.
 
 ### Parallel loops
 
@@ -1424,6 +1450,12 @@ after it, that release would read as a cancellation, and such a run as
     (host mode item 7);
   - on Linux the watchdog signals the host through a pidfd (item 4), and
     the recycle triggers are the host's (item 3).
+
+- A host plugin reads a run's data (§Host plugins item 9). `invoke`,
+  `host_call` and `run` carry an optional raw `run_data`, and `invoke` and
+  `host_call` an optional `run_data_id`. `run_released` is a new frame, and
+  the health group gains an optional `runs_held`. A frame without them
+  reads as before.
 
 - The repository's benchmarks measure the transport alone: the engine's
   connection against the runtime's frame layer over a socketpair, with

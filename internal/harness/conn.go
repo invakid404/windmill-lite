@@ -84,6 +84,9 @@ type outStream struct {
 	payload []byte
 	off     int
 	seq     int
+	// placed, if not nil, is called once the last part is taken: see
+	// queued.placed.
+	placed func()
 	// after holds what was queued about the same invocation while this
 	// stream was open, in order: whole frames, or a stream that has not
 	// started.
@@ -93,6 +96,11 @@ type outStream struct {
 type queued struct {
 	frame  []byte
 	stream *outStream
+	// placed, if not nil, is called under c.mu once the message holds its
+	// place on the wire: a whole frame once it is in the queue of whole
+	// frames, a stream once its last part is taken. Whatever is queued
+	// from then on goes out after it.
+	placed func()
 }
 
 // barrier is a message that waits until no stream about a key with prefix
@@ -195,7 +203,19 @@ func invocationOf(m Message) string {
 
 // sendPayload queues a payload; about is the invocation it is about, or "".
 func (c *conn) sendPayload(payload []byte, about string) error {
-	return c.enqueue(payload, about, true)
+	return c.enqueue(payload, about, true, nil)
+}
+
+// sendPlaced queues m as send does, and calls placed, under the
+// connection's lock, once m holds its place on the wire: whatever is
+// queued from then on goes out after it (queued.placed). placed is not
+// called when m is not queued, nor when the connection closes first.
+func (c *conn) sendPlaced(m Message, placed func()) error {
+	payload, err := Encode(m)
+	if err != nil {
+		return err
+	}
+	return c.enqueue(payload, invocationOf(m), true, placed)
 }
 
 // queuePayload queues a payload as sendPayload does, but does not wake the
@@ -203,10 +223,16 @@ func (c *conn) sendPayload(payload []byte, about string) error {
 // or wakes the writer. Until then another send may wake the writer, which
 // then writes it in its turn.
 func (c *conn) queuePayload(payload []byte, about string) error {
-	return c.enqueue(payload, about, false)
+	return c.enqueue(payload, about, false, nil)
 }
 
-func (c *conn) enqueue(payload []byte, about string, wake bool) error {
+// queuePlaced queues a payload as queuePayload does, and calls placed as
+// sendPlaced does.
+func (c *conn) queuePlaced(payload []byte, about string, placed func()) error {
+	return c.enqueue(payload, about, false, placed)
+}
+
+func (c *conn) enqueue(payload []byte, about string, wake bool, placed func()) error {
 	if int64(len(payload)) > c.maxMessage {
 		return protoErr(CodeMessageTooLarge, "%s message of %d bytes exceeds %d", typeOf(payload), len(payload), c.maxMessage)
 	}
@@ -215,12 +241,12 @@ func (c *conn) enqueue(payload []byte, about string, wake bool) error {
 	if c.closed {
 		return net.ErrClosed
 	}
-	var q queued
+	q := queued{placed: placed}
 	if len(payload) <= c.maxFrame {
 		q.frame = appendFrame(make([]byte, 0, 4+len(payload)), payload)
 	} else {
 		c.nextStream++
-		q.stream = &outStream{id: strconv.FormatUint(c.nextStream, 10), about: about, payload: payload}
+		q.stream = &outStream{id: strconv.FormatUint(c.nextStream, 10), about: about, payload: payload, placed: placed}
 	}
 	if held := c.latest[about]; about != "" && held != nil {
 		held.after = append(held.after, q)
@@ -361,6 +387,9 @@ func (c *conn) openLocked(prefix string) bool {
 func (c *conn) enqueueLocked(q queued) {
 	if q.frame != nil {
 		c.small = append(c.small, q.frame)
+		if q.placed != nil {
+			q.placed()
+		}
 	} else {
 		c.streams = append(c.streams, q.stream)
 	}
@@ -372,6 +401,9 @@ func (c *conn) enqueueLocked(q queued) {
 func (c *conn) finishLocked(s *outStream) {
 	if c.latest[s.about] == s {
 		delete(c.latest, s.about)
+	}
+	if s.placed != nil {
+		s.placed()
 	}
 	defer c.releaseBarriersLocked()
 	for i, q := range s.after {

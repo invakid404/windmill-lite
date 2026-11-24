@@ -569,6 +569,72 @@ test("a run's deadlines go in its run frame as whole milliseconds of at least 0,
   }
 });
 
+// A run's data that JSON.stringify encodes as nothing (a symbol, a
+// function, a value whose toJSON gives undefined) refuses the run with
+// HostError "refused", and data that it throws on rejects the run with that
+// error, as does an accessor of the option that throws. An accessor is
+// read once, whether it throws or answers. No refused run sends a run
+// frame: test/heartbeatengine.ts counts them, and the first run that goes
+// out is its first.
+test("data that JSON.stringify encodes as nothing refuses the run, and data it throws on rejects it with that error, without a run frame", async () => {
+  const dir = tempDir("wl-host-data-");
+  writeFileSync(join(dir, "manifest.json"), "{}");
+  const back = process.cwd();
+  process.chdir(dir);
+  process.env.WL_TEST_HEARTBEAT_MS = "60000";
+  let host: Host;
+  try {
+    host = await connect({ engine: process.execPath, engineArgs: [join(import.meta.dir, "heartbeatengine.ts")], bundle: dir, workdir: dir, diag: () => {} });
+  } finally {
+    delete process.env.WL_TEST_HEARTBEAT_MS;
+    process.chdir(back);
+  }
+  try {
+    for (const bad of [Symbol("s"), () => 1, { toJSON: () => undefined }]) {
+      expect(await code(host.run("f/x", { echo: true }, { data: bad }))).toBe("refused");
+    }
+    // A cyclic value, on which JSON.stringify throws even once another test
+    // file of this process has installed BigInt.prototype.toJSON, which makes
+    // a BigInt encode.
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    const thrown = await host.run("f/x", { echo: true }, { data: cyclic }).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(thrown).toBeInstanceOf(TypeError);
+    expect(thrown).not.toBeInstanceOf(HostError);
+    // An accessor is read once, and what it throws rejects the run rather
+    // than escaping run().
+    let reads = 0;
+    const failing = {
+      get data(): unknown {
+        reads++;
+        throw new Error("no data today");
+      },
+    };
+    let pending: Promise<unknown> | undefined;
+    expect(() => {
+      pending = host.run("f/x", { echo: true }, failing as RunOptions);
+    }).not.toThrow();
+    expect(String(await pending!.then(() => "resolved", (e: unknown) => e))).toContain("no data today");
+    expect(reads).toBe(1);
+    expect((await host.run("f/x", { echo: true }, { data: { k: 1 } })).result).toMatchObject({ runs: 1 });
+    // An accessor that answers is read once too.
+    let answers = 0;
+    const answering = {
+      get data(): unknown {
+        answers++;
+        return { n: answers };
+      },
+    };
+    expect((await host.run("f/x", { echo: true }, answering as RunOptions)).result).toMatchObject({ runs: 2 });
+    expect(answers).toBe(1);
+  } finally {
+    await host.close();
+  }
+});
+
 // A job identity reaches the engine with its fields in snake case: a run's
 // in its run frame, and connect's in the file that -identity names, which
 // connect removes once the engine has answered. An identity that is not an
@@ -621,7 +687,6 @@ test("a job identity reaches the engine in snake case, and a malformed one refus
     process.chdir(back);
   }
 });
-
 // The collect trigger, on hosts connected to test/heartbeatengine.ts, which
 // welcomes them with a heartbeat of 10 ms, or of the interval that a test
 // gives, and answers their runs when the test says. Each test replaces

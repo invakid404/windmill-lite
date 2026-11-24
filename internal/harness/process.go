@@ -117,7 +117,6 @@ type ProcessConfig struct {
 	// there (WelcomeConfig.ForeignWindmillOrigins). nil names none, and
 	// the welcome then has no such field.
 	ForeignWindmillOrigins []string
-
 	// ExpectPlugin, when not nil, is the host plugin declaration the
 	// harness's hello must carry, byte for byte: a pool sets it for the
 	// spawns that begin after it has recorded the declaration of a process
@@ -1685,7 +1684,8 @@ const (
 var errUnavailable = errors.New("harness: process is not serving")
 
 // Execute runs inv on this process, with the settlement contract of
-// engine.StepExecutor.
+// engine.StepExecutor. The run's data that ctx carries (RunData) goes with
+// the invoke to a process with a host plugin.
 func (p *Process) Execute(ctx context.Context, inv engine.Invocation) (engine.StepOutcome, error) {
 	if inv.Report == nil {
 		inv.Report = engine.NopReporter{}
@@ -1808,17 +1808,25 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 		}
 		env["BASE_URL"] = p.cfg.Facade
 	}
+	// The run's data, which ctx carries (RunData): only the host plugin
+	// reads it.
+	var rd runDataSend
+	if !p.Hello().Plugin.IsZero() {
+		rd = RunDataOf(ctx).take(p)
+	}
 	payload, err := Encode(Invoke{
-		ID:       inv.ID,
-		Run:      inv.Run,
-		Site:     inv.Site.String(),
-		Script:   inv.Script,
-		Entry:    inv.Entry,
-		Args:     args,
-		Env:      env,
-		Boundary: string(inv.Boundary),
-		Around:   inv.Around,
-		Budget:   inv.Budget != nil,
+		ID:        inv.ID,
+		Run:       inv.Run,
+		Site:      inv.Site.String(),
+		Script:    inv.Script,
+		Entry:     inv.Entry,
+		Args:      args,
+		Env:       env,
+		Boundary:  string(inv.Boundary),
+		Around:    inv.Around,
+		Budget:    inv.Budget != nil,
+		RunDataID: rd.id,
+		RunData:   rd.data,
 	})
 	if err != nil {
 		return engine.StepOutcome{}, notDispatched, fmt.Errorf("harness: invoke %q: %w", inv.ID, err)
@@ -1857,7 +1865,7 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 	}
 	// The invoke is queued here, in dispatch order, and written below, once
 	// p.mu is released, by this goroutine when the writer is idle.
-	if err := p.conn.queuePayload(payload, inv.ID); err != nil {
+	if err := p.conn.queuePlaced(payload, inv.ID, rd.placedFunc()); err != nil {
 		p.mu.Unlock()
 		if errors.Is(err, net.ErrClosed) {
 			return engine.StepOutcome{}, notDispatched, errUnavailable
