@@ -421,10 +421,12 @@ the engine drains.
   the `RUN_NOT_STARTED` detail.
 - **The end of a drain.** The `Run` calls in flight, then the runs that
   steps dispatched, go on for up to `drain_timeout_ms` in all. The engine
-  then closes the runtime, which cancels the runs left with the cause
-  `closing`. Once their calls have answered, or 2 seconds after the close
-  if one does not, it gives the answers up to a second to reach the host
-  and exits with status 0.
+  then closes the runtime: a `Run` call's run left ends `canceled` with
+  the cause `closing`, and a dispatched one as the runtime's close always
+  cancels it.
+- **The exit.** Once the calls have answered, or 2 seconds after the close
+  if one does not, the engine gives the answers up to a second to reach
+  the host and exits with status 0.
 - **A drain while the runtime opens.** SIGTERM before the engine serves
   drains too, without serving. The open gets `drain_timeout_ms` to
   complete, and its runtime is then closed; past it, the runtime ends with
@@ -711,7 +713,9 @@ names, and so sees its exit status and can signal it.
 | `TestPluginDrainTimeout` | With the drain's timer in the test's hands (`WL_TEST_PLUGIN_DRAIN_TIMER`), the drain asks for `drain_timeout_ms`, 12345. Until the timer fires, a run whose step is never released is still in flight. Once it fires, the run ends `canceled` with the cause `closing`, which its caller receives, and the engine exits with status 0. |
 | `TestPluginEngineRecycle` | With the open held until a `Watch` is open and the samples in the test's hands (`WL_TEST_PLUGIN_RSS_TICKS`), two samples of the real resident set over an `engine_recycle_rss` of one byte drain the engine: the `Watch` receives `SERVING`, then `NOT_SERVING`. A new run answers `UNAVAILABLE` (draining), the run in flight succeeds, and the engine exits with status 0, naming the trigger. |
 | `TestPluginDrainWhileStarting` | SIGTERM while the open is held: released, the engine never serves, and exits with status 0. |
-| `TestPluginDrainDispatchedRun` | A run that a step dispatched, with no `Run` call in flight, goes on through a drain: the runtime closes only after its step ends (`WL_TEST_PLUGIN_CLOSE_MARK`), and the engine exits with status 0. |
+| `TestPluginDrainDispatchedRun` | A run that a step dispatched, with no `Run` call in flight, goes on through a drain. The test releases it once the engine says that the drain waits for it; its step ends, the runtime closes only after (`WL_TEST_PLUGIN_CLOSE_MARK`), and the engine exits with status 0. |
+| `TestPluginDrainDispatchedTimeout` | A dispatched run whose step is never released: once the drain's timer fires, the runtime's close cancels it, and the engine exits with status 0, saying that the drain's time is up. |
+| `TestPluginDrainAtPublication` | SIGTERM while a test hook holds the engine just before it serves (`WL_TEST_PLUGIN_HOLD_SERVE`): the engine never serves, a run answers `UNAVAILABLE` (draining), and it exits with status 0. |
 | `TestPluginDrainAnswerGrace` | A test hook holds one call from answering (`WL_TEST_PLUGIN_HOLD_ANSWER`). Once the drain's time is up, the other call's caller receives `canceled` (cause `closing`), and the engine exits with status 0 after the 2 seconds' bound, reporting the call that did not answer. |
 | `TestPluginWatchTransition` | A `Watch` opened while the engine serves receives `SERVING`, then `NOT_SERVING` after SIGTERM, and ends with the engine. |
 | `TestPluginReplacementFailure` | The engine's Bun is a fake that runs the real one until the test creates a marker file. With the marker, a canceled run whose step ignores its cancellation taints the only process, and the next run needs a replacement, which fails to start. The engine drains, naming the failed start, a `Watch` ends with `NOT_SERVING`, and the engine exits with status 0. |

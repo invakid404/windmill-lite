@@ -362,9 +362,13 @@ for the services `""`, `plugin` and `windmill_lite.v1.Runner`.
   engine.
 - **A drain** refuses new runs and lets the runs in flight, those that
   steps dispatched included, go on for up to `drain_timeout_ms`. The engine
-  then closes its runtime, which cancels the runs left with the reason
-  `the runtime is closing` (cause `closing`), and once their calls have
-  answered, or 2 seconds after the close, exits with status 0. A supervisor that only restarts the plugin when it exits therefore
+  then closes its runtime, which cancels the runs left. A `Run` call's run
+  ends with the reason `the runtime is closing` (cause `closing`); one that
+  a step dispatched is canceled as the runtime's close always cancels it
+  (cause `canceled`).
+- **The exit.** The engine waits up to 2 seconds for the calls to answer,
+  gives the answers up to a second to reach the host, and exits with
+  status 0. A supervisor that only restarts the plugin when it exits therefore
   works too.
 - **go-plugin's shutdown** (`GRPCController/Shutdown`, which the client's
   `Kill` sends) stops the server at once, with no drain. So a host that

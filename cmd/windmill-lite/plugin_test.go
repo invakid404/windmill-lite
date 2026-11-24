@@ -951,6 +951,11 @@ const holdAnswerEnv = "WL_TEST_PLUGIN_HOLD_ANSWER"
 // drain closes the runtime (beforeClose).
 const closeMarkEnv = "WL_TEST_PLUGIN_CLOSE_MARK"
 
+// holdServeEnv names a directory in which the engine's test hook writes
+// at-serve just before the engine serves, and which holds it there until
+// the test creates release (beforeServe).
+const holdServeEnv = "WL_TEST_PLUGIN_HOLD_SERVE"
+
 // whenFile returns a channel that is closed once path exists, polled every
 // 10 ms.
 func whenFile(path string) <-chan struct{} {
@@ -1014,7 +1019,12 @@ func installPluginTestHooks() {
 	}
 	if dir := os.Getenv(drainTimerEnv); dir != "" {
 		drainTimer = func(d time.Duration) (<-chan time.Time, func()) {
-			if err := os.WriteFile(filepath.Join(dir, "duration"), []byte(d.String()), 0o600); err != nil {
+			// Written whole, then renamed, so the test never reads it half
+			// written.
+			if err := os.WriteFile(filepath.Join(dir, "duration.tmp"), []byte(d.String()), 0o600); err != nil {
+				panic(err)
+			}
+			if err := os.Rename(filepath.Join(dir, "duration.tmp"), filepath.Join(dir, "duration")); err != nil {
 				panic(err)
 			}
 			fired := make(chan time.Time, 1)
@@ -1039,6 +1049,14 @@ func installPluginTestHooks() {
 	}
 	if id := os.Getenv(holdAnswerEnv); id != "" {
 		wrapRunner = func(r plugin.RunnerServer) plugin.RunnerServer { return heldAnswer{r, id} }
+	}
+	if dir := os.Getenv(holdServeEnv); dir != "" {
+		beforeServe = func() {
+			if err := os.WriteFile(filepath.Join(dir, "at-serve"), nil, 0o600); err != nil {
+				panic(err)
+			}
+			<-whenFile(filepath.Join(dir, "release"))
+		}
 	}
 	if file := os.Getenv(closeMarkEnv); file != "" {
 		beforeClose = func() {

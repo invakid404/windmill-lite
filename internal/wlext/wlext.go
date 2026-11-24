@@ -65,8 +65,8 @@ var TraceJSON func(t *engine.Trace, level string) ([]byte, error)
 // OnPoolStartFailure makes rt, a *wl.Runtime that Open returned, call f
 // with the error of each process that its warm pool fails to start from
 // then on: a replacement, or a process that a step needs. Close's start
-// clears f, so no report begins after Close has begun. The pool logs the
-// failure first, and the step that needed the process still fails as
+// clears f: a report that had already taken f may still call it after
+// that, and no report takes it later. The pool logs the failure first, and the step that needed the process still fails as
 // before. f must not block for long; nil stops the reports. Package wl
 // sets it when it is initialized.
 var OnPoolStartFailure func(rt any, f func(error))
