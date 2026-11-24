@@ -175,6 +175,8 @@ type Pool struct {
 	// the admission checks apply and the pool serialize its diagnostics:
 	// a pool without settings behaves as it always has.
 	opted bool
+	// pins are the pinned runs (PinRun), by run id.
+	pins map[string]*pin
 	// recycler is the member that leaves for a recycle trigger, until its
 	// exit is observed; nil when none does. owed counts the replacements
 	// of members that left for a trigger, which start as soon as MaxLive
@@ -210,6 +212,14 @@ type member struct {
 
 func (m *member) inService() bool {
 	return !m.tainted && !m.surplus && !m.retiring && !m.gone && !m.recycling
+}
+
+// pin is a pinned run: the member that served its first invocation or
+// host call (nil until then), and whether the run has ended, after which
+// the pin still routes its late host calls but no longer holds the member.
+type pin struct {
+	m     *member
+	ended bool
 }
 
 type spawnAttempt struct {
@@ -486,20 +496,37 @@ func (pl *Pool) acquire(ctx context.Context, run string, step bool) (*member, er
 		// A dispatch that crossed a recycle threshold tells the pool after
 		// it is sent; no later pick may miss it.
 		pl.applyTriggersLocked()
+		pinned, wait, err := pl.pinnedLocked(run, step)
+		if err != nil {
+			pl.mu.Unlock()
+			return nil, err
+		}
+		if pinned != nil {
+			pl.takeLocked(pinned, run, step)
+			pl.mu.Unlock()
+			return pinned, nil
+		}
+		if wait {
+			ch := pl.changed
+			pl.observeLocked("wait", nil)
+			pl.mu.Unlock()
+			select {
+			case <-ctx.Done():
+				return nil, context.Cause(ctx)
+			case <-ch:
+			}
+			continue
+		}
 		m, lagging := pl.pickLocked(run, step)
 		canSpawn := spawnErr == nil && pl.inServiceLocked()+pl.starting < pl.cfg.Max && pl.roomLocked()
 		if m != nil && (!lagging || !canSpawn) {
-			m.active++
-			if step {
-				m.steps++
-				if run != "" {
-					if m.runs == nil {
-						m.runs = map[string]int{}
-					}
-					m.runs[run]++
-				}
+			if pn := pl.pins[run]; pn != nil && pn.m == nil {
+				// The run's first invocation or host call: the pin binds to
+				// a serving process, so never to a tainted, recycling or
+				// surplus one.
+				pn.m = m
 			}
-			pl.affinity.set(run, m)
+			pl.takeLocked(m, run, step)
 			pl.mu.Unlock()
 			return m, nil
 		}
@@ -534,6 +561,116 @@ func (pl *Pool) acquire(ctx context.Context, run string, step bool) (*member, er
 			}
 		}
 	}
+}
+
+// takeLocked counts an invocation of run (step) or a host call of run as
+// active in m.
+func (pl *Pool) takeLocked(m *member, run string, step bool) {
+	m.active++
+	if step {
+		m.steps++
+		if run != "" {
+			if m.runs == nil {
+				m.runs = map[string]int{}
+			}
+			m.runs[run]++
+		}
+	}
+	pl.affinity.set(run, m)
+}
+
+// pinnedLocked routes an invocation of run (step) or a host call of run
+// that is pinned to a member: it returns the member to take, or wait when
+// the call must wait for it, or the error that ends it. It returns neither
+// for a run that is not pinned, or whose pin binds to no member yet, or
+// whose run has ended and whose member is leaving or gone: those go
+// through the ordinary pick.
+//   - The member takes the run's calls while it lives, tainted, recycling,
+//     surplus or lagging included: the one exception to the taint rule.
+//   - The cap still bounds its invocations, which wait for a slot.
+//   - A member that is dying or draining is waited for until its exit.
+//   - Once its exit is observed, a live run's call fails with
+//     engine.ErrPinnedProcessLost, which latches the run.
+func (pl *Pool) pinnedLocked(run string, step bool) (*member, bool, error) {
+	pn := pl.pins[run]
+	if pn == nil || pn.m == nil {
+		return nil, false, nil
+	}
+	m := pn.m
+	switch {
+	case pn.ended && (m.gone || m.retiring):
+		return nil, false, nil
+	case m.gone:
+		return nil, false, fmt.Errorf("harness: run %s: its pinned process has exited: %w", run, engine.ErrPinnedProcessLost)
+	case m.retiring:
+		return nil, true, nil
+	case step && pl.cfg.Cap > 0 && m.steps >= pl.cfg.Cap:
+		return nil, true, nil
+	}
+	return m, false, nil
+}
+
+// heldLocked reports whether a live pinned run holds m, which keeps it
+// from leaving.
+func (pl *Pool) heldLocked(m *member) bool {
+	for _, pn := range pl.pins {
+		if pn.m == m && !pn.ended {
+			return true
+		}
+	}
+	return false
+}
+
+// PinRun pins run (ADR 0004 §Pooling): its first invocation or host call
+// goes to a serving process, and every later one goes there while that
+// process lives, until ForgetRun. The process does not leave the pool
+// while the run is live (until RunEnded). Call it before the run's first
+// invocation. A fresh pool has no pins.
+func (pl *Pool) PinRun(run string) {
+	if pl.isFresh() || run == "" {
+		return
+	}
+	pl.mu.Lock()
+	defer pl.mu.Unlock()
+	if pl.pins == nil {
+		pl.pins = map[string]*pin{}
+	}
+	if pl.pins[run] == nil {
+		pl.pins[run] = &pin{}
+	}
+}
+
+// RunEnded tells the pool that the pinned run has ended: its pin no longer
+// holds its process, which may then leave, and still routes the run's
+// later host calls, such as onRunSettled, there while it lives.
+func (pl *Pool) RunEnded(run string) {
+	pl.mu.Lock()
+	defer pl.mu.Unlock()
+	pn := pl.pins[run]
+	if pn == nil || pn.ended {
+		return
+	}
+	pn.ended = true
+	if pn.m != nil && !pn.m.gone {
+		pl.reviewLocked(pn.m)
+	}
+	pl.broadcastLocked()
+}
+
+// ForgetRun drops run's pin, once nothing of the run calls the pool any
+// more (its settlement).
+func (pl *Pool) ForgetRun(run string) {
+	pl.mu.Lock()
+	defer pl.mu.Unlock()
+	pn := pl.pins[run]
+	if pn == nil {
+		return
+	}
+	delete(pl.pins, run)
+	if !pn.ended && pn.m != nil && !pn.m.gone {
+		pl.reviewLocked(pn.m)
+	}
+	pl.broadcastLocked()
 }
 
 // pickLocked returns the best process for an invocation of run (step) or
@@ -854,7 +991,7 @@ func (pl *Pool) reviewLocked(m *member) {
 		pl.owed++
 		pl.fillLocked()
 	}
-	if (m.tainted || m.surplus || m.recycling) && m.active == 0 {
+	if (m.tainted || m.surplus || m.recycling) && m.active == 0 && !pl.heldLocked(m) {
 		m.retiring = true
 		pl.fillLocked()
 		pl.observeLocked("drain", m.p)

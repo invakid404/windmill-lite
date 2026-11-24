@@ -114,7 +114,21 @@ type RunOptions struct {
 	// Jitter is the flow run's retry-jitter source (H10, FX-26); nil draws
 	// from one seeded with Seed. SeededJitter fixes it.
 	Jitter Jitter
+	// Pin pins the run to one warm harness process (ADR 0004 §Pooling), as
+	// Options.Pool.PinRuns does for every run: its first invocation or
+	// host-plugin call goes to a serving process, and every later one goes
+	// there while that process lives, even when it lags, is tainted or
+	// leaves for a recycle trigger, so a host plugin can keep the run's
+	// state there. The process does not leave while the run is live. If it
+	// ends, the run's next invocation or host-plugin call latches the run
+	// with ErrPinnedProcessLost. A fresh runtime and host mode refuse it.
+	Pin bool
 }
+
+// ErrPinnedProcessLost is the latch of a pinned run whose process ended
+// while the run was live (pinned_process_lost): the run cannot move, since
+// its per-run state lived in that process.
+var ErrPinnedProcessLost = engine.ErrPinnedProcessLost
 
 // Clock is a run's clock (H10): Now, and Wait, which waits for a duration
 // or until the context ends.
@@ -139,6 +153,36 @@ func SeededJitter(seed uint64) Jitter { return engine.SeededJitter(seed) }
 // deadline passed before its first write (H4); it wraps
 // context.DeadlineExceeded.
 var ErrPreWriteDeadline = engine.ErrPreWriteDeadline
+
+// pin pins the run id to a pool process when it asks for it (pin) or the
+// runtime pins every run (Options.Pool.PinRuns), and the bundle has a pool.
+// It returns the settlement callback, which then also forgets the pin,
+// wrapping settled, and the function to call when the run has ended, which
+// ends the pin's hold on its process. A run that settles is forgotten at
+// its settlement, and one that never settles keeps a pin that holds
+// nothing.
+func (rt *Runtime) pin(id string, pin bool, settled func()) (func(), func()) {
+	if rt.pool == nil || !(pin || rt.pinRuns) {
+		return settled, func() {}
+	}
+	rt.pool.PinRun(id)
+	return func() {
+			rt.pool.ForgetRun(id)
+			if settled != nil {
+				settled()
+			}
+		}, func() {
+			rt.pool.RunEnded(id)
+		}
+}
+
+// forgetPin drops the pin of a run that did not start, which never
+// settles.
+func (rt *Runtime) forgetPin(id string) {
+	if rt.pool != nil {
+		rt.pool.ForgetRun(id)
+	}
+}
 
 // ErrRunInFlight is Run's error for an id (RunOptions.ID) that a run of the
 // runtime in flight already has. Nothing runs; the id can be used again
@@ -218,6 +262,9 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	if len(bytes.TrimSpace(args)) == 0 {
 		args = json.RawMessage("{}")
 	}
+	if opts.Pin && (rt.state == engine.ModuleStateFresh || rt.host != nil) {
+		return nil, errors.New("wl: a pinned run needs a warm runtime's pool: a fresh runtime starts a process for each step, and in host mode the host is the one process (RunOptions.Pin)")
+	}
 	switch opts.Kind {
 	case "", KindFlow:
 	case KindScript:
@@ -235,6 +282,8 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		defer rt.exec.end(id)
 		ctx = calls.reportStoreFailures(ctx)
 		req := engine.ScriptRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Around: rt.aroundAt()}
+		settled, unpin := rt.pin(id, opts.Pin, settled)
+		defer unpin()
 		var s *engine.RunSettlement
 		if settled != nil {
 			// A script job has its own one invocation, which settles it.
@@ -243,6 +292,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		}
 		res, err := rt.eng.RunScript(ctx, req)
 		if err != nil {
+			rt.forgetPin(id)
 			return nil, err
 		}
 		out := &Result{ID: res.ID, Status: StatusSuccess, Result: storedText(res.Result), Warnings: calls.warned()}
@@ -280,10 +330,13 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	if err != nil {
 		return nil, err
 	}
+	settled, unpin := rt.pin(id, opts.Pin, settled)
+	defer unpin()
 	var services *platform.Services
 	bind := &runBinding{id: id}
 	if opts.Platform != nil || rt.answersPlatform() || rt.readCache {
 		if services, err = rt.runServices(opts.Platform, bind); err != nil {
+			rt.forgetPin(id)
 			return nil, err
 		}
 	}
@@ -316,6 +369,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	ctx = calls.reportStoreFailures(ctx)
 	tr, err := rt.eng.Run(ctx, req)
 	if err != nil {
+		rt.forgetPin(id)
 		return nil, err
 	}
 	if h != nil {

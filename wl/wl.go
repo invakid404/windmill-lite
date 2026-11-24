@@ -207,6 +207,8 @@ type PoolOptions struct {
 	// serve, their handshakes done, instead of starting them on the first
 	// step. A bundle with no step has no pool, so nothing starts.
 	WarmStart bool
+	// PinRuns pins every run of the runtime, as RunOptions.Pin pins one.
+	PinRuns bool
 }
 
 // RecycleTriggers say when the pool replaces a process that is still
@@ -309,6 +311,7 @@ type Runtime struct {
 	dispatch  *engine.Dispatcher
 	readCache bool // Options.ReadCache
 	capped    bool // Options.Pool.Cap is set: each flow run's trace lists "D15"
+	pinRuns   bool // Options.Pool.PinRuns
 	// foreign is Options.ForeignWindmillOrigins as the welcomes carry
 	// them (foreignOrigins).
 	foreign []string
@@ -394,7 +397,7 @@ func Version() string {
 // store under the data directory, and the default dispatcher over the
 // bundle's program. The facade serves them to its steps.
 func Open(path string, opts Options) (_ *Runtime, err error) {
-	rt := &Runtime{version: opts.EngineVersion, readCache: opts.ReadCache, capped: opts.Pool.Cap > 0}
+	rt := &Runtime{version: opts.EngineVersion, readCache: opts.ReadCache, capped: opts.Pool.Cap > 0, pinRuns: opts.Pool.PinRuns}
 	if opts.Diagnostics != nil && opts.Pool != (PoolOptions{}) {
 		// The harness processes, the pool and the host plugin's calls write
 		// to it from goroutines of their own, and the pool settings let

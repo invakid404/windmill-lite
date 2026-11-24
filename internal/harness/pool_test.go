@@ -237,13 +237,18 @@ func releaseDrain(t *testing.T, ctl string, pid int) {
 	}
 }
 
-// fakeInvocation is an invocation of script for the fake of mode pool.
+// fakeInvocation is an invocation of script for the fake of mode pool. A
+// "run" argument names the invocation's run, which is otherwise a run of
+// its own.
 func fakeInvocation(script string, args map[string]any) engine.Invocation {
 	b, _ := json.Marshal(args)
 	if args == nil {
 		b = []byte(`{}`)
 	}
 	inv := newInvocation(script, string(b), newRecorder())
+	if run, ok := args["run"].(string); ok {
+		inv.Run = run
+	}
 	return inv
 }
 

@@ -138,6 +138,14 @@ type ProvideFunc func(ctx context.Context, r Run, s Site, provider string, args 
 // provider cannot decline, so the run fails closed.
 var ErrProviderDeclined = errors.New("provider_declined")
 
+// ErrPinnedProcessLost is the latch of a pinned run whose process ended
+// while the run was live (ADR 0004 §Pooling, ADR 0008 H5,
+// pinned_process_lost): its per-run state lived there, so its next
+// invocation or host call latches the run instead of moving it. An
+// executor returns it, not dispatched, and the engine latches the run with
+// it.
+var ErrPinnedProcessLost = errors.New("pinned_process_lost")
+
 // ErrUnsupported marks a program that uses a feature the engine does not
 // run, such as a preprocessor module or a container as the failure module.
 var ErrUnsupported = errors.New("not supported by the engine yet")

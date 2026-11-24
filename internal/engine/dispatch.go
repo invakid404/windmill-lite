@@ -190,6 +190,10 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 		Around:      around,
 	})
 	switch {
+	case errors.Is(err, ErrPinnedProcessLost):
+		// The latch outranks the job's outcome, as a step's latch does.
+		rep.latch.Set(err)
+		return ScriptResult{ID: id, Failed: true}, nil
 	case errors.Is(err, CancelTimeout):
 		return ScriptResult{ID: id, Failed: true, Canceled: boundary != BoundaryNative, Result: TimeoutError(boundary, "", timeout, atMax)}, nil
 	case err != nil && ctx.Err() != nil:

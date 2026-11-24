@@ -2635,6 +2635,13 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 	start := r.clock.Now()
 	out, err := r.exec.Execute(stepCtx, inv)
 	r.span(site.Path, SpanHarness, start)
+	if errors.Is(err, ErrPinnedProcessLost) {
+		// The process the run is pinned to has ended, with the run's state
+		// in it: the run latches instead of moving, and the step never
+		// launched.
+		r.Latch(err)
+		return StepOutcome{}, "", jsonval.Value{}, errNotLaunched
+	}
 	return out, inv.ID, resolved, err
 }
 
