@@ -28,7 +28,9 @@ import (
 // report in a heartbeat ping just before its result (rss), and the
 // resident set that the process's pongs report from then on (pong_rss);
 // its result is {"pid": <the pid of its process>}, and so is its answer to
-// a host_call. It ignores cancels, so an abandoned invocation runs on until
+// a host_call, but for one of hook exit-on-call, which it takes by writing
+// the file host-call-received in WL_FAKE_CTL, then exits with no reply.
+// It ignores cancels, so an abandoned invocation runs on until
 // its hold file exists. It sends no heartbeat of its own. It answers a drain
 // with bye and exits: at once, or, while the file hold-drains exists in the
 // directory WL_FAKE_CTL, once release-<pid> exists there too. The first
@@ -46,6 +48,10 @@ func poolFake(send func(Message), recv func() Message, pid int) int {
 		case Ping:
 			send(Pong{ID: m.ID, Health: &Health{RSS: pongRSS.Load()}})
 		case HostCall:
+			if m.Hook == "exit-on-call" {
+				os.WriteFile(filepath.Join(ctl, "host-call-received"), nil, 0o600)
+				os.Exit(0)
+			}
 			send(HostReply{ID: m.ID, Payload: jsonval.FromProducer(fmt.Appendf(nil, `{"pid":%d}`, pid))})
 		case Invoke:
 			go func() {

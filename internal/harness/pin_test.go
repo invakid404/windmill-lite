@@ -604,3 +604,25 @@ func TestPinFirstCallsAcrossAnExit(t *testing.T) {
 		t.Fatalf("the second call ran in the exited %d", p)
 	}
 }
+
+// A first host call that was sent counts as having reached its process,
+// however it ends: here the plugin takes the call and its process exits
+// before replying. The pin stays bound, so the run's next call reports the
+// process lost rather than bind afresh.
+func TestPinFirstHostCallSentThenExit(t *testing.T) {
+	pool, ctl, log := fakePool(t, PoolConfig{Max: 2}, "WL_FAKE_PLUGIN=same")
+	p := fakeRun(t, pool, "s", onRun("U"))
+	mustPin(t, pool, "A")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := pool.HostCall(ctx, "exit-on-call", "A", "", jsonval.FromProducer([]byte(`{}`))); err == nil {
+		t.Fatal("a host call whose process exited before replying succeeded")
+	}
+	if _, err := os.Stat(filepath.Join(ctl, "host-call-received")); err != nil {
+		t.Fatalf("the plugin did not take the call: %v", err)
+	}
+	log.waitFor(t, "", fmt.Sprintf("exit %d", p))
+	if _, err := pool.HostCall(ctx, "resource", "A", "", jsonval.FromProducer([]byte(`{}`))); !errors.Is(err, engine.ErrPinnedProcessLost) {
+		t.Fatalf("the run's next call after its first reached the exited process: %v; want pinned_process_lost", err)
+	}
+}

@@ -909,8 +909,11 @@ run has settled. A fresh pool returns no pin.
 - **A first call that did not reach the process.** While no call of the
   run has reached the process, one that it refused, or that ended before
   it was sent, frees the pin, once no other is under way, to bind to the
-  next pick. While one is under way, another call of the run waits for it,
-  also when the process has left, rather than report it lost.
+  next pick. A host call that was sent has reached it, whatever ends it.
+- **Concurrent first calls.** They go to the pinned process together, the
+  cap aside. Only once that process is leaving or has exited does another
+  call wait for the outcome of a first one under way, rather than report
+  the process lost.
 - **The hold.** A process with a live pin does not drain, whatever else
   would retire it. `RunEnded` ends the hold; until `ForgetRun`, the pin
   still routes the run's late host calls there while the process can
