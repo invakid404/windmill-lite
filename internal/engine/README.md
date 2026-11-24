@@ -182,7 +182,7 @@ The engine fills the trace; `wl` returns it to its host and adds the platform ca
 | Name | Kind | What it does | Who calls it |
 |---|---|---|---|
 | `Engine.RunScript`, `ScriptRequest`, `ScriptResult` | method, structs | Runs a root script as a script job. `ScriptResult` has `Failed`, `Result`, `Canceled` and `Latched` | `wl`, the dispatcher |
-| `Dispatcher`, `NewDispatcher` | struct, func | The default dispatcher: runs a dispatched root as a separate run; `Dispatch`, `Result`, `Close` | a host's `platform.Services` |
+| `Dispatcher`, `NewDispatcher` | struct, func | The default dispatcher: runs a dispatched root as a separate run; `Dispatch`, `Result`, `Close`, and `SetRuns`, which gives each run a host part (`DispatchRun`: its context, limits, end and settlement calls), prepared before `Dispatch` returns the run's id | a host's `platform.Services` |
 
 ## Hooks
 

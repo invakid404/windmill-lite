@@ -235,7 +235,8 @@ runtime and host mode refuse both.
   own, or none, while the earlier run's late calls keep to its process,
   or, for an unpinned run, to the ordinary routing. A pinned run is
   refused with `ErrRunInFlight` while a live pinned run, such as one that
-  a step dispatched, has its id.
+  a step dispatched, has its id: a dispatched run has it from its
+  dispatch, before a delayed start.
 - **When its process ends.** A step in flight there fails as a process
   that dies fails it. The run's next step or host-plugin call latches the
   run with `ErrPinnedProcessLost`, and the step does not start.

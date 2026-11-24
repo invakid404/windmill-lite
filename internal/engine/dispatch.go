@@ -285,25 +285,48 @@ type Dispatcher struct {
 }
 
 // DispatchRun takes part in each run that a Dispatcher starts: it is
-// called with the run's id before the run starts, and returns the context
-// the run runs in, the run's limits, and two functions, either of which
-// may be nil: ended, called once the run has ended, and settled, called
-// once it has settled, or at once for a run that did not start. A host
-// gives the runs it starts itself the same, such as their pin and the
-// runtime's byte total (ADR 0004 §Pooling).
-type DispatchRun func(ctx context.Context, id string) (_ context.Context, limits RunLimits, ended, settled func())
+// called with the run's id when the run is dispatched, before Dispatch
+// returns the id, so that the id is the run's own from the start, and
+// returns the context the run runs in, the run's limits, and two
+// functions, either of which may be nil: ended, called once the run has
+// ended, and settled, called once it has settled, or at once for a run
+// that did not start. Its error refuses the dispatch. A host gives the
+// runs it starts itself the same, such as their pin and the runtime's
+// byte total (ADR 0004 §Pooling).
+type DispatchRun func(ctx context.Context, id string) (_ context.Context, limits RunLimits, ended, settled func(), err error)
 
 // SetRuns makes f take part in each run that the dispatcher starts. Call
 // it before the dispatcher's first run.
 func (x *Dispatcher) SetRuns(f DispatchRun) { x.prepare = f }
 
+// preparedRun is what the host gives a dispatched run (DispatchRun).
+type preparedRun struct {
+	ctx            context.Context
+	limits         RunLimits
+	ended, settled func()
+}
+
 // prepared returns what x.prepare gives the run id, or what a run with no
 // host part has.
-func (x *Dispatcher) prepared(id string) (context.Context, RunLimits, func(), func()) {
+func (x *Dispatcher) prepared(id string) (preparedRun, error) {
 	if x.prepare == nil {
-		return x.ctx, RunLimits{}, nil, nil
+		return preparedRun{ctx: x.ctx}, nil
 	}
-	return x.prepare(x.ctx, id)
+	ctx, limits, ended, settled, err := x.prepare(x.ctx, id)
+	if err != nil {
+		return preparedRun{}, err
+	}
+	return preparedRun{ctx: ctx, limits: limits, ended: ended, settled: settled}, nil
+}
+
+// abandon ends and settles a prepared run that will not start.
+func (p preparedRun) abandon() {
+	if p.ended != nil {
+		p.ended()
+	}
+	if p.settled != nil {
+		p.settled()
+	}
 }
 
 // onSettled is hooks that only learn of their run's settlement.
@@ -388,17 +411,24 @@ func (x *Dispatcher) Dispatch(_ context.Context, d platform.Dispatch) (string, e
 	// caller that returns at once).
 	links := x.links(d)
 	id := newUUID()
+	// The host takes part in the run before anyone knows its id, which is
+	// so the run's own from the start, through a delayed start too.
+	prep, err := x.prepared(id)
+	if err != nil {
+		return "", fmt.Errorf("engine: the dispatched run cannot start: %w", err)
+	}
 	rec := &dispatched{owner: d.Caller["WM_ROOT_JOB_ID"]}
 	x.mu.Lock()
 	if x.closed {
 		x.mu.Unlock()
+		prep.abandon()
 		return "", errors.New("engine: the dispatcher is closed")
 	}
 	x.sweep()
 	x.runs[id] = rec
 	x.wg.Add(1)
 	x.mu.Unlock()
-	go x.run(id, d, args, links, rec)
+	go x.run(id, d, args, links, rec, prep)
 	return id, nil
 }
 
@@ -487,7 +517,7 @@ func surrogateError(body []byte, from, to int) (string, int) {
 }
 
 // run runs one dispatched target to its end.
-func (x *Dispatcher) run(id string, d platform.Dispatch, args jsonval.Value, links parentLinks, rec *dispatched) {
+func (x *Dispatcher) run(id string, d platform.Dispatch, args jsonval.Value, links parentLinks, rec *dispatched, prep preparedRun) {
 	defer x.wg.Done()
 	if d.ScheduledInSecs > 0 {
 		t := time.NewTimer(time.Duration(d.ScheduledInSecs) * time.Second)
@@ -502,9 +532,9 @@ func (x *Dispatcher) run(id string, d platform.Dispatch, args jsonval.Value, lin
 	x.mu.Unlock()
 	var res platform.JobResult
 	if d.Kind == platform.DispatchFlow {
-		res = x.runFlow(id, d.Target, args, links)
+		res = x.runFlow(id, d.Target, args, links, prep)
 	} else {
-		res = x.runScript(id, d.Target, args, links)
+		res = x.runScript(id, d.Target, args, links, prep)
 	}
 	res.Started, res.Completed = true, true
 	x.mu.Lock()
@@ -513,8 +543,8 @@ func (x *Dispatcher) run(id string, d platform.Dispatch, args jsonval.Value, lin
 }
 
 // runFlow runs a dispatched flow, with the links its dispatch sent.
-func (x *Dispatcher) runFlow(id, path string, args jsonval.Value, l parentLinks) platform.JobResult {
-	ctx, limits, ended, settled := x.prepared(id)
+func (x *Dispatcher) runFlow(id, path string, args jsonval.Value, l parentLinks, prep preparedRun) platform.JobResult {
+	ctx, limits, ended, settled := prep.ctx, prep.limits, prep.ended, prep.settled
 	req := RunRequest{ID: id, Path: path, Args: args, Exec: x.exec, ParentJob: l.job, RootJob: l.root, ParentPath: l.path, Limits: limits}
 	if settled != nil {
 		req.Hooks = onSettled{f: settled}
@@ -533,8 +563,8 @@ func (x *Dispatcher) runFlow(id, path string, args jsonval.Value, l parentLinks)
 }
 
 // runScript runs a dispatched script, with the links its dispatch sent.
-func (x *Dispatcher) runScript(id, path string, args jsonval.Value, l parentLinks) platform.JobResult {
-	ctx, limits, ended, settled := x.prepared(id)
+func (x *Dispatcher) runScript(id, path string, args jsonval.Value, l parentLinks, prep preparedRun) platform.JobResult {
+	ctx, limits, ended, settled := prep.ctx, prep.limits, prep.ended, prep.settled
 	req := ScriptRequest{ID: id, Path: path, Args: args, Exec: x.exec, ParentJob: l.job, RootJob: l.root, ParentPath: l.path,
 		MaxHeldBytes: limits.MaxHeldBytes, Bytes: limits.Bytes, ByteTotal: limits.ByteTotal}
 	var s *RunSettlement

@@ -598,14 +598,14 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	rt.dispatch = engine.NewDispatcher(rt.eng, rt.fac.Executor(inner))
 	// A run that a step dispatches is a run of the runtime too: it takes
 	// the runtime's pinning and its byte total, with no limits of its own.
-	rt.dispatch.SetRuns(func(ctx context.Context, id string) (context.Context, engine.RunLimits, func(), func()) {
+	rt.dispatch.SetRuns(func(ctx context.Context, id string) (context.Context, engine.RunLimits, func(), func(), error) {
+		// Called before the dispatcher returns the run's id, so that a
+		// pin is the run's before anyone can take the id.
 		p, settled, ended, err := rt.pin(id, false, nil)
 		if err != nil {
-			// A live run already holds the id's pin: the dispatcher's
-			// fresh ids make this a collision it cannot meet.
-			p, settled, ended = rt.pool.Unpinned(id), nil, nil
+			return nil, engine.RunLimits{}, nil, nil, err
 		}
-		return harness.WithPin(ctx, p), engine.RunLimits{ByteTotal: rt.byteTotal}, ended, settled
+		return harness.WithPin(ctx, p), engine.RunLimits{ByteTotal: rt.byteTotal}, ended, settled, nil
 	})
 	rt.services.Dispatcher = rt.dispatch
 	if opts.Plugin != "" {

@@ -279,8 +279,8 @@ func TestDispatcherRunsWithoutAnExecutor(t *testing.T) {
 	d := NewDispatcher(e, nil)
 	defer d.Close(context.Background())
 	var ended, settled atomic.Int32
-	d.SetRuns(func(ctx context.Context, id string) (context.Context, RunLimits, func(), func()) {
-		return ctx, RunLimits{}, func() { ended.Add(1) }, func() { settled.Add(1) }
+	d.SetRuns(func(ctx context.Context, id string) (context.Context, RunLimits, func(), func(), error) {
+		return ctx, RunLimits{}, func() { ended.Add(1) }, func() { settled.Add(1) }, nil
 	})
 	for _, c := range []struct {
 		kind   platform.DispatchKind
