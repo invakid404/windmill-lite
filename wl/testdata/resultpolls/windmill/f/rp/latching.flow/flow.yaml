@@ -1,0 +1,13 @@
+summary: a flow whose child flow's step latches the run
+value:
+  modules:
+    - id: c
+      value:
+        type: flow
+        path: f/rp/latchsub
+        input_transforms: {}
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

@@ -186,7 +186,7 @@ func (v runView) JobRecord(id string) ([]byte, error) {
 }
 
 // JobPoll answers the result polls for the job id names
-// (platform.JobPoller). The job's state is the record's, as JobRecord
+// (platform.JobView). The job's state is the record's, as JobRecord
 // renders it, so that the polls serve the jobs that the job read serves;
 // a completed job's result is its whole stored result, in jsonb's text
 // output, where the record replaces a result that is too large (tooBig),
@@ -919,7 +919,7 @@ func (v *scriptView) JobRecord(id string) ([]byte, error) {
 }
 
 // JobPoll answers the result polls for a dispatched script's job
-// (platform.JobPoller), as a run's JobPoll does: the record's state and
+// (platform.JobView), as a run's JobPoll does: the record's state and
 // the whole stored result.
 func (v *scriptView) JobPoll(id string) (platform.JobResult, error) {
 	rec, err := v.JobRecord(id)

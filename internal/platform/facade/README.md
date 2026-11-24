@@ -337,7 +337,7 @@ is `engine.Dispatcher`.
   polls from the run that holds it (`platform.Services.ResultPoll`), as
   the oracle recorded them (fixture
   `conformance/flows/client-api/result-polls`). One lookup of the id
-  decides the answer:
+  classifies the job, and the answer follows that lookup:
   - a completed job: the answer above, with its whole result in `jsonb`'s
     text output (`{"k": [1, 2.5]}`), which the job read replaces once it
     is too large; `getCompletedJobResult` answers that text with `200`;
@@ -609,7 +609,7 @@ CI sets all three in its Go jobs
 | | — | A failed handler's 502 and bodyless replies on both transports; the enterprise restart's 400; the status and body of 14 error variants, `Generic` among them; handler registration |
 | `executor_test.go` | — | `TestSessionReporterLetsGo`: the Reporter lets go of its session once the invocation has settled, and a repeated `Settled` does nothing else |
 | `services_test.go` | — | On both transports: the root lookup and its `400`s, the workspace of a token (`TestTokenWorkspace`), and flow user state with its rejections. On the intercepted path: dispatch with a fake dispatcher, the result polls and their refusals, and the object routes |
-| `resultpolls_test.go` | — | `TestResultPollsFlowJobs`: the result polls of a live flow run's jobs that no step dispatched, without `ResultPollsForAllJobs` (each `501`) and with it (the recorded answers, the run's result as it is). Also the `501` of a refused job and of an ended run's job, another workspace and an unknown id. `TestResultPollsOneLookup`: a registry that forgets or registers the id right after its lookup |
+| `resultpolls_test.go` | — | `TestResultPollsFlowJobs`: the result polls of a live flow run's jobs that no step dispatched, without `ResultPollsForAllJobs` (each `501`) and with it (the recorded answers, the run's result as it is). Also the `501` of a refused job and of an ended run's job, another workspace and an unknown id. `TestResultPollsOneLookup`: a registry that forgets or registers the id right after its lookup. `TestResultPollsReusedRoot`: a root id that a new run takes right after the lookup that found its run ended |
 | `jobreads_test.go` | — | `TestJobReadRoutes`: the job reads of a live run's jobs, a UUID in upper case, the 404 texts, the framework's `400`, and the 501 of an ended run's job while the root lookup still answers. `TestUnservedJobRoutes`: the `jobs_u` routes that stay unserved |
 | `providers_test.go` | — | The resource and variable reads on both transports; a facade with no services; a read's `job_id` (`TestReadWithAJobID`); the variable update and its refusals (`TestVariableUpdate`); a run's own providers next to the facade's (`TestCallerPlatform`) |
 | `resources_test.go` | — | The writes of state against the oracle's recording of `client-api/state` (`TestStateRoutes`, `TestStateValuesAndPaths`); the writes that answer 501 and the 422s (`TestStateWriteRefusals`); no store (`TestStateWritesWithoutAStore`); a failing store's 500 and warning (`TestStoreFailureAnswers`) |

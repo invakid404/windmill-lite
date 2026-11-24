@@ -1,0 +1,14 @@
+summary: result polls of a latched child flow in a run tracked beneath this one
+value:
+  modules:
+    - id: d
+      value:
+        type: rawscript
+        content: '!inline d.ts'
+        input_transforms: {}
+        language: bun
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

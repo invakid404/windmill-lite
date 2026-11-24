@@ -13,7 +13,9 @@ import (
 
 // buildResultPollsBundle builds testdata/resultpolls/windmill: the flows
 // f/rp/large, f/rp/canceled and f/rp/childflow, whose last step, the path
-// script f/rp/drive, polls the jobs of the steps before it.
+// script f/rp/drive, polls the jobs of the steps before it, and
+// f/rp/latched, whose step polls the job of a child flow that latched in a
+// run it dispatched.
 func buildResultPollsBundle(t *testing.T, bun string) (out, runtimeDir string) {
 	t.Helper()
 	repo, err := filepath.Abs("..")
@@ -63,6 +65,12 @@ type polled struct {
 //   - f/rp/childflow: a child flow that its flow step's timeout canceled
 //     answers 501 alike, with the option naming "the flow job ended
 //     canceled".
+//   - f/rp/latched: the polling step dispatches f/rp/latching linked to its
+//     own job and root, so that run's jobs belong to this run's tree, and
+//     waits for it to complete. A step of its child flow latched it
+//     (wl.latch), so the child flow's job, which no step dispatched, ended
+//     latched while this run, the tree's root, still runs: its polls
+//     answer 501, with the option naming "the flow job ended latched".
 //
 // Without the option every one of these polls answers the default 501,
 // which names no reason.
@@ -107,7 +115,7 @@ func TestResultPollsRealStates(t *testing.T) {
 				}
 			}
 			if !on {
-				for _, flow := range []string{"f/rp/large", "f/rp/canceled", "f/rp/childflow"} {
+				for _, flow := range []string{"f/rp/large", "f/rp/canceled", "f/rp/childflow", "f/rp/latched"} {
 					res := run(flow)
 					if res.Status != StatusFailure || !strings.Contains(string(res.Result), `"message":"`+refused+`"`) {
 						t.Errorf("%s: %s %s, want the default 501 %q", flow, res.Status, res.Result, refused)
@@ -137,6 +145,7 @@ func TestResultPollsRealStates(t *testing.T) {
 			}
 			refusedWith("f/rp/canceled", refused+": the job was canceled")
 			refusedWith("f/rp/childflow", refused+": the flow job ended canceled")
+			refusedWith("f/rp/latched", refused+": the flow job ended latched")
 		})
 	}
 }

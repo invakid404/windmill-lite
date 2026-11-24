@@ -9,7 +9,7 @@ import (
 )
 
 // pollsOf answers the result polls of each job as given, as the run that
-// holds the jobs answers them (platform.JobPoller), or fails as the run
+// holds the jobs answers them (platform.JobView.JobPoll), or fails as the run
 // fails for a job whose record windmill-lite does not reproduce.
 type pollsOf map[string]struct {
 	res platform.JobResult
@@ -222,6 +222,54 @@ func TestResultPollsOneLookup(t *testing.T) {
 		}
 		if jobs.lookups != 1 {
 			t.Errorf("%s: the registry was asked for the id %d times, want once", c.what, jobs.lookups)
+		}
+	}
+}
+
+// reusedRoot is a job registry that keeps one root id after its run has
+// ended, without a view, and registers a new live run under the same id
+// right after its first lookup of that id.
+type reusedRoot struct {
+	mu      sync.Mutex
+	id      string
+	views   pollsOf
+	lookups int
+}
+
+func (r *reusedRoot) Begin(platform.Job) func() { return func() {} }
+
+func (r *reusedRoot) Job(id string) (platform.Job, bool, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if id != r.id {
+		return platform.Job{}, false, false
+	}
+	r.lookups++
+	if r.lookups == 1 {
+		return platform.Job{ID: id, Kind: platform.JobFlow, Root: id}, false, true
+	}
+	return platform.Job{ID: id, Kind: platform.JobFlow, Root: id, Run: id, View: r.views}, true, true
+}
+
+// TestResultPollsReusedRoot checks one poll of a job that is its own root,
+// with Config.ResultPollsForAllJobs: the registry's one lookup finds the
+// root ended, so the poll answers the ended run's 501, though a new run
+// takes the id right after; the id is looked up once.
+func TestResultPollsReusedRoot(t *testing.T) {
+	id := uid("run")
+	views := pollsOf{id: {res: platform.JobResult{Started: true}}}
+	for _, route := range []string{"get_result_maybe", "get_result"} {
+		jobs := &reusedRoot{id: id, views: views}
+		f := newFacade(t, Config{Platform: &platform.Services{Jobs: jobs}, ResultPollsForAllJobs: true})
+		d := f.Register("inv-d", id, env("d", "run", "tok-d"))
+		rep := intercept(f, "inv-d", "GET", f.WarmOrigin()+"/api/w/ws/jobs_u/completed/"+route+"/"+id, nil, nil)
+		d.End()
+		want := UnsupportedPrefix + "GET /w/{ws}/jobs_u/completed/" + route + "/{id}: " + platform.ErrEndedRun.Reason
+		if rep.Status != 501 || string(rep.Body) != want {
+			t.Errorf("%s: %d %s, want 501 %s", route, rep.Status, rep.Body, want)
+		}
+		if jobs.lookups != 1 {
+			t.Errorf("%s: the registry was asked for the id %d times, want once", route, jobs.lookups)
 		}
 	}
 }
