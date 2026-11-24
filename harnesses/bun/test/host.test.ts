@@ -580,8 +580,9 @@ test("data that JSON.stringify encodes as nothing refuses the run, and data it t
     for (const bad of [Symbol("s"), () => 1, { toJSON: () => undefined }]) {
       expect(await code(host.run("f/x", { echo: true }, { data: bad }))).toBe("refused");
     }
-    // A cyclic value: JSON.stringify throws on it whatever the process has
-    // patched (a BigInt, say, encodes once BigInt.prototype.toJSON is set).
+    // A cyclic value, on which JSON.stringify throws even once another test
+    // file of this process has installed BigInt.prototype.toJSON, which makes
+    // a BigInt encode.
     const cyclic: Record<string, unknown> = {};
     cyclic.self = cyclic;
     const thrown = await host.run("f/x", { echo: true }, { data: cyclic }).then(
