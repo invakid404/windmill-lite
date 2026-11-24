@@ -251,3 +251,42 @@ func TestBundledPluginWithoutSteps(t *testing.T) {
 		t.Fatalf("%s %+v: want success with the plugin's warning plugin_ran", res.Status, res.Warnings)
 	}
 }
+
+// TestOpenRefusesUnverifiedPlugin: Open refuses a bundle whose manifest
+// names, as its plugin, a module outside the bundle, which verification
+// never checked, and that module never loads: it would write a marker file
+// when it did.
+func TestOpenRefusesUnverifiedPlugin(t *testing.T) {
+	bun := bunOrSkip(t)
+	out, runtimeDir := buildContractBundle(t, bun, bundledPluginFiles, bundledPluginContract)
+	marker := filepath.Join(t.TempDir(), "evil-loaded")
+	evil := fmt.Sprintf("require(\"node:fs\").writeFileSync(%q, \"loaded\");\nexport default {};\n", marker)
+	if err := os.WriteFile(filepath.Join(filepath.Dir(out), "evil.mjs"), []byte(evil), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(out, bundle.ManifestFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m bundle.Manifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatal(err)
+	}
+	m.Plugin = &bundle.PluginEntry{Key: "f/app/plugin.ts", File: "../evil.mjs"}
+	if data, err = m.Canonical(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(out, bundle.ManifestFile), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir})
+	if err == nil {
+		rt.Close()
+	}
+	if err == nil || !strings.Contains(err.Error(), "host plugin") {
+		t.Errorf("Open: %v, want a refusal of the manifest's host plugin", err)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("the module outside the bundle loaded as the plugin")
+	}
+}

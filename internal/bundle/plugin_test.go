@@ -79,19 +79,84 @@ func TestBundleDigestCoversPlugin(t *testing.T) {
 	}
 }
 
-// TestBuildPluginProblems: the build refuses a plugin that is not the file
-// of a Bun script of the folder, naming it.
+// TestBuildPluginProblems: the build refuses, naming it, a plugin that is
+// not the file of a Bun script of the folder: no script at all, a Deno
+// script, a //native script, each with a usable plugin export. It also
+// refuses a plugin that imports a listed codebase script, whose shared copy
+// esbuild builds, since the plugin's bundle would inline a second instance.
 func TestBuildPluginProblems(t *testing.T) {
 	bun := bunPath(t)
-	files := pluginFolder("export default {};\n")
-	cfg := pluginConfig(t, bun, files)
-	cfg.Contract = []byte("roots: [{script: f/app/plain}]\nplugin: f/app/missing.ts\n")
-	_, err := Build(context.Background(), cfg)
-	var be *BuildError
-	if !errors.As(err, &be) || len(be.Problems) != 1 {
-		t.Fatalf("Build: %v", err)
+	const usable = "export default { onRunEnd: async () => [] };\n"
+	for name, c := range map[string]struct {
+		files    map[string]string
+		contract string
+		item     string
+		message  string
+	}{
+		"no script": {
+			files:    pluginFolder(usable),
+			contract: "roots: [{script: f/app/plain}]\nplugin: f/app/missing.ts\n",
+			item:     "plugin f/app/missing.ts", message: "not the file of a Bun script of the folder",
+		},
+		"deno script": {
+			files:    withFile(pluginFolder(usable), "f/app/hooks.deno.ts", usable),
+			contract: "roots: [{script: f/app/plain}]\nplugin: f/app/hooks.deno.ts\n",
+			item:     "plugin f/app/hooks.deno.ts", message: "it is a deno script",
+		},
+		"native script": {
+			files:    withFile(pluginFolder(usable), "f/app/hooks.ts", "//native\n"+usable),
+			contract: "roots: [{script: f/app/plain}]\nplugin: f/app/hooks.ts\n",
+			item:     "plugin f/app/hooks.ts", message: "it is a bunnative script",
+		},
+		"listed codebase module": {
+			files: map[string]string{
+				"wmill.yaml":      "defaultTs: bun\nincludes: [\"f/**\"]\ncodebases:\n  - relative_path: f/cb\n    includes: [\"f/cb/**\"]\n",
+				"f/cb/ctx.ts":     "export const store = { tenant: null };\n",
+				"f/cb/step.ts":    "import { store } from \"./ctx.ts\";\nexport function main() { return store.tenant; }\n",
+				"f/app/plugin.ts": "import { store } from \"../cb/ctx.ts\";\nexport default { onRunEnd: async () => { store.tenant = null; return []; } };\n",
+			},
+			contract: "roots: [{script: f/cb/step}]\nhost_modules: [f/cb/ctx.ts]\nplugin: f/app/plugin.ts\n",
+			item:     "plugin f/app/plugin.ts", message: "imports the host-provided module f/cb/ctx.ts, a codebase script",
+		},
+	} {
+		t.Run(strings.ReplaceAll(name, " ", "_"), func(t *testing.T) {
+			cfg := pluginConfig(t, bun, c.files)
+			cfg.Contract = []byte(c.contract)
+			_, err := Build(context.Background(), cfg)
+			var be *BuildError
+			if !errors.As(err, &be) || len(be.Problems) != 1 {
+				t.Fatalf("Build: %v", err)
+			}
+			if p := be.Problems[0]; p.Item != c.item || p.Kind != ProblemUnsupportedFeature || !strings.Contains(p.Message, c.message) {
+				t.Errorf("problem %+v", p)
+			}
+		})
 	}
-	if p := be.Problems[0]; p.Item != "plugin f/app/missing.ts" || p.Kind != ProblemUnsupportedFeature || !strings.Contains(p.Message, "not the file of a Bun script of the folder") {
-		t.Errorf("problem %+v", p)
+}
+
+// TestVerifyRefusesPluginReference: a manifest whose plugin entry names a
+// file outside the bundle, a module of plugins/ that it does not list, or
+// a listed file outside plugins/ fails verification, so no runtime loads
+// an unverified module as the plugin.
+func TestVerifyRefusesPluginReference(t *testing.T) {
+	bun := bunPath(t)
+	cfg := pluginConfig(t, bun, pluginFolder("export default { onRunEnd: async () => [] };\n"))
+	res := build(t, cfg)
+	if _, err := Verify(cfg.Out, VerifyOptions{}); err != nil {
+		t.Fatalf("Verify of the built bundle: %v", err)
+	}
+	for _, file := range []string{"../evil.mjs", "plugins/f/app/other.mjs", "scripts/bun/f/app/plain.mjs"} {
+		m := *res.Manifest
+		m.Plugin = &PluginEntry{Key: "f/app/plugin.ts", File: file}
+		data, err := m.Canonical()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(cfg.Out, ManifestFile), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Verify(cfg.Out, VerifyOptions{}); err == nil || !strings.Contains(err.Error(), "host plugin") {
+			t.Errorf("Verify with the plugin at %s: %v, want a refusal of the host plugin", file, err)
+		}
 	}
 }

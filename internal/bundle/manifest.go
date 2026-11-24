@@ -194,6 +194,14 @@ func ParseManifest(data []byte) (*Manifest, string, error) {
 			return nil, "", fmt.Errorf("bundle: %s lists the host-provided module %q (%s) without its bundled copy", ManifestFile, h.Key, h.ID)
 		}
 	}
+	// The host plugin is a module that runs in every warm process, so it
+	// must be one of the bundle's own files, whose digests Verify checks:
+	// a module of plugins/ that Files lists.
+	if p := m.Plugin; p != nil {
+		if _, ok := m.Files[p.File]; !ok || p.Key == "" || !strings.HasPrefix(p.File, "plugins/") || !strings.HasSuffix(p.File, ".mjs") {
+			return nil, "", fmt.Errorf("bundle: %s lists the host plugin %q at %q, which is not a module of plugins/ that it lists", ManifestFile, p.Key, p.File)
+		}
+	}
 	if len(m.Closures) > 0 && !m.SharedCode {
 		return nil, "", fmt.Errorf("bundle: %s lists closures without shared_code", ManifestFile)
 	}

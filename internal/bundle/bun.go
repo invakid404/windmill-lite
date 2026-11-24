@@ -106,10 +106,11 @@ type BunPlugin struct {
 	ID, Key, Path, File, Lock string
 }
 
-// PluginMeta is what the build of the host plugin reports: the workspace
-// scripts its bundle inlined, by Windmill path, and the npm packages its
-// own source imports.
+// PluginMeta is what the build of the host plugin reports: its key in the
+// host contract, the workspace scripts its bundle inlined, by Windmill
+// path, and the npm packages its own source imports.
 type PluginMeta struct {
+	Key      string
 	Imports  []string
 	Packages []string
 }
@@ -334,7 +335,7 @@ func BuildBun(ctx context.Context, cfg BunConfig) (*BunResult, error) {
 		case r.Error != nil:
 			problems = append(problems, ItemProblem{item, *r.Error})
 		default:
-			res.Plugin = &PluginMeta{Imports: nonNilStrings(r.Imports), Packages: nonNilStrings(r.Packages)}
+			res.Plugin = &PluginMeta{Key: p.Key, Imports: nonNilStrings(r.Imports), Packages: nonNilStrings(r.Packages)}
 		}
 	}
 	for _, m := range req.HostModules {
@@ -537,8 +538,8 @@ func sharedDependencies(id string, meta *ScriptMeta, byKey map[string]*HostModul
 }
 
 // bunImportsOfCodebaseModules refuses each workspace import of a listed
-// codebase script by a Bun script or a host-provided module of the Bun
-// build: listed maps such a script's Windmill path to its key, and names
+// codebase script by a Bun script, a host-provided module or the host
+// plugin of the Bun build: listed maps such a script's Windmill path to its key, and names
 // gives how problems name each script. The Bun build has no shim for it,
 // since esbuild builds its shared copy, so the import would inline a
 // second instance.
@@ -568,6 +569,9 @@ func bunImportsOfCodebaseModules(res *BunResult, names map[string]string, listed
 	}
 	for _, id := range slices.Sorted(maps.Keys(res.HostModules)) {
 		out = append(out, refuse("host module "+res.HostModules[id].Key, res.HostModules[id].Imports)...)
+	}
+	if res.Plugin != nil {
+		out = append(out, refuse("plugin "+res.Plugin.Key, res.Plugin.Imports)...)
 	}
 	return out
 }

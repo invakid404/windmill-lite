@@ -207,6 +207,12 @@ func Build(ctx context.Context, cfg Config) (*Result, error) {
 		case scripts[p].Codebase != nil:
 			problems = append(problems, ItemProblem{item, Problem{ProblemUnsupportedFeature,
 				"unsupported: plugin " + key + ": it is a codebase script; a plugin is bundled as a script with a lock is"}})
+		case scripts[p].Language != "bun":
+			// The loader reads every .ts file of the folder: a Deno,
+			// nativets or //native script is one too, and none runs in
+			// the harness's own realm, as a plugin does.
+			problems = append(problems, ItemProblem{item, Problem{ProblemUnsupportedFeature, fmt.Sprintf(
+				"unsupported: plugin %s: it is a %s script; a plugin is a Bun script, which runs in the harness's own realm", key, scripts[p].Language)}})
 		default:
 			s := scripts[p]
 			plugin = &BunPlugin{ID: p, Key: key, Path: p, File: s.File, Lock: lockText(s.Lock)}

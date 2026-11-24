@@ -168,7 +168,7 @@ A bundle is a directory, or the same tree as one `.wlb` archive:
 | `deviations` | The deviations in effect (below) |
 | `contract` | The host contract compiled against; with none, every flow and script of the folder is a root |
 | `host_modules` | The host-provided modules, `key` and `id`, in registration order: a module after the modules that it imports |
-| `plugin` | The host plugin, when the contract names one: `key`, its path in the contract, and `file`, its bundle's path, whose digest `files` holds |
+| `plugin` | The host plugin, when the contract names one: `key`, its path in the contract, and `file`, its bundle's path, whose digest `files` holds. `ParseManifest` refuses an entry whose `file` is not a module of `plugins/` that `files` lists |
 | `harness_runtimes` | By harness class, the `TreeDigest` of the harness runtime that the bundle was built for |
 | `sources` | The digest of every file of the sync folder that the build read, by its path from the sync root ([Sources](#sources)) |
 | `files` | The digest of every other file of the bundle |
@@ -278,11 +278,12 @@ These are not inputs:
       script, and for the listed modules that are neither codebase scripts
       nor outside the folder. Every `.ts` script of the folder is
       available to workspace imports.
-      - **The host plugin** (`BunConfig.Plugin`) is built here too: the
-        contract's `plugin` must be the file of a Bun script of the folder
-        that is not a codebase script (`unsupported_feature` otherwise).
-        Its source and the scripts that its bundle inlined join the
-        sources.
+      - **The host plugin** (`BunConfig.Plugin`) is built here too. The
+        contract's `plugin` must be the file of a `bun` script of the
+        folder, not a codebase, Deno, `nativets` or `//native` script, and
+        like a Bun step it may not import a listed codebase script
+        (`unsupported_feature` otherwise). Its source and the scripts that
+        its bundle inlined join the sources.
    2. `BuildEsbuildHostModules`, for the other listed modules.
    3. `BuildCodebase`, for the codebase scripts, each with the settings of
       the `codebases` entry that selects it
@@ -1038,7 +1039,7 @@ finding with a case file is a case, or is listed in `deferred.json`.
 | `outside_test.go` | `TestBuildOutsideHostModule`, `TestOutsideID` | A codebase script that imports, from outside the folder, a module that holds an `AsyncLocalStorage` store, listed by its path from the sync root: the manifest, the copy, the shim and the script's metadata. The script then runs with the host's own instance registered, inside and outside the host's scope, and with the bundled copy. `TestOutsideID` checks the ids | `WL_BUN` for the first |
 | `hostmodules_test.go` | `TestCodebaseHostModulesKeepBuildTime`, `BenchmarkCodebaseHostModules` | Six codebase scripts that import a package of 400 modules, without and with a listed module. The test fails when the build with one listed takes more than three times the plain build plus 300 ms, each the best of three runs; the benchmark times both | |
 | `hostmodules_test.go` | `TestHostModulesKeepLoadEffects` | One folder built without and with host-provided modules, each step run in a process of its own with every copy registered. The steps see the same load effects (`sideEffects: false` packages and directories, outside modules listed or not, a listed module's Bun copy, a Bun script with a lock), but for one difference: a listed module that a step imports without using | `WL_BUN` |
-| `plugin_test.go` | `TestBundleDigestCoversPlugin`, `TestBuildPluginProblems` | A host contract that names a plugin: the manifest records it, and `files` and `sources` hold its bundle's and its source's digests. Another plugin source changes the bundle digest, and `Verify` refuses a plugin changed after the build. A plugin that is not a Bun script of the folder is refused, named | `WL_BUN` |
+| `plugin_test.go` | `TestBundleDigestCoversPlugin`, `TestBuildPluginProblems`, `TestVerifyRefusesPluginReference` | A host contract that names a plugin: the manifest records it, and `files` and `sources` hold its bundle's and its source's digests. Another plugin source changes the bundle digest, and `Verify` refuses a plugin changed after the build. A plugin that is no `bun` script of the folder (no script, a Deno or a `//native` one), or that imports a listed codebase script, is refused, named. `Verify` refuses a plugin entry outside `plugins/`, unlisted, or outside the bundle | `WL_BUN` |
 | `verify_test.go` | `TestVerify`, `TestVerifyArchiveEntries`, `TestWriteArchive`, `TestExtract`, `TestParseManifest`, `TestTreeDigest`, `TestCanonicalize`, `TestManifestDeviations`, `TestFoldKey` | A changed, extra or missing file; a symbolic link; a forgery whose own manifest matches. Archive entries that repeat or escape; directory entries that collide with a file, lie below one, or that the bundle does not have. Links below a harness runtime's directory, the canonical form, `ModeDeviations` both ways, and the case-folding key against `strings.EqualFold`. An extracted archive verifies with the archive's digest, and a non-empty directory is refused | |
 | `env_test.go`, `shim_test.go` | `TestEnvRewriteGolden`, `TestShimGolden`, `TestLateShimGolden`, `TestShimBehaviour`, `TestEnvRewriteFormats`, `TestShimRefusals` | The define tables, the support module, generated shims and late shims, pinned in `testdata/`; shims run on Bun; the rewrite per format; the shim's refusals | `WL_BUN` for `TestShimBehaviour` |
 | `loadorder_test.go` | `TestLoadTimeHostModules`, `TestHostModuleOrder`, `TestHostModuleOrderWithoutLazyCycles`, `TestLazyImports` | Which imports of listed modules are lazy; the order, with its late imports and cycle errors. 6,000 random lists of up to 8 modules: each without lazy cycles gets the order that counting every import gives. The helper's `lazy` request on `import()` calls in functions, at top level and in class bodies, with literal and folded specifiers | `WL_BUN` for the last |
