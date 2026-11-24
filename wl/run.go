@@ -344,6 +344,14 @@ func (rt *Runtime) Run(ctx context.Context, path string, args json.RawMessage, o
 }
 
 func init() {
+	wlext.OnPoolStartFailure = func(r any, f func(error)) {
+		rt := r.(*Runtime)
+		if f == nil {
+			rt.poolFailure.Store(nil)
+			return
+		}
+		rt.poolFailure.Store(&f)
+	}
 	wlext.TraceJSON = func(t *Trace, level string) ([]byte, error) {
 		switch level {
 		case traceFull:

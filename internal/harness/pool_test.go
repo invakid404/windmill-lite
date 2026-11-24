@@ -1208,6 +1208,39 @@ func TestPoolStartSurfacesAFailedReplacement(t *testing.T) {
 	}
 }
 
+// A process that the pool fails to start is reported to OnStartFailure,
+// with the error that the caller who wanted it gets too. Every start of the
+// fake fails before its hello.
+func TestPoolReportsAFailedStart(t *testing.T) {
+	pc, _ := fakeConfig(t, "pool")
+	ctl := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ctl, "fail-start"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pc.Env = append(pc.Env, "WL_FAKE_CTL="+ctl)
+	reported := make(chan error, 8)
+	pool := newPool(t, PoolConfig{Process: pc, Min: 1, OnStartFailure: func(err error) {
+		select {
+		case reported <- err:
+		default:
+		}
+	}})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err := pool.Start(ctx)
+	if err == nil || !strings.Contains(err.Error(), "exit code 9") {
+		t.Fatalf("Start with every start failing: %v", err)
+	}
+	select {
+	case got := <-reported:
+		if !strings.Contains(got.Error(), "exit code 9") {
+			t.Errorf("OnStartFailure got %v, want the failed start's error", got)
+		}
+	case <-ctx.Done():
+		t.Fatal("OnStartFailure was not called for the failed start")
+	}
+}
+
 // Start gives up when processes keep exiting right after their handshakes:
 // it replaces Min of them, and fails at the next. Zero settings; the first
 // two processes exit before their admission.

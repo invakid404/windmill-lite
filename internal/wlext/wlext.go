@@ -1,8 +1,10 @@
 // Package wlext is what package wl lends the engine's own adapters
 // (internal/host) beyond its public API: the static interceptions that
 // host mode's run frame carries, the refusal of the id of a run that a step
-// dispatched, and a run's trace in the JSON form that a host
-// plugin's run-end hooks receive (ADR 0009, the Runner service). Only
+// dispatched, a run's trace in the JSON form that a host
+// plugin's run-end hooks receive (ADR 0009, the Runner service), and the
+// report of a warm pool process that fails to start (ADR 0009, health,
+// readiness and drain). Only
 // packages of this module can import it, so a host that imports wl sees
 // none of it, and a run that does not use it runs as before.
 package wlext
@@ -58,3 +60,11 @@ func ExclusiveID(ctx context.Context) bool {
 // per-step parts. It is the object that such a hook receives as its
 // payload's trace. Package wl sets it when it is initialized.
 var TraceJSON func(t *engine.Trace, level string) ([]byte, error)
+
+// OnPoolStartFailure makes rt, a *wl.Runtime that Open returned, call f
+// with the error of each process that its warm pool fails to start from
+// then on, until Close begins: a replacement, or a process that a step
+// needs. The pool logs the failure first, and the step that needed the
+// process still fails as before. f must not block for long; nil stops the
+// reports. Package wl sets it when it is initialized.
+var OnPoolStartFailure func(rt any, f func(error))

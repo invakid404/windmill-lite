@@ -4,7 +4,7 @@
 [bundles](../../docs/glossary.md#bundle), checks that its expression engine
 starts, serves [host mode](../../docs/glossary.md#host-mode) for a host,
 and prints its version. It serves a bundle to a Go host as a go-plugin
-plugin, without a drain yet. The planned subcommands
+plugin, without the host's hooks on go-plugin's broker yet. The planned subcommands
 that serve a bundle over the network (`serve`), pack it (`pack`, `image`)
 or generate clients (`gen`) do not exist yet.
 
@@ -381,7 +381,8 @@ engine's side of the
 go-plugin's handshake. It then serves the `windmill_lite.v1.Runner` gRPC
 service ([internal/host](../../internal/host/README.md)) and gRPC health
 while it opens the bundle with [wl](../../wl/README.md), with the pool's
-warm start when the configuration asks for it, until the host stops it.
+warm start when the configuration asks for it, until the host stops it or
+the engine drains.
 
 - **Starting and serving.** The open starts once go-plugin's handshake
   line is written. Until it completes, health answers `NOT_SERVING`, `Run`
@@ -412,8 +413,19 @@ warm start when the configuration asks for it, until the host stops it.
   still running at shutdown gets a second to complete, and its runtime is
   then closed too; past that second, the runtime ends with the process and
   leaves its temporary data directory behind.
-- **Signals.** go-plugin ignores SIGINT. SIGTERM ends the engine at once,
-  without a drain, and leaves a temporary data directory behind.
+- **Drain.** The engine drains, for good, on SIGTERM, on its resident set
+  at or over `engine_recycle_rss` on two consecutive samples a second
+  apart, or when the warm pool fails to start a harness process once the
+  engine serves. It writes the reason to standard error. Health answers
+  `NOT_SERVING`, and a new `Run` answers `UNAVAILABLE` (`draining`) with
+  the `RUN_NOT_STARTED` detail.
+- **The end of a drain.** The `Run` calls in flight go on for up to
+  `drain_timeout_ms`. The engine then closes the runtime, which cancels
+  the runs left with the cause `closing`. Once their calls have answered,
+  it gives the answers up to a second to reach the host, and exits with
+  status 0.
+- **Signals.** go-plugin ignores SIGINT. SIGTERM drains, as above, while
+  the runtime opens too.
 - **Diagnostics.** The harness processes' output that no step owns, and
   the reason of a start that fails, go to the engine's standard error,
   which go-plugin passes to the host's logger.
@@ -432,7 +444,7 @@ whose digest passed.
 | `digest` | A digest | None | The digest that the bundle must have |
 | `bun` | A path | `bun` on the engine's `PATH` | The Bun 1.4.3 executable of the harness processes |
 | `harness_runtime` | A directory | None | The [harness runtime](../../docs/glossary.md#harness-runtime) that the bundle was built for, needed by a bundle with steps |
-| `data_dir` | A directory | A temporary directory, which the runtime's close removes after go-plugin's shutdown call. A signal leaves it behind, as does a shutdown call that comes over a second before the runtime's open completes | The data directory that the runtime writes into |
+| `data_dir` | A directory | A temporary directory, which the runtime's close removes after go-plugin's shutdown call or a drain. A kill leaves it behind, as does a shutdown call that comes over a second before the runtime's open completes | The data directory that the runtime writes into |
 | `resources` | An object of `{"resource_type", "value"}` by path | None | The host's resources, as in a bundle's `data/resources.json` |
 | `variables` | An object of variables by path | None | The host's variables: each `value` or `value_env`, and `is_secret` and `encrypted` ([Secrets by reference](#secrets-by-reference)) |
 | `resource_store` | `{"kind": "memory"}`, or `{"kind": "redis", "url_env", "prefix", "allow_eviction"}` | `memory` | The store of the resources that steps write, as `run`'s `-resource-store` and its Redis flags |
@@ -446,10 +458,11 @@ whose digest passed.
 | `max_message_bytes` | A positive number | 536870912 | The largest gRPC message that the engine sends or receives |
 | `bytes_total` | A number of bytes, 0 or more | 0: none | The runtime's byte total, which every run's reservations share, beside each run's own budget (`Limits.Bytes` in `wl`) |
 | `labels` | An object of strings | None | Names and values that `GetBuildInfo` echoes |
+| `engine_recycle_rss` | A number of bytes, 0 or more | 0: off | The engine's own resident set at which it drains, read on Linux from `/proc/self/status` (`VmRSS`) and on macOS with `task_info` (its current, not its peak, resident size) |
+| `drain_timeout_ms` | A number from 0 to 9,223,372,036,854 | 60000 | How long a drain lets the `Run` calls in flight go on |
 
-These fields of the configuration are not served yet, and each refuses
-the start, naming the field: `engine_recycle_rss`, `drain_timeout_ms` and
-a provider set to `"broker"`.
+A provider set to `"broker"` is not served yet: it refuses the start,
+naming the provider.
 
 ### Secrets by reference
 
@@ -467,7 +480,7 @@ a provider set to `"broker"`.
 
 | Exit status | When |
 |---|---|
-| 0 | go-plugin's shutdown call stopped the server. |
+| 0 | go-plugin's shutdown call stopped the server, or a drain ended. |
 | 1 | The start failed. The handshake variables are missing, or the configuration does not decode, or a rule above refuses it. Or a variable is not set, the bundle does not open, or the resource store does not start. Or go-plugin did not serve, such as in a socket directory where it cannot listen. |
 | 2 | A usage error |
 
@@ -552,6 +565,7 @@ benchmarks.
 | `host.go` | `host`, through `wl` in host mode |
 | `plugin.go` | `plugin`: its configuration, its checks, and the go-plugin server of [internal/host](../../internal/host/README.md) |
 | `umask_unix.go`, `umask_other.go` | `plugin`'s umask of `0077` on Unix, and its refusal on other systems |
+| `rss_linux.go`, `rss_darwin.go`, `rss_other.go` | The engine's current resident set size, for `engine_recycle_rss`: `VmRSS` on Linux, `task_info` through cgo on macOS, and an error elsewhere |
 | `*_test.go` | The tests and the benchmarks ([Tests](#tests), [Benchmarks](#benchmarks)) |
 | `testdata/` | The synthetic sync folders and the Bun hosts of the tests ([Test data](#test-data)) |
 
@@ -568,7 +582,7 @@ gives the setup.
 | `runcmd_test.go` | `run`'s usage errors, which exit with status 2. Arguments, a bundle or a profile file that do not open exit with status 1, and print nothing on standard output. A synthetic folder's flow, run `warm` and `fresh`, reads a host's secret through its arguments. A run that succeeds exits 0 with its result, trace and CPU profile, a run that fails exits 1, and a run without the harness runtime does not start. |
 | `runcmd_test.go`, the resource store | On `-resource-store memory`, each run starts without the state the last one wrote. An unknown store, `redis` without `WL_REDIS_URL`, an unreachable Redis or Sentinel, and URLs that do not parse do not start; each runs in an engine process of its own, whose whole standard error holds no password. With `WL_TEST_REDIS_URL` ([wl/redisstore](../../wl/redisstore/README.md#tests)), two engine processes on one Redis share the state: the second's create is refused as taken, and it reads the first's value. |
 | `host_test.go`, `argsfile_test.go`, `readcache_test.go`, `tracedetail_test.go`, `foreign_test.go`, `resultpolls_test.go` | Host mode end to end, on the Bun host `testdata/host/host.ts` ([Host-mode tests](#host-mode-tests)) |
-| `plugin_test.go`, `runoptions_test.go` | `plugin` end to end, through `wl/plugin` ([Plugin tests](#plugin-tests)) |
+| `plugin_test.go`, `runoptions_test.go`, `drain_test.go` | `plugin` end to end, through `wl/plugin` ([Plugin tests](#plugin-tests)) |
 | `memory_test.go` | What `warm` step modules cost a host process ([Memory tests](#memory-tests)) |
 | `realm_test.go` | What native invocations leave in a long-lived Bun process ([Native realm tests](#native-realm-tests)) |
 | `retain_test.go` | `TestSettledRunLetsGoOfItsValuesOnHosts`: on the plain host and on the plugin host, a run's step results are unreachable once the run has settled, while the runtime and its host go on |
@@ -664,7 +678,9 @@ How these tests run:
 `wl/plugin`'s `ClientConfig`, with its SHA-256 and a literal environment
 in which `WL_TEST_ENGINE` is `1`, and calls it through `plugin.Client`
 over go-plugin's connection. The tests build their bundles from
-synthetic folders that the test file holds.
+synthetic folders that the test file holds. `drain_test.go` starts the
+engine as go-plugin would, connects to the socket that its handshake line
+names, and so sees its exit status and can signal it.
 
 | Test | What it shows |
 |---|---|
@@ -676,16 +692,23 @@ synthetic folders that the test file holds.
 | `TestPluginDispatchedID` | The id of a run that a step dispatched refuses a run with `ALREADY_EXISTS` and the `RUN_NOT_STARTED` detail. One run is dispatched to start in a day, which the test cannot outlast, so it waits for its start; another runs its step. The second then goes on to its end. |
 | `TestPluginServesBundle` | With the runtime's open held by the engine's test hook (`WL_TEST_PLUGIN_HOLD_OPEN`), the engine has completed the handshake, health answers `NOT_SERVING` and `GetBuildInfo` `UNAVAILABLE`. Released, health answers `SERVING`, and `GetBuildInfo` returns `wl`'s build information with the labels, the configuration's digest and the protocol version. With a Bun that cannot start a harness process, the engine serves without a warm start; with one, it never serves, and exits with status 1 after the handshake, naming the warm start. |
 | `TestPluginShutdownWhileStarting` | go-plugin's shutdown call, with the runtime's open held, ends the engine within 10 seconds of the call's start. With the runtime opened and the engine held before it serves (`WL_TEST_PLUGIN_HOLD_PUBLISH`), the engine closes the runtime, whose temporary data directory is then gone, before it exits. |
-| `TestPluginHealthMethods` | `Check` and `List` answer the engine's state for the three names, while it starts and once it serves. Another name answers `NOT_FOUND` to `Check` and `SERVICE_UNKNOWN` to `Watch`. A `Watch` opened while the engine starts receives `NOT_SERVING`, then `SERVING`. |
+| `TestPluginHealthMethods` | `Check` and `List` answer the engine's state for the three names, while it starts and once it serves. Another name answers `NOT_FOUND` to `Check` and `SERVICE_UNKNOWN` to `Watch`. A `Watch` opened while the engine starts receives `NOT_SERVING`, then `SERVING`, then `NOT_SERVING` after SIGTERM, which the test sends to the process id that the engine's test hook writes (`WL_TEST_PLUGIN_PID`). |
 | `TestPluginNonRootFlow` | A flow that only a root calls by path runs, as `wl`'s `Runtime.Run` runs it. |
 | `TestPluginRefusalDetail` | Each of those refusals, the one while the engine starts included, carries the `RUN_NOT_STARTED` detail, so `Client.Run` reports `ErrNotStarted`. A run that started and failed, or was canceled, answers its result. |
 | `TestPluginStagedFields` | A request with `hooks`, and a configuration with each field that the engine does not serve yet, are refused, naming the field. |
-| `TestPluginConfigRefusals` | Settings in milliseconds beyond what a duration holds refuse the start, naming the field, and a socket directory that is a file ends the engine with status 1 and no handshake. A bundle that a test hook replaces with another after its check does not open: the engine exits with status 1 after the handshake line, which a test hook delays (`WL_TEST_PLUGIN_DELAY_HANDSHAKE`) past the failing open's time. |
+| `TestPluginConfigRefusals` | Settings in milliseconds beyond what a duration holds, a negative `drain_timeout_ms` and a negative `engine_recycle_rss` refuse the start, naming the field, and a socket directory that is a file ends the engine with status 1 and no handshake. A bundle that a test hook replaces with another after its check does not open: the engine exits with status 1 after the handshake line, which a test hook delays (`WL_TEST_PLUGIN_DELAY_HANDSHAKE`) past the failing open's time. |
 | `TestPluginSecretsByReference` | A secret's value comes from `value_env` and reaches the step that reads it, but no stderr line or build information. Two variables may name one environment variable. The configuration's digest changes with the reference's name, not with the value. An unset variable, a secret `value` and a store's `url` refuse the start without the value. |
 | `TestPluginSocketPrivate` | Started under the umask `0027`, the engine serves on a socket of mode `0700`, and a step creates a file of mode `0640`. |
 | `TestRunnerResultPolls` | `result_polls_for_all_jobs`, through `Client.Run` on the result-polls fixture: on, the run gets the recorded answers; off, the default, the polls answer 501, which fails the step. |
 | `TestPluginHandshakeFirstLine` | With a configuration whose warm start starts a harness process, go-plugin's handshake line is the first line of the engine's standard output. |
 | `TestPluginHandshakeUnwritable` | With a standard output open read-only, the engine exits with status 1 within 30 seconds, naming the handshake line. |
+| `TestPluginDrainOnSIGTERM` | While a run waits in its step for the test's release, SIGTERM makes health answer `NOT_SERVING`, and a new run answers `UNAVAILABLE` with the `RUN_NOT_STARTED` detail, naming draining, while the first call is still in flight. Released, the first run succeeds, and the engine exits with status 0. |
+| `TestPluginDrainTimeout` | With `drain_timeout_ms` 100, a run whose step is never released ends `canceled` with the cause `closing`, which its caller receives, and the engine exits with status 0. |
+| `TestPluginEngineRecycle` | With an `engine_recycle_rss` of one byte, the engine drains, naming the trigger; a `Watch` ends with `NOT_SERVING`, and the engine exits with status 0. |
+| `TestPluginWatchTransition` | A `Watch` opened while the engine serves receives `SERVING`, then `NOT_SERVING` after SIGTERM, and ends with the engine. |
+| `TestPluginReplacementFailure` | The engine's Bun is a fake that runs the real one until the test creates a marker file. With the marker, a canceled run whose step ignores its cancellation taints the only process, and the next run needs a replacement, which fails to start. The engine drains, naming the failed start, a `Watch` ends with `NOT_SERVING`, and the engine exits with status 0. |
+| `TestEngineRSSTrigger` | The memory trigger trips at the second consecutive sample at or over its threshold, and never on samples that alternate around it. |
+| `TestEngineRSS` | After the test has touched 256 MiB of an anonymous mapping and unmapped it, the resident set that the engine reads agrees with `ps`'s, not with the peak. |
 | `TestPluginFlowRequest` | A flow run's `intercept` stands in for its module, `trace` gives the `summary` and `full` traces of a host plugin's run-end hook, and the run's own `variables` replace the runtime's. |
 | `TestRunnerPinnedState` | The pool's module recycle threshold is one, so a process trips when a second distinct script is dispatched to it. Two concurrent runs of a flow of three scripts each keep their process with `pin`, and with `pool.pin_runs`: the bundle's host plugin holds each run's state whole. One unpinned run, the control, runs its third step in the replacement process, without that state. |
 | `TestRunnerLimits` | With `max_in_flight` 2, no more than two of four parallel branches are inside at once while the test holds them, and the result's deviations list the cap ([D15](../../docs/design/0001-equivalence-contract.md#5-named-deviations)). Without it, all four are inside together. Arguments past `max_args_bytes`, and a negative limit, refuse the run. Stored values past `max_held_bytes` latch `run_memory_limit`, and a reservation past the byte budget fails its step with a `RangeError`. |

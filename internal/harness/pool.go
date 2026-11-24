@@ -78,6 +78,12 @@ type PoolConfig struct {
 	// Recycle are the triggers that replace a process before it dies
 	// (ADR 0004 §Pooling); their zero values turn them off.
 	Recycle RecycleTriggers
+	// OnStartFailure, when not nil, is called with the error of each
+	// process that the pool fails to start, while it is not closed, after
+	// the pool has logged it. It is called without the pool's lock, so it
+	// may call the pool, and it must not block for long. Start and Execute
+	// still return the error to the caller that wanted the process.
+	OnStartFailure func(error)
 
 	// observe, when not nil, is told of the pool's events (poolEvent)
 	// under its lock, so it must not call the pool. admitting, when not
@@ -945,9 +951,13 @@ func (pl *Pool) spawn(att *spawnAttempt) {
 	if pl.spawning == att {
 		pl.spawning = nil
 	}
+	report := err != nil && !pl.closed && pl.cfg.OnStartFailure != nil
 	close(att.done)
 	pl.broadcastLocked()
 	pl.mu.Unlock()
+	if report {
+		pl.cfg.OnStartFailure(err)
+	}
 }
 
 // admitLocked applies a pool with settings' admission checks to p, a

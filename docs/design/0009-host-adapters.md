@@ -19,11 +19,8 @@ and a Go host launches, pins, checks and supervises it with the package
 
 **Not built yet:**
 
-- the plugin command's drain, and the engine's memory trigger;
-- its calls of the host-hooks service on the broker: a request's `hooks`,
+- the plugin command's calls of the host-hooks service on the broker: a request's `hooks`,
   a provider set to `broker`, and `GetRun`;
-- its serving of the configuration's `engine_recycle_rss` and
-  `drain_timeout_ms`: until then each refuses the start, naming the field;
 - `wl/plugin`'s supervisor, and its serving of a run's Go hooks on the
   broker;
 - the plain gRPC and HTTP adapters;
@@ -88,7 +85,7 @@ Every adapter below is a transport over these calls.
 
 ### Adapters, in order of delivery
 
-1. **go-plugin** (the engine's drain and broker hooks are planned). The engine binary,
+1. **go-plugin** (the engine's broker hooks are planned). The engine binary,
    started as `windmill-lite plugin`, serves the `windmill_lite.v1.Runner`
    gRPC service to a Go host that launches it with hashicorp/go-plugin,
    and `wl/plugin` gives the host the client side and, planned, an
@@ -366,7 +363,7 @@ for the services `""`, `plugin` and `windmill_lite.v1.Runner`.
 - **A drain** refuses new runs and lets the runs in flight go on for up to
   `drain_timeout_ms`. The engine then closes its runtime, which cancels the
   runs left with the reason `the runtime is closing` (cause `closing`), and
-  exits. A supervisor that only restarts the plugin when it exits therefore
+  once their calls have answered, exits with status 0. A supervisor that only restarts the plugin when it exits therefore
   works too.
 - **go-plugin's shutdown** (`GRPCController/Shutdown`, which the client's
   `Kill` sends) stops the server at once, with no drain. So a host that
