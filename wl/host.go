@@ -103,7 +103,6 @@ func (rt *Runtime) attachHost(h *Host, diag io.Writer, opts Options) error {
 		Facade:        rt.fac.WarmOrigin(),
 		Platform:      rt.fac.Platform(),
 		Workdir:       h.Workdir,
-		RunData:       rt.runData,
 		// The host's steps drop their job ids from their own dispatch to
 		// these origins, as a spawned process's do.
 		ForeignWindmillOrigins: rt.foreign,

@@ -184,21 +184,23 @@ func VersionsPair(sdk, engine string) bool {
 // Invoke asks the harness to run one step. Around, when not empty, lists
 // the host plugin's around wrappers whose selectors match the step's
 // site, by their index in its declaration, outermost first (ADR 0008 H1):
-// the harness runs the step inside them. RunData, when not zero, is the
-// run's data (ADR 0008 H11), which the engine sends with the first invoke
-// or host_call of the run that the process gets: the host plugin reads it
-// as wl.run.data until a run_released names the run.
+// the harness runs the step inside them. RunDataID, when not empty, names
+// the run's data (RunData), which the host plugin reads as wl.run.data
+// until a run_released names it; RunData, when not zero, is that data,
+// which the engine sends with the first invoke or host_call of the run
+// that the process gets.
 type Invoke struct {
-	ID       string
-	Run      string
-	Site     string
-	Script   string
-	Entry    string
-	Args     jsonval.Value
-	Env      map[string]string
-	Boundary string
-	Around   []int
-	RunData  jsonval.Value
+	ID        string
+	Run       string
+	Site      string
+	Script    string
+	Entry     string
+	Args      jsonval.Value
+	Env       map[string]string
+	Boundary  string
+	Around    []int
+	RunDataID string
+	RunData   jsonval.Value
 }
 
 // Result is an invocation's outcome.
@@ -450,14 +452,15 @@ const (
 // Hook names it, Run and Site are the run and the site it
 // serves (Site is "" for a hook of the run as a whole), and Payload, a
 // JSON object, is what the hook gets. The harness answers with a
-// HostReply under the same id. RunData is the run's data, as on Invoke.
+// HostReply under the same id. RunDataID and RunData are as on Invoke.
 type HostCall struct {
-	ID      string
-	Hook    string
-	Run     string
-	Site    string
-	Payload jsonval.Value
-	RunData jsonval.Value
+	ID        string
+	Hook      string
+	Run       string
+	Site      string
+	Payload   jsonval.Value
+	RunDataID string
+	RunData   jsonval.Value
 }
 
 // HostReply answers a HostCall with the same id: Payload, a JSON object,
@@ -493,9 +496,11 @@ type RunSettled struct {
 }
 
 // RunReleased tells a process that a run whose data it holds has settled
-// (ADR 0004 host plugins, item 9): the process drops the run's data.
+// (ADR 0004 host plugins, item 9): the process drops the data that
+// RunDataID names. Run is the run's id.
 type RunReleased struct {
-	Run string
+	Run       string
+	RunDataID string
 }
 
 // RunCancel cancels a run the harness submitted. Reason and Canceler, when
@@ -646,9 +651,7 @@ func (m Invoke) appendPayload(b []byte) ([]byte, error) {
 	if len(m.Around) > 0 {
 		e.ints("around", m.Around)
 	}
-	if !m.RunData.IsZero() {
-		e.raw("run_data", m.RunData.Producer())
-	}
+	appendRunData(e, m.RunDataID, m.RunData)
 	return e.end()
 }
 
@@ -839,10 +842,19 @@ func (m HostCall) appendPayload(b []byte) ([]byte, error) {
 	e.str("run", m.Run)
 	e.str("site", m.Site)
 	e.raw("payload", m.Payload.Producer())
-	if !m.RunData.IsZero() {
-		e.raw("run_data", m.RunData.Producer())
-	}
+	appendRunData(e, m.RunDataID, m.RunData)
 	return e.end()
+}
+
+// appendRunData writes an invoke's or a host_call's run_data_id and
+// run_data, each when present.
+func appendRunData(e *envelope, id string, data jsonval.Value) {
+	if id != "" {
+		e.str("run_data_id", id)
+	}
+	if !data.IsZero() {
+		e.raw("run_data", data.Producer())
+	}
 }
 
 func (m HostReply) appendPayload(b []byte) ([]byte, error) {
@@ -872,6 +884,7 @@ func (m RunSettled) appendPayload(b []byte) ([]byte, error) {
 func (m RunReleased) appendPayload(b []byte) ([]byte, error) {
 	e := newEnvelope(b, TypeRunReleased)
 	e.str("run", m.Run)
+	e.str("run_data_id", m.RunDataID)
 	return e.end()
 }
 
@@ -1042,9 +1055,7 @@ func Decode(payload []byte) (Message, error) {
 		if d.present("around") {
 			inv.Around = d.ints("around")
 		}
-		if d.present("run_data") {
-			inv.RunData = d.raw("run_data")
-		}
+		inv.RunDataID, inv.RunData = d.runData()
 		m = inv
 	case TypeResult:
 		r := Result{ID: d.str("id"), Outcome: d.str("outcome"), Settled: d.bool("settled")}
@@ -1228,12 +1239,10 @@ func Decode(payload []byte) (Message, error) {
 		if derr == nil && !isObject(c.Payload) {
 			d.fail(CodeBadField, "host_call payload is not an object")
 		}
-		if d.present("run_data") {
-			c.RunData = d.raw("run_data")
-		}
+		c.RunDataID, c.RunData = d.runData()
 		m = c
 	case TypeRunReleased:
-		m = RunReleased{Run: d.str("run")}
+		m = RunReleased{Run: d.str("run"), RunDataID: d.str("run_data_id")}
 	case TypeHostReply:
 		r := HostReply{ID: d.str("id")}
 		if d.present("error") {
@@ -1496,6 +1505,18 @@ func (d *decoder) intMap(name string) map[string]int {
 		out[k] = o.int(k)
 	}
 	return out
+}
+
+// runData decodes an invoke's or a host_call's optional run_data_id and
+// run_data.
+func (d *decoder) runData() (id string, data jsonval.Value) {
+	if d.present("run_data_id") {
+		id = d.str("run_data_id")
+	}
+	if d.present("run_data") {
+		data = d.raw("run_data")
+	}
+	return id, data
 }
 
 // health decodes the optional health group: all five fields or none, and

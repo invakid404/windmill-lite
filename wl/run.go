@@ -13,6 +13,7 @@ import (
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/engine"
+	"github.com/invakid404/windmill-lite/internal/harness"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 	"github.com/invakid404/windmill-lite/internal/platform"
 	"github.com/invakid404/windmill-lite/internal/platform/facade"
@@ -246,7 +247,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		defer rt.exec.end(id)
 		ctx = calls.reportStoreFailures(ctx)
 		req := engine.ScriptRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Around: rt.aroundAt()}
-		settled, release := rt.holdRunData(id, data, settled)
+		ctx, _, settled = withRunData(ctx, id, data, settled)
 		var s *engine.RunSettlement
 		if settled != nil {
 			// A script job has its own one invocation, which settles it.
@@ -255,8 +256,6 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		}
 		res, err := rt.eng.RunScript(ctx, req)
 		if err != nil {
-			// The job did not start, and never settles.
-			release()
 			return nil, err
 		}
 		out := &Result{ID: res.ID, Status: StatusSuccess, Result: storedText(res.Result), Warnings: calls.warned()}
@@ -290,7 +289,9 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		return nil, ErrRunInFlight
 	}
 	defer rt.exec.end(id)
-	h, err := engineHooks(rt.withPlugin(opts.Hooks), rt.prog)
+	var rd *harness.RunData
+	ctx, rd, settled = withRunData(ctx, id, data, settled)
+	h, err := engineHooks(rt.withPlugin(opts.Hooks, rd), rt.prog)
 	if err != nil {
 		return nil, err
 	}
@@ -321,7 +322,6 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	case extra != nil:
 		req.Hooks = extra
 	}
-	settled, release := rt.holdRunData(id, data, settled)
 	if settled != nil {
 		if req.Hooks == nil {
 			req.Hooks = engine.NoHooks{}
@@ -331,8 +331,6 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	ctx = calls.reportStoreFailures(ctx)
 	tr, err := rt.eng.Run(ctx, req)
 	if err != nil {
-		// The run did not start, and never settles.
-		release()
 		return nil, err
 	}
 	if h != nil {
@@ -548,34 +546,37 @@ func (x *recorder) released(inv string, _ []facade.Record) {
 	}
 }
 
-// runData returns a run's data (RunOptions.Data) as the frames carry it:
-// zero for none (nil, empty or JSON null), or an error for data that is
-// not JSON.
+// runData returns a copy of a run's data (RunOptions.Data) as the frames
+// carry it: zero for none (nil, JSON whitespace alone, or JSON null), or
+// an error for data that is not JSON. The copy is the run's own, so a
+// caller may reuse its buffer once Run returns, while the run's late
+// frames still carry the data.
 func runData(data json.RawMessage) (jsonval.Value, error) {
-	trimmed := bytes.TrimSpace(data)
+	// Only JSON's own whitespace: anything else around the value, such as
+	// a no-break space, is not JSON.
+	trimmed := bytes.Trim(data, " \t\r\n")
 	if len(trimmed) == 0 || string(trimmed) == "null" {
 		return jsonval.Value{}, nil
 	}
 	if !json.Valid(trimmed) {
 		return jsonval.Value{}, errors.New("wl: the run's data is not JSON")
 	}
-	return jsonval.FromProducer(trimmed), nil
+	return jsonval.FromProducer(bytes.Clone(trimmed)), nil
 }
 
-// holdRunData records run's data, if it has any, for the processes the run
-// uses, and returns the run's settled callback, which then also releases
-// the data, and release, which releases it at once for a run that did not
-// start. A run without data keeps settled as it is.
-func (rt *Runtime) holdRunData(run string, data jsonval.Value, settled func()) (func(), func()) {
-	if data.IsZero() {
-		return settled, func() {}
+// withRunData returns ctx carrying run's data, if it has any, so that the
+// run's invocations and hook calls take it to the processes they reach,
+// the data, and the run's settled callback, which then also releases the
+// data. A run without data keeps ctx and settled as they are.
+func withRunData(ctx context.Context, run string, data jsonval.Value, settled func()) (context.Context, *harness.RunData, func()) {
+	rd := harness.NewRunData(run, data)
+	if rd == nil {
+		return ctx, nil, settled
 	}
-	rt.runData.Set(run, data)
-	release := func() { rt.runData.Release(run) }
-	return func() {
-		release()
+	return harness.WithRunData(ctx, rd), rd, func() {
+		rd.Release()
 		if settled != nil {
 			settled()
 		}
-	}, release
+	}
 }

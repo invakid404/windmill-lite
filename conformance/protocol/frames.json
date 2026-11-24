@@ -168,18 +168,18 @@
     },
     {
       "case": "invoke-run-data",
-      "title": "the first invoke of a run that a process gets carries the run's data, raw: the host plugin reads it as wl.run.data (ADR 0004 host plugins, item 9)",
-      "message_text": "{\"t\":\"invoke\",\"id\":\"i3\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{},\"boundary\":\"bun\",\"around\":[0],\"run_data\":{\"tenant\":\"t-1\",\"n\":2}}",
+      "title": "the first invoke of a run that a process gets carries the run's data, raw, and the run_data_id that names it: the host plugin reads it as wl.run.data (ADR 0004 host plugins, item 9)",
+      "message_text": "{\"t\":\"invoke\",\"id\":\"i3\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{},\"boundary\":\"bun\",\"around\":[0],\"run_data_id\":\"7\",\"run_data\":{\"tenant\":\"t-1\",\"n\":2}}",
       "raw": {
         "run_data": "{\"tenant\":\"t-1\",\"n\":2}"
       },
-      "payload": "{\"t\":\"invoke\",\"id\":\"i3\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{},\"boundary\":\"bun\",\"around\":[0],\"run_data\":{\"tenant\":\"t-1\",\"n\":2}}"
+      "payload": "{\"t\":\"invoke\",\"id\":\"i3\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{},\"boundary\":\"bun\",\"around\":[0],\"run_data_id\":\"7\",\"run_data\":{\"tenant\":\"t-1\",\"n\":2}}"
     },
     {
       "case": "invoke-run-data-null",
-      "title": "a null run_data counts as absent, as any optional raw field does: the run has no data",
-      "message_text": "{\"t\":\"invoke\",\"id\":\"i4\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{},\"boundary\":\"bun\",\"run_data\":null}",
-      "payload": "{\"t\":\"invoke\",\"id\":\"i4\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{},\"boundary\":\"bun\"}"
+      "title": "a later invoke of the run carries the run_data_id alone; a null run_data counts as absent, as any optional raw field does",
+      "message_text": "{\"t\":\"invoke\",\"id\":\"i4\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{},\"boundary\":\"bun\",\"run_data_id\":\"7\",\"run_data\":null}",
+      "payload": "{\"t\":\"invoke\",\"id\":\"i4\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{},\"boundary\":\"bun\",\"run_data_id\":\"7\"}"
     },
     {
       "case": "invoke-env-escaping",
@@ -676,11 +676,11 @@
       "sides": [
         "go"
       ],
-      "message_text": "{\"args\":{\"n\":2,\"b\":2},\"path\":\"f/w1/flow\",\"kind\":\"flow\",\"id\":\"0b6f0e2c-0000-4000-8000-000000000001\",\"t\":\"run\"}",
+      "message_text": "{\"args\":{\"n\":1.50,\"b\":2},\"path\":\"f/w1/flow\",\"kind\":\"flow\",\"id\":\"0b6f0e2c-0000-4000-8000-000000000001\",\"t\":\"run\"}",
       "raw": {
-        "args": "{\"n\":2,\"b\":2}"
+        "args": "{\"n\":1.50,\"b\":2}"
       },
-      "payload": "{\"t\":\"run\",\"id\":\"0b6f0e2c-0000-4000-8000-000000000001\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{\"n\":2,\"b\":2}}"
+      "payload": "{\"t\":\"run\",\"id\":\"0b6f0e2c-0000-4000-8000-000000000001\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{\"n\":1.50,\"b\":2}}"
     },
     {
       "case": "run-intercept",
@@ -964,6 +964,7 @@
         "run": "r1",
         "site": "",
         "payload": {},
+        "run_data_id": "7",
         "run_data": {
           "tenant": "t-1"
         }
@@ -971,16 +972,17 @@
       "raw": {
         "run_data": "{\"tenant\":\"t-1\"}"
       },
-      "payload": "{\"t\":\"host_call\",\"id\":\"hc3\",\"hook\":\"on_run_end\",\"run\":\"r1\",\"site\":\"\",\"payload\":{},\"run_data\":{\"tenant\":\"t-1\"}}"
+      "payload": "{\"t\":\"host_call\",\"id\":\"hc3\",\"hook\":\"on_run_end\",\"run\":\"r1\",\"site\":\"\",\"payload\":{},\"run_data_id\":\"7\",\"run_data\":{\"tenant\":\"t-1\"}}"
     },
     {
       "case": "run-released",
-      "title": "the engine tells a process that holds a run's data that the run has settled: the process drops the data",
+      "title": "the engine tells a process that holds a run's data that the run has settled: the process drops the data that run_data_id names",
       "message": {
         "t": "run_released",
-        "run": "r1"
+        "run": "r1",
+        "run_data_id": "7"
       },
-      "payload": "{\"t\":\"run_released\",\"run\":\"r1\"}"
+      "payload": "{\"t\":\"run_released\",\"run\":\"r1\",\"run_data_id\":\"7\"}"
     },
     {
       "case": "host-reply",
@@ -1774,6 +1776,22 @@
         "{\"t\":\"hello\",\"proto\":1,\"harness\":{\"kind\":\"bun\",\"version\":\"v\"},\"runtime\":\"1.4.3\",\"caps\":{\"fetch\":true,\"native\":true,\"fresh\":false,\"host\":true},\"bundle\":\"b\",\"pid\":1,\"plugin\":[]}"
       ],
       "error": "bad_field"
+    },
+    {
+      "case": "invoke-run-data-id-not-string",
+      "title": "a run_data_id that is not a string",
+      "frames": [
+        "{\"t\":\"invoke\",\"id\":\"i5\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{},\"boundary\":\"bun\",\"run_data_id\":7}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "run-released-without-id",
+      "title": "a run_released that names no run data",
+      "frames": [
+        "{\"t\":\"run_released\",\"run\":\"r1\"}"
+      ],
+      "error": "missing_field"
     },
     {
       "case": "invoke-around-not-integers",

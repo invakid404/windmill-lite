@@ -332,13 +332,17 @@ func (p *plugin) goHooks() *Hooks {
 		}
 	}
 	if p.decl.OnRunSettled {
-		h.OnRunSettled = func(t *Trace) {
-			if err := p.do(context.Background(), "on_run_settled", t.RunID, nil, p.tracePayload("on_run_settled", t), nil); err != nil {
-				p.diag(fmt.Sprintf("windmill-lite: run %s: the host plugin's onRunSettled: %v", t.RunID, err))
-			}
-		}
+		h.OnRunSettled = func(t *Trace) { p.runSettled(context.Background(), t) }
 	}
 	return h
+}
+
+// runSettled calls the plugin's onRunSettled. ctx holds no run's
+// settlement, which has come, and carries the run's data, if it has any.
+func (p *plugin) runSettled(ctx context.Context, t *Trace) {
+	if err := p.do(ctx, "on_run_settled", t.RunID, nil, p.tracePayload("on_run_settled", t), nil); err != nil {
+		p.diag(fmt.Sprintf("windmill-lite: run %s: the host plugin's onRunSettled: %v", t.RunID, err))
+	}
 }
 
 // provider is the named provider of a host-provided site, answered by the
@@ -415,6 +419,9 @@ func (b *runBinding) call(ctx context.Context, p *plugin, hook, path string, out
 	if held == nil {
 		held = ctx
 	}
+	// The call comes from a platform request, whose context is not the
+	// run's: the run's data comes from the run's own.
+	ctx = harness.WithRunData(ctx, harness.RunDataOf(held))
 	err := p.doHeld(ctx, held, hook, b.id, nil, map[string]any{"path": path}, out)
 	if err != nil && run != nil && held.Err() == nil && engine.HookLatchError(ctx, err) != nil {
 		run.Latch(err)
@@ -605,16 +612,25 @@ func sitesJSON(ps []conformance.SitePath) []string {
 func msJSON(d time.Duration) float64 { return float64(d) / float64(time.Millisecond) }
 
 // withPlugin are the hooks of a run: the run's own, and the plugin's after
-// them, or either alone (mergeHooks).
-func (rt *Runtime) withPlugin(h *Hooks) *Hooks {
+// them, or either alone (mergeHooks). rd is the run's data, if it has any.
+func (rt *Runtime) withPlugin(h *Hooks, rd *harness.RunData) *Hooks {
 	p := rt.plugin.Load()
 	if p == nil {
 		return h
 	}
-	if h == nil {
-		return p.hooks
+	ph := p.hooks
+	if rd != nil && ph.OnRunSettled != nil {
+		// The settlement callback gets no run context, so the run's data
+		// reaches the plugin's onRunSettled from here.
+		c := *ph
+		ctx := harness.WithRunData(context.Background(), rd)
+		c.OnRunSettled = func(t *Trace) { p.runSettled(ctx, t) }
+		ph = &c
 	}
-	return mergeHooks(h, p.hooks)
+	if h == nil {
+		return ph
+	}
+	return mergeHooks(h, ph)
 }
 
 // mergeHooks are a's hooks followed by b's: interceptions, rewrites, halts,

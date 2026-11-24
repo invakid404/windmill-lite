@@ -258,6 +258,10 @@ const PLUGIN_ERROR = "plugin_error";
  * (engine.WarningLatch). */
 const LATCH = "latch";
 
+/** A run's data as plugin code reads it; data is undefined once the data
+ * has been dropped. */
+type RunDataCell = { data: unknown };
+
 /** v with every object and array in it frozen: run data is read, never
  * changed. */
 function deepFreeze(v: unknown): unknown {
@@ -330,9 +334,12 @@ export class Runtime {
   private runs = new Map<string, { resolve: (o: RunOutcome) => void; reject: (e: Error) => void }>();
   private scopes = new Map<string, <R>(fn: () => R) => R>();
   /** The data of the runs that reached this process with an invoke or a
-   * host_call that carried it, deeply frozen, until their run_released
-   * (ADR 0004 host plugins, item 9). */
-  private runData = new Map<string, unknown>();
+   * host_call that carried it, by run_data_id, deeply frozen, until their
+   * run_released or the end of the connection (ADR 0004 host plugins,
+   * item 9). Plugin code reads a cell through pluginRun, and dropping the
+   * data empties the cell, so a continuation that plugin code left behind
+   * reads nothing once it is dropped. */
+  private runData = new Map<string, RunDataCell>();
   /** Host mode: what to call when a run settles, from its submission
    * until run_settled (onRunSettled), bound to the run's scope. */
   private settledHandlers = new Map<string, () => void>();
@@ -477,7 +484,7 @@ export class Runtime {
         this.onHostCall(m);
         break;
       case "run_released":
-        this.runData.delete(m.run);
+        this.dropRunData(m.run_data_id);
         break;
       case "drain":
         if (this.opts.host) throw new ProtocolError("unexpected_message", "drain from the engine in host mode");
@@ -581,15 +588,27 @@ export class Runtime {
     };
   }
 
-  /** Keeps the run data that m carries, if any, for its run. */
+  /** Keeps the run data that m carries, if any, under its run_data_id. A
+   * later frame that carries the same data again keeps the first cell. */
   private keepRunData(m: Message) {
-    if (m.run_data !== undefined && m.run_data !== null) this.runData.set(m.run, deepFreeze(m.run_data));
+    if (m.run_data === undefined || m.run_data === null || m.run_data_id === undefined || m.run_data_id === null) return;
+    if (!this.runData.has(m.run_data_id)) this.runData.set(m.run_data_id, { data: deepFreeze(m.run_data) });
   }
 
-  /** Runs fn, the host plugin's code for run, with the run's data as
-   * wl.run.data. */
-  private asPlugin<R>(run: string, fn: () => R): R {
-    return pluginRun.run({ data: this.runData.get(run) }, fn);
+  /** Drops the run data that id names, and empties its cell. */
+  private dropRunData(id: string) {
+    const cell = this.runData.get(id);
+    if (cell === undefined) return;
+    cell.data = undefined;
+    this.runData.delete(id);
+  }
+
+  /** Runs fn, the host plugin's code for the run that m is of, with the
+   * data that m's run_data_id names as wl.run.data: none for a frame
+   * without one, which is of a run without data. */
+  private asPlugin<R>(m: Message, fn: () => R): R {
+    const cell = typeof m.run_data_id === "string" ? this.runData.get(m.run_data_id) : undefined;
+    return pluginRun.run(cell ?? { data: undefined }, fn);
   }
 
   private invoke(m: Message) {
@@ -673,7 +692,7 @@ export class Runtime {
         return (inner = pluginRun.exit(() => at(k + 1)).then(() => stepView(result!)));
       };
       try {
-        await this.asPlugin(m.run, () => wrappers[k]!.fn(call, next));
+        await this.asPlugin(m, () => wrappers[k]!.fn(call, next));
       } catch (e) {
         failed(indices[k], `it threw ${describe(e)}`);
       }
@@ -704,7 +723,7 @@ export class Runtime {
       reply(undefined, { code: "unknown_hook", message: "the harness loaded no host plugin" });
       return;
     }
-    const answer = () => invocations.exit(() => this.asPlugin(m.run, () => dispatch(plugin, m.hook, m.run, m.payload as Record<string, unknown>)));
+    const answer = () => invocations.exit(() => this.asPlugin(m, () => dispatch(plugin, m.hook, m.run, m.payload as Record<string, unknown>)));
     const scope = this.scopes.get(m.run);
     let p: Promise<Record<string, unknown>>;
     try {
@@ -1195,7 +1214,9 @@ export class Runtime {
     if (!this.opts.host) throw new Error("windmill-lite: runs are submitted only in host mode");
     if (!this.welcomed || this.stopped) throw new Error("windmill-lite: the engine is not connected");
     const id = crypto.randomUUID();
-    const scope = AsyncLocalStorage.snapshot();
+    // The host's own stores, without the plugin's run data: a run that a
+    // plugin hook submits is not the hook's run.
+    const scope = pluginRun.exit(() => AsyncLocalStorage.snapshot());
     const done = new Promise<RunOutcome>((resolve, reject) => {
       this.runs.set(id, { resolve, reject });
       this.scopes.set(id, scope);
@@ -1403,6 +1424,8 @@ export class Runtime {
     this.runs.clear();
     this.scopes.clear();
     this.settledHandlers.clear();
+    // No run_released comes any more: the data of every run goes now.
+    for (const id of [...this.runData.keys()]) this.dropRunData(id);
     this.opts.transport.end();
     this.opts.exit(code);
   }

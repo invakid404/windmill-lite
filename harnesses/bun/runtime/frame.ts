@@ -48,7 +48,7 @@ export type Outgoing = { t: string; [k: string]: unknown };
 const FIELDS: Record<string, readonly string[]> = {
   hello: ["proto", "harness", "runtime", "caps", "bundle", "pid", "workdir", "plugin"],
   welcome: ["proto", "engine", "bundle", "config", "reject"],
-  invoke: ["id", "run", "site", "script", "entry", "args", "env", "boundary", "around", "run_data"],
+  invoke: ["id", "run", "site", "script", "entry", "args", "env", "boundary", "around", "run_data_id", "run_data"],
   result: ["id", "outcome", "body", "origin", "tail", "exit_code", "settled"],
   late: ["id", "kind", "body", "settled"],
   cancel: ["id", "reason"],
@@ -61,9 +61,9 @@ const FIELDS: Record<string, readonly string[]> = {
   run_done: ["id", "status", "result", "may_have_mutated", "warnings", "latched", "deviations", "error", "cancel_cause"],
   run_cancel: ["id", "reason", "canceler"],
   run_settled: ["id"],
-  host_call: ["id", "hook", "run", "site", "payload", "run_data"],
+  host_call: ["id", "hook", "run", "site", "payload", "run_data_id", "run_data"],
   host_reply: ["id", "payload", "error"],
-  run_released: ["run"],
+  run_released: ["run", "run_data_id"],
   ping: ["id", "in_flight", "abandoned", "errors", "lag_ms", "rss", "runs_held"],
   pong: ["id", "in_flight", "abandoned", "errors", "lag_ms", "rss", "runs_held"],
   part: ["id", "seq", "last", "chunk"],
@@ -198,7 +198,7 @@ const REQUIRED: Record<string, Record<string, Check>> = {
   run_settled: { id: "string" },
   host_call: { id: "string", hook: "string", run: "string", site: "string", payload: "raw" },
   host_reply: { id: "string" },
-  run_released: { run: "string" },
+  run_released: { run: "string", run_data_id: "string" },
   ping: { id: "string" },
   pong: { id: "string" },
   part: { id: "string", seq: "int", last: "bool", chunk: "string" },
@@ -269,9 +269,11 @@ export function decode(payload: Uint8Array): Message {
       break;
     case "invoke":
       if (m.around != null && !(Array.isArray(m.around) && m.around.every(isInt))) throw new ProtocolError("bad_field", 'field "around" has the wrong type');
+      if (m.run_data_id != null) checkField(m.t, m, "run_data_id", "string");
       break;
     case "host_call":
       if (typeof m.payload !== "object" || m.payload === null || Array.isArray(m.payload)) throw new ProtocolError("bad_field", "host_call payload is not an object");
+      if (m.run_data_id != null) checkField(m.t, m, "run_data_id", "string");
       break;
     case "host_reply":
       if (m.error != null) {

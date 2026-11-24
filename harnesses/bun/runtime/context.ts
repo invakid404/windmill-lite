@@ -362,9 +362,11 @@ export type StepAPI = {
 };
 
 /** The run data that the host plugin's code reads as wl.run.data: the
- * runtime sets it around each call of a hook or an around wrapper, and an
- * around wrapper's next() leaves it, so the step and the inner wrappers do
- * not see the outer wrapper's. Outside plugin code it holds nothing. */
+ * runtime sets the run's cell around each call of a hook or an around
+ * wrapper, and an around wrapper's next() leaves it, so the step and the
+ * inner wrappers do not see the outer wrapper's. The cell is emptied when
+ * the process drops the data, also for code that kept running. Outside
+ * plugin code it holds nothing. */
 export const pluginRun = new AsyncLocalStorage<{ data: unknown }>();
 
 /** The current invocation, or a TypeError naming what needs one. */
@@ -397,8 +399,8 @@ const stepAPI: StepAPI = Object.freeze({
   },
   run: Object.freeze({
     /** The run's data, frozen, in the host plugin's hooks and around
-     * wrappers; undefined for a run without data and outside plugin
-     * code, in step code too. */
+     * wrappers until the run has settled; undefined for a run without
+     * data and outside plugin code, in step code too. */
     get data(): unknown {
       return pluginRun.getStore()?.data;
     },

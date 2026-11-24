@@ -110,8 +110,7 @@ func TestRunDataAroundOnly(t *testing.T) {
 // TestRunDataReleased runs a flow and a script job with data, each of
 // whose step waits at a gate, in a runtime with one harness process. While
 // the step waits, the process's health reports that it holds one run's
-// data; once the run has settled, none. A run with data that does not start leaves no
-// data behind in the runtime.
+// data; once the run has settled, none.
 func TestRunDataReleased(t *testing.T) {
 	bun := bunOrSkip(t)
 	out, runtimeDir := buildContractBundle(t, bun, runDataFiles, runDataContract)
@@ -174,15 +173,6 @@ func TestRunDataReleased(t *testing.T) {
 			}
 			waitHeld(t, 0, "once the run has settled")
 		})
-	}
-	if _, err := rt.Run(context.Background(), "f/rd/none", nil, RunOptions{Data: json.RawMessage(`{"k":1}`)}); err == nil {
-		t.Fatal("a run of a flow that does not exist started")
-	}
-	if _, err := rt.Run(context.Background(), "f/rd/none", nil, RunOptions{Kind: KindScript, Data: json.RawMessage(`{"k":1}`)}); err == nil {
-		t.Fatal("a script job of a script that does not exist started")
-	}
-	if n := rt.runData.Len(); n != 0 {
-		t.Errorf("the runtime keeps the data of %d runs that did not start", n)
 	}
 }
 
@@ -270,8 +260,16 @@ export default {
       },
     },
   ],
+  variable: () => ({ value: JSON.stringify((globalThis as any).wl.run.data ?? "undefined") }),
 };
 `,
+	// A step that reads the variable u/rh/data, which only the plugin's
+	// variable hook holds, through the platform facade.
+	"f/rh/var.ts": "export async function main() {\n" +
+		"  const r = await fetch(`${process.env.BASE_URL}/api/w/${process.env.WM_WORKSPACE}/variables/get_value/u/rh/data`, " +
+		"{ headers: { Authorization: `Bearer ${process.env.WM_TOKEN}` } });\n" +
+		"  return JSON.parse(await r.json());\n}\n",
+	"f/rh/var_flow.flow/flow.yaml": `{"summary":"v","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/rh/var","input_transforms":{}}}]}}`,
 	"f/rh/flow.flow/flow.yaml": `{"summary":"h","value":{"modules":[` +
 		`{"id":"a","value":{"type":"script","path":"f/rh/skip","input_transforms":{}}},` +
 		`{"id":"b","value":{"type":"script","path":"f/rh/read","input_transforms":{"a":{"type":"javascript","expr":"results.a"}}}}]}}`,
@@ -282,10 +280,12 @@ export default {
 // is a host_call. The hook reads the run's data as wl.run.data and cannot
 // change it; the around wrapper of the next step, whose invoke comes once
 // the process holds the data, reads it too. A run without data reads
-// undefined in both, and the plugin read undefined when it loaded.
+// undefined in both, and the plugin read undefined when it loaded. The
+// plugin's variable hook, which a step's read through the platform facade
+// reaches outside the run's own context, reads its run's data too.
 func TestRunDataHook(t *testing.T) {
 	bun := bunOrSkip(t)
-	out, runtimeDir := buildContractBundle(t, bun, runDataHookFiles, "roots: [{flow: f/rh/flow}]\nhost_modules: [f/rh/ctx.ts]\nplugin: f/rh/plugin.ts\n")
+	out, runtimeDir := buildContractBundle(t, bun, runDataHookFiles, "roots: [{flow: f/rh/flow}, {flow: f/rh/var_flow}]\nhost_modules: [f/rh/ctx.ts]\nplugin: f/rh/plugin.ts\n")
 	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Pool: PoolOptions{Max: 1}})
 	if err != nil {
 		t.Fatal(err)
@@ -305,10 +305,20 @@ func TestRunDataHook(t *testing.T) {
 			t.Errorf("data %q: status %s, result %s, want %s", c.data, res.Status, res.Result, c.want)
 		}
 	}
+	for _, c := range []struct{ data, want string }{{`{"tenant":"t-8"}`, `{"tenant":"t-8"}`}, {"", `"undefined"`}} {
+		res, err := rt.Run(context.Background(), "f/rh/var_flow", nil, RunOptions{Data: json.RawMessage(c.data)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Status != StatusSuccess || !sameJSON(res.Result, json.RawMessage(c.want)) {
+			t.Errorf("data %q: the variable hook gave %s %s, want %s", c.data, res.Status, res.Result, c.want)
+		}
+	}
 }
 
 // TestRunDataRefusesInvalid: data that is not JSON refuses the run before
-// it starts, and JSON null is no data.
+// it starts, among it a value with whitespace that JSON does not allow
+// around it, and JSON null with JSON's whitespace is no data.
 func TestRunDataRefusesInvalid(t *testing.T) {
 	bun := bunOrSkip(t)
 	out, runtimeDir := buildContractBundle(t, bun, runDataFiles, runDataContract)
@@ -317,10 +327,12 @@ func TestRunDataRefusesInvalid(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer rt.Close()
-	if _, err := rt.Run(context.Background(), "f/rd/flow", nil, RunOptions{Data: json.RawMessage(`{"k":`)}); err == nil {
-		t.Error("a run whose data is not JSON started")
+	for _, bad := range []string{`{"k":`, "\u00a0{}", "{}\u00a0", "\u00a0", "\v{}"} {
+		if _, err := rt.Run(context.Background(), "f/rd/flow", nil, RunOptions{Data: json.RawMessage(bad)}); err == nil {
+			t.Errorf("a run whose data is %q started", bad)
+		}
 	}
-	res, err := rt.Run(context.Background(), "f/rd/flow", nil, RunOptions{Data: json.RawMessage(" null ")})
+	res, err := rt.Run(context.Background(), "f/rd/flow", nil, RunOptions{Data: json.RawMessage(" \t\r\nnull\n")})
 	if err != nil {
 		t.Fatal(err)
 	}
