@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -257,6 +258,76 @@ func TestDispatcherDetachedAndClose(t *testing.T) {
 	}
 	if _, err := d.Dispatch(context.Background(), platform.Dispatch{Kind: platform.DispatchScript, Target: "f/t/echo", Args: []byte(`{}`)}); err == nil {
 		t.Error("a dispatch after Close")
+	}
+}
+
+// The host's part in a dispatched run (SetRuns) never runs once Close has
+// begun: a dispatch after Close calls none of it. A dispatch admitted
+// before Close is waited for, its preparation and its cleanup included:
+// once Close has begun, the prepared run does not start, and Close returns
+// only after its end and settlement calls.
+func TestDispatcherCloseAndTheHostPart(t *testing.T) {
+	e := openWithPlatform(t, map[string]string{}, &scripts{}, testServices(t))
+	var prepared, ended, settled atomic.Int32
+	var gated atomic.Bool
+	entered, gate := make(chan struct{}, 1), make(chan struct{})
+	host := func(d *Dispatcher) {
+		d.SetRuns(func(ctx context.Context, id string) (context.Context, RunLimits, func(), func(), error) {
+			prepared.Add(1)
+			if gated.Load() {
+				entered <- struct{}{}
+				<-gate
+			}
+			return ctx, RunLimits{}, func() { ended.Add(1) }, func() { settled.Add(1) }, nil
+		})
+	}
+	dispatch := func(d *Dispatcher) error {
+		_, err := d.Dispatch(context.Background(), platform.Dispatch{Kind: platform.DispatchScript, Target: "f/t/echo", Args: []byte(`{}`)})
+		return err
+	}
+	d := NewDispatcher(e, nil)
+	host(d)
+	d.Close(context.Background())
+	if err := dispatch(d); err == nil || prepared.Load() != 0 || ended.Load() != 0 || settled.Load() != 0 {
+		t.Fatalf("a dispatch after Close: %v; %d preparations, %d end and %d settlement calls, want none", err, prepared.Load(), ended.Load(), settled.Load())
+	}
+
+	d = NewDispatcher(e, nil)
+	host(d)
+	gated.Store(true)
+	errc := make(chan error, 1)
+	go func() { errc <- dispatch(d) }()
+	<-entered
+	closed := make(chan struct{})
+	go func() {
+		d.Close(context.Background())
+		close(closed)
+	}()
+	for {
+		d.mu.Lock()
+		begun := d.closed
+		d.mu.Unlock()
+		if begun {
+			break
+		}
+		select {
+		case <-closed:
+			t.Fatal("Close returned while a dispatch's preparation ran")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	select {
+	case <-closed:
+		t.Fatal("Close returned while a dispatch's preparation ran")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(gate)
+	<-closed
+	if ended.Load() != 1 || settled.Load() != 1 {
+		t.Fatalf("Close returned with %d end and %d settlement calls of the prepared run, want 1 and 1", ended.Load(), settled.Load())
+	}
+	if err := <-errc; err == nil {
+		t.Fatal("a dispatch that Close overtook during its preparation started its run")
 	}
 }
 

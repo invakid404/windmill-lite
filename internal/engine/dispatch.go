@@ -290,14 +290,19 @@ type Dispatcher struct {
 // returns the context the run runs in, the run's limits, and two
 // functions, either of which may be nil: ended, called once the run has
 // ended, and settled, called once it has settled, or at once for a run
-// that did not start. Its error refuses the dispatch. A host gives the
-// runs it starts itself the same, such as their pin and the runtime's
-// byte total (ADR 0004 §Pooling).
+// that did not start. Its error refuses the dispatch. It is not called
+// once Close has begun, and Close waits for a call under way, and for the
+// end and settlement calls of a run that it then keeps from starting. A
+// host gives the runs it starts itself the same, such as their pin and the
+// runtime's byte total (ADR 0004 §Pooling).
 type DispatchRun func(ctx context.Context, id string) (_ context.Context, limits RunLimits, ended, settled func(), err error)
 
 // SetRuns makes f take part in each run that the dispatcher starts. Call
 // it before the dispatcher's first run.
 func (x *Dispatcher) SetRuns(f DispatchRun) { x.prepare = f }
+
+// errClosedDispatcher is Dispatch's error once Close has begun.
+var errClosedDispatcher = errors.New("engine: the dispatcher is closed")
 
 // preparedRun is what the host gives a dispatched run (DispatchRun).
 type preparedRun struct {
@@ -411,23 +416,37 @@ func (x *Dispatcher) Dispatch(_ context.Context, d platform.Dispatch) (string, e
 	// caller that returns at once).
 	links := x.links(d)
 	id := newUUID()
+	// The dispatch is admitted, and Close waits for it from here, before
+	// any host code runs: a closed dispatcher calls none.
+	x.mu.Lock()
+	if x.closed {
+		x.mu.Unlock()
+		return "", errClosedDispatcher
+	}
+	x.wg.Add(1)
+	x.mu.Unlock()
 	// The host takes part in the run before anyone knows its id, which is
-	// so the run's own from the start, through a delayed start too.
+	// so the run's own from the start, through a delayed start too. Its
+	// code runs outside x.mu.
 	prep, err := x.prepared(id)
 	if err != nil {
+		x.wg.Done()
 		return "", fmt.Errorf("engine: the dispatched run cannot start: %w", err)
 	}
 	rec := &dispatched{owner: d.Caller["WM_ROOT_JOB_ID"]}
 	x.mu.Lock()
 	if x.closed {
+		// Close began while the host prepared the run, which will not
+		// start: its end and settlement calls come before Close returns.
 		x.mu.Unlock()
 		prep.abandon()
-		return "", errors.New("engine: the dispatcher is closed")
+		x.wg.Done()
+		return "", errClosedDispatcher
 	}
 	x.sweep()
 	x.runs[id] = rec
-	x.wg.Add(1)
 	x.mu.Unlock()
+	// The worker takes over the dispatch's place in x.wg.
 	go x.run(id, d, args, links, rec, prep)
 	return id, nil
 }
