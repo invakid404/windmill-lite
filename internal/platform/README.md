@@ -582,10 +582,11 @@ lives, the job running or completed.
   id as `Job.Run` and itself as `Job.View`, a `JobView`. Every other job of
   the run names the run in `Run`, so `Registry.Job` gives it that view.
 - **What the view supplies.** `GetJob` answers with the view's
-  `JobRecord(id)`, `GetJobArgs` with its `JobArgs(id)`, and `ResultPoll`
-  with its `JobPoll(id)`. A `JobView` implementer, the engine's run,
-  renders all three, so a view that serves a job's record also answers
-  its result polls.
+  `JobRecord` and `ResultPoll` with its `JobPoll`, each given the job that
+  the lookup checked, and `GetJobArgs` with its `JobArgs(id)`. A `JobView`
+  implementer, the engine's run, renders all three. A view that serves a
+  job's record so answers its result polls, and fails them as it fails the
+  record, when a flow job's user state cannot be listed too.
 - **No copy.** The registry keeps the view, a reference to the run, never a
   copy of its state, and drops it with the tree, as it drops a job's
   variables.
