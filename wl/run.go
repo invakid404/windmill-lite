@@ -79,10 +79,10 @@ const (
 	KindScript = "script"
 )
 
-// RunOptions configure one run. A script run reads only Kind, ID and
-// Data; the other fields, among them the hooks, the run's own providers
-// and the pre-write deadline, configure a flow run. The zero value of
-// every field is a default.
+// RunOptions configure one run. A script run reads only Kind, ID, Data,
+// Pin and Limits; the other fields, among them the hooks, the run's own
+// providers and the pre-write deadline, configure a flow run. The zero
+// value of every field is a default.
 type RunOptions struct {
 	// Kind is KindFlow, the default, or KindScript: a root script of the
 	// bundle, run as a script job (WA-4).
