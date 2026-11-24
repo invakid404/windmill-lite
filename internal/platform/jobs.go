@@ -58,6 +58,12 @@ type Job struct {
 	// A job registered with a zero Host takes the Host of the job its Run
 	// names, when the registry knows that job.
 	Host Host
+	// Gen numbers the registration that the registry holds for the job:
+	// Registry gives each new registration of an id a number that no
+	// earlier one had, so that a flow job's user state stays with the
+	// registration that wrote it when its id ends and is registered again.
+	// The registry sets it; 0 is a registry that numbers none.
+	Gen uint64
 }
 
 // JobView renders the records of one run's jobs as GET jobs_u/get/{id}
@@ -149,6 +155,7 @@ type Registry struct {
 	order []endedRef
 	seq   uint64
 	keep  int // the most ended jobs kept: endedJobs
+	gen   uint64
 }
 
 // endedJobs is how many jobs of ended trees a Registry keeps known.
@@ -205,16 +212,28 @@ func (r *Registry) Begin(j Job) (end func()) {
 	e := r.jobs[j.ID]
 	switch {
 	case e == nil:
+		r.gen++
+		j.Gen = r.gen
 		e = &regJob{job: j}
 		r.jobs[j.ID] = e
 		r.addToTree(j.Root, j.ID)
 	case e.derived:
+		// The registration of a job known only from a script job: the same
+		// job in the same workspace, else another one.
+		j.Gen = e.job.Gen
+		if !sameWorkspace(e.job.Host, j.Host) {
+			r.gen++
+			j.Gen = r.gen
+		}
 		r.removeFromTree(e.job.Root, j.ID)
 		e.job, e.derived = j, false
 		r.addToTree(j.Root, j.ID)
-	case e.job.View == nil && j.View != nil:
+	case e.job.View == nil && j.View != nil && sameWorkspace(e.job.Host, j.Host):
 		// A second registration that brings the run's view (a script
-		// run registers its job before its invocation does).
+		// run registers its job before its invocation does). A run of
+		// another workspace that registers the id leaves the entry as it
+		// is: the id stays the first workspace's, and neither sees the
+		// other's view.
 		e.job.Run, e.job.View = j.Run, j.View
 	}
 	e.live++
@@ -232,11 +251,20 @@ func (r *Registry) Begin(j Job) (end func()) {
 // unless it is known already. It takes the script job's run, which is the
 // run that holds that flow job too, unless a dispatch placed the script
 // job's run in another run's tree, and the script job's host.
+//
+// An id that the registry keeps as an ended job of another workspace stays
+// that job: a script job of a run that a dispatch tracked in it (root_job)
+// does not make it a flow job of the script job's workspace, so it keeps
+// answering for its own workspace while the script job runs and after.
 func (r *Registry) derive(id, root, path, run string, host Host) {
 	if id == "" || r.jobs[id] != nil {
 		return
 	}
-	r.jobs[id] = &regJob{job: Job{ID: id, Kind: JobFlow, Root: root, Path: path, Run: run, Host: host}, derived: true}
+	if k, ok := r.ended[id]; ok && !sameWorkspace(Host{Workspace: k.workspace}, host) {
+		return
+	}
+	r.gen++
+	r.jobs[id] = &regJob{job: Job{ID: id, Kind: JobFlow, Root: root, Path: path, Run: run, Host: host, Gen: r.gen}, derived: true}
 	r.addToTree(root, id)
 }
 
@@ -371,7 +399,11 @@ type UserStates struct {
 // userMap is one flow job's user state.
 type userMap struct {
 	root string
-	vals map[string]json.RawMessage
+	// gen and rootGen are the registrations (Job.Gen) of the job and of
+	// its root that the map was written under: a map is the state of that
+	// registration only.
+	gen, rootGen uint64
+	vals         map[string]json.RawMessage
 }
 
 // minSweep is the number of maps below which UserStates never sweeps.
@@ -402,26 +434,67 @@ func (u *UserStates) SetUserState(_ context.Context, job, key string, v json.Raw
 	if !ok || !live {
 		return nil
 	}
+	u.setAt(job, j.Gen, key, v)
+	return nil
+}
+
+// stateAt returns the value stored under key for the flow job's
+// registration gen (Job.Gen), and false when that registration has none.
+func (u *UserStates) stateAt(job string, gen uint64, key string) (json.RawMessage, bool) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	m := u.maps[job]
-	if m == nil {
+	if m == nil || m.gen != gen {
+		return nil, false
+	}
+	v, ok := m.vals[key]
+	return v, ok
+}
+
+// setAt stores v under key for the flow job's registration gen, and
+// reports whether it did: only while the registry reports that very
+// registration live, checked under the map lock, so that a write checked
+// against one registration never lands in another's map. A map of an
+// earlier registration of the id is dropped.
+func (u *UserStates) setAt(job string, gen uint64, key string, v json.RawMessage) bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	j, live, ok := u.jobs.Job(job)
+	if !ok || !live || j.Gen != gen {
+		return false
+	}
+	m := u.maps[job]
+	if m == nil || m.gen != gen {
 		if len(u.maps) >= u.sweep {
 			u.dropDead()
 		}
-		m = &userMap{root: cmp.Or(j.Root, job), vals: map[string]json.RawMessage{}}
+		root := cmp.Or(j.Root, job)
+		rj, _, _ := u.jobs.Job(root)
+		m = &userMap{root: root, gen: gen, rootGen: rj.Gen, vals: map[string]json.RawMessage{}}
 		u.maps[job] = m
 	}
 	m.vals[key] = v
-	return nil
+	return true
+}
+
+// statesAt returns a copy of the flow job's map for its registration gen,
+// nil when it has none.
+func (u *UserStates) statesAt(job string, gen uint64) map[string]json.RawMessage {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	m := u.maps[job]
+	if m == nil || m.gen != gen {
+		return nil
+	}
+	return maps.Clone(m.vals)
 }
 
 // dropDead drops the maps of the jobs the registry no longer reports live,
 // and sets the next sweep at twice the maps that remain. Called with mu
 // held.
 func (u *UserStates) dropDead() {
-	for id := range u.maps {
-		if _, live, ok := u.jobs.Job(id); !ok || !live {
+	for id, m := range u.maps {
+		if j, live, ok := u.jobs.Job(id); !ok || !live || j.Gen != m.gen {
 			delete(u.maps, id)
 		}
 	}
@@ -429,15 +502,14 @@ func (u *UserStates) dropDead() {
 }
 
 // forgetRoot drops the maps of root's jobs, once the registry no longer
-// reports root live.
+// reports root live, and the maps written under an earlier registration of
+// root once the id is registered again.
 func (u *UserStates) forgetRoot(root string) {
-	if _, live, ok := u.jobs.Job(root); ok && live {
-		return
-	}
+	rj, live, ok := u.jobs.Job(root)
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	for id, m := range u.maps {
-		if m.root == root {
+		if m.root == root && (!ok || !live || rj.Gen != m.rootGen) {
 			delete(u.maps, id)
 		}
 	}
@@ -490,6 +562,11 @@ var ErrFlowJobNotFound = &Error{Variant: "NotFound", Message: "Flow job not foun
 func (s *Services) JobScope(id string) (string, bool) {
 	j, _, ok := s.jobs().Job(id)
 	return j.Host.EffectiveWorkspace(), ok
+}
+
+// sameWorkspace reports whether jobs of a and b are in one workspace.
+func sameWorkspace(a, b Host) bool {
+	return a.EffectiveWorkspace() == b.EffectiveWorkspace()
 }
 
 // inScope reports whether j is of the workspace scope scope; every job is
@@ -621,10 +698,18 @@ func (u *UserStates) UserStates(_ context.Context, job string) (map[string]json.
 // (FlowUserStateLister).
 func (s *Services) FlowUserStates(ctx context.Context, id string) (json.RawMessage, bool, error) {
 	l, ok := s.userState().(FlowUserStateLister)
-	if !ok || !s.liveFlow(id, "") {
+	j, live := s.liveFlowJob(id, "")
+	if !ok || !live {
 		return nil, false, nil
 	}
-	m, err := l.UserStates(ctx, id)
+	var m map[string]json.RawMessage
+	var err error
+	if u, own := l.(*UserStates); own {
+		// The map of the registration that the registry holds now.
+		m = u.statesAt(id, j.Gen)
+	} else {
+		m, err = l.UserStates(ctx, id)
+	}
 	if err != nil || len(m) == 0 {
 		return nil, false, err
 	}
@@ -678,11 +763,14 @@ func (s *Services) ReadJobEnv(id, workspace string) (map[string]string, error) {
 
 // ReadJobEnvIn is ReadJobEnv for a caller of the workspace scope scope: a
 // job of another scope fails as an unknown id, whatever its job variables
-// say, and so does a live flow job of another scope.
+// say, and so does a live flow job of another scope. The job's workspace
+// that the path must name is its run's configured one when it has one,
+// and else its WM_WORKSPACE, which a hook may have set.
 func (s *Services) ReadJobEnvIn(id, workspace, scope string) (map[string]string, error) {
 	j, live, ok := s.jobs().Job(id)
+	own := cmp.Or(j.Host.Workspace, j.Env["WM_WORKSPACE"])
 	switch {
-	case !ok || !live || !inScope(j, scope) || workspace != "" && j.Env["WM_WORKSPACE"] != "" && j.Env["WM_WORKSPACE"] != workspace:
+	case !ok || !live || !inScope(j, scope) || workspace != "" && own != "" && own != workspace:
 		return nil, notFound("Job not found at name %s", id)
 	case j.Kind != JobScript || j.Env == nil:
 		return nil, ErrNoJobVariables
@@ -704,14 +792,25 @@ func (s *Services) FlowUserState(ctx context.Context, id, key string) (json.RawM
 // id stopped naming a live flow job of scope (it ended, and a run
 // registered it again) reads null too.
 func (s *Services) FlowUserStateIn(ctx context.Context, id, key, scope string) (json.RawMessage, error) {
-	if !s.liveFlow(id, scope) {
+	j, ok := s.liveFlowJob(id, scope)
+	if !ok {
+		return json.RawMessage("null"), nil
+	}
+	if u, own := s.userState().(*UserStates); own {
+		// The map of the registration that was checked, and none other.
+		if v, ok := u.stateAt(id, j.Gen, key); ok {
+			return v, nil
+		}
 		return json.RawMessage("null"), nil
 	}
 	v, ok, err := s.userState().UserState(ctx, id, key)
 	switch {
 	case err != nil:
 		return nil, err
-	case !ok || !s.liveFlow(id, scope):
+	case !ok:
+		return json.RawMessage("null"), nil
+	}
+	if again, ok := s.liveFlowJob(id, scope); !ok || again.Gen != j.Gen {
 		return json.RawMessage("null"), nil
 	}
 	return v, nil
@@ -741,8 +840,17 @@ func (s *Services) SetFlowUserStateIn(ctx context.Context, id, key string, body 
 	if err != nil {
 		return &Error{Variant: "BadRequest", Message: "windmill-lite: the flow user state value: " + err.Error()}
 	}
-	if !s.liveFlow(id, scope) {
+	j, ok := s.liveFlowJob(id, scope)
+	if !ok {
 		return ErrFlowJobNotFound
+	}
+	if u, own := s.userState().(*UserStates); own {
+		// Into the map of the registration that was checked, which must
+		// still be the registry's when the write lands.
+		if !u.setAt(id, j.Gen, key, v) {
+			return ErrFlowJobNotFound
+		}
+		return nil
 	}
 	return s.userState().SetUserState(ctx, id, key, v)
 }
@@ -775,6 +883,13 @@ func JSONSyntaxError(text []byte) error {
 }
 
 func (s *Services) liveFlow(id, scope string) bool {
+	_, ok := s.liveFlowJob(id, scope)
+	return ok
+}
+
+// liveFlowJob returns the job id names when it is a live flow job of the
+// workspace scope scope.
+func (s *Services) liveFlowJob(id, scope string) (Job, bool) {
 	j, live, ok := s.jobs().Job(id)
-	return ok && live && j.Kind == JobFlow && inScope(j, scope)
+	return j, ok && live && j.Kind == JobFlow && inScope(j, scope)
 }

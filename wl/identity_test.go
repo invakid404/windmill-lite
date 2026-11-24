@@ -19,8 +19,10 @@ import (
 //     f/i/probe, whose step dispatches f/i/child, which returns its
 //     workspace, sets its run's flow user
 //     state, publishes its job ids in the variable u/i/<me>, waits for the
-//     other run's in u/i/<other>, and looks up both runs' jobs through its
-//     own workspace;
+//     other run's in u/i/<other>, looks up both runs' jobs through its own
+//     workspace, then publishes u/i/d<me> and returns once the other run
+//     has published u/i/d<other>, so that both runs live through both
+//     runs' observations;
 //   - f/i/root returns the root lookup of a job id through the step's own
 //     workspace;
 //   - f/i/spawn dispatches the target of its route (such as p/f/s/write or
@@ -168,7 +170,7 @@ var identityFiles = func() map[string]string {
     }
     throw new Error("the tracked dispatch never completed");
   };
-  return {
+  const observed = {
     ids: mine,
     own: { job: await read(mine.job), sibling: await read(sibling), root: await rootOf(mine.job), child: await poll(child), state: await state(root) },
     tracked: { own: await tracked(root, mine.job), theirs: await tracked(theirs.root, theirs.job) },
@@ -178,6 +180,16 @@ var identityFiles = func() map[string]string {
       state: await state(theirs.root), setState: (await post(` + "`/jobs/flow/user_states/${theirs.root}/k`" + `, "x")).status,
     },
   };
+  // Neither run ends before both have made their observations.
+  const finished = await post(` + "`/variables/update/u/i/d${me}`" + `, { value: "1" });
+  if (finished.status !== 200) throw new Error("finished: " + finished.status + " " + finished.body);
+  let both = false;
+  for (let i = 0; i < 1000 && !both; i++) {
+    both = !!JSON.parse((await get(` + "`/variables/get_value/u/i/d${other}`" + `)).body);
+    if (!both) await Bun.sleep(10);
+  }
+  if (!both) throw new Error("the other run never finished its observations");
+  return observed;
 }
 `,
 		"f/i/probe.flow/flow.yaml": `{"summary":"t","value":{"modules":[` +
@@ -372,6 +384,10 @@ func probePair(t *testing.T, rt *Runtime, a, b Identity) map[string]probeResult 
 	return runs
 }
 
+// probeVariables are the variables through which two runs of f/i/probe
+// exchange their job ids and their completion.
+var probeVariables = map[string]Variable{"u/i/a": {Value: ""}, "u/i/b": {Value: ""}, "u/i/da": {Value: ""}, "u/i/db": {Value: ""}}
+
 const (
 	noRows      = `400 SqlErr: no rows returned by a query that expected to return at least one row`
 	unknownPoll = `{"started":null,"success":null,"completed":false,"result":null}`
@@ -389,7 +405,7 @@ const (
 // ended, the root lookup of an ended job still answers in its workspace
 // only.
 func TestTwoWorkspacesOneRuntime(t *testing.T) {
-	rt := identityRuntime(t, Options{Variables: map[string]Variable{"u/i/a": {Value: ""}, "u/i/b": {Value: ""}}})
+	rt := identityRuntime(t, Options{Variables: probeVariables})
 	runs := probePair(t, rt, Identity{Workspace: "ws-a"}, Identity{Workspace: "ws-b"})
 	for me, p := range runs {
 		ws := "ws-" + me
@@ -434,7 +450,7 @@ func TestTwoWorkspacesOneRuntime(t *testing.T) {
 // store keys are: each finds the other's jobs, the run the other
 // dispatched and the other's flow user state.
 func TestDefaultWorkspaceAlias(t *testing.T) {
-	rt := identityRuntime(t, Options{Variables: map[string]Variable{"u/i/a": {Value: ""}, "u/i/b": {Value: ""}}})
+	rt := identityRuntime(t, Options{Variables: probeVariables})
 	runs := probePair(t, rt, Identity{}, Identity{Workspace: "windmill-lite"})
 	for me, p := range runs {
 		other := runs[map[string]string{"a": "b", "b": "a"}[me]]
@@ -594,4 +610,32 @@ func TestDecodeIdentity(t *testing.T) {
 			t.Errorf("%s decoded as %+v", bad, got)
 		}
 	}
+}
+
+// A dispatch tracked in the root of an ended run of another workspace
+// (root_job) leaves that root its workspace's: the root lookup answers in
+// A and not in B before the dispatch, in the dispatched run of B, and
+// after it.
+func TestTrackedDispatchOfAnEndedRoot(t *testing.T) {
+	rt := identityRuntime(t, Options{})
+	const rootA = "0b6d2a4e-5b5d-4f00-9c3e-00000000a001"
+	var env identityEnv
+	runJSON(t, rt, "f/i/env", `{}`, RunOptions{ID: rootA, Identity: Identity{Workspace: "ws-a"}}, &env)
+	lookups := func(when string) {
+		t.Helper()
+		for ws, want := range map[string]string{"ws-a": `200 "` + rootA + `"`, "ws-b": noRows} {
+			var got string
+			runJSON(t, rt, "f/i/root", `{"id":"`+rootA+`"}`, RunOptions{Identity: Identity{Workspace: ws}}, &got)
+			if got != want {
+				t.Errorf("%s: the root lookup of A's ended run from %s: %s, want %s", when, ws, got, want)
+			}
+		}
+	}
+	lookups("before")
+	var during string
+	runJSON(t, rt, "f/i/spawn", `{"route":"p/f/i/root?root_job=`+rootA+`","body":{"id":"`+rootA+`"}}`, RunOptions{Identity: Identity{Workspace: "ws-b"}}, &during)
+	if during != noRows {
+		t.Errorf("the root lookup of A's ended run from B's run tracked in it: %s, want %s", during, noRows)
+	}
+	lookups("after")
 }

@@ -589,6 +589,7 @@ func TestHostRunIdentity(t *testing.T) {
 		{`,"identity":{"workspace":null}`, "", "", "", `field "workspace" is not a string`},
 		{`,"identity":{"email":"run@example.test"}`, "ws-runtime", "rt-user", "run@example.test", ""},
 		{`,"identity":{"Workspace":"ws-run"}`, "", "", "", `unknown field "Workspace"`},
+		{`,"identity":{"workspace":"ws-run"}`, "ws-run", "rt-user", "windmill-lite@localhost", ""},
 		{`,"identity":{"username":7}`, "", "", "", `field "username" is not a string`},
 		{"", "ws-runtime", "rt-user", "windmill-lite@localhost", ""},
 	} {

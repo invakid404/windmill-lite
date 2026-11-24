@@ -147,7 +147,8 @@ func TestStateWriteOfAnotherWorkspace(t *testing.T) {
 // answers 404, as for an unknown id: a flow job (which, of the caller's
 // workspace, answers 501), and a script job whose WM_WORKSPACE a hook set
 // to the caller's. A read that needs no job variables answers as without
-// the job_id.
+// the job_id. That script job's own workspace reads it through its own
+// path, whatever its WM_WORKSPACE says.
 func TestReadWithAJobIDOfAnotherWorkspace(t *testing.T) {
 	store := platform.NewStore()
 	for path, v := range map[string]string{"u/x/plain": `{"a":1}`, "u/x/ctx": `{"j":"$WM_JOB_ID"}`} {
@@ -180,5 +181,9 @@ func TestReadWithAJobIDOfAnotherWorkspace(t *testing.T) {
 	}
 	if got := read("u/x/ctx", runA); !strings.HasPrefix(got, "501 ") {
 		t.Errorf("u/x/ctx with its own flow job: %s, want 501", got)
+	}
+	rep := intercept(f, "inv-b", "GET", "http://x/api/w/ws-b/resources/get_value_interpolated/u/x/ctx?job_id="+stepB, nil, nil)
+	if got, want := strconv.Itoa(rep.Status)+" "+string(rep.Body), `200 {"j":"`+stepB+`"}`; got != want {
+		t.Errorf("ws-b's read with its own job, through ws-b: %s, want %s", got, want)
 	}
 }

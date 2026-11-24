@@ -64,7 +64,7 @@ type Caller struct {
 	Platform *platform.Services
 	// Host is the identity of the invocation's run as the job registry
 	// holds it (platform.Job.Host), which is not the step's environment: a
-	// host's H12 may change that. Its Workspace scopes the job routes'
+	// host's InvocationEnv hook may change that. Its Workspace scopes the job routes'
 	// lookups (scoped), and a run the invocation dispatches takes it.
 	Host platform.Host
 }
@@ -320,7 +320,8 @@ func (f *Facade) Register(id, run string, env map[string]string) *Session {
 // services, p (Caller.Platform), or none, and whose run has the identity
 // host (Caller.Host), which the invocation's job takes too. The caller
 // takes host from its invocation, never from a lookup by its job id,
-// which a hook may change (H12) and another live invocation may share.
+// which an InvocationEnv hook may change and another live invocation may
+// share.
 func (f *Facade) register(id, run string, env map[string]string, p *platform.Services, host platform.Host) *Session {
 	e := &entry{caller: Caller{ID: id, Run: run, Env: env, Platform: p, Host: host}, token: env["WM_TOKEN"], idle: make(chan struct{})}
 	job := env["WM_JOB_ID"]
@@ -588,10 +589,10 @@ func authenticated(r *Route) bool {
 // ownWorkspace reports whether the workspace in c's path is its caller's,
 // for which the caller's token is valid (WA-4), or c's path names none.
 // The caller's workspace is its run's configured one (Caller.Host), and
-// without one its WM_WORKSPACE, which a hook may change (H12): a hook
-// then changes the workspace of a run without a configured one, as it
-// always did, but not that of a run with one. A caller with neither is
-// taken to be of every workspace.
+// without one its WM_WORKSPACE, which an InvocationEnv hook may change.
+// Such a hook then changes the workspace of a run without a configured
+// one, as it always did, but not that of a run with one. A caller with
+// neither is taken to be of every workspace.
 func ownWorkspace(c *Call) bool {
 	ws, ok := c.Params["workspace"]
 	own := cmp.Or(c.Caller.Host.Workspace, c.Caller.Env["WM_WORKSPACE"])
