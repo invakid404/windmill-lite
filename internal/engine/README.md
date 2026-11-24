@@ -1563,6 +1563,10 @@ root through `Run` for `jobs/run/f`.
 - **An id of another workspace.** `Run` and `RunScript` refuse a run
   whose id a job of another workspace holds in the job registry, live or
   ended and kept (`platform.BeginExclusive`), before it starts.
+- **The services a workspace needs.** They also refuse a run in a
+  workspace other than `windmill-lite` when the engine's services keep jobs
+  or flow user state in a host's registry or store
+  (`platform.Services.OwnsJobs`). An engine with no services admits it.
 - **Links to another workspace.** A parent of another workspace than the
   dispatching run's is as unknown: its path is not taken. The ids stay as
   sent, as an unknown id's do, and `flow_user_state()` reads null through
@@ -2344,6 +2348,7 @@ engine on the real Bun harness in `wltest check`
 | `flowtimeout_test.go` | The flow's own timeout: a root's and a subflow's; a step's timeout that replaces a subflow's; the failure module; a tolerated or retried subflow; the unset values; an ancestor's timeout |
 | `readback_test.go` | Unreadable child results: the flow left waiting and canceled by `monitor`, for each kind of container of child flows. A collapsed body's failure at once, with its column in PostgreSQL's printed text, also in a `branchone`'s branch and in a subflow. A parallel child (`TestReadBackInAParallelChild`), and the monitor disabled (`TestReadBackInAParallelChildWithoutMonitor`, `TestReadBackWithoutMonitor`) |
 | `cache_test.go` | A step's hit, expiry, a zero TTL, equal arguments, S3 object arguments and a collapsed loop. Whose `cache_ttl` applies ([FX-40](../../docs/semantics/execution.md#fx-40)): a path script's own, never its module's, and none for an identity or a subflow step. A flow job's store, the root flow's cache, a host store per bundle and a failing one. `Intercept` bypassing the cache, the module state, the host's checks and a hit's job |
+| `identity_test.go` | Refused runs: one whose id another workspace's job holds, and one of another workspace with a host's registry or store. A run's record lists the state of the registration it is rendered for; a completed child flow's record has none |
 | `dispatch_test.go` | The dispatcher: a script root and a flow root as separate runs, a failure's value, the arguments resolved and stored. The script job's identity, alone and with a dispatch's links; the refusals (`TestDispatchRefusesUnstorableArguments`). `Close`, a scheduled start, links that outlive the parent, a script job's own timeout, the records following their root, `flow_user_state()`, and a script root's own `cache_ttl` (`TestRunScriptCache`) |
 | `providers_test.go` | The resolved arguments: `$WM_*` from the reserved variables and from a resource's stored fields, and a secret. The resolved arguments after a timeout, a cancellation and an executor's error; a resolution failure and the run's settlement. `flow_env` per transition, and its unresolved fallback. The helpers, a helper's failure, and an engine with no platform |
 | `provided_test.go` | Host-provided sites: a named and a static provider, the provider's arguments, the site's `stop_after_if`, its retry, a declining provider, a provider's error, no `Provide`. Child flows in the job registry with their paths, and a dispatch from inside an iteration (`TestChildFlowsAreJobs`). A flow job while its provided site waits (`TestFlowWithAWaitingProvidedSiteIsNotServed`) |

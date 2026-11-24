@@ -625,17 +625,16 @@ address by their effective root
   workspace. A read and a write go to the registration that they checked,
   and a write lands only while the registry still holds it. A root's
   cleanup drops only its own registration's maps.
-- **Job records.** A `JobViewFor` renders a job read's record for the
-  registration that the read checked, and lists that registration's state
-  (`FlowUserStatesOf`).
-- **What each configuration keeps apart.** Two workspaces never share a
-  map. With the services' own `Registry`, an id that ends and is
-  registered again starts with no state. A host's `Jobs` that numbers
-  nothing (`Gen` 0) cannot tell two such registrations of one workspace
-  apart, and neither can a host's store.
-- **A host's store** keys a job of another workspace than `windmill-lite`
-  by its workspace, a slash and its id, and keeps no state for an id with
-  a slash, so no two jobs share a key.
+- **Job records.** A `JobView` renders a job read's record for the
+  registration that the read checked (`JobRecord(Job)`), and lists that
+  registration's state while it is a live flow job (`FlowUserStatesOf`).
+- **Which services keep workspaces apart.** Only the services' own
+  registry and store (`OwnsJobs`): the engine refuses a run of another
+  workspace than `windmill-lite` with a host's `Jobs` or `FlowUserState`.
+  With the own ones, two workspaces never share a map, and an id that ends
+  and is registered again starts with no state.
+- **A host's store** gets each job's id as its key, as before; it serves
+  `windmill-lite`'s runs alone, so no two workspaces share a key.
 - **Faithful where a step can look.** This lifetime matches every access the
   stock helpers make during the run. A read or a write by id after the run
   gets `null` or the 404, as Windmill answers once the root's completion is
@@ -939,8 +938,8 @@ CI runs every package's tests with `-race` in its Go jobs
 | | `TestRegistryEndedBound` | The bound on ended jobs: the oldest forgotten, and an id registered and ended again kept by its later end |
 | | `TestFlowUserState`, `TestFlowUserStateWithAHostsJobs`, `TestFlowUserStateSweepsDeadJobs`, `TestFlowUserStateWithAHostsStates` | Flow user state during and after the run, its stored form, the 404 and the 400; with a host's `Jobs`, with the sweep, and with a host's `FlowUserState` |
 | | `TestReadJobEnv`, `TestServicesRegistry` | The job that a read's `job_id` names; the services' one registry, shared by callers that first ask at once |
-| `workspace_test.go` | `TestUserStateBoundToItsRegistration`, `TestRegistrationNumbers`, `TestUserStateWithoutRegistrationNumbers`, `TestStateCleanupKeepsALaterRegistration` | A flow job's user state against a registry whose entry for an id changes between lookups, the next registration of an id, a registry that numbers none (the services' store and a host's), and the cleanup of an ended registration |
-| | `TestExclusiveRegistration`, `TestDuplicateRegistrationAcrossWorkspaces`, `TestTrackedRootOfAnotherWorkspace`, `TestHostStateKeys` | One id held by another workspace, refused; one id registered by two workspaces through `Begin`; a script job whose root is another workspace's ended job; a host store's keys |
+| `workspace_test.go` | `TestUserStateBoundToItsRegistration`, `TestRegistrationNumbers`, `TestUserStateWithoutRegistrationNumbers`, `TestStateCleanupKeepsALaterRegistration` | A flow job's user state against a registry whose entry for an id changes between lookups, the next registration of an id, a registry that numbers none, and the cleanup of an ended registration |
+| | `TestExclusiveRegistration`, `TestDuplicateRegistrationAcrossWorkspaces`, `TestTrackedRootOfAnotherWorkspace`, `TestHostStoreKeepsJobIDs` | One id held by another workspace, refused; one id registered by two workspaces through `Begin`; a script job whose root is another workspace's ended job; a host store's keys, kept from before |
 | `jobreads_test.go` | `TestJobReadsDuringARun` | Each job of a run answered by its run's view, the 404 texts, and every job once the run has ended, which the root lookup still answers |
 | | `TestEndedRunIsReleased`, `TestJobReadsOfADispatchedRun` | An ended run keeps no view and no variables; a dispatched run in another run's tree answers by its own view until the root ends |
 | | `TestJobReadsOfConcurrentRuns`, `TestFlowUserStatesList` | Eight runs at once, each reading its own jobs and the others' runs; a flow job's user state listed in jsonb's key order |

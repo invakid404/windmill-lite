@@ -331,22 +331,25 @@ its run's workspace.
   another as for an unknown id, as Windmill does
   ([WA-V2](../semantics/client-api.md#wa-v2)). Each checks the workspace
   on the registry entry that it answers from.
+- **The services it needs.** A run in a workspace other than
+  `windmill-lite` needs the services' own job registry and flow user state
+  store, which `wl` always uses. With a host's registry or store, which
+  cannot keep workspaces apart, the engine refuses such a run.
 - **One workspace per id.** A run whose id a job of another workspace
   holds, live or among the ended jobs kept, is refused before it starts.
   A step whose hook sets a `WM_JOB_ID` held so registers under its own
   invocation id, and a `root_job` that names another workspace's ended
   job leaves that job its workspace's. Runs of two workspaces so never
   share a registry entry.
-- **Flow user state.** Two workspaces never share a flow job's state. The
+- **Flow user state.** Two workspaces never share a flow job's state: the
   services' own store keeps each map with the registration (`Job.Gen`)
-  and workspace that wrote it, and a job record lists the state of the
-  registration that the read checked.
-- **Reuse within a workspace.** With the services' own registry, a run
-  whose id is registered again starts with no state. A host's registry
-  that numbers nothing, or a host's store, cannot tell two runs of one
-  workspace that reuse an id apart, as before. A host's store gets a job
-  of another workspace keyed by the workspace, a slash and the id, and
-  keeps no state for an id with a slash.
+  and workspace that wrote it. A job record lists the state of the
+  registration that the read checked, while that registration is a live
+  flow job.
+- **Reuse within a workspace.** In the services' own store, a run whose
+  id is registered again starts with no state. A host's registry or store,
+  which serves `windmill-lite` alone, keeps the state of a reused id as
+  before, by the job's id.
 - **A hook's `WM_WORKSPACE`** ([H12](0008-host-hooks.md#the-hooks)) is the
   workspace of a run without a configured one, as it always was. A run
   with a configured workspace stays in it: its token is valid there only,
