@@ -12,15 +12,20 @@ for hosts written in Bun, plain gRPC, HTTP and a CLI. Typed client methods,
 which are planned, are to be generated from each flow's or script's schema,
 to help callers without changing what a run does.
 
-In the planned go-plugin adapter, the engine binary is the plugin. It
-serves the versioned `windmill_lite.v1.Runner` gRPC service with standard
-gRPC health, and a Go host launches, pins, checks and supervises it with
-the package `wl/plugin`.
+In the go-plugin adapter, the engine binary is the plugin. It serves the
+versioned `windmill_lite.v1.Runner` gRPC service with standard gRPC health,
+and a Go host launches, pins, checks and supervises it with the package
+`wl/plugin`.
 
-**Not built yet:** the go-plugin adapter (`runner.proto`, the
-`windmill-lite plugin` command and its configuration, `wl/plugin` with its
-supervisor, and the host-hooks service on the broker), the plain gRPC and
-HTTP adapters, and typed methods (`windmill-lite gen`).
+**Not built yet:**
+
+- the engine's side of the go-plugin adapter: the `windmill-lite plugin`
+  command, its configuration, its `Runner` server, and its calls of the
+  host-hooks service on the broker;
+- `wl/plugin`'s supervisor, and its serving of a run's Go hooks on the
+  broker;
+- the plain gRPC and HTTP adapters;
+- typed methods (`windmill-lite gen`).
 
 ## Context
 
@@ -79,11 +84,11 @@ Every adapter below is a transport over these calls.
 
 ### Adapters, in order of delivery
 
-1. **go-plugin** (planned). The engine binary, started as
-   `windmill-lite plugin`, serves the `windmill_lite.v1.Runner` gRPC
-   service to a Go host that launches it with hashicorp/go-plugin, and
-   `wl/plugin` gives the host the client side and an optional supervisor
-   ([The go-plugin adapter](#the-go-plugin-adapter)).
+1. **go-plugin** (the engine's side is planned). The engine binary,
+   started as `windmill-lite plugin`, serves the `windmill_lite.v1.Runner`
+   gRPC service to a Go host that launches it with hashicorp/go-plugin,
+   and `wl/plugin` gives the host the client side and, planned, an
+   optional supervisor ([The go-plugin adapter](#the-go-plugin-adapter)).
 2. **Bun host SDK** (host mode). A TypeScript package for hosts that are
    themselves Bun programs: the host process is also the Bun harness. It
    starts the engine binary the host names as a child on a socketpair
@@ -143,11 +148,11 @@ Every adapter below is a transport over these calls.
 
 ### The go-plugin adapter
 
-The go-plugin adapter is planned. It has two halves: the
-`windmill-lite plugin` command, which serves a bundle as a go-plugin plugin
-over `wl`, and the Go package `wl/plugin`, which a host imports to launch,
-check, call and supervise that command. Their contract is the `Runner`
-service and standard gRPC health.
+The go-plugin adapter has two halves. The `windmill-lite plugin` command
+is planned to serve a bundle as a go-plugin plugin over `wl`. The Go
+package `wl/plugin` is what a host imports to launch, check and call that
+command, and it is planned to supervise it too. Their contract is the
+`Runner` service and standard gRPC health.
 
 Which process starts which, and who calls whom:
 
@@ -397,9 +402,9 @@ its own file, and the runner has already checked it.
 | `Handshake`, `PluginName` | go-plugin's handshake configuration and the plugin's name ([Handshake and versions](#handshake-and-versions)) |
 | `VersionedPlugins` | The plugin sets by `Runner` version, for both sides |
 | `RunnerPlugin` | The go-plugin plugin type. On the engine's side it registers the `Runner` server; on the host's it returns a `Client` |
-| `Client` | Typed calls: `BuildInfo`, `Run`, `Cancel` and `Health`. `Run` serves the run's Go hooks on the broker |
+| `Client` | Typed calls: `BuildInfo`, `Run`, `Cancel` and `Health`. `Run` is planned to serve the run's Go hooks on the broker |
 | `ClientConfig` | go-plugin's client configuration for one launch: the runner that checks the executable's SHA-256 and starts it with its configuration file, gRPC only, a fresh private socket directory, a literal environment with go-plugin's `SkipHostEnv` on, and the message limits |
-| `Supervisor` | The optional supervisor ([The supervisor](#the-supervisor)) |
+| `Supervisor` | The optional supervisor, which is planned ([The supervisor](#the-supervisor)) |
 
 `Client.Run` gives the run the earlier of two hard deadlines: the
 request's own, and the context's deadline less a margin for the reply (1 s
@@ -554,12 +559,13 @@ fetched from the module proxy and never vendored, and copies none of their
 files into the repository, `.proto` files included. Its own files stay
 under the Unlicense.
 
-A release's `LICENSES.txt` already carries the licence of every Go module
-that the engine links (`scripts/release.py notices`). For each MPL-2.0
-module it is planned to name also where that module's source is, as
-section 3.2 of the licence asks of a work distributed in executable form. A
-host that imports `wl/plugin` links go-plugin into its own binary, and
-gives that notice itself.
+A release's `LICENSES.txt` carries the licence of every Go module that the
+engine links (`scripts/release.py notices`). For each MPL-2.0 module it
+also names where that module's source is, as section 3.2 of the licence
+asks of a work distributed in executable form: the module's archive on the
+Go module proxy and its upstream repository. A host that imports
+`wl/plugin` links go-plugin into its own binary, and gives that notice
+itself.
 
 Alternatives:
 

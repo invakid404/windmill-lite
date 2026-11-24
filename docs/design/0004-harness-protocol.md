@@ -14,8 +14,7 @@ itself.
 
 **Not built yet:**
 
-- `runner.proto`, whose messages the `run`, `run_done` and `run_cancel`
-  frames share their fields with, and log limits in the welcome;
+- log limits in the welcome;
 - pinned runs and limits per run (§Pooling);
 - a host plugin built into the bundle, and run data in its processes
   (§Host plugins).
@@ -1133,9 +1132,8 @@ after it, that release would read as a cancellation, and such a run as
   - `run` carries `id`, `kind` (`flow` or `script`), `path`, raw `args` and
     an optional raw `intercept` (H1's static form,
     [host hooks](0008-host-hooks.md)), and `run_done` carries `status` and
-    an optional raw `result`. `runner.proto`'s messages are planned to
-    hold these fields under the same names, with the JSON values in
-    `bytes` fields
+    an optional raw `result`. `runner.proto`'s messages hold these fields
+    under the same names, with the JSON values in `bytes` fields
     ([host adapters](0009-host-adapters.md#the-runner-service)).
   - A run's `id` is its id in the engine, so the host finds the scope of
     each invocation by its `run`.
