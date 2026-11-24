@@ -1,0 +1,4 @@
+# The nine result polls of the jobs of a, c and w, made by the driver d
+# while its sibling w still runs.
+spec: [WA-V2, WA-15, WA-19]
+target: f/wl_rp/main

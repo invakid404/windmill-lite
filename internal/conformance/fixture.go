@@ -63,7 +63,12 @@ type Fixture struct {
 	// Providers are the named providers wltest check registers for the
 	// provided sites, by the names the entries give them.
 	Providers map[string]FixtureProvider `json:"providers,omitempty"`
-	Note      string                     `json:"note,omitempty"`
+	// ResultPollsForAllJobs runs the fixture on windmill-lite with
+	// wl.Options.ResultPollsForAllJobs, so that its steps' result polls
+	// answer for every job of a live run. The oracle, where Windmill
+	// always answers them, ignores it.
+	ResultPollsForAllJobs bool   `json:"result_polls_for_all_jobs,omitempty"`
+	Note                  string `json:"note,omitempty"`
 
 	// Setup is setup.yaml, or nil when the fixture has none.
 	Setup *Setup `json:"-"`

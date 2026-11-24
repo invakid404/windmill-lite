@@ -1,0 +1,31 @@
+summary: result polls of a large result and of the record's placeholder text
+value:
+  modules:
+    - id: big
+      value:
+        type: rawscript
+        content: '!inline big.ts'
+        input_transforms: {}
+        language: bun
+    - id: s
+      value:
+        type: rawscript
+        content: '!inline s.ts'
+        input_transforms: {}
+        language: bun
+    - id: d
+      value:
+        type: script
+        path: f/rp/drive
+        input_transforms:
+          ids:
+            type: static
+            value: ["big", "s"]
+          record:
+            type: static
+            value: big
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

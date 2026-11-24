@@ -1,0 +1,26 @@
+# The result polls of jobs that a flow created (WA-V2, WA-15, WA-19):
+# getCompletedJobResultMaybe with and without get_started, and
+# getCompletedJobResult, recorded on the oracle with two workers, since the
+# driver polls while its parallel sibling still runs (OR-5). The run's flow
+# f/wl_rp/main has a step a that returns {"k": [1, 2.50]}, a flow step c
+# that runs f/wl_rp/fails with continue_on_error, and a parallel branchall
+# p of the sibling w and the driver d. The sibling sets the flow user state
+# key started (WA-14) and waits until the driver sets release; the driver
+# waits for started, reads the run's job tree (WA-19) to find the jobs of
+# a, c and w, polls each of them three ways, sets release and returns the
+# nine answers: each one's status, content type and body text, so that the
+# recording keeps the body's spelling, with each "stack" string written
+# "(stack)", since a stack names the worker's directory, and without the
+# parenthesised source location that ends a not-found text, which
+# windmill-lite leaves out as a named deviation. Every id in an answer is
+# a job of the run, which the normaliser writes as its site (OR-14).
+# Synthetic, written for this repository from docs/design/README.md
+# (Recording requests, "The result polls for a job that a flow created").
+id: client-api/result-polls
+spec: [WA-V2, WA-15, WA-19, OR-5, OR-14]
+scope: core
+provenance: oracle-observed
+languages: [bun]
+oracle: {workers: 2}
+# windmill-lite answers the polls for a flow's jobs only with this option.
+result_polls_for_all_jobs: true
