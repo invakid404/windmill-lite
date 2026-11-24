@@ -85,15 +85,17 @@ type JobView interface {
 	// jobs_u/get_args/{id} answers them: jsonb's text output of the job's
 	// args, or of a flow job's input. It fails as JobRecord does.
 	JobArgs(id string) ([]byte, error)
-	// JobPoll returns the state of the job id names for the result polls
-	// ([WA-15], [WA-V2]): whether it has started, and once it has completed
-	// whether it succeeded and its whole result in jsonb's text output,
-	// which JobRecord replaces once it is too large. It serves the jobs
-	// that JobRecord serves, and fails as JobRecord does for the others.
+	// JobPoll returns the state of the job that j registers, as the
+	// lookup checked it, for the result polls ([WA-15], [WA-V2]): whether
+	// it has started, and once it has completed whether it succeeded and
+	// its whole result in jsonb's text output, which JobRecord replaces
+	// once it is too large. It serves the jobs that JobRecord serves, and
+	// fails as JobRecord does for j, a failure to list a flow job's user
+	// state included.
 	//
 	// [WA-15]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-15
 	// [WA-V2]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-v2
-	JobPoll(id string) (JobResult, error)
+	JobPoll(j Job) (JobResult, error)
 }
 
 // NotServed is why windmill-lite does not answer GET jobs_u/get/{id} for a
@@ -779,7 +781,7 @@ func (s *Services) ResultPollIn(id, scope string) (r JobResult, known bool, err 
 	if j, err = liveOf(jobs, j, live, id); err != nil {
 		return JobResult{}, true, err
 	}
-	r, err = j.View.JobPoll(id)
+	r, err = j.View.JobPoll(j)
 	return r, true, err
 }
 

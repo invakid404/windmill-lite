@@ -52,7 +52,7 @@ func (v namedView) JobArgs(string) ([]byte, error) {
 }
 
 // JobPoll answers a completed job whose result is the view's name.
-func (v namedView) JobPoll(string) (platform.JobResult, error) {
+func (v namedView) JobPoll(platform.Job) (platform.JobResult, error) {
 	return platform.JobResult{Started: true, Completed: true, Success: true, Result: []byte(`"` + string(v) + `"`)}, nil
 }
 
@@ -217,7 +217,7 @@ func (v listingView) JobRecord(j platform.Job) ([]byte, error) {
 }
 
 func (listingView) JobArgs(string) ([]byte, error) { return []byte(`{}`), nil }
-func (listingView) JobPoll(string) (platform.JobResult, error) {
+func (listingView) JobPoll(platform.Job) (platform.JobResult, error) {
 	return platform.JobResult{Started: true}, nil
 }
 
@@ -358,7 +358,7 @@ type endingView struct{}
 
 func (endingView) JobRecord(platform.Job) ([]byte, error) { return nil, platform.ErrEndedRun }
 func (endingView) JobArgs(string) ([]byte, error)         { return nil, platform.ErrEndedRun }
-func (endingView) JobPoll(string) (platform.JobResult, error) {
+func (endingView) JobPoll(platform.Job) (platform.JobResult, error) {
 	return platform.JobResult{}, platform.ErrEndedRun
 }
 

@@ -22,7 +22,7 @@ func (v viewOf) JobArgs(string) ([]byte, error) {
 }
 
 // JobPoll answers a completed job whose result is the run's id.
-func (v viewOf) JobPoll(string) (platform.JobResult, error) {
+func (v viewOf) JobPoll(platform.Job) (platform.JobResult, error) {
 	return platform.JobResult{Started: true, Completed: true, Success: true, Result: []byte(fmt.Sprintf("%q", string(v)))}, nil
 }
 

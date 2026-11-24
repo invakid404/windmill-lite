@@ -22,7 +22,7 @@ func (v testView) JobArgs(id string) ([]byte, error) {
 }
 
 // JobPoll answers a completed job whose result is the run's id.
-func (v testView) JobPoll(string) (JobResult, error) {
+func (v testView) JobPoll(Job) (JobResult, error) {
 	return JobResult{Started: true, Completed: true, Success: true, Result: []byte(fmt.Sprintf("%q", v.run))}, nil
 }
 

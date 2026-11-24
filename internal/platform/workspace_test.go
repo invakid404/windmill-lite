@@ -119,7 +119,7 @@ func (v argsView) JobRecord(Job) ([]byte, error) {
 	return []byte(`{"view":"` + string(v) + `"}`), nil
 }
 func (v argsView) JobArgs(string) ([]byte, error) { return []byte(`{"args":"` + string(v) + `"}`), nil }
-func (v argsView) JobPoll(string) (JobResult, error) {
+func (v argsView) JobPoll(Job) (JobResult, error) {
 	return JobResult{Started: true, Completed: true, Success: true, Result: []byte(`"` + string(v) + `"`)}, nil
 }
 

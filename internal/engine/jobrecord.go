@@ -193,15 +193,17 @@ func (v runView) record(id string, states json.RawMessage, hasStates bool) ([]by
 	return x.leafRecord(id, ref)
 }
 
-// JobPoll answers the result polls for the job id names
-// (platform.JobView). The job's state is the record's, as JobRecord
-// renders it but without the flow user state, which the polls do not
-// read, so that the polls serve the jobs that the job read serves;
+// JobPoll answers the result polls for the job that j registers, as the
+// lookup checked it (platform.JobView). The job's state is the record's,
+// as JobRecord renders it for j, so that the polls serve the jobs that the
+// job read serves and fail as it fails, when a flow job's user state
+// cannot be listed too;
 // a completed job's result is its whole stored result, in jsonb's text
 // output, where the record replaces a result that is too large (tooBig),
 // since Windmill's polls read the result column itself.
-func (v runView) JobPoll(id string) (platform.JobResult, error) {
-	rec, err := v.record(id, nil, false)
+func (v runView) JobPoll(j platform.Job) (platform.JobResult, error) {
+	id := j.ID
+	rec, err := v.JobRecord(j)
 	if err != nil {
 		return platform.JobResult{}, err
 	}
@@ -931,8 +933,8 @@ func (v *scriptView) JobRecord(j platform.Job) ([]byte, error) {
 // JobPoll answers the result polls for a dispatched script's job
 // (platform.JobView), as a run's JobPoll does: the record's state and
 // the whole stored result.
-func (v *scriptView) JobPoll(id string) (platform.JobResult, error) {
-	rec, err := v.JobRecord(platform.Job{ID: id})
+func (v *scriptView) JobPoll(j platform.Job) (platform.JobResult, error) {
+	rec, err := v.JobRecord(j)
 	if err != nil {
 		return platform.JobResult{}, err
 	}

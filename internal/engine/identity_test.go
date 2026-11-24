@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -442,5 +443,52 @@ func TestEngineWorkspaceWithAVerbatimRegistry(t *testing.T) {
 	}
 	if child == tr.RunID || !strings.HasPrefix(args, "{") || root != tr.RunID || state != `"child's"` {
 		t.Errorf("the branch child %s through ws-x: args %s, root %q, state %s; want its arguments, the run %s and its state", child, args, root, state, tr.RunID)
+	}
+}
+
+// listFailingStates is a host's flow user state store whose listing of a
+// flow job's map fails, as a store that cannot be reached would.
+type listFailingStates struct{ hostStates }
+
+func (*listFailingStates) UserStates(context.Context, string) (map[string]json.RawMessage, error) {
+	return nil, errors.New("the state store is unreachable")
+}
+
+// A result poll of every job (Services.ResultPollIn, which the facade calls
+// with ResultPollsForAllJobs) of a running flow, over a host's store whose
+// listing of the flow's user state fails, gives the flow's owner the
+// store's error, as the job read does, and never an answer that the flow
+// is in progress; for a caller of another workspace the flow is an id
+// with no job.
+func TestResultPollOfAFlowWhoseStateCannotBeListed(t *testing.T) {
+	services := &platform.Services{UserState: &listFailingStates{hostStates{vals: map[string]map[string]json.RawMessage{}}}}
+	type poll struct {
+		r     platform.JobResult
+		known bool
+		err   error
+	}
+	var own, foreign poll
+	var readErr error
+	x := execFunc(func(ctx context.Context, inv Invocation) (StepOutcome, error) {
+		run := inv.Env["WM_ROOT_JOB_ID"]
+		own.r, own.known, own.err = services.ResultPollIn(run, platform.DefaultHost.Workspace)
+		_, readErr = services.GetJobIn(run, platform.DefaultHost.Workspace)
+		foreign.r, foreign.known, foreign.err = services.ResultPollIn(run, "ws-x")
+		return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(`null`))}, nil
+	})
+	e := openInWorkspace(t, map[string]string{"f/t/main": flowOf(mod("s", "echo", "", ""))}, x, services, "")
+	tr, err := e.Run(context.Background(), RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`))})
+	if err != nil || tr.Status != "success" {
+		t.Fatalf("%v, %+v", err, tr)
+	}
+	const unreachable = "the state store is unreachable"
+	if !own.known || own.err == nil || own.err.Error() != unreachable || own.r.Started {
+		t.Errorf("the owner's poll of the running flow: known %t, %+v, %v; want the store's error", own.known, own.r, own.err)
+	}
+	if readErr == nil || readErr.Error() != unreachable {
+		t.Errorf("the owner's job read of the running flow: %v, want the store's error", readErr)
+	}
+	if foreign.known || foreign.err != nil || foreign.r.Started || foreign.r.Completed {
+		t.Errorf("ws-x's poll of the flow: known %t, %+v, %v; want an id with no job", foreign.known, foreign.r, foreign.err)
 	}
 }

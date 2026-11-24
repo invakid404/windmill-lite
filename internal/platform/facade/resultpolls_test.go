@@ -16,8 +16,8 @@ type pollsOf map[string]struct {
 	err error
 }
 
-func (v pollsOf) JobPoll(id string) (platform.JobResult, error) {
-	r, ok := v[id]
+func (v pollsOf) JobPoll(j platform.Job) (platform.JobResult, error) {
+	r, ok := v[j.ID]
 	if !ok {
 		return platform.JobResult{}, &platform.NotServed{Reason: "the job's run does not hold it"}
 	}
