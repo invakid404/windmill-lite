@@ -249,14 +249,19 @@ the host's own instance of `f/shared/ctx.ts`.
 
 `connect(options)` resolves with a [`Host`](#the-host) once the engine has
 welcomed the host. When a step below fails, it rejects with a `HostError`
-whose `code` names that step. A plugin of the wrong shape rejects with an
-ordinary `Error` instead ([Errors and refusals](#errors-and-refusals)):
+whose `code` names that step. A `plugin` option of the wrong shape rejects
+with an ordinary `Error` instead, and a bundle's own plugin of the wrong
+shape with `bundle` ([Errors and refusals](#errors-and-refusals)):
 
 1. It checks `workdir`: a directory that this process can write
    (`workdir_not_writable`), and already this process's working directory,
    once both are resolved without symbolic links (`workdir_mismatch`).
    Then it checks the fields of the `collect` option (`options`).
-2. It reads the bundle's manifest (`bundle`).
+2. It reads the bundle's manifest (`bundle`). For a bundle with a plugin
+   of its own, it refuses the `plugin` option (`options`). It checks the
+   bundle's plugin (`bundle`): a key, a module of `plugins/` that the
+   manifest lists, reached through no symbolic link, with the manifest's
+   digest, at a path that this process has not imported with other bytes.
 3. It registers the host's instances of the bundle's
    [host-provided modules](../../docs/glossary.md#host-provided-module)
    (`hostModules`), before any step loads. It writes a diagnostic for a
@@ -268,8 +273,12 @@ ordinary `Error` instead ([Errors and refusals](#errors-and-refusals)):
    a `-foreign-windmill` flag for each origin, and `engineFlags`, as the
    options ask (`engine_start`). The
    [`host` command](../../cmd/windmill-lite/README.md#host) describes
-   those flags.
-6. It runs the harness runtime in this process, and greets the engine.
+   those flags. For a bundle with a plugin of its own, it first runs
+   `<engine> verify <bundle> -digest <digest>`, pinned to the manifest it
+   read, and stops with `bundle` unless that exits 0.
+6. It runs the harness runtime in this process, loads the bundle's own
+   plugin, and greets the engine. A plugin that does not load rejects
+   with `bundle`, and an engine that ends while it loads with `rejected`.
    The engine checks the host's Bun, the bundle, the working directory, the
    SDK's version and the plugin, and welcomes or refuses the host. A
    refusal rejects `connect` with the engine's code.
@@ -569,17 +578,16 @@ the rules of each hook.
 - **The bundle's own.** A bundle built with a plugin (the host contract's
   `plugin`) holds it in `plugins/`, with the host-provided modules resolved
   to their shims. The engine names it with `--plugin` when `wl` names none,
-  and `connect` loads it when its `plugin` option is absent. `connect`
-  first checks the module against the manifest's digest, since it runs
-  before the engine has verified the bundle, and rejects at once when the
-  engine ends while the plugin loads.
+  and `connect` loads it when its `plugin` option is absent, once the
+  engine has verified the bundle ([What connect() does](#what-connect-does)).
+  A new release at the same path needs a new host process.
 - **When it loads.** A harness loads its plugin after the runtime has
   installed its process-wide hooks and the native realms have taken the
   web APIs, and `connect` loads a bundle's plugin at the same point. A
   `fetch` wrapper that such a plugin installs at load reaches ordinary
-  steps, and no native step: native realms take the runtime's fetch view
-  itself, so a wrapper left by an earlier connection's plugin does not
-  reach them either.
+  steps, and no native step, and stays for the rest of the process. After
+  a bundle's plugin, a host's later native realms take the runtime's first
+  fetch view, not `globalThis.fetch`.
 - **The declaration.** The harness sends the plugin's hooks and selectors
   to the engine in its hello. The engine refuses a host whose declaration
   it cannot use with `plugin_mismatch`: a malformed or ambiguous selector,
@@ -646,8 +654,9 @@ table below. Its `code` names the cause, and its message is
 error that has no `code`:
 
 - `connect()` rejects with an `Error` that starts `windmill-lite plugin:`
-  when the plugin has a wrong shape, such as an interception with both or
-  neither of `static` and `fn`. Fix the plugin.
+  when the `plugin` option has a wrong shape, such as an interception with
+  both or neither of `static` and `fn`. Fix the plugin. A bundle's own
+  plugin of a wrong shape rejects with a `HostError` `bundle` instead.
 - `run()` rejects with the `TypeError` of `JSON.stringify` when `args`
   does not serialise, such as a cycle or a `BigInt`. Pass JSON values.
 

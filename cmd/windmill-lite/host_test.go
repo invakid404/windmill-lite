@@ -1527,12 +1527,19 @@ func TestHostBundledPluginCases(t *testing.T) {
 	runHostPluginCases(t, f, report, false, "WL_BUNDLE="+buildPluginBundleWith(t, f, files, contract))
 }
 
-// fetchOrderBundle builds a bundle of the flows f/app/plain_flow and
+// fetchWrapPlugin is a bundled plugin that wraps the global fetch when it
+// loads: every request through the wrapper carries the header
+// x-plugin-wrap: 1.
+const fetchWrapPlugin = "const inner = globalThis.fetch;\n" +
+	"globalThis.fetch = Object.assign((input: RequestInfo | URL, init?: RequestInit) => {\n" +
+	"  const req = new Request(input, init);\n  req.headers.set(\"x-plugin-wrap\", \"1\");\n  return inner(req);\n}, inner);\n" +
+	"export default {};\n"
+
+// pluginHostBundle builds a bundle of the flows f/app/plain_flow and
 // f/app/native_flow, whose steps, an ordinary and a native one, fetch their
-// url input and return the response's text. With plugin, the host contract
-// names f/app/plugin.ts, which wraps the global fetch when it loads: every
-// request through the wrapper carries the header x-plugin-wrap.
-func fetchOrderBundle(t *testing.T, plugin bool) string {
+// url input and return the response's text. With a plugin source, the
+// host contract names it as f/app/plugin.ts, the bundle's own plugin.
+func pluginHostBundle(t *testing.T, plugin string) string {
 	t.Helper()
 	repo, err := filepath.Abs("../..")
 	if err != nil {
@@ -1543,10 +1550,11 @@ func fetchOrderBundle(t *testing.T, plugin bool) string {
 		"wmill.yaml":      "defaultTs: bun\n",
 		"f/app/plain.ts":  "export async function main(url: string) { return await (await fetch(url)).text(); }\n",
 		"f/app/native.ts": "//native\nexport async function main(url: string) { return await (await fetch(url)).text(); }\n",
-		"f/app/plugin.ts": "const inner = globalThis.fetch;\n" +
-			"globalThis.fetch = Object.assign((input: RequestInfo | URL, init?: RequestInit) => {\n" +
-			"  const req = new Request(input, init);\n  req.headers.set(\"x-plugin-wrap\", \"1\");\n  return inner(req);\n}, inner);\n" +
-			"export default {};\n",
+	}
+	contract := "roots: [{flow: f/app/plain_flow}, {flow: f/app/native_flow}]\n"
+	if plugin != "" {
+		files["f/app/plugin.ts"] = plugin
+		contract += "plugin: f/app/plugin.ts\n"
 	}
 	for _, s := range []string{"plain", "native"} {
 		files["f/app/"+s+"_flow.flow/flow.yaml"] = `{"summary":"f","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/app/` + s +
@@ -1560,10 +1568,6 @@ func fetchOrderBundle(t *testing.T, plugin bool) string {
 		if err := os.WriteFile(full, []byte(src), 0o644); err != nil {
 			t.Fatal(err)
 		}
-	}
-	contract := "roots: [{flow: f/app/plain_flow}, {flow: f/app/native_flow}]\n"
-	if plugin {
-		contract += "plugin: f/app/plugin.ts\n"
 	}
 	out := filepath.Join(t.TempDir(), "bundle")
 	if _, err := bundle.Build(context.Background(), bundle.Config{
@@ -1587,6 +1591,43 @@ func headerServer(t *testing.T) *httptest.Server {
 	return srv
 }
 
+// runPluginHost runs testdata/pluginhost/host.ts on Bun, with this test
+// binary as its engine and env added to its environment, and decodes the
+// JSON line it prints into report.
+func runPluginHost(t *testing.T, report any, env ...string) {
+	t.Helper()
+	bun := bunForTest(t)
+	script, err := filepath.Abs("testdata/pluginhost/host.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	engineBin, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bun, "run", script)
+	cmd.Dir = t.TempDir()
+	cmd.Env = append(append(os.Environ(), "WL_TEST_ENGINE=1", "WL_ENGINE="+engineBin), env...)
+	// A file, not a pipe: the engine inherits it, and a pipe would make the
+	// command wait for the engine's exit too.
+	stderr, err := os.Create(filepath.Join(t.TempDir(), "stderr"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stderr.Close()
+	cmd.Stderr = stderr
+	out, err := cmd.Output()
+	if err != nil {
+		log, _ := os.ReadFile(stderr.Name())
+		t.Fatalf("the host: %v\nstdout:\n%s\nstderr:\n%s", err, out, log)
+	}
+	if err := json.Unmarshal(out, report); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+}
+
 // TestHostBundledPluginFetchOrder: the host SDK loads the bundle's own
 // plugin as a spawned harness process loads one, after the runtime has
 // installed its fetch view and the native realms have taken the web APIs.
@@ -1596,7 +1637,7 @@ func headerServer(t *testing.T) *httptest.Server {
 func TestHostBundledPluginFetchOrder(t *testing.T) {
 	compiledHost(t)
 	srv := headerServer(t)
-	s := supervise(t, 30000, "WL_BUNDLE="+fetchOrderBundle(t, true))
+	s := supervise(t, 30000, "WL_BUNDLE="+pluginHostBundle(t, fetchWrapPlugin))
 	for _, c := range []struct{ flow, want string }{
 		{"f/app/plain_flow", `"1"`},
 		{"f/app/native_flow", `""`},
@@ -1611,50 +1652,117 @@ func TestHostBundledPluginFetchOrder(t *testing.T) {
 	}
 }
 
+// reconnectReport is what the reconnect scenario prints: each flow's
+// result, the header its request carried, on each connection.
+type reconnectReport struct{ Plain, Native, PlainAgain, NativeAgain json.RawMessage }
+
 // TestHostReconnectKeepsNativeFetch: a host process that connects on a
 // bundle whose plugin wraps the global fetch at load, closes, and connects
-// again on a bundle with no plugin still gives its native steps the
-// runtime's fetch view, not the wrapper that the first connection's plugin
-// left on globalThis (testdata/reconnecthost/host.ts).
+// again on a bundle with no plugin gives its native steps the runtime's
+// fetch view on both connections, never the wrapper that the first
+// connection's plugin left on globalThis. That wrapper stays for the rest
+// of the process, so the second connection's ordinary step still goes
+// through it.
 func TestHostReconnectKeepsNativeFetch(t *testing.T) {
-	bun := bunForTest(t)
 	srv := headerServer(t)
-	withPlugin, without := fetchOrderBundle(t, true), fetchOrderBundle(t, false)
-	script, err := filepath.Abs("testdata/reconnecthost/host.ts")
-	if err != nil {
-		t.Fatal(err)
-	}
-	engineBin, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, bun, "run", script)
-	cmd.Dir = t.TempDir()
-	cmd.Env = append(os.Environ(), "WL_TEST_ENGINE=1", "WL_ENGINE="+engineBin, "WL_BUNDLE="+withPlugin, "WL_BUNDLE2="+without, "WL_URL="+srv.URL)
-	// A file, not a pipe: the engine inherits it, and a pipe would make the
-	// command wait for the engine's exit too.
-	stderr, err := os.Create(filepath.Join(t.TempDir(), "stderr"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer stderr.Close()
-	cmd.Stderr = stderr
-	out, err := cmd.Output()
-	if err != nil {
-		log, _ := os.ReadFile(stderr.Name())
-		t.Fatalf("the host: %v\nstdout:\n%s\nstderr:\n%s", err, out, log)
-	}
-	var r struct{ Plain, Native, NativeAgain json.RawMessage }
-	if err := json.Unmarshal(out, &r); err != nil {
-		t.Fatalf("%v: %s", err, out)
-	}
+	var r reconnectReport
+	runPluginHost(t, &r, "WL_SCENARIO=reconnect", "WL_URL="+srv.URL,
+		"WL_BUNDLE="+pluginHostBundle(t, fetchWrapPlugin), "WL_BUNDLE2="+pluginHostBundle(t, ""))
 	if string(r.Plain) != `"1"` || string(r.Native) != `""` {
 		t.Errorf("first connection: plain %s, native %s; want the header on the ordinary step only", r.Plain, r.Native)
 	}
-	if string(r.NativeAgain) != `""` {
-		t.Errorf("second connection: native %s; want no header, the runtime's fetch view", r.NativeAgain)
+	if string(r.NativeAgain) != `""` || string(r.PlainAgain) != `"1"` {
+		t.Errorf("second connection: plain %s, native %s; want the plugin's wrapper on the ordinary step only", r.PlainAgain, r.NativeAgain)
+	}
+}
+
+// TestHostReconnectKeepsHostFetch: in a host process that loads no bundled
+// plugin, each connection's native steps take globalThis.fetch as it is
+// when the connection's runtime is made, as before bundled plugins
+// existed. A wrapper that the host installs between two connections, on
+// bundles with no plugin, reaches the second connection's native step as
+// well as its ordinary one.
+func TestHostReconnectKeepsHostFetch(t *testing.T) {
+	srv := headerServer(t)
+	plain := pluginHostBundle(t, "")
+	var r reconnectReport
+	runPluginHost(t, &r, "WL_SCENARIO=reconnect", "WL_URL="+srv.URL, "WL_HOST_WRAP=1", "WL_BUNDLE="+plain, "WL_BUNDLE2="+plain)
+	if string(r.Plain) != `""` || string(r.Native) != `""` {
+		t.Errorf("first connection: plain %s, native %s; want no header before the host wraps fetch", r.Plain, r.Native)
+	}
+	if string(r.PlainAgain) != `"host"` || string(r.NativeAgain) != `"host"` {
+		t.Errorf("second connection: plain %s, native %s; want the host's wrapper on both", r.PlainAgain, r.NativeAgain)
+	}
+}
+
+// TestHostVerifiesBundleBeforePlugin: the host SDK has the engine verify
+// the whole bundle before it evaluates the bundle's own plugin, whose top
+// level writes a marker file. On the bundle as built, connect() resolves
+// and the marker appears. Once another file of the bundle changes, with
+// the plugin itself untouched, connect() rejects with bundle and the
+// plugin never runs.
+func TestHostVerifiesBundleBeforePlugin(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "plugin-ran")
+	dir := pluginHostBundle(t, fmt.Sprintf("require(\"node:fs\").writeFileSync(%q, \"ran\");\nexport default {};\n", marker))
+	var r struct {
+		Connected     bool
+		Code, Message string
+	}
+	runPluginHost(t, &r, "WL_SCENARIO=connect", "WL_BUNDLE="+dir)
+	if !r.Connected {
+		t.Fatalf("connect on the bundle as built: %+v", r)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("the plugin did not run on the bundle as built: %v", err)
+	}
+	if err := os.Remove(marker); err != nil {
+		t.Fatal(err)
+	}
+	step := filepath.Join(dir, "scripts", "bun", "f", "app", "plain.mjs")
+	data, err := os.ReadFile(step)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(step, append(data, []byte("\n// changed\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r = struct {
+		Connected     bool
+		Code, Message string
+	}{}
+	runPluginHost(t, &r, "WL_SCENARIO=connect", "WL_BUNDLE="+dir)
+	if r.Connected || r.Code != "bundle" || !strings.Contains(r.Message, "verify refused the bundle") {
+		t.Errorf("connect on the changed bundle: %+v, want a HostError bundle from the engine's verify", r)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("the plugin ran though the bundle failed verification")
+	}
+}
+
+// TestHostRefusesStalePluginRelease: a host process that connects on one
+// release of a bundle, closes, and connects again after a second release,
+// with another plugin, replaced the bundle at the same path. Bun would give
+// back the first release's plugin module for the same path, so the second
+// connect() rejects with bundle, asking for a restart, rather than running
+// the first release's hooks against the second bundle.
+func TestHostRefusesStalePluginRelease(t *testing.T) {
+	release := func(name string) string {
+		return pluginHostBundle(t, fmt.Sprintf("export default { onRunEnd: async () => [{ code: \"release\", message: %q }] };\n", name))
+	}
+	a, b := release("a"), release("b")
+	var r struct {
+		First  []struct{ Code, Message string }
+		Second struct {
+			Code, Message string
+			Warnings      []struct{ Code, Message string }
+		}
+	}
+	runPluginHost(t, &r, "WL_SCENARIO=releases", "WL_RELEASE_A="+a, "WL_RELEASE_B="+b, "WL_DIR="+filepath.Join(t.TempDir(), "current"))
+	if !slices.Contains(r.First, struct{ Code, Message string }{"release", "a"}) {
+		t.Errorf("first release: warnings %+v, want release a's onRunEnd", r.First)
+	}
+	if r.Second.Code != "bundle" || !strings.Contains(r.Second.Message, "restart the host") || len(r.Second.Warnings) > 0 {
+		t.Errorf("second release at the same path: %+v, want a HostError bundle asking for a restart", r.Second)
 	}
 }
 

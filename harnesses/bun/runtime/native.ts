@@ -390,9 +390,7 @@ export class Native {
   /** Takes the harness realm's web APIs, and fetchView as its fetch: called
    * once the runtime has wrapped fetch for the facade (ADR 0004), before any
    * step module loads, so no step's change to them reaches a native realm.
-   * The runtime passes the view that installFetch returned, which a
-   * wrapper that a host plugin installed on an earlier connection of the
-   * process never replaces. */
+   * The runtime passes the fetch that installFetch returned. */
   capture(fetchView: typeof fetch = globalThis.fetch) {
     const g = globalThis as Record<string, unknown>;
     for (const name of WEB_GLOBALS) if (g[name] !== undefined) this.web[name] = g[name];

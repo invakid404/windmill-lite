@@ -107,15 +107,35 @@ test("an engine that cannot start is engine_start", async () => {
 // A bundle directory whose manifest names a plugin of its own, at file, and
 // records digest for it (by default, the digest of source), with source
 // written at file when file is under the directory.
-function pluginBundle(source: string, o: { file?: string; digest?: string; listed?: boolean } = {}) {
+function pluginBundle(source: string, o: { file?: string; digest?: string; listed?: boolean; key?: string } = {}) {
   const dir = tempDir("wl-host-plugin-");
   const file = o.file ?? "plugins/f/app/plugin.mjs";
   const digest = o.digest ?? "sha256:" + new Bun.CryptoHasher("sha256").update(source).digest("hex");
   mkdirSync(join(dir, file, ".."), { recursive: true });
   writeFileSync(join(dir, file), source);
   const files = o.listed === false ? {} : { [file]: digest };
-  writeFileSync(join(dir, "manifest.json"), JSON.stringify({ host_modules: [], plugin: { key: "f/app/plugin.ts", file }, files }));
+  writeFileSync(join(dir, "manifest.json"), JSON.stringify({ host_modules: [], plugin: { key: o.key ?? "f/app/plugin.ts", file }, files }));
   return dir;
+}
+
+// A stand-in engine, run by /bin/sh: it passes the SDK's verify, writes its
+// pid to pidFile, and then runs script (its host command).
+function standIn(pidFile: string, script: string): Partial<ConnectOptions> {
+  return { engine: "/bin/sh", engineArgs: ["-c", `case "$1" in verify) exit 0;; esac; echo $$ > '${pidFile}'; ${script}`, "sh"] };
+}
+
+// Whether the process whose pid is in pidFile exits within a second.
+async function exits(pidFile: string): Promise<boolean> {
+  const pid = Number((await Bun.file(pidFile).text()).trim());
+  for (let i = 0; i < 100; i++) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return true;
+    }
+    await Bun.sleep(10);
+  }
+  return false;
 }
 
 // connect() in dir, which is also the working directory.
@@ -146,25 +166,46 @@ test("connect verifies the bundle's plugin before it runs any of it", async () =
   expect(await connectIn(pluginBundle(changed, { listed: false }), {})).toBe("bundle");
   expect(await connectIn(pluginBundle(changed, { file: "scripts/plugin.mjs" }), {})).toBe("bundle");
   expect(await connectIn(pluginBundle(changed, { file: "plugins/../plugin.mjs" }), {})).toBe("bundle");
+  // No key, as the engine's verification requires one.
+  expect(await connectIn(pluginBundle(changed, { key: "" }), {})).toBe("bundle");
+  // Reached through a symbolic link below the bundle directory, its bytes
+  // matching the manifest: the file itself, or a directory above it.
+  const outside = tempDir("wl-host-outside-");
+  writeFileSync(join(outside, "plugin.mjs"), changed);
+  mkdirSync(join(outside, "app"));
+  writeFileSync(join(outside, "app", "plugin.mjs"), changed);
+  const linkedFile = pluginBundle(changed);
+  rmSync(join(linkedFile, "plugins/f/app/plugin.mjs"));
+  symlinkSync(join(outside, "plugin.mjs"), join(linkedFile, "plugins/f/app/plugin.mjs"));
+  expect(await connectIn(linkedFile, {})).toBe("bundle");
+  const linkedDir = pluginBundle(changed);
+  rmSync(join(linkedDir, "plugins/f"), { recursive: true });
+  symlinkSync(outside, join(linkedDir, "plugins/f"));
+  expect(await connectIn(linkedDir, {})).toBe("bundle");
   expect(existsSync(marker)).toBe(false);
 }, 20_000);
 
-test("connect rejects at once when the engine ends while the bundle's plugin loads, and sends no hello", async () => {
+test("connect rejects at once when the engine ends while the bundle's plugin loads", async () => {
   // The plugin's evaluation never ends; the engine exits without a hello.
   const dir = pluginBundle("await new Promise(() => {});\nexport default {};\n");
   const started = performance.now();
   const got = await Promise.race([
-    connectIn(dir, { engine: "/bin/sh", engineArgs: ["-c", "exit 0"] }),
+    connectIn(dir, standIn(join(tempDir("wl-host-pid-"), "pid"), "exit 0")),
     Bun.sleep(5_000).then(() => "still pending"),
   ]);
   expect(got).toBe("rejected");
   expect(performance.now() - started).toBeLessThan(5_000);
 }, 20_000);
 
-test("a bundle's plugin that throws a value that is not an Error rejects connect with bundle", async () => {
-  for (const thrown of ["undefined", "null", "42"]) {
-    const dir = pluginBundle(`throw ${thrown};\nexport default {};\n`);
-    expect(await connectIn(dir, { engine: "/bin/sh", engineArgs: ["-c", "exec sleep 30"] })).toBe("bundle");
+test("a bundle's plugin that throws a value that is not an Error rejects connect with bundle, and the engine exits", async () => {
+  const revoked = "const r = Proxy.revocable({}, {});\nr.revoke();\nthrow r.proxy;\n";
+  for (const top of ["throw undefined;\n", "throw null;\n", "throw 42;\n", revoked]) {
+    const pidFile = join(tempDir("wl-host-pid-"), "pid");
+    // The plugin throws once the engine has started and written its pid.
+    const started = `while (!require("node:fs").existsSync(${JSON.stringify(pidFile)})) await Bun.sleep(5);\n`;
+    const dir = pluginBundle(started + top + "export default {};\n");
+    expect(await connectIn(dir, standIn(pidFile, "exec sleep 30"))).toBe("bundle");
+    expect(await exits(pidFile)).toBe(true);
   }
 }, 20_000);
 
