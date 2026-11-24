@@ -183,18 +183,31 @@ var inflightSteps = []string{"b0", "b1", "b2", "b3"}
 // "test" in dir leave, one at a time: it releases a step that is inside
 // only while two are inside, or once all four have entered, and waits for
 // that step to leave before it releases another. A third step that
-// entered while two were inside would see three. It fails the test if
-// the steps do not get that far within a minute.
-func releaseInflight(t *testing.T, dir string) {
+// entered while two were inside would see three. Once ended is closed,
+// when the run's call has returned, such as with a refusal, it returns at
+// once and leaves the report to its caller. It fails the test if the
+// steps do not get that far within a minute.
+func releaseInflight(t *testing.T, dir string, ended <-chan struct{}) {
 	t.Helper()
 	has := func(name string) bool {
 		_, err := os.Stat(filepath.Join(dir, name))
 		return err == nil
 	}
+	over := func() bool {
+		select {
+		case <-ended:
+			return true
+		default:
+			return false
+		}
+	}
 	deadline := time.Now().Add(time.Minute)
 	for released := map[string]bool{}; len(released) < len(inflightSteps); {
 		next := ""
 		for next == "" {
+			if over() {
+				return
+			}
 			if time.Now().After(deadline) {
 				t.Fatalf("the parallel branches did not reach two inside within a minute; released %v", released)
 			}
@@ -217,7 +230,15 @@ func releaseInflight(t *testing.T, dir string) {
 			t.Fatal(err)
 		}
 		released[next] = true
-		waitFile(t, dir, next+".out")
+		for !has(next + ".out") {
+			if over() {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("the released branch %s did not leave within a minute", next)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
 	}
 }
 
@@ -279,11 +300,11 @@ func (e *pluginEngine) runAll(t *testing.T, reqs ...*plugin.RunRequest) []*plugi
 }
 
 // TestRunnerPinnedState checks pinned runs (ADR 0009, process affinity and
-// limits) in a pool whose recycle trigger lets a process run one script.
-// f/opt/pinned's three steps are three scripts. The second distinct script
-// that a process runs trips its trigger, and the process then takes no new
-// invocation of an unpinned run, which goes to the replacement, where the
-// bundle's host plugin has no state for the run.
+// limits) in a pool whose module recycle threshold is one. f/opt/pinned's
+// three steps are three scripts. The dispatch of a second distinct script
+// to a process trips its trigger: that script still runs there, and the
+// process then takes no new invocation of an unpinned run, which goes to
+// the replacement, where the bundle's host plugin has no state for the run.
 //
 //   - With pin set on each request, and then with the configuration's
 //     pool.pin_runs and no pin on the requests, two concurrent runs each
@@ -374,12 +395,14 @@ func TestRunnerLimits(t *testing.T) {
 			err error
 		}
 		done := make(chan outcome, 1)
+		ended := make(chan struct{})
 		go func() {
 			res, err := e.run(&plugin.RunRequest{Path: "f/opt/inflight", Args: args, Limits: limits})
 			done <- outcome{res, err}
+			close(ended)
 		}()
 		if hold == "test" {
-			releaseInflight(t, dir)
+			releaseInflight(t, dir, ended)
 		}
 		o := <-done
 		var counts []int
