@@ -364,9 +364,10 @@ func decodeSelectors(raw []byte, sels *[]wl.Selector) error {
 	return nil
 }
 
-// runLimits maps a request's limits to wl's. Runtime.Run refuses a
-// negative limit; a count that an int cannot hold refuses here, naming
-// its field.
+// runLimits maps a request's limits to wl's. A count that an int cannot
+// hold, either way, refuses here, naming its field, so that no value
+// changes as it narrows; Runtime.Run refuses a negative limit that an int
+// holds.
 func runLimits(l *plugin.Limits) (wl.RunLimits, error) {
 	for _, f := range []struct {
 		name string
@@ -375,8 +376,8 @@ func runLimits(l *plugin.Limits) (wl.RunLimits, error) {
 		{"limits.max_in_flight", l.GetMaxInFlight()},
 		{"limits.max_args_bytes", l.GetMaxArgsBytes()},
 	} {
-		if f.v > math.MaxInt {
-			return wl.RunLimits{}, invalid(f.name, fmt.Sprintf("%d is more than this engine can count (%d)", f.v, math.MaxInt))
+		if f.v < math.MinInt || f.v > math.MaxInt {
+			return wl.RunLimits{}, invalid(f.name, fmt.Sprintf("%d is outside what this engine can count (%d to %d)", f.v, math.MinInt, math.MaxInt))
 		}
 	}
 	return wl.RunLimits{

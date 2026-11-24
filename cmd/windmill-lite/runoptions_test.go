@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"google.golang.org/grpc/codes"
 
@@ -45,7 +46,8 @@ export const pids = new Map<string, number[]>();
 	"f/opt/plugin.ts": `import { pids, seen } from "./ctx.ts";
 type Next = () => Promise<unknown>;
 const data = async (c: { run: string }, next: Next) => {
-  seen.set(c.run, (globalThis as any).wl.run.data ?? "undefined");
+  const data = (globalThis as any).wl.run.data;
+  seen.set(c.run, data === undefined ? "undefined" : data);
   return next();
 };
 const pid = async (c: { run: string }, next: Next) => {
@@ -86,17 +88,26 @@ export async function main() {
   return { pids: pids.get(process.env.WM_FLOW_JOB_ID ?? "") ?? [], pid: process.pid };
 }
 `,
-	"f/opt/inflight.ts": `// Marks its entry in dir, waits 300 ms, counts the steps of dir that
-// have entered and not left, itself included, marks its exit and returns
-// the count.
-import { readdirSync, writeFileSync } from "node:fs";
-export async function main(dir: string, me: string) {
+	"f/opt/inflight.ts": `// Marks its entry in dir and counts the steps of dir inside at that
+// moment, itself included: entered and not left. Then it waits, at most
+// 60 s: with hold "all" until four steps have entered, and with hold
+// "test" until the test writes <me>.go. It marks its exit before it
+// returns the count, so that a step admitted after it sees it gone.
+import { existsSync, readdirSync, writeFileSync } from "node:fs";
+export async function main(dir: string, me: string, hold: string) {
   writeFileSync(dir + "/" + me + ".in", "");
-  await Bun.sleep(300);
   const names = readdirSync(dir);
-  const inside = names.filter((n) => n.endsWith(".in") && !names.includes(n.slice(0, -3) + ".out")).length;
+  const seen = names.filter((n) => n.endsWith(".in") && !names.includes(n.slice(0, -3) + ".out")).length;
+  const ready = hold === "all"
+    ? () => readdirSync(dir).filter((n) => n.endsWith(".in")).length >= 4
+    : () => existsSync(dir + "/" + me + ".go");
+  const until = Date.now() + 60_000;
+  while (!ready()) {
+    if (Date.now() > until) throw new Error("not released");
+    await Bun.sleep(5);
+  }
   writeFileSync(dir + "/" + me + ".out", "");
-  return inside;
+  return seen;
 }
 `,
 	"f/opt/big.ts": `// Returns a string of 100 characters.
@@ -161,7 +172,53 @@ export async function main(base: string) {
 // f/opt/inflight, named me.
 func inflightBranch(me string) string {
 	return `{"summary":"","skip_failure":false,"modules":[{"id":"` + me + `","value":{"type":"script","path":"f/opt/inflight",` +
-		`"input_transforms":{"dir":{"type":"javascript","expr":"flow_input.dir"},"me":{"type":"static","value":"` + me + `"}}}}]}`
+		`"input_transforms":{"dir":{"type":"javascript","expr":"flow_input.dir"},"me":{"type":"static","value":"` + me + `"},` +
+		`"hold":{"type":"javascript","expr":"flow_input.hold"}}}}]}`
+}
+
+// inflightSteps are the names of f/opt/inflight's four branch steps.
+var inflightSteps = []string{"b0", "b1", "b2", "b3"}
+
+// releaseInflight lets the steps of a run of f/opt/inflight with hold
+// "test" in dir leave, one at a time: it releases a step that is inside
+// only while two are inside, or once all four have entered, and waits for
+// that step to leave before it releases another. A third step that
+// entered while two were inside would see three. It fails the test if
+// the steps do not get that far within a minute.
+func releaseInflight(t *testing.T, dir string) {
+	t.Helper()
+	has := func(name string) bool {
+		_, err := os.Stat(filepath.Join(dir, name))
+		return err == nil
+	}
+	deadline := time.Now().Add(time.Minute)
+	for released := map[string]bool{}; len(released) < len(inflightSteps); {
+		next := ""
+		for next == "" {
+			if time.Now().After(deadline) {
+				t.Fatalf("the parallel branches did not reach two inside within a minute; released %v", released)
+			}
+			entered, inside := 0, []string{}
+			for _, s := range inflightSteps {
+				if has(s + ".in") {
+					entered++
+					if !has(s + ".out") {
+						inside = append(inside, s)
+					}
+				}
+			}
+			if len(inside) >= 2 || (entered == len(inflightSteps) && len(inside) >= 1) {
+				next = inside[0]
+			} else {
+				time.Sleep(5 * time.Millisecond)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(dir, next+".go"), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		released[next] = true
+		waitFile(t, dir, next+".out")
+	}
 }
 
 const runOptionContract = `roots:
@@ -222,17 +279,20 @@ func (e *pluginEngine) runAll(t *testing.T, reqs ...*plugin.RunRequest) []*plugi
 }
 
 // TestRunnerPinnedState checks pinned runs (ADR 0009, process affinity and
-// limits): two concurrent runs of f/opt/pinned, whose three steps are
-// three scripts, in a pool whose recycle trigger lets a process run one
-// script. The second script trips the trigger of the process that runs
-// it, which then takes no new invocation of an unpinned run: an unpinned
-// run's third step goes to the replacement, where the bundle's host
-// plugin has no state for the run. With pin set on each request, and then
-// with the configuration's pool.pin_runs and no pin on the requests, each
-// run keeps its process: the plugin's list for each run holds the entries
-// of all three steps, each the reporting step's process. Without either,
-// the control, the reporting step runs in another process than the first
-// two, and its process holds only its own entry.
+// limits) in a pool whose recycle trigger lets a process run one script.
+// f/opt/pinned's three steps are three scripts. The second distinct script
+// that a process runs trips its trigger, and the process then takes no new
+// invocation of an unpinned run, which goes to the replacement, where the
+// bundle's host plugin has no state for the run.
+//
+//   - With pin set on each request, and then with the configuration's
+//     pool.pin_runs and no pin on the requests, two concurrent runs each
+//     keep the process of their first step, whichever it is: the plugin's
+//     list for each run holds the entries of all three steps, each the
+//     reporting step's process.
+//   - The control is one unpinned run, alone in its engine, so that its
+//     own second step is what trips the trigger: its reporting step runs
+//     in the replacement, whose list for the run holds only its own entry.
 func TestRunnerPinnedState(t *testing.T) {
 	bun, out := runOptionBundle(t)
 	for _, c := range []struct {
@@ -255,7 +315,12 @@ func TestRunnerPinnedState(t *testing.T) {
 			req := func(id string) *plugin.RunRequest {
 				return &plugin.RunRequest{Id: id, Path: "f/opt/pinned", Pin: c.pin}
 			}
-			for i, res := range e.runAll(t, req("pinned-0"), req("pinned-1")) {
+			pinned := c.pin || c.pinRuns
+			reqs := []*plugin.RunRequest{req("unpinned")}
+			if pinned {
+				reqs = []*plugin.RunRequest{req("pinned-0"), req("pinned-1")}
+			}
+			for i, res := range e.runAll(t, reqs...) {
 				var got struct {
 					PIDs []int
 					PID  int
@@ -267,7 +332,7 @@ func TestRunnerPinnedState(t *testing.T) {
 				for _, pid := range got.PIDs {
 					whole = whole && pid == got.PID
 				}
-				switch pinned := c.pin || c.pinRuns; {
+				switch {
 				case pinned && !whole:
 					t.Errorf("run %d: the host plugin's state for the run is %v in process %d; want the three steps' entries there, the run's state whole",
 						i, got.PIDs, got.PID)
@@ -281,9 +346,12 @@ func TestRunnerPinnedState(t *testing.T) {
 }
 
 // TestRunnerLimits checks a request's limits (ADR 0009, process affinity
-// and limits) on the engine's one process. max_in_flight 2 lets two of
-// four parallel branches run at once, and the result's deviations name
-// that cap, while without it all four run at once. Arguments larger than
+// and limits) on the engine's one process. Each of four parallel branches
+// counts the branches inside at its entry. With max_in_flight 2, whose
+// branches wait for the test's release, none sees more than two, the
+// second of the first two sees two, and the result's deviations name the
+// cap. Without it, each waits until all four have entered, and the last
+// sees four. Arguments larger than
 // max_args_bytes refuse the run before it starts, with the RUN_NOT_STARTED
 // detail, and arguments of that size run. Stored values past
 // max_held_bytes latch the run with run_memory_limit. A reservation past
@@ -294,24 +362,37 @@ func TestRunnerLimits(t *testing.T) {
 	bun, out := runOptionBundle(t)
 	e := launchPlugin(t, pluginConfigOf(t, bun, out))
 
-	inflight := func(limits *plugin.Limits) (int, []string) {
+	inflight := func(limits *plugin.Limits, hold string) (int, []string) {
 		t.Helper()
-		args, err := json.Marshal(map[string]string{"dir": t.TempDir()})
+		dir := t.TempDir()
+		args, err := json.Marshal(map[string]string{"dir": dir, "hold": hold})
 		if err != nil {
 			t.Fatal(err)
 		}
-		res := e.mustRun(t, &plugin.RunRequest{Path: "f/opt/inflight", Args: args, Limits: limits})
-		var counts []int
-		if res.GetStatus() != "success" || json.Unmarshal(res.GetResult(), &counts) != nil || len(counts) != 4 {
-			t.Fatalf("the parallel branches: %s %s", res.GetStatus(), res.GetResult())
+		type outcome struct {
+			res *plugin.RunResult
+			err error
 		}
-		return slices.Max(counts), res.GetDeviations()
+		done := make(chan outcome, 1)
+		go func() {
+			res, err := e.run(&plugin.RunRequest{Path: "f/opt/inflight", Args: args, Limits: limits})
+			done <- outcome{res, err}
+		}()
+		if hold == "test" {
+			releaseInflight(t, dir)
+		}
+		o := <-done
+		var counts []int
+		if o.err != nil || o.res.GetStatus() != "success" || json.Unmarshal(o.res.GetResult(), &counts) != nil || len(counts) != 4 {
+			t.Fatalf("the parallel branches: (%v, %v)\nthe engine's standard error:\n%s", o.res, o.err, e.stderr)
+		}
+		return slices.Max(counts), o.res.GetDeviations()
 	}
-	if most, deviations := inflight(&plugin.Limits{MaxInFlight: 2}); most != 2 || !slices.Contains(deviations, "D15") {
-		t.Errorf("max_in_flight 2: at most %d branches at once, deviations %v; want 2, with D15", most, deviations)
+	if most, deviations := inflight(&plugin.Limits{MaxInFlight: 2}, "test"); most != 2 || !slices.Contains(deviations, "D15") {
+		t.Errorf("max_in_flight 2: at most %d branches inside at once, deviations %v; want 2, with D15", most, deviations)
 	}
-	if most, deviations := inflight(nil); most != 4 || slices.Contains(deviations, "D15") {
-		t.Errorf("no limits: at most %d branches at once, deviations %v; want 4, without D15", most, deviations)
+	if most, deviations := inflight(nil, "all"); most != 4 || slices.Contains(deviations, "D15") {
+		t.Errorf("no limits: at most %d branches inside at once, deviations %v; want 4, without D15", most, deviations)
 	}
 
 	args := []byte(`{"x":"` + strings.Repeat("x", 100) + `"}`)
@@ -434,9 +515,9 @@ func TestRunnerRunData(t *testing.T) {
 }
 
 // TestRunnerMaxLive checks the configuration's pool.max_live, the bound on
-// a pool's live processes (ADR 0009, the plugin command): a bound below
-// the pool's maximum refuses the start, naming it, as wl.Open refuses it,
-// and a bound of the maximum serves runs.
+// a pool's live processes (ADR 0009, the plugin command): a max_live of 1
+// with a max of 2 refuses the start, naming the bound, as wl.Open refuses
+// a positive bound below the maximum, and a max_live of 2 serves runs.
 func TestRunnerMaxLive(t *testing.T) {
 	bun, out := runOptionBundle(t)
 	cfg := pluginConfigOf(t, bun, out)
@@ -458,8 +539,8 @@ func TestRunnerMaxLive(t *testing.T) {
 // and the configuration lists one of them. A step's dispatch under
 // /api/w/{workspace}/jobs/run/ to the listed one loses the parent_job and
 // root_job that carry the step's own job ids, while the same dispatch to
-// the other keeps them. An origin with a path refuses the start, naming
-// its position.
+// the other keeps them. An origin with the path /api refuses the start,
+// naming its position.
 func TestRunnerForeignOrigins(t *testing.T) {
 	bun, out := runOptionBundle(t)
 	type request struct {
