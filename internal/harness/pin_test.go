@@ -26,6 +26,16 @@ func onRun(run string, extra ...map[string]any) map[string]any {
 	return a
 }
 
+// mustPin pins run in pool.
+func mustPin(t *testing.T, pool *Pool, run string) *Pin {
+	t.Helper()
+	p, err := pool.PinRun(run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
 // statsOf returns the pool's snapshot of the process pid.
 func statsOf(pool *Pool, pid int) (ProcessStats, bool) {
 	for _, s := range pool.Stats() {
@@ -50,7 +60,7 @@ func releaseHold(t *testing.T, ctl, name string) {
 // live.
 func TestPinnedRunStaysOnTaintedProcess(t *testing.T) {
 	pool, ctl, log := fakePool(t, PoolConfig{Max: 1, RecycleTimeout: time.Minute})
-	pool.PinRun("A")
+	mustPin(t, pool, "A")
 	a := fakeRun(t, pool, "s", onRun("A"))
 	abandon(t, pool, ctl, "x", onRun("A"))
 	if b := fakeRun(t, pool, "s", onRun("B")); b == a {
@@ -69,11 +79,11 @@ func TestPinnedRunStaysOnTaintedProcess(t *testing.T) {
 // new pins again.
 func TestNoNewPinOnTaintedProcess(t *testing.T) {
 	pool, ctl, _ := fakePool(t, PoolConfig{Max: 2, RecycleTimeout: time.Minute})
-	pool.PinRun("B")
+	mustPin(t, pool, "B")
 	p := fakeRun(t, pool, "s", onRun("B"))
 	// B's abandoned step taints p, which B's live pin keeps, idle.
 	abandon(t, pool, ctl, "x", onRun("B"))
-	pool.PinRun("A")
+	mustPin(t, pool, "A")
 	q := fakeRun(t, pool, "s", onRun("A"))
 	if q == p {
 		t.Fatalf("a new pin went to the tainted process %d", p)
@@ -89,7 +99,7 @@ func TestNoNewPinOnTaintedProcess(t *testing.T) {
 		s, ok := statsOf(pool, p)
 		return ok && !s.Tainted && !s.Surplus && s.Abandoned == 0
 	})
-	pool.PinRun("C")
+	mustPin(t, pool, "C")
 	if got := fakeRun(t, pool, "s", onRun("C")); got != p {
 		t.Fatalf("a new pin went to %d; the process back in service is %d", got, p)
 	}
@@ -103,7 +113,7 @@ func TestNoNewPinOnTaintedProcess(t *testing.T) {
 // once the run has ended.
 func TestPinHoldsUntilRunEnd(t *testing.T) {
 	pool, ctl, log := fakePool(t, PoolConfig{Max: 1})
-	pinA := pool.PinRun("A")
+	pinA := mustPin(t, pool, "A")
 	a := fakeRun(t, pool, "s", onRun("A"))
 	// Another run's abandoned step taints a; A is between steps.
 	abandon(t, pool, ctl, "x", onRun("B"))
@@ -124,7 +134,7 @@ func TestPinHoldsUntilRunEnd(t *testing.T) {
 // ended.
 func TestPinAfterTaintClears(t *testing.T) {
 	pool, ctl, log := fakePool(t, PoolConfig{Max: 1})
-	pinA := pool.PinRun("A")
+	pinA := mustPin(t, pool, "A")
 	a := fakeRun(t, pool, "s", onRun("A"))
 	abandon(t, pool, ctl, "x", onRun("B"))
 	q := fakeRun(t, pool, "s", onRun("C"))
@@ -152,7 +162,7 @@ func TestPinAfterTaintClears(t *testing.T) {
 // while an unpinned one goes to another process.
 func TestPinnedRunCapFull(t *testing.T) {
 	pool, ctl, log := fakePool(t, PoolConfig{Max: 2, Cap: 1})
-	pool.PinRun("A")
+	mustPin(t, pool, "A")
 	h := startHeld(t, pool, ctl, "h", onRun("A"))
 	log.note("pinned at cap")
 	w := goRun(pool, "s", onRun("A"))
@@ -176,7 +186,7 @@ func TestPinnedRunCapFull(t *testing.T) {
 // has ended, its late calls go to another process.
 func TestPinnedRunProcessLost(t *testing.T) {
 	pool, ctl, log := fakePool(t, PoolConfig{Max: 1}, "WL_FAKE_PLUGIN=same")
-	pinA := pool.PinRun("A")
+	pinA := mustPin(t, pool, "A")
 	h := startHeld(t, pool, ctl, "h", onRun("A"))
 	var a int
 	for _, s := range pool.Stats() {
@@ -227,7 +237,7 @@ func TestPinnedRunHostCalls(t *testing.T) {
 		}
 		return r.PID
 	}
-	pinA := pool.PinRun("A")
+	pinA := mustPin(t, pool, "A")
 	a := fakeRun(t, pool, "s", onRun("A"))
 	abandon(t, pool, ctl, "x", onRun("A"))
 	if got := hostCall("resource", "A"); got != a {
@@ -273,13 +283,13 @@ func TestPinIDReuse(t *testing.T) {
 		}
 		return r.PID
 	}
-	first := pool.PinRun("A")
+	first := mustPin(t, pool, "A")
 	p := fakeRun(t, pool, "s", onRun("A"))
 	// Another run's abandoned step taints p, and the first run ends, not
 	// yet settled: p drains, its drain held.
 	abandon(t, pool, ctl, "x", onRun("X"))
 	pool.RunEnded(first)
-	second := pool.PinRun("A")
+	second := mustPin(t, pool, "A")
 	q := fakeRun(t, pool, "s", onRun("A"))
 	if q == p {
 		t.Fatalf("the second run with the id went to the first run's tainted process %d", p)
@@ -306,7 +316,7 @@ func TestPinIDReuse(t *testing.T) {
 	// any run's, not to the earlier run's leaving process.
 	pool2, ctl2, _ := fakePool(t, PoolConfig{Max: 2, RecycleTimeout: time.Minute}, "WL_FAKE_PLUGIN=same")
 	holdDrains(t, ctl2)
-	pinB := pool2.PinRun("B")
+	pinB := mustPin(t, pool2, "B")
 	b := fakeRun(t, pool2, "s", onRun("B"))
 	abandon(t, pool2, ctl2, "x", onRun("X"))
 	pool2.RunEnded(pinB)
@@ -350,7 +360,7 @@ func TestPinRebindsAfterARefusedFirstCall(t *testing.T) {
 				proc.ending = true
 				proc.mu.Unlock()
 			}
-			pool.PinRun("A")
+			mustPin(t, pool, "A")
 			var q int
 			if first == "step" {
 				q = fakeRun(t, pool, "s", onRun("A"))
@@ -381,18 +391,20 @@ func TestPinRebindsAfterARefusedFirstCall(t *testing.T) {
 // trigger with work of its own in flight, so two leavers fill MaxLive and
 // a new invocation waits. The surplus process drains only once the
 // unrelated work, held past RecycleTimeout, has completed, and frees its
-// place only at its exit: the new invocation waits through the held drain,
-// and runs in a third process once the exit is observed. That process
-// trips the module trigger and keeps serving while the RSS leaver holds
-// the slot; its replacement starts once that leaver has exited. Spawns
-// minus observed exits never pass 2.
+// place only at its exit: the new invocation runs in a third process,
+// which starts only after that exit. That process trips the module
+// trigger and keeps serving while the RSS leaver holds the slot; its
+// replacement starts once that leaver has exited. Spawns minus observed
+// exits never pass 2. A drain ends at its release or, after
+// RecycleTimeout, its kill: the order of the pool's events, not the
+// moment of a check, shows each step.
 func TestPoolAliveCount(t *testing.T) {
 	const recycle = 50 * time.Millisecond
 	// The first process runs three scripts (s, held, abandoned), which
 	// Modules 3 allows.
 	pool, ctl, log := fakePool(t, PoolConfig{Max: 1, MaxLive: 2, RecycleTimeout: recycle, Recycle: RecycleTriggers{RSS: 1000, Modules: 3}})
 	holdDrains(t, ctl)
-	pinA := pool.PinRun("A")
+	pinA := mustPin(t, pool, "A")
 	a := fakeRun(t, pool, "s", onRun("A"))
 	u := startHeld(t, pool, ctl, "u", onRun("U"))
 	abandon(t, pool, ctl, "x", onRun("X"))
@@ -432,10 +444,8 @@ func TestPoolAliveCount(t *testing.T) {
 		t.Fatalf("the unrelated work ran elsewhere: %+v", r.out)
 	}
 	log.waitFor(t, "unrelated done", drainA)
-	// The drained process holds its place until its exit.
-	notReturned(t, w, "an invocation while the drained process has not exited")
-	if n := log.count("spawn"); n != 2 {
-		t.Fatalf("%d spawns before the surplus process exited: %q", n, log.after(""))
+	if !log.before("note: unrelated done", 1, drainA, 1) {
+		t.Fatalf("the drain began before the unrelated work completed: %q", log.after(""))
 	}
 	releaseDrain(t, ctl, a)
 	r := wait(t, w)
@@ -462,9 +472,6 @@ func TestPoolAliveCount(t *testing.T) {
 	}
 	drainQ, exitQ := fmt.Sprintf("drain %d", q), fmt.Sprintf("exit %d", q)
 	log.waitFor(t, "q released", drainQ)
-	if n := log.count("spawn"); n != 3 {
-		t.Fatalf("%d spawns while the RSS leaver holds the slot: %q", n, log.after(""))
-	}
 	releaseDrain(t, ctl, q)
 	log.waitFor(t, "q released", exitQ)
 	waitFor(t, "the module retiree's replacement", func() bool { return log.count("spawn") >= 4 })
@@ -473,5 +480,127 @@ func TestPoolAliveCount(t *testing.T) {
 	}
 	if _, most := log.stats(); most > 2 {
 		t.Fatalf("%d processes alive at once with MaxLive 2: %q", most, log.after(""))
+	}
+}
+
+// pidOfHostCall asks pool's plugin for its PID, with ctx, as run.
+func pidOfHostCall(t *testing.T, ctx context.Context, pool *Pool, run string) int {
+	t.Helper()
+	out, err := pool.HostCall(ctx, "resource", run, "", jsonval.FromProducer([]byte(`{}`)))
+	var r struct{ PID int }
+	if err != nil || json.Unmarshal(out.Producer(), &r) != nil {
+		t.Fatalf("a host call of %s: %s, %v", run, out.Producer(), err)
+	}
+	return r.PID
+}
+
+// An unpinned run's calls carry its routing choice (Unpinned): its late
+// call, after a pinned run took its id, neither binds that run's pin nor
+// goes by it.
+func TestUnpinnedRunLateCalls(t *testing.T) {
+	pool, ctl, _ := fakePool(t, PoolConfig{Max: 3, RecycleTimeout: time.Minute}, "WL_FAKE_PLUGIN=same")
+	holdDrains(t, ctl)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	earlier := WithPin(ctx, pool.Unpinned("C"))
+	p := fakeRun(t, pool, "s", onRun("U"))
+	later := mustPin(t, pool, "C")
+	// Before the later run's first call: the earlier run's late call does
+	// not bind the later run's pin to p, which an abandoned step then
+	// taints.
+	if got := pidOfHostCall(t, earlier, pool, "C"); got != p {
+		t.Fatalf("the earlier run's late call went to %d, want the serving %d", got, p)
+	}
+	abandon(t, pool, ctl, "x", onRun("X"))
+	q := fakeRun(t, pool, "s", onRun("C"))
+	if q == p {
+		t.Fatalf("the later run's first step went to the tainted %d: the earlier run's late call bound its pin", p)
+	}
+	// After it: the later run's process q is tainted by its own abandoned
+	// step, which its live pin keeps; the earlier run's late call goes as
+	// any call does, so not to q.
+	abandon(t, pool, ctl, "y", onRun("C"))
+	if got := pidOfHostCall(t, earlier, pool, "C"); got == q {
+		t.Fatalf("the earlier run's late call went by the later run's pin to its tainted process %d", q)
+	}
+	pool.RunEnded(later)
+}
+
+// A pool routes only by its own pins: a call to one pool whose context
+// carries another pool's pin of the same run id goes as that pool's own
+// routing says.
+func TestPinOfAnotherPool(t *testing.T) {
+	poolA, _, _ := fakePool(t, PoolConfig{Max: 1}, "WL_FAKE_PLUGIN=same")
+	poolB, _, _ := fakePool(t, PoolConfig{Max: 1}, "WL_FAKE_PLUGIN=same")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	pa := mustPin(t, poolA, "D")
+	a := fakeRun(t, poolA, "s", onRun("D"))
+	b := fakeRun(t, poolB, "s", onRun("U"))
+	if got := pidOfHostCall(t, WithPin(ctx, pa), poolB, "D"); got != b || got == a {
+		t.Fatalf("pool B's call with pool A's pin went to %d; pool B's process is %d, pool A's %d", got, b, a)
+	}
+	poolA.RunEnded(pa)
+}
+
+// One id has one live pin: PinRun refuses an id whose pin a live run
+// holds, and takes it again once that run has ended.
+func TestPinRunRefusesALivePin(t *testing.T) {
+	pool, _, _ := fakePool(t, PoolConfig{Max: 1})
+	first := mustPin(t, pool, "A")
+	if _, err := pool.PinRun("A"); !errors.Is(err, ErrPinLive) {
+		t.Fatalf("a second pin of a live run's id: %v; want ErrPinLive", err)
+	}
+	pool.RunEnded(first)
+	if _, err := pool.PinRun("A"); err != nil {
+		t.Fatalf("a pin of an ended run's id: %v", err)
+	}
+}
+
+// A pin binds afresh after its first call ended before it was sent, by
+// its own context's end: nothing of the run reached the process. So the
+// run's next step, once that process is tainted, goes elsewhere.
+func TestPinRebindsAfterACallThatWasNotSent(t *testing.T) {
+	pool, ctl, _ := fakePool(t, PoolConfig{Max: 2, RecycleTimeout: time.Minute})
+	holdDrains(t, ctl)
+	p := fakeRun(t, pool, "s", onRun("U"))
+	mustPin(t, pool, "A")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := pool.Execute(ctx, fakeInvocation("s", onRun("A"))); err == nil {
+		t.Fatal("an invocation with an ended context ran")
+	}
+	abandon(t, pool, ctl, "x", onRun("X"))
+	if got := fakeRun(t, pool, "s", onRun("A")); got == p {
+		t.Fatalf("the run's step went to the tainted %d, which its unsent first call had bound", p)
+	}
+}
+
+// Concurrent first calls across an observed exit: while the first call of
+// a pinned run, taken but not yet sent, is under way on a process whose
+// exit the pool then observes, another call of the run waits for it
+// rather than report the process lost. Once the first reports that it was
+// not sent, the pin binds afresh and the waiting call runs elsewhere.
+// (The test takes and releases the first call itself, to hold it between
+// the pick and the send.)
+func TestPinFirstCallsAcrossAnExit(t *testing.T) {
+	pool, _, log := fakePool(t, PoolConfig{Max: 2})
+	p := fakeRun(t, pool, "s", onRun("U"))
+	mustPin(t, pool, "A")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	m, pn, err := pool.acquire(ctx, "A", true)
+	if err != nil || m.p.PID() != p {
+		t.Fatalf("the first call took %v, %v; want %d", m, err, p)
+	}
+	memberProcess(t, pool, p).Kill()
+	log.waitFor(t, "", fmt.Sprintf("exit %d", p))
+	log.note("second")
+	w := goRun(pool, "s", onRun("A"))
+	log.waitFor(t, "second", "wait")
+	notReturned(t, w, "the second call while the first is under way")
+	pool.release(m, pn, false, true, true, "A")
+	if got := wait(t, w); got == p {
+		t.Fatalf("the second call ran in the exited %d", p)
 	}
 }

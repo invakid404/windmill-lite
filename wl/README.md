@@ -232,7 +232,10 @@ runtime and host mode refuse both.
   hold it. A run that never ends holds its process until its hard
   deadline, so give pinned runs one.
 - **An id used again.** A later run with the same id has a pin of its
-  own, or none, while the earlier run's late calls keep to its process.
+  own, or none, while the earlier run's late calls keep to its process,
+  or, for an unpinned run, to the ordinary routing. A pinned run is
+  refused with `ErrRunInFlight` while a live pinned run, such as one that
+  a step dispatched, has its id.
 - **When its process ends.** A step in flight there fails as a process
   that dies fails it. The run's next step or host-plugin call latches the
   run with `ErrPinnedProcessLost`, and the step does not start.
@@ -531,7 +534,7 @@ as a missing `HarnessRuntime` or one of another digest.
 | `ErrUnsupported` | `Open` | A flow uses a feature that the engine does not run yet. The error names it. | Change the flow, or run it on Windmill. |
 | `ErrMissingProvider` (`missing_provider`) | `Open` | The host contract names a provider that neither `Options.Providers` nor the host plugin has. | Register the provider. |
 | `ErrClosed` | `Run` | `Close` has begun. | Open a new runtime. |
-| `ErrRunInFlight` | `Run` | A run of the runtime with the same `RunOptions.ID` is in flight. Nothing ran. | Use another id, or wait for that run to return. |
+| `ErrRunInFlight` | `Run` | A run of the runtime with the same `RunOptions.ID` is in flight, or, for a pinned run, a live pinned run that a step dispatched has it. Nothing ran. | Use another id, or wait for that run to return. |
 | `ErrSelector` | `Run` | A selector does not name exactly one of a module and a script, or a script selector has `Occurrence`, `Iterations` or `Branches`. | Fix the selector. |
 | `ErrAmbiguousSelector` (`ambiguous_selector`) | `Run` | A module selector names an id that a module list repeats. | Add `Occurrence`. |
 | `ErrProviderDeclined` (`provider_declined`) | `Result.Latched` | A provider declined. | Make the provider answer every call. |
@@ -820,6 +823,7 @@ build helper's dependencies, and skip without them unless
 | `store_test.go` | `Options.ResourceStore` on real steps (`TestResourceStoreOnBun`): two runtimes that share a memory store, one with its own, a failing store's warning, and `D24` in the trace; a run id in flight refused (`TestRunIDInFlight`). Without Bun: `Close` releasing its own store while readers use it (`TestCloseReleasesItsOwnStore`), and a late answer kept from a later run of the same id (`TestLateAnswerAcrossIDReuse`) | Yes, but for the last two |
 | `pool_test.go` | `Options.Pool`. Without Bun: `Open`'s refusals in `fresh` and host mode (`TestPoolOptionsRefusedFresh`) and of `MaxLive` below `Max` (`TestPoolMaxLiveBelowMax`), and the cap's entry in the trace. On real steps: a second process for a step beside a CPU-bound one and under `Cap`, the module and RSS triggers (`TestWlPoolOptions`), and the warm start (`TestWarmStart`). A step reads a plugin's resource under `Cap: 1` (`TestPoolCapLeavesPluginCalls`) and while its process leaves (`TestPoolRecyclingProcessServesPluginCalls`); zero settings call the diagnostics writer as before (`TestDiagnosticsZeroSettings`) | Yes, but for the refusals and the trace |
 | `pin_test.go` | A pinned run whose process is killed between two steps latches `ErrPinnedProcessLost`, and one whose process dies in its last step fails with no latch (`TestPinnedRunProcessLost`). A later run that takes an unsettled pinned run's id is routed as its own, while the earlier run's late calls keep to its process (`TestPinnedRunIDReuse`). Runs that steps dispatch take the runtime's total and pinning (`TestDispatchedRunsTakeRuntimeSettings`) | Yes |
+| `pinown_test.go` | The routing choice of each run. An unpinned run's late calls after a pinned run took its id (`TestUnpinnedRunLateCallsAfterIDReuse`), and a hook's context passed to another runtime's run (`TestPinOfAnotherRuntime`). A dispatched run keeps its pin when a Run with its id is refused and its process trips a trigger (`TestDispatchedRunKeepsItsPin`) | Yes |
 | `limits_test.go` | `RunOptions.Limits`: arguments refused before the run, measured as given, `D15`, `ErrRunMemoryLimit` in a flow and a script job, a negative limit (`TestRunLimits`) | Yes |
 | `budget_test.go` | `wl.reserve`: two runs' own budgets, one run's budget across two processes, the runtime's total, and an `around` wrapper's reservation (`TestRunByteBudget`, `TestRunByteBudgetAcrossProcesses`, `TestRuntimeByteTotal`, `TestRunByteBudgetAround`) | Yes |
 | `foreign_test.go` | `ForeignWindmillOrigins` in the welcome, and its refusals (`TestForeignWindmillOrigins`). The stock client's and a native step's dispatch to two loopback servers that stand in for real Windmill instances, in `warm` and `fresh`, with and without the option (`TestForeignWindmillLinks`, on the cases of `testdata/foreign/cases.json`). That test also needs `WL_WINDMILL_CLIENT`. | Yes, but for the first |

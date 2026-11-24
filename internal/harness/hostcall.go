@@ -146,7 +146,12 @@ func (pl *Pool) HostCall(ctx context.Context, hook, run, site string, payload js
 		}
 		out, err := m.p.HostCall(ctx, hook, run, site, payload)
 		unavailable := errors.Is(err, errUnavailable)
-		pl.release(m, pn, unavailable, false, "")
+		// The call reached the process if it answered, or was sent before
+		// ctx ended.
+		var hce *HostCallError
+		var late *LateHostCallError
+		reached := err == nil || errors.As(err, &hce) || errors.As(err, &late)
+		pl.release(m, pn, reached, unavailable, false, "")
 		if unavailable {
 			continue
 		}
@@ -165,6 +170,6 @@ func (pl *Pool) Plugin(ctx context.Context) (jsonval.Value, error) {
 	if err != nil {
 		return jsonval.Value{}, err
 	}
-	defer pl.release(m, nil, false, false, "")
+	defer pl.release(m, nil, true, false, false, "")
 	return m.p.Hello().Plugin, nil
 }

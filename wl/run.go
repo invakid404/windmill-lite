@@ -197,28 +197,33 @@ func SeededJitter(seed uint64) Jitter { return engine.SeededJitter(seed) }
 // context.DeadlineExceeded.
 var ErrPreWriteDeadline = engine.ErrPreWriteDeadline
 
-// pin pins the run id to a pool process when it asks for it (pin) or the
-// runtime pins every run (Options.Pool.PinRuns), and the bundle has a pool.
-// It returns the run's pin, nil for none, which the run's calls carry in
-// their context (harness.WithPin); the settlement callback, which then
-// also forgets the pin, wrapping settled; and the function to call when
-// the run has ended, which ends the pin's hold on its process. A run that
-// settles is forgotten at its settlement, and one that never settles keeps
-// a pin that holds nothing. An unpinned run that takes the id of an
-// earlier pinned one is routed as its own: the earlier pin then routes
-// only the calls that carry it.
-func (rt *Runtime) pin(id string, pin bool, settled func()) (*harness.Pin, func(), func()) {
+// pin makes the routing choice of the run id in a runtime with a pool: it
+// pins the run to a pool process when it asks for it (pin) or the runtime
+// pins every run (Options.Pool.PinRuns), and otherwise marks it unpinned.
+// It returns the choice, nil without a pool, which the run's calls carry
+// in their context (harness.WithPin), its late ones included, so that no
+// other run's choice, of a later run with the id or of another runtime,
+// routes them; the settlement callback, which also forgets a pin, wrapping
+// settled; and the function to call when the run has ended, which ends the
+// pin's hold on its process. A run that settles is forgotten at its
+// settlement, and one that never settles keeps a pin that holds nothing.
+// A pin that a live run of the id holds, such as a run that a step
+// dispatched, refuses the run with ErrRunInFlight.
+func (rt *Runtime) pin(id string, pin bool, settled func()) (*harness.Pin, func(), func(), error) {
 	switch {
 	case rt.pool == nil:
-		return nil, settled, func() {}
+		return nil, settled, func() {}, nil
 	case !(pin || rt.pinRuns):
 		if rt.pinned.Load() {
 			rt.pool.UnpinRun(id)
 		}
-		return nil, settled, func() {}
+		return rt.pool.Unpinned(id), settled, func() {}, nil
 	}
 	rt.pinned.Store(true)
-	p := rt.pool.PinRun(id)
+	p, err := rt.pool.PinRun(id)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("%w: %w", ErrRunInFlight, err)
+	}
 	return p, func() {
 			rt.pool.ForgetRun(p)
 			if settled != nil {
@@ -226,7 +231,7 @@ func (rt *Runtime) pin(id string, pin bool, settled func()) (*harness.Pin, func(
 			}
 		}, func() {
 			rt.pool.RunEnded(p)
-		}
+		}, nil
 }
 
 // forgetPin drops the pin of a run that did not start, which never
@@ -238,7 +243,8 @@ func (rt *Runtime) forgetPin(p *harness.Pin) {
 }
 
 // ErrRunInFlight is Run's error for an id (RunOptions.ID) that a run of the
-// runtime in flight already has. Nothing runs; the id can be used again
+// runtime in flight already has, or, for a pinned run, that a live pinned
+// run that a step dispatched has. Nothing runs; the id can be used again
 // once that run has returned.
 var ErrRunInFlight = errors.New("wl: a run with this id is in flight")
 
@@ -343,7 +349,10 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		ctx = calls.reportStoreFailures(ctx)
 		req := engine.ScriptRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Around: rt.aroundAt(), MaxHeldBytes: opts.Limits.MaxHeldBytes,
 			Bytes: opts.Limits.Bytes, ByteTotal: rt.byteTotal}
-		p, settled, unpin := rt.pin(id, opts.Pin, settled)
+		p, settled, unpin, err := rt.pin(id, opts.Pin, settled)
+		if err != nil {
+			return nil, err
+		}
 		defer unpin()
 		ctx = harness.WithPin(ctx, p)
 		var s *engine.RunSettlement
@@ -392,7 +401,10 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	if err != nil {
 		return nil, err
 	}
-	p, settled, unpin := rt.pin(id, opts.Pin, settled)
+	p, settled, unpin, err := rt.pin(id, opts.Pin, settled)
+	if err != nil {
+		return nil, err
+	}
 	defer unpin()
 	ctx = harness.WithPin(ctx, p)
 	if h != nil {

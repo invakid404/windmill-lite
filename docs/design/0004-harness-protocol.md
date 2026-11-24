@@ -645,8 +645,10 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
   remaining hook calls, such as `onRunSettled`, to that process while it
   can answer, draining or not, but no longer holds it.
 - **One pin per run.** A pin belongs to the run that it was made for: a
-  later run with the same id has its own, or none, and the earlier run's
-  late calls still follow the earlier pin.
+  later run with the same id has its own, or none. The earlier run's late
+  calls still follow the earlier pin, or, for an unpinned run, the
+  ordinary routing. A live pinned run's id, a run that a step dispatched
+  included, refuses another run until it has ended.
 - So a pinned run that never settles holds no process, and one that never
   ends holds its process until its hard deadline or its cancellation ends
   it. A host that pins runs gives them a hard deadline.

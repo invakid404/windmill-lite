@@ -223,8 +223,12 @@ func (m *member) inService() bool {
 // later run took the same id; any other call of the run routes by the pin
 // that its id names.
 type Pin struct {
-	run string
-	m   *member
+	pool *Pool
+	run  string
+	// unpinned marks an unpinned run's routing choice (Unpinned): its
+	// calls go through the ordinary pick, never by the pin of its id.
+	unpinned bool
+	m        *member
 	// ended: the run has ended (RunEnded), so the pin no longer holds m.
 	ended bool
 	// active counts the calls that the pin sent to m and that have not
@@ -241,8 +245,14 @@ type Pin struct {
 // pinKey carries a Pin in a context (WithPin).
 type pinKey struct{}
 
-// WithPin returns ctx carrying p: the pool routes a call made with it by p
-// when the call is of p's run, even after another run took its id.
+// ErrPinLive is PinRun's error for an id whose pin a live run holds, such
+// as a run that a step dispatched: one id has one live run.
+var ErrPinLive = errors.New("harness: a live run already holds the pin of this id")
+
+// WithPin returns ctx carrying p, a run's routing choice: p's pool routes
+// a call made with it by p when the call is of p's run, even after another
+// run took its id, and through the ordinary pick when p is an unpinned
+// run's (Unpinned). Another pool ignores it.
 func WithPin(ctx context.Context, p *Pin) context.Context {
 	if p == nil {
 		return ctx
@@ -428,10 +438,13 @@ func (pl *Pool) Execute(ctx context.Context, inv engine.Invocation) (engine.Step
 		// The slot is freed as soon as the engine stops waiting for the
 		// invocation, before its Reporter learns the outcome, or else here.
 		var once sync.Once
-		release := func(unavailable bool) { once.Do(func() { pl.release(m, pn, unavailable, true, inv.Run) }) }
-		out, d, err := m.p.exec(ctx, inv, func() { release(false) })
+		// The outcome is fixed only for an invocation that was sent.
+		release := func(reached, unavailable bool) {
+			once.Do(func() { pl.release(m, pn, reached, unavailable, true, inv.Run) })
+		}
+		out, d, err := m.p.exec(ctx, inv, func() { release(true, false) })
 		unavailable := d == notDispatched && errors.Is(err, errUnavailable)
-		release(unavailable)
+		release(d != notDispatched, unavailable)
 		if d == notDispatched {
 			if unavailable {
 				// The process stopped serving between the pick and the
@@ -619,7 +632,10 @@ func (pl *Pool) takeLocked(m *member, run string, step bool) {
 // context carries (WithPin) when it is run's, or else the one run's id
 // names; nil when there is none.
 func (pl *Pool) pinOfLocked(ctx context.Context, run string) *Pin {
-	if p, ok := ctx.Value(pinKey{}).(*Pin); ok && p.run == run {
+	if p, ok := ctx.Value(pinKey{}).(*Pin); ok && p.pool == pl && p.run == run {
+		if p.unpinned {
+			return nil
+		}
 		return p
 	}
 	return pl.pins[run]
@@ -640,6 +656,9 @@ func (pl *Pool) pinOfLocked(ctx context.Context, run string) *Pin {
 //   - After the run's end, its late calls go to the member while it can
 //     answer, leaving or not, without holding it; once it has exited or
 //     refused one, they route as any call does.
+//   - While no call of the run has reached the member, its leaving says
+//     nothing of the run: a call waits for the one under way to say how it
+//     went, and once none is, the pin binds afresh.
 func (pl *Pool) pinnedLocked(pn *Pin, run string, step bool) (*member, bool, error) {
 	if pn == nil || pn.m == nil {
 		return nil, false, nil
@@ -650,6 +669,12 @@ func (pl *Pool) pinnedLocked(pn *Pin, run string, step bool) (*member, bool, err
 		return nil, false, nil
 	case pn.ended:
 		return m, false, nil
+	case !pn.reached && (m.gone || m.retiring):
+		if pn.active > 0 {
+			return nil, true, nil
+		}
+		pn.m = nil
+		return nil, false, nil
 	case m.gone:
 		return nil, false, fmt.Errorf("harness: run %s: its pinned process has exited: %w", run, engine.ErrPinnedProcessLost)
 	case m.retiring:
@@ -660,21 +685,23 @@ func (pl *Pool) pinnedLocked(pn *Pin, run string, step bool) (*member, bool, err
 	return m, false, nil
 }
 
-// releasePinLocked records how a call that pn sent to m ended: reached m
-// (unavailable false), or refused by it before dispatch. A refusal frees
-// a pin that no call has reached m by, once no other of its calls is
-// under way, to bind again; after the run's end, it sends its later calls
-// through the ordinary pick.
-func (pl *Pool) releasePinLocked(pn *Pin, m *member, unavailable bool) {
+// releasePinLocked records how a call that pn sent to m ended: it reached
+// m, or it did not, refused by m (unavailable) or ended before it was
+// sent. A pin that no call has reached m by binds afresh once none is
+// under way; after the run's end, a refusal sends its later calls through
+// the ordinary pick.
+func (pl *Pool) releasePinLocked(pn *Pin, m *member, reached, unavailable bool) {
 	if pn == nil || pn.m != m {
 		return
 	}
 	pn.active--
 	switch {
-	case !unavailable:
+	case reached:
 		pn.reached = true
 	case pn.ended:
-		pn.refused = true
+		if unavailable {
+			pn.refused = true
+		}
 	case !pn.reached && pn.active == 0:
 		pn.m = nil
 	}
@@ -699,18 +726,31 @@ func (pl *Pool) heldLocked(m *member) bool {
 // earlier run with the same id, whose calls then route by it only when
 // their context carries it (WithPin). A fresh pool has no pins: it
 // returns nil, which RunEnded and ForgetRun ignore.
-func (pl *Pool) PinRun(run string) *Pin {
+func (pl *Pool) PinRun(run string) (*Pin, error) {
 	if pl.isFresh() || run == "" {
-		return nil
+		return nil, nil
 	}
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
+	if p := pl.pins[run]; p != nil && !p.ended {
+		return nil, fmt.Errorf("%w: %s", ErrPinLive, run)
+	}
 	if pl.pins == nil {
 		pl.pins = map[string]*Pin{}
 	}
-	p := &Pin{run: run}
+	p := &Pin{pool: pl, run: run}
 	pl.pins[run] = p
-	return p
+	return p, nil
+}
+
+// Unpinned returns an unpinned run's routing choice, for its calls to
+// carry (WithPin): they go through the ordinary pick, never by the pin of
+// a later run with the same id. A fresh pool returns nil.
+func (pl *Pool) Unpinned(run string) *Pin {
+	if pl.isFresh() || run == "" {
+		return nil
+	}
+	return &Pin{pool: pl, run: run, unpinned: true}
 }
 
 // UnpinRun tells the pool that an unpinned run took the id run: an
@@ -726,7 +766,7 @@ func (pl *Pool) UnpinRun(run string) {
 // its process, which may then leave, and still routes the run's later
 // host calls, such as onRunSettled, there while it can answer.
 func (pl *Pool) RunEnded(p *Pin) {
-	if p == nil {
+	if p == nil || p.unpinned {
 		return
 	}
 	pl.mu.Lock()
@@ -744,7 +784,7 @@ func (pl *Pool) RunEnded(p *Pin) {
 // ForgetRun drops p, once nothing of its run calls the pool any more (its
 // settlement). A later run's pin with the same id stays.
 func (pl *Pool) ForgetRun(p *Pin) {
-	if p == nil {
+	if p == nil || p.unpinned {
 		return
 	}
 	pl.mu.Lock()
@@ -947,10 +987,10 @@ func (pl *Pool) admitLocked(p *Process) error {
 // release ends an acquire of m: an invocation of run (step) or a host
 // call. A process found not serving is leaving the pool (it is dying or
 // draining), so it is not picked again.
-func (pl *Pool) release(m *member, pn *Pin, unavailable, step bool, run string) {
+func (pl *Pool) release(m *member, pn *Pin, reached, unavailable, step bool, run string) {
 	pl.mu.Lock()
 	m.active--
-	pl.releasePinLocked(pn, m, unavailable)
+	pl.releasePinLocked(pn, m, reached, unavailable)
 	if step {
 		m.steps--
 		if run != "" {

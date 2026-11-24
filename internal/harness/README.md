@@ -70,7 +70,7 @@ the code.
 |---|---|---|---|
 | `Spawn`, `ProcessConfig` | func, struct | Starts a harness process and shakes hands with it | `Pool`, `wltest` (`ProcessConfig` also through `PoolConfig.Process` in `wl`) |
 | `Process` | struct | One harness process or one host connection. `Execute` runs an invocation; `HostCall` asks its plugin; `Drain`, `Kill`, `Done`, `Bye`, `ExitStatus`; `Ping`, `Health`, `Hello`, `Lag`, `Load`, `Silence`, `PID`, `Dir` | `Pool`, `wl`, `wltest` |
-| `NewPool`, `PoolConfig`, `Pool` | func, struct, struct | A set of processes for one `Key`: `Execute`, `Start`, `Close`, `Stats`, `HostCall`, `Plugin`, and `PinRun`, `UnpinRun`, `RunEnded`, `ForgetRun` for [pinned runs](#pinned-runs), with `Pin` and `WithPin`. `PoolConfig.CheckSettings` checks its size, cap, bound on live processes and recycle triggers as `NewPool` does | `wl` |
+| `NewPool`, `PoolConfig`, `Pool` | func, struct, struct | A set of processes for one `Key`: `Execute`, `Start`, `Close`, `Stats`, `HostCall`, `Plugin`, and `PinRun`, `Unpinned`, `UnpinRun`, `RunEnded`, `ForgetRun` for [pinned runs](#pinned-runs), with `Pin`, `WithPin` and `ErrPinLive`. `PoolConfig.CheckSettings` checks its size, cap, bound on live processes and recycle triggers as `NewPool` does | `wl` |
 | `RecycleTriggers` | struct | `PoolConfig.Recycle`: the resident set and the count of distinct scripts that replace a warm process ([Warm pools](#warm-pools)) | `wl` |
 | `Key` | struct | What a pool serves: harness class, runtime pin, dependency set, module-state mode | `wl` |
 | `ProcessStats` | struct | One process's figures in `Pool.Stats` | tests |
@@ -906,19 +906,23 @@ run has settled. A fresh pool returns no pin.
   Every later one of the run goes there while it lives: tainted, surplus,
   lagging or leaving for a trigger. The cap still applies, so an
   invocation of the run waits for a slot there.
-- **A refused first call.** While no call of the run has reached the
-  process, one that it refused before dispatch frees the pin, once no
-  other is under way, to bind to the next pick.
+- **A first call that did not reach the process.** While no call of the
+  run has reached the process, one that it refused, or that ended before
+  it was sent, frees the pin, once no other is under way, to bind to the
+  next pick. While one is under way, another call of the run waits for it,
+  also when the process has left, rather than report it lost.
 - **The hold.** A process with a live pin does not drain, whatever else
   would retire it. `RunEnded` ends the hold; until `ForgetRun`, the pin
   still routes the run's late host calls there while the process can
   answer, draining or not. Once it has exited or refused one, they are
   routed as any are.
-- **One pin per run.** A call routes by the pin that its context carries
-  (`WithPin`) when it is of that pin's run, and otherwise by the pin of
-  the latest run admitted with its id. `PinRun` replaces an earlier run's
-  pin for the id, `UnpinRun` drops it for an unpinned run that takes the
-  id, and `ForgetRun` drops only its own pin.
+- **One pin per run.** A call routes by the routing choice that its
+  context carries (`WithPin`) when the choice is this pool's and of the
+  call's run: a pin, or `Unpinned`, the ordinary pick. Otherwise it routes
+  by the pin of the latest run admitted with its id.
+- **Their calls.** `PinRun` replaces an ended run's pin for the id and
+  refuses a live one's (`ErrPinLive`). `UnpinRun` drops it for an
+  unpinned run that takes the id, and `ForgetRun` drops only its own pin.
 - **A lost process.** Once the process has exited, the run's next
   invocation or host call fails with `engine.ErrPinnedProcessLost`, not
   dispatched, and the engine latches the run. After `RunEnded`, they are
@@ -1106,6 +1110,8 @@ unattributed warning, and a signature that did not parse. Others hold:
 | `TestPinnedRunCapFull`, `TestPinnedRunHostCalls` | A pinned invocation waits for its process's cap while unpinned ones go elsewhere; a pinned run's host calls, `onRunSettled` after its end included, reach its process |
 | `TestPinnedRunProcessLost` | An invocation in flight fails as escaped; the run's next invocation and host call fail with `pinned_process_lost`, not dispatched; after `RunEnded`, a late host call is routed |
 | `TestPinIDReuse`, `TestPinRebindsAfterARefusedFirstCall` | A later run with the same id routed by its own pin, and the earlier run's late call by its pin. Each settlement forgets its own pin, and an unpinned successor is routed as any run. A pin binds again after a first step or host call refused before dispatch |
+| `TestUnpinnedRunLateCalls`, `TestPinOfAnotherPool`, `TestPinRunRefusesALivePin` | An unpinned run's late call neither binds nor uses a later pinned run's pin; another pool's pin in a call's context is ignored; one live pin per id |
+| `TestPinRebindsAfterACallThatWasNotSent`, `TestPinFirstCallsAcrossAnExit` | A first call that ended before it was sent frees the pin; a second call waits for a first one under way on a process whose exit the pool has observed, then runs elsewhere |
 | `TestPoolAliveCount` | With pins, `Max: 1`, `MaxLive: 2` and drains held: a surplus process serving its pin drains only after the pin ends and its unrelated work, held past `RecycleTimeout`, completes. A new invocation waits through the held drain and starts the third process at the exit, and the live count never passes 2 |
 
 #### What the fake-harness tests check
