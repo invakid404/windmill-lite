@@ -56,9 +56,9 @@ flowchart LR
   harness -->|platform calls| facade[Go platform facade]
 ```
 
-The Bun host mode and the CLI are built, and so is the host's side of the
-go-plugin adapter; its engine's side and the gRPC and HTTP adapters are
-planned ([host adapters](0009-host-adapters.md)).
+The Bun host mode and the CLI are built, and so is the go-plugin adapter,
+but for the engine's health, drain and hooks on the broker; the gRPC and
+HTTP adapters are planned ([host adapters](0009-host-adapters.md)).
 
 ## Decision records
 

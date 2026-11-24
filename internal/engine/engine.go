@@ -640,7 +640,7 @@ func CancelCauseOf(ctx context.Context) string {
 func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	f := e.prog.Flows[req.Path]
 	if f == nil {
-		return nil, fmt.Errorf("engine: no flow %q in the program", req.Path)
+		return nil, noTarget(fmt.Sprintf("engine: no flow %q in the program", req.Path))
 	}
 	if args := bytes.TrimSpace(req.Args.Producer()); len(args) == 0 || args[0] != '{' {
 		return nil, errors.New("engine: the arguments of a flow run are a JSON object")
@@ -860,6 +860,17 @@ func newUUID() string {
 	h := hex.EncodeToString(b[:])
 	return h[:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:]
 }
+
+// ErrNoTarget marks the error of Run and RunScript for a path that names
+// no flow, or no root script, of the program: errors.Is reports it, and the
+// error's text names the path.
+var ErrNoTarget = errors.New("engine: no such target in the program")
+
+// noTarget is an ErrNoTarget error with its own text.
+type noTarget string
+
+func (e noTarget) Error() string        { return string(e) }
+func (e noTarget) Is(target error) bool { return target == ErrNoTarget }
 
 // heldElsewhere is the error of a run whose id a job of another workspace
 // holds in the job registry, live or ended (platform.BeginExclusive).

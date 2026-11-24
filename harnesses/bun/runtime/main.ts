@@ -1,10 +1,12 @@
 // Entry point of the Bun harness runtime:
 //
-//   bun harnesses/bun/runtime/main.ts --bundle <dir> [--plugin <module>]
+//   bun harnesses/bun/runtime/main.ts --bundle <dir> [--plugin <module>] [--umask <octal>]
 //
 // The engine spawns it with one end of a socketpair as file descriptor 3,
 // which carries every protocol frame (ADR 0004); stdout and stderr stay
-// free for output no invocation owns.
+// free for output no invocation owns. With --umask, the harness sets that
+// umask before it reads the bundle, so the files that it and its steps
+// create get it; without, it keeps the umask that it inherits.
 
 import { writeSync } from "node:fs";
 import { join } from "node:path";
@@ -20,12 +22,19 @@ function fail(message: string): never {
   exitProcess(EXIT_STARTUP);
 }
 
+const USAGE = "usage: main.ts --bundle <dir> [--plugin <module>] [--umask <octal>]";
 const args = process.argv.slice(2);
+const umaskAt = args.indexOf("--umask");
+if (umaskAt >= 0) {
+  const mask = args[umaskAt + 1];
+  if (mask === undefined || !/^[0-7]{1,4}$/.test(mask) || parseInt(mask, 8) > 0o777) fail(USAGE);
+  process.umask(parseInt(mask, 8));
+}
 const at = args.indexOf("--bundle");
-if (at < 0 || at + 1 >= args.length) fail("usage: main.ts --bundle <dir> [--plugin <module>]");
+if (at < 0 || at + 1 >= args.length) fail(USAGE);
 const bundleDir = args[at + 1];
 const pluginAt = args.indexOf("--plugin");
-if (pluginAt >= 0 && pluginAt + 1 >= args.length) fail("usage: main.ts --bundle <dir> [--plugin <module>]");
+if (pluginAt >= 0 && pluginAt + 1 >= args.length) fail(USAGE);
 const pluginPath = pluginAt >= 0 ? args[pluginAt + 1] : undefined;
 
 // The bundle digest is the SHA-256 of the bundle's manifest.json

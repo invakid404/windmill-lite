@@ -416,6 +416,7 @@ A script run uses only `Kind`, `ID`, `Identity`, `Data`, `Pin` and
 | `Warnings` | The run's warnings, such as an error that no step owns, or the work that a step left behind when it settled. Each is a `Warning` with a code and a message, and no warning changes the run's status. |
 | `Latched` | For a `latched` run, the error that was latched |
 | `CancelCause` | For a `canceled` run, why it was canceled (table below); empty otherwise |
+| `Started` | For a script run, `true` once the script's invocation was sent to a harness process, whose writes windmill-lite cannot see. `false` when the script never ran, such as on a cache hit or a deadline that passed before the send. A flow run leaves it `false`. |
 
 | Status | Constant | Meaning |
 |---|---|---|

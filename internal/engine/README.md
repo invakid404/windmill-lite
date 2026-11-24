@@ -408,7 +408,8 @@ call can run no more code. `Reporter.Settled` says so exactly once per
 - **`Run(ctx, RunRequest)`** runs one flow to its end and returns its
   trace. An error means that the run could not start: an unknown flow,
   arguments that are not a JSON object or that jsonb refuses, or no step
-  executor.
+  executor. `errors.Is(err, ErrNoTarget)` reports an unknown flow, and an
+  unknown root script of `RunScript`, whose error text names the path.
 - **Concurrency.** An `Engine` is safe for concurrent use. Its runs share
   the program, the expression pipeline, the step executor (unless
   `RunRequest.Exec` gives a run its own), the platform services (unless

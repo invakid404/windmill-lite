@@ -109,7 +109,7 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 	}()
 	s := e.prog.Scripts[req.Path]
 	if s == nil || s.Kind != ir.PathScript || !slices.Contains(e.prog.Roots.Scripts, req.Path) {
-		return ScriptResult{}, fmt.Errorf("engine: no script root %q in the program", req.Path)
+		return ScriptResult{}, noTarget(fmt.Sprintf("engine: no script root %q in the program", req.Path))
 	}
 	if args := bytes.TrimSpace(req.Args.Producer()); len(args) == 0 || args[0] != '{' {
 		return ScriptResult{}, errors.New("engine: the arguments of a script run are a JSON object")

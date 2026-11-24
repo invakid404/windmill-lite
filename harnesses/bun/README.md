@@ -796,8 +796,14 @@ two, in `test/typecheck` and `test/typecheck/oldest`.
 The engine starts a harness (`internal/harness`'s `BunCommand`) as:
 
 ```sh
-bun harnesses/bun/runtime/main.ts --bundle <bundle dir> [--plugin <module>]
+bun harnesses/bun/runtime/main.ts --bundle <bundle dir> [--plugin <module>] [--umask <octal>]
 ```
+
+With `--umask`, such as `--umask 0022`, the harness sets that umask before
+it reads the bundle, so the files that it and its steps create get it.
+Without it, the harness keeps the umask that it inherits. An engine that
+serves with a stricter umask of its own passes the one that it was
+started with.
 
 File descriptor 3 must be one end of a stream socket pair, which carries
 every frame. Standard output and standard error carry no frames, so what a

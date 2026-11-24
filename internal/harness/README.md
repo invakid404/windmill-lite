@@ -78,7 +78,8 @@ the code.
 | `RunData`, `NewRunData`, `WithRunData`, `RunDataOf` | struct, funcs | One run's data, which the plugins of the processes it reaches read, carried in the run's context ([Run data](#run-data)); `Release` | `wl` |
 | `ExitStatus` | struct | How a process ended: code or signal | tests |
 | `BaseEnv` | func | The base environment of a spawned process | `ProcessConfig`'s default, `wltest` |
-| `BunCommand` | func | The command line that starts the Bun harness runtime on a bundle | `wl`, `wltest` |
+| `BunCommand` | func | The command line that starts the Bun harness runtime on a bundle, with `--umask` after `SetLaunchUmask` | `wl`, `wltest` |
+| `SetLaunchUmask` | func | Makes every harness that `BunCommand` starts afterwards set that umask first ([harnesses/bun](../../harnesses/bun/README.md#start-a-spawned-harness)); without it, a harness keeps the umask that it inherits | `windmill-lite plugin` |
 | `PinnedBun`, `ProtocolVersion` | const | `1.4.3`; `1` | `PinnedBun`: `wl`, `internal/bundle`, `wltest`. `ProtocolVersion`: the handshake, tests |
 | `DefaultKillAfter`, `WatchdogOff`, `DefaultHandshakeTimeout`, `DefaultRecentLate` | const | 30 s; −1 (no watchdog); 10 s; 4,096 | `ProcessConfig`'s defaults; `windmill-lite host` (`DefaultKillAfter`), `wl`'s host mode (`WatchdogOff`) |
 | `DefaultLagThreshold`, `DefaultRecycleTimeout`, `DefaultRecycleSamples` | const | 250 ms; 5 s; 2 | `PoolConfig` defaults |

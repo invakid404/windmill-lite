@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 	"github.com/invakid404/windmill-lite/internal/platform"
 	"github.com/invakid404/windmill-lite/internal/platform/facade"
+	"github.com/invakid404/windmill-lite/internal/wlext"
 )
 
 // Trace is what a flow run returns besides its result (ADR 0008 H9): per
@@ -304,6 +306,13 @@ type Result struct {
 	// canceled: CauseDeadline, CausePreWriteDeadline, CauseCanceled,
 	// CauseClosing or CauseFlowTimeout; "" otherwise.
 	CancelCause string
+	// Started is true, for a script run, once the script's invocation was
+	// sent to a harness process: windmill-lite cannot see a script's
+	// writes, so from then on the script may have made some. It is false
+	// when the script never ran, such as on a cache hit, a deadline that
+	// passed before the invocation was sent, or arguments that failed to
+	// resolve. A flow run leaves it false and reports MayHaveMutated.
+	Started bool
 }
 
 // Run runs the flow or script at path with args, a JSON object, and
@@ -315,7 +324,29 @@ type Result struct {
 // could not start: the runtime is closed (ErrClosed), no such target, or
 // arguments that are not a JSON object or that cannot be stored.
 func (rt *Runtime) Run(ctx context.Context, path string, args json.RawMessage, opts RunOptions) (*Result, error) {
-	return rt.run(ctx, path, args, opts, nil, nil)
+	// The engine's own adapters give a flow run host mode's static
+	// interceptions this way (internal/wlext); no other caller can.
+	var extra engine.Hooks
+	if results := wlext.StaticIntercepts(ctx); results != nil {
+		values := make(map[string]jsonval.Value, len(results))
+		for id, v := range results {
+			values[id] = jsonval.FromProducer(v)
+		}
+		extra = engine.StaticIntercepts{Results: values}
+	}
+	return rt.run(ctx, path, args, opts, extra, nil)
+}
+
+func init() {
+	wlext.TraceJSON = func(t *Trace, level string) ([]byte, error) {
+		switch level {
+		case traceFull:
+			return marshalPayload(traceJSON(t))
+		case traceSummary:
+			return marshalPayload(traceSummaryJSON(t))
+		}
+		return nil, fmt.Errorf("wl: trace level %q is neither %s nor %s", level, traceFull, traceSummary)
+	}
 }
 
 // run is Run with, for a flow run whose RunOptions.Hooks is nil, extra as
@@ -374,17 +405,20 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		ctx = harness.WithPin(ctx, p)
 		ctx, _, settled = withRunData(ctx, id, data, settled)
 		var s *engine.RunSettlement
+		var inner engine.StepExecutor = rt.exec
 		if settled != nil {
 			// A script job has its own one invocation, which settles it.
 			s = engine.NewRunSettlement(settled)
-			req.Exec = settlingExec{inner: rt.exec, settle: s}
+			inner = settlingExec{inner: rt.exec, settle: s}
 		}
+		sent := &sentExec{inner: inner}
+		req.Exec = sent
 		res, err := rt.eng.RunScript(ctx, req)
 		if err != nil {
 			rt.forgetPin(p)
 			return nil, err
 		}
-		out := &Result{ID: res.ID, Status: StatusSuccess, Result: storedText(res.Result), Warnings: calls.warned()}
+		out := &Result{ID: res.ID, Status: StatusSuccess, Result: storedText(res.Result), Warnings: calls.warned(), Started: sent.sent()}
 		switch {
 		case res.Latched != nil:
 			// Its step latched the run (H5): wl.latch, or a failed around.
@@ -698,6 +732,39 @@ func (x *recorder) released(inv string, _ []facade.Record) {
 	if in, ok := x.invs[inv]; ok && x.runs[in.run] == nil {
 		delete(x.invs, inv)
 	}
+}
+
+// sentExec is a script job's step executor, which notes whether the job's
+// invocation was sent to a harness process (Result.Started): it was called,
+// and the invocation's settlement did not say that it never reached a
+// harness (engine.SettleNotStarted).
+type sentExec struct {
+	inner   engine.StepExecutor
+	called  atomic.Bool
+	notSent atomic.Bool
+}
+
+func (x *sentExec) Execute(ctx context.Context, inv engine.Invocation) (engine.StepOutcome, error) {
+	x.called.Store(true)
+	inv.Report = notSentReport{Reporter: inv.Report, notSent: &x.notSent}
+	return x.inner.Execute(ctx, inv)
+}
+
+// sent reports whether the invocation was sent.
+func (x *sentExec) sent() bool { return x.called.Load() && !x.notSent.Load() }
+
+// notSentReport passes an invocation's reports on, and notes a settlement
+// that says the invocation never reached a harness.
+type notSentReport struct {
+	engine.Reporter
+	notSent *atomic.Bool
+}
+
+func (r notSentReport) Settled(k engine.SettleKind) {
+	if k == engine.SettleNotStarted {
+		r.notSent.Store(true)
+	}
+	r.Reporter.Settled(k)
 }
 
 // runData returns a copy of a run's data (RunOptions.Data) as the frames
