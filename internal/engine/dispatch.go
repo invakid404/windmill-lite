@@ -50,6 +50,10 @@ type ScriptRequest struct {
 	// stored arguments and result together pass it latches with
 	// ErrRunMemoryLimit. Zero sets no bound.
 	MaxHeldBytes int64
+	// Bytes and ByteTotal are the job's byte budget and the runtime's
+	// total, as RunLimits has them for a flow run.
+	Bytes     int64
+	ByteTotal *ByteTotal
 	// Around, when set, gives a host plugin's around wrappers at the
 	// script job's site, a site with no path whose Script is the script's
 	// path (RunRequest.Around).
@@ -181,7 +185,7 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 	defer cancel(nil)
 	t := time.AfterFunc(timeout, func() { cancel(CancelTimeout) })
 	defer t.Stop()
-	out, err := exec.Execute(stepCtx, Invocation{
+	inv := Invocation{
 		ID:          id,
 		Run:         id,
 		Site:        conformance.SitePath{},
@@ -193,7 +197,11 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 		ModuleState: e.moduleState,
 		Report:      rep,
 		Around:      around,
-	})
+	}
+	if a := newByteAccount(RunLimits{Bytes: req.Bytes, ByteTotal: req.ByteTotal}); a != nil {
+		inv.Budget, inv.Report = a.draw(inv.Report)
+	}
+	out, err := exec.Execute(stepCtx, inv)
 	switch {
 	case errors.Is(err, ErrPinnedProcessLost):
 		// The latch outranks the job's outcome, as a step's latch does.

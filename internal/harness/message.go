@@ -20,7 +20,8 @@ const ProtocolVersion = 1
 // Message types (the `t` field, ADR 0004). Among them,
 // `platform`/`platform_reply` carry the platform calls that the facade
 // serves, `run`/`run_done`/`run_cancel`/`run_settled` carry host mode's
-// runs, and `host_call`/`host_reply` carry the calls to a host plugin.
+// runs, `host_call`/`host_reply` carry the calls to a host plugin, and
+// `reserve`/`reserve_reply` a step's draws on its run's byte budget.
 const (
 	TypeHello         = "hello"
 	TypeWelcome       = "welcome"
@@ -39,6 +40,8 @@ const (
 	TypeRunSettled    = "run_settled"
 	TypeHostCall      = "host_call"
 	TypeHostReply     = "host_reply"
+	TypeReserve       = "reserve"
+	TypeReserveReply  = "reserve_reply"
 	TypePing          = "ping"
 	TypePong          = "pong"
 	TypePart          = "part"
@@ -181,7 +184,10 @@ func VersionsPair(sdk, engine string) bool {
 // Invoke asks the harness to run one step. Around, when not empty, lists
 // the host plugin's around wrappers whose selectors match the step's
 // site, by their index in its declaration, outermost first (ADR 0008 H1):
-// the harness runs the step inside them.
+// the harness runs the step inside them. Budget, sent only when set, says
+// that the step's run has a byte budget or the runtime a total: the
+// step's wl.reserve then sends reserve frames, and takes nothing without
+// it.
 type Invoke struct {
 	ID       string
 	Run      string
@@ -192,6 +198,7 @@ type Invoke struct {
 	Env      map[string]string
 	Boundary string
 	Around   []int
+	Budget   bool
 }
 
 // Result is an invocation's outcome.
@@ -457,6 +464,23 @@ type HostReply struct {
 	Error   *HostError
 }
 
+// ReserveRequest is a step's wl.reserve(bytes), from the invocation Inv,
+// whose invoke had Budget set: it asks for Bytes more bytes, a positive
+// number, of its run's byte budget and the runtime's total.
+type ReserveRequest struct {
+	ID    string
+	Inv   string
+	Bytes int64
+}
+
+// ReserveReply answers a ReserveRequest with the same id: Refused is empty
+// when the bytes are reserved, and otherwise says why not, which the
+// step's wl.reserve throws.
+type ReserveReply struct {
+	ID      string
+	Refused string
+}
+
 // HostError says why a host plugin gave no answer. Code is one of the
 // HostError constants.
 type HostError struct {
@@ -548,6 +572,8 @@ func (RunCancel) Type() string       { return TypeRunCancel }
 func (RunSettled) Type() string      { return TypeRunSettled }
 func (HostCall) Type() string        { return TypeHostCall }
 func (HostReply) Type() string       { return TypeHostReply }
+func (ReserveRequest) Type() string  { return TypeReserve }
+func (ReserveReply) Type() string    { return TypeReserveReply }
 func (Ping) Type() string            { return TypePing }
 func (Pong) Type() string            { return TypePong }
 func (Part) Type() string            { return TypePart }
@@ -624,6 +650,9 @@ func (m Invoke) appendPayload(b []byte) ([]byte, error) {
 	e.str("boundary", m.Boundary)
 	if len(m.Around) > 0 {
 		e.ints("around", m.Around)
+	}
+	if m.Budget {
+		e.bool("budget", true)
 	}
 	return e.end()
 }
@@ -812,6 +841,26 @@ func (m HostCall) appendPayload(b []byte) ([]byte, error) {
 	e.str("run", m.Run)
 	e.str("site", m.Site)
 	e.raw("payload", m.Payload.Producer())
+	return e.end()
+}
+
+func (m ReserveRequest) appendPayload(b []byte) ([]byte, error) {
+	if m.Bytes <= 0 {
+		return b, protoErr(CodeBadField, "reserve bytes %d", m.Bytes)
+	}
+	e := newEnvelope(b, TypeReserve)
+	e.str("id", m.ID)
+	e.str("inv", m.Inv)
+	e.int("bytes", m.Bytes)
+	return e.end()
+}
+
+func (m ReserveReply) appendPayload(b []byte) ([]byte, error) {
+	e := newEnvelope(b, TypeReserveReply)
+	e.str("id", m.ID)
+	if m.Refused != "" {
+		e.str("refused", m.Refused)
+	}
 	return e.end()
 }
 
@@ -1004,6 +1053,11 @@ func Decode(payload []byte) (Message, error) {
 			inv.Around = d.ints("around")
 			m = inv
 		}
+		if d.present("budget") {
+			inv := m.(Invoke)
+			inv.Budget = d.bool("budget")
+			m = inv
+		}
 	case TypeResult:
 		r := Result{ID: d.str("id"), Outcome: d.str("outcome"), Settled: d.bool("settled")}
 		switch r.Outcome {
@@ -1184,6 +1238,18 @@ func Decode(payload []byte) (Message, error) {
 			d.fail(CodeBadField, "host_call payload is not an object")
 		}
 		m = c
+	case TypeReserve:
+		r := ReserveRequest{ID: d.str("id"), Inv: d.str("inv"), Bytes: d.int64("bytes")}
+		if derr == nil && r.Bytes <= 0 {
+			d.fail(CodeBadField, "reserve bytes %d", r.Bytes)
+		}
+		m = r
+	case TypeReserveReply:
+		r := ReserveReply{ID: d.str("id")}
+		if d.present("refused") {
+			r.Refused = d.str("refused")
+		}
+		m = r
 	case TypeHostReply:
 		r := HostReply{ID: d.str("id")}
 		if d.present("error") {

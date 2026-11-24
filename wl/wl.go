@@ -143,6 +143,10 @@ type Options struct {
 	// runtime, which starts a process for each step, and host mode, whose
 	// one process is the host, refuse a Pool that is not zero.
 	Pool PoolOptions
+	// Limits are the limits that the runtime's runs share (ADR 0004
+	// §Pooling); the zero value sets none. A run's own are
+	// RunOptions.Limits.
+	Limits RuntimeLimits
 	// ForeignWindmillOrigins are the origins of real Windmill instances
 	// that steps call through their own client, such as
 	// "https://windmill.example.com" (ADR 0007, async dispatch).
@@ -173,6 +177,16 @@ type Options struct {
 	// harness. Open completes the handshake with the host before it
 	// returns, and refuses the host, with the reason, when it fails.
 	Host *Host
+}
+
+// RuntimeLimits are the limits that a runtime's runs share (ADR 0004
+// §Pooling). A zero field sets no limit; Open refuses a negative one.
+type RuntimeLimits struct {
+	// Bytes is a total of bytes that every run's reservations share: a
+	// step's wl.reserve(bytes) must fit both its run's byte budget
+	// (RunLimits.Bytes), when it has one, and this total, wherever the
+	// step runs.
+	Bytes int64
 }
 
 // PoolOptions set the pool of a warm runtime's harness processes (ADR 0004
@@ -312,6 +326,8 @@ type Runtime struct {
 	readCache bool // Options.ReadCache
 	capped    bool // Options.Pool.Cap is set: each flow run's trace lists "D15"
 	pinRuns   bool // Options.Pool.PinRuns
+	// byteTotal is Options.Limits.Bytes, nil for none.
+	byteTotal *engine.ByteTotal
 	// foreign is Options.ForeignWindmillOrigins as the welcomes carry
 	// them (foreignOrigins).
 	foreign []string
@@ -513,6 +529,12 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	}
 	if opts.Plugin != "" && rt.state == engine.ModuleStateFresh {
 		return nil, errors.New("wl: a host plugin needs warm harness processes: a fresh process lives for one step (Options.Plugin)")
+	}
+	switch {
+	case opts.Limits.Bytes < 0:
+		return nil, fmt.Errorf("wl: Options.Limits.Bytes is %d: a total is not negative", opts.Limits.Bytes)
+	case opts.Limits.Bytes > 0:
+		rt.byteTotal = engine.NewByteTotal(opts.Limits.Bytes)
 	}
 	if opts.Pool != (PoolOptions{}) {
 		if rt.state == engine.ModuleStateFresh {

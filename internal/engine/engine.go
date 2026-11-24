@@ -561,6 +561,14 @@ type RunLimits struct {
 	// its jobs, counted as they are stored and not returned while the run
 	// lasts. Once they pass it, the run latches ErrRunMemoryLimit (H5).
 	MaxHeldBytes int64
+	// Bytes is the run's byte budget, which its steps draw on with
+	// wl.reserve(bytes) (Invocation.Budget), wherever they run: a
+	// reservation past it throws in the step, and each returns when the
+	// invocation that made it settles.
+	Bytes int64
+	// ByteTotal, when set, is the runtime's total, which every run's
+	// reservations share: a reservation must fit it too.
+	ByteTotal *ByteTotal
 }
 
 // ErrRunMemoryLimit is the latch of a run whose stored values passed its

@@ -112,6 +112,9 @@ type run struct {
 	// maxHeld bounds them (RunLimits.MaxHeldBytes); zero means no bound.
 	held    atomic.Int64
 	maxHeld int64
+	// bytes is the run's account of its steps' reservations (RunLimits.Bytes
+	// and ByteTotal); nil when it has neither.
+	bytes *byteAccount
 }
 
 // limit applies the run's own limits.
@@ -120,6 +123,7 @@ func (r *run) limit(l RunLimits) {
 		r.slots = make(chan struct{}, l.MaxInFlight)
 	}
 	r.maxHeld = l.MaxHeldBytes
+	r.bytes = newByteAccount(l)
 }
 
 // holdBytes counts n more bytes of stored values held for the run, and
@@ -2664,6 +2668,9 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 	}
 	inv.Args = resolved
 	inv.Report = r.settle.Track(&runReporter{run: r, idx: idx})
+	if r.bytes != nil {
+		inv.Budget, inv.Report = r.bytes.draw(inv.Report)
+	}
 	stepCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	if timeout <= 0 {

@@ -167,6 +167,23 @@
       "payload": "{\"t\":\"invoke\",\"id\":\"i1\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{},\"boundary\":\"bun\",\"around\":[0,2]}"
     },
     {
+      "case": "invoke-budget",
+      "title": "an invoke whose run has a byte budget says so, after around; without one it has no budget field",
+      "message": {
+        "t": "invoke",
+        "id": "i1",
+        "run": "r1",
+        "site": "m:a",
+        "script": "echo",
+        "entry": "main",
+        "args": {},
+        "env": {},
+        "boundary": "bun",
+        "budget": true
+      },
+      "payload": "{\"t\":\"invoke\",\"id\":\"i1\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{},\"boundary\":\"bun\",\"budget\":true}"
+    },
+    {
       "case": "invoke-env-escaping",
       "title": "env values with every escape class",
       "message": {
@@ -947,6 +964,36 @@
       "payload": "{\"t\":\"host_reply\",\"id\":\"hc1\",\"error\":{\"code\":\"unknown_hook\",\"message\":\"the plugin declares no intercept entry 3\"}}"
     },
     {
+      "case": "reserve",
+      "title": "a step's wl.reserve asks for bytes of its run's byte budget, attributed to its invocation",
+      "message": {
+        "t": "reserve",
+        "id": "r1",
+        "inv": "i1",
+        "bytes": 786432
+      },
+      "payload": "{\"t\":\"reserve\",\"id\":\"r1\",\"inv\":\"i1\",\"bytes\":786432}"
+    },
+    {
+      "case": "reserve-reply",
+      "title": "a reservation the engine made has no refused field",
+      "message": {
+        "t": "reserve_reply",
+        "id": "r1"
+      },
+      "payload": "{\"t\":\"reserve_reply\",\"id\":\"r1\"}"
+    },
+    {
+      "case": "reserve-reply-refused",
+      "title": "a reservation that does not fit says why, and the step's wl.reserve throws it",
+      "message": {
+        "t": "reserve_reply",
+        "id": "r2",
+        "refused": "windmill-lite: wl.reserve(524288): the run's byte budget of 1048576 has 262144 left"
+      },
+      "payload": "{\"t\":\"reserve_reply\",\"id\":\"r2\",\"refused\":\"windmill-lite: wl.reserve(524288): the run's byte budget of 1048576 has 262144 left\"}"
+    },
+    {
       "case": "run-cancel",
       "title": "the host cancels a run it submitted",
       "message": {
@@ -1590,6 +1637,14 @@
       "title": "an informational status is not a final answer: no Response can carry it",
       "frames": [
         "{\"t\":\"platform_reply\",\"id\":\"p1\",\"status\":101,\"headers\":{}}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "reserve-bytes-not-positive",
+      "title": "a reservation is a positive number of bytes",
+      "frames": [
+        "{\"t\":\"reserve\",\"id\":\"r1\",\"inv\":\"i1\",\"bytes\":0}"
       ],
       "error": "bad_field"
     },

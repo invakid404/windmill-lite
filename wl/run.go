@@ -146,6 +146,15 @@ type RunLimits struct {
 	// lasts. Once they pass it, the run latches ErrRunMemoryLimit, as a
 	// latched hook does (H5): it starts nothing more.
 	MaxHeldBytes int64
+	// Bytes is the run's byte budget, which its steps, around wrappers
+	// included, draw on with wl.reserve(bytes) in the step API, for data
+	// that a step holds, such as a source it downloads. The engine keeps
+	// the account, so the budget holds across processes. A reservation
+	// that does not fit it, or the runtime's total (Options.Limits.Bytes),
+	// rejects in the step with a RangeError, and each reservation returns
+	// when the invocation that made it settles. With neither a budget nor
+	// a total, a reservation takes nothing.
+	Bytes int64
 }
 
 // ErrRunArgsTooLarge is Run's error for arguments larger than
@@ -293,7 +302,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	if len(bytes.TrimSpace(args)) == 0 {
 		args = json.RawMessage("{}")
 	}
-	if l := opts.Limits; l.MaxInFlight < 0 || l.MaxArgsBytes < 0 || l.MaxHeldBytes < 0 {
+	if l := opts.Limits; l.MaxInFlight < 0 || l.MaxArgsBytes < 0 || l.MaxHeldBytes < 0 || l.Bytes < 0 {
 		return nil, fmt.Errorf("wl: a run's limits are not negative (RunOptions.Limits: %+v)", l)
 	}
 	if l := opts.Limits.MaxArgsBytes; l > 0 && len(args) > l {
@@ -318,7 +327,8 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		}
 		defer rt.exec.end(id)
 		ctx = calls.reportStoreFailures(ctx)
-		req := engine.ScriptRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Around: rt.aroundAt(), MaxHeldBytes: opts.Limits.MaxHeldBytes}
+		req := engine.ScriptRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Around: rt.aroundAt(), MaxHeldBytes: opts.Limits.MaxHeldBytes,
+			Bytes: opts.Limits.Bytes, ByteTotal: rt.byteTotal}
 		settled, unpin := rt.pin(id, opts.Pin, settled)
 		defer unpin()
 		var s *engine.RunSettlement
@@ -379,7 +389,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	}
 	req := engine.RunRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Seed: opts.Seed, Platform: services,
 		PreWriteDeadline: opts.PreWriteDeadline, Clock: opts.Clock, Jitter: opts.Jitter, Around: rt.aroundAt(), Started: bind.started,
-		Limits: engine.RunLimits{MaxInFlight: opts.Limits.MaxInFlight, MaxHeldBytes: opts.Limits.MaxHeldBytes}}
+		Limits: engine.RunLimits{MaxInFlight: opts.Limits.MaxInFlight, MaxHeldBytes: opts.Limits.MaxHeldBytes, Bytes: opts.Limits.Bytes, ByteTotal: rt.byteTotal}}
 	if rt.readCache {
 		req.Deviations = append(req.Deviations, "D21")
 	}

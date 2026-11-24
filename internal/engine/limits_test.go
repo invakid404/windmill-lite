@@ -93,3 +93,72 @@ func TestRunHeldBytes(t *testing.T) {
 	tr = <-runLimited(e, `{}`, RunLimits{MaxHeldBytes: 1000})
 	wantStatus(t, tr, conformance.RunSuccess, `{"v":`+big+`}`)
 }
+
+// A reservation returns when the invocation that made it settles, not
+// when its outcome is fixed: the step after one that returned without
+// settling finds its bytes still taken, and gets them once it settles. A
+// runtime's total bounds the reservations of every run that shares it.
+func TestByteBudgetReturnsAtSettlement(t *testing.T) {
+	var (
+		unsettled Reporter
+		got       []string
+	)
+	note := func(err error) {
+		if err != nil {
+			got = append(got, err.Error())
+		} else {
+			got = append(got, "ok")
+		}
+	}
+	exec := execFunc(func(ctx context.Context, inv Invocation) (StepOutcome, error) {
+		if inv.Budget == nil {
+			got = append(got, "no budget")
+			defer inv.Report.Settled(SettleCompleted)
+			return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(`1`))}, nil
+		}
+		switch inv.Site.String() {
+		case "m:a":
+			note(inv.Budget.Reserve(600))
+			unsettled = inv.Report
+		case "m:b":
+			note(inv.Budget.Reserve(600))
+			unsettled.Settled(SettleCompleted)
+			note(inv.Budget.Reserve(600))
+			note(inv.Budget.Reserve(0))
+			inv.Report.Settled(SettleCompleted)
+			note(inv.Budget.Reserve(1))
+		}
+		return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(`1`))}, nil
+	})
+	e := mustOpen(t, map[string]string{"f/t/main": flowOf(value("a", "1", ""), value("b", "1", ""))}, exec)
+	total := NewByteTotal(1000)
+	tr := <-runLimited(e, `{}`, RunLimits{Bytes: 1000, ByteTotal: total})
+	wantStatus(t, tr, conformance.RunSuccess, `1`)
+	want := []string{
+		"ok",
+		"windmill-lite: wl.reserve(600): the run's byte budget of 1000 has 400 left",
+		"ok",
+		"windmill-lite: wl.reserve(0): a reservation is a positive number of bytes",
+		ErrBudgetSettled.Error(),
+	}
+	if !slices.Equal(got, want) || total.Used() != 0 {
+		t.Fatalf("reservations %q, %d bytes left taken; want %q", got, total.Used(), want)
+	}
+	// The total bounds a run with no budget of its own, and one run's
+	// reservations leave less of it for another.
+	got = nil
+	if err := total.take(300); err != nil {
+		t.Fatal(err)
+	}
+	tr = <-runLimited(e, `{}`, RunLimits{ByteTotal: total})
+	wantStatus(t, tr, conformance.RunSuccess, `1`)
+	if got[0] != "ok" || got[1] != "windmill-lite: wl.reserve(600): the runtime's byte total of 1000 has 100 left" || got[2] != "ok" || total.Used() != 300 {
+		t.Fatalf("under the total: %q, %d taken", got, total.Used())
+	}
+	// A run with neither has no Budget.
+	got = nil
+	<-runLimited(e, `{}`, RunLimits{})
+	if !slices.Equal(got, []string{"no budget", "no budget"}) {
+		t.Fatalf("no budget: %q", got)
+	}
+}

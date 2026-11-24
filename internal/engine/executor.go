@@ -92,6 +92,11 @@ type Invocation struct {
 	// first (ADR 0008 H1): the harness runs the step inside
 	// them. Empty for none (RunRequest.Around).
 	Around []int
+	// Budget, when set, is the invocation's draw on its run's byte budget
+	// and the runtime's total (RunLimits.Bytes and ByteTotal), which the
+	// step's wl.reserve calls; nil when the run has neither, and the
+	// step's reservations then take nothing.
+	Budget Budget
 }
 
 // Boundary is a step's boundary mode (ADR 0002).

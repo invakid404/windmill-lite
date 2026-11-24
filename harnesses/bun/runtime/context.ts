@@ -52,6 +52,10 @@ export type InvocationContext = {
   /** Latches text on the invocation's run (H5, wl.latch); throws once the
    * engine no longer waits for the invocation. */
   latch?: (text: string) => void;
+  /** Asks the engine for bytes of the run's byte budget (wl.reserve);
+   * undefined when the run has none, and a reservation then takes
+   * nothing. */
+  reserve?: (bytes: number) => Promise<void>;
   /** The invocation's own job ids, as its invoke frame set them
    * (jobIdsOf): a request to a foreign Windmill loses each link to one of
    * them (installFetch). A step's later writes to its environment do not
@@ -349,14 +353,22 @@ installProcessScope();
  *   reason (`timeout`, `canceled`, `run_ended`), when the engine abandons
  *   the step: its timeout, the run's cancellation or deadlines (H4), or
  *   the run's end. A step that ties its I/O to it stops with the run.
+ * - `wl.reserve(bytes)` reserves bytes, a positive integer, of the run's
+ *   byte budget and the runtime's total, which the engine keeps across
+ *   processes (ADR 0004 §Pooling). It resolves once they are reserved,
+ *   and rejects with a RangeError when they do not fit. What a step
+ *   reserves returns when its invocation settles. A run with neither a
+ *   budget nor a total reserves nothing, and it resolves at once.
  *
- * Both throw a TypeError outside an open invocation, so a host plugin's
- * hook, which runs outside every invocation, latches by throwing; an
- * around wrapper runs inside its step's invocation and may call both. A
- * native step's realm (D5) has no `wl`. */
+ * All three throw a TypeError outside an open invocation (wl.reserve
+ * rejects with it), so a host plugin's hook, which runs outside every
+ * invocation, latches by throwing; an around wrapper runs inside its
+ * step's invocation and may call them. A native step's realm (D5) has no
+ * `wl`. */
 export type StepAPI = {
   latch(error: unknown): void;
   signal(): AbortSignal;
+  reserve(bytes: number): Promise<void>;
 };
 
 /** The current invocation, or a TypeError naming what needs one. */
@@ -386,6 +398,11 @@ const stepAPI: StepAPI = Object.freeze({
   },
   signal() {
     return openInvocation("wl.signal").signal;
+  },
+  async reserve(bytes: number) {
+    const inv = openInvocation("wl.reserve");
+    if (!Number.isSafeInteger(bytes) || bytes <= 0) throw new TypeError(`windmill-lite: wl.reserve needs a positive integer of bytes, not ${String(bytes)}`);
+    if (inv.reserve !== undefined) await inv.reserve(bytes);
   },
 });
 
