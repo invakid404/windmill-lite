@@ -1570,8 +1570,9 @@ root through `Run` for `jobs/run/f`.
   state in a host's registry or store (`platform.Services.OwnsJobs`). A run
   in the engine's own workspace runs whatever its services, as it always
   did, and an engine with no services admits every run.
-- **Links to another workspace.** A parent of another workspace than the
-  dispatching run's is as unknown: its path is not taken. The ids stay as
+- **Links to another workspace.** With the services' own job registry, a
+  parent of another workspace than the dispatching run's is as unknown:
+  its path is not taken. The ids stay as
   sent, as an unknown id's do, and `flow_user_state()` reads null through
   a root of another workspace.
 - **Result polls.** It answers the result polls for its runs. The record

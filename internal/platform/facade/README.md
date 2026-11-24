@@ -211,7 +211,7 @@ A read's `job_id` query parameter:
   [interpolated read](../README.md#contract-b-the-interpolated-read) says.
 - **A job that the walker cannot use** answers `404` `Not found: Job not
   found at name <id>`: an unknown id, an ended job, or a job of another
-  workspace.
+  workspace ([A job's workspace](#a-jobs-workspace)).
 - **A live flow job**, whose job variables the registry does not keep,
   answers 501.
 
@@ -471,7 +471,8 @@ path or body.
 
 A job is in its run's workspace: the effective workspace of its run's
 configured identity (`platform.Job.Host`), `windmill-lite` when none is
-set, not the caller's `WM_WORKSPACE`. Only a call from a run of the same
+set, not the caller's `WM_WORKSPACE`. With the services' own job
+registry, which `wl` always uses, only a call from a run of the same
 workspace finds it
 ([WA-V2](../../../docs/semantics/client-api.md#wa-v2)).
 
@@ -480,15 +481,26 @@ workspace finds it
   a hook may change and another live invocation may share.
 - **The lookups that check it:** the root lookup, the job reads, flow user
   state, a resource read's `job_id` and the result polls of the jobs that
-  the dispatcher started. Each checks the job's workspace on the registry
-  entry that it answers from (`platform.Services.RootJobIn`, `GetJobIn`,
-  `FlowUserStateIn` and the others).
+  the dispatcher started. With the services' own registry, each checks
+  the job's workspace on the registry entry that it answers from
+  (`platform.Services.RootJobIn`, `GetJobIn`, `FlowUserStateIn` and the
+  others).
 - **A job of another workspace's run** answers as an unknown id on each
   of them, in the same order of checks: a flow user state write still
   refuses a value that the store refuses first. An id that the registry
   does not know at all answers as it always did.
 - **Without a configured workspace** every job and every caller are in
   `windmill-lite`, so the lookups answer as for one workspace.
+- **A host's job registry** (`platform.Services.Jobs`) keeps the answers
+  it always had. The lookups find every job that it knows, without a
+  workspace check (`platform.Services.InScope`), while the call's path
+  must still name the caller's own workspace. Engines that share such a
+  registry are not kept apart.
+- **A read's `job_id` with a host's registry** compares the path's
+  workspace with the job's `WM_WORKSPACE`, which a hook may have set, and
+  not with its run's configured workspace. With the services' own
+  registry it compares it with the configured workspace when the run has
+  one, and with the job's `WM_WORKSPACE` otherwise.
 
 ### One reply for both transports
 
