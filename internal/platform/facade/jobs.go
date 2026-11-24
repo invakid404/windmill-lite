@@ -277,10 +277,11 @@ func (f *Facade) dispatched(ctx context.Context, c *Call, id string) (platform.J
 }
 
 // polled returns the state of a job of a live run for the result polls,
-// with Config.ResultPollsForAllJobs set (platform.Services.ResultPoll):
+// with Config.ResultPollsForAllJobs set (platform.Services.ResultPollIn):
 // classified is false when the option is off or the path's workspace is
 // not the caller's, and ok is false when the registry does not know the
-// job. A poll that classified the id answers from that one lookup alone,
+// job, or, with the services' own registry, knows it in another workspace
+// than the caller's. A poll that classified the id answers from that one lookup alone,
 // so the registry is not asked again. A job that the job read does not
 // serve refuses the poll with that read's 501, the reason after the
 // route's name: a job of a run that has ended (platform.ErrEndedRun), or
@@ -290,7 +291,7 @@ func (f *Facade) polled(c *Call, id string) (r platform.JobResult, ok, classifie
 	if !f.allPolls || !ownWorkspace(c) {
 		return platform.JobResult{}, false, false, nil
 	}
-	r, ok, err := f.platform.ResultPoll(id)
+	r, ok, err := f.platform.ResultPollIn(id, callerScope(c))
 	var ns *platform.NotServed
 	switch {
 	case errors.As(err, &ns):

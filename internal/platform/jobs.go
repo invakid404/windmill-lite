@@ -763,9 +763,17 @@ func (s *Services) GetJobArgsIn(id, scope string) ([]byte, error) {
 // [WA-15]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-15
 // [WA-V2]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-v2
 func (s *Services) ResultPoll(id string) (r JobResult, known bool, err error) {
+	return s.ResultPollIn(id, "")
+}
+
+// ResultPollIn is ResultPoll for a caller of the workspace scope scope
+// ("" for every scope): with the services' own registry a job of another
+// scope is unknown (InScope), checked on the entry that the one lookup
+// found.
+func (s *Services) ResultPollIn(id, scope string) (r JobResult, known bool, err error) {
 	jobs := s.jobs()
 	j, live, ok := jobs.Job(id)
-	if !ok {
+	if !ok || !s.InScope(j, scope) {
 		return JobResult{}, false, nil
 	}
 	if j, err = liveOf(jobs, j, live, id); err != nil {

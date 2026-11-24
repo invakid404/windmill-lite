@@ -383,3 +383,40 @@ func TestJobReadOfARunThatEndsDuringTheRead(t *testing.T) {
 		}
 	}
 }
+
+// With Config.ResultPollsForAllJobs and the services' own registry, the
+// result polls of the jobs of a live run find a job only from a run of the
+// job's workspace: a step of ws-b polling, through ws-b, the jobs of a run
+// of ws-a (its flow job and a step) gets the answers for an id with no job
+// on both routes, while a step of ws-a gets the run's answer for them.
+func TestResultPollsWorkspace(t *testing.T) {
+	services := &platform.Services{}
+	f := newFacade(t, Config{Platform: services, ResultPollsForAllJobs: true})
+	const runA, stepA, runB = "00000000-0000-4000-8000-0000000000f1", "00000000-0000-4000-8000-0000000000f2", "00000000-0000-4000-8000-0000000000f3"
+	jobs := services.JobRegistry()
+	defer jobs.Begin(platform.Job{ID: runA, Kind: platform.JobFlow, Root: runA, Path: "f/x/a", Run: runA, View: namedView("a"), Host: platform.Host{Workspace: "ws-a"}})()
+	jobs.Begin(platform.Job{ID: stepA, Kind: platform.JobScript, Root: runA, Run: runA})()
+	defer jobs.Begin(platform.Job{ID: runB, Kind: platform.JobFlow, Root: runB, Path: "f/x/b", Run: runB, View: namedView("b"), Host: platform.Host{Workspace: "ws-b"}})()
+	a := f.register("inv-a", runA, map[string]string{"WM_JOB_ID": "00000000-0000-4000-8000-0000000000f4", "WM_FLOW_JOB_ID": runA, "WM_ROOT_JOB_ID": runA, "WM_TOKEN": "tok-a", "WM_WORKSPACE": "ws-a"}, nil, &platform.Host{Workspace: "ws-a"})
+	defer a.End()
+	b := f.register("inv-b", runB, map[string]string{"WM_JOB_ID": "00000000-0000-4000-8000-0000000000f5", "WM_FLOW_JOB_ID": runB, "WM_ROOT_JOB_ID": runB, "WM_TOKEN": "tok-b", "WM_WORKSPACE": "ws-b"}, nil, &platform.Host{Workspace: "ws-b"})
+	defer b.End()
+	poll := func(inv, ws, path string) string {
+		rep := intercept(f, inv, "GET", "http://x/api/w/"+ws+"/jobs_u/completed/"+path, nil, nil)
+		return strconv.Itoa(rep.Status) + " " + string(rep.Body)
+	}
+	for _, id := range []string{runA, stepA} {
+		if got, want := poll("inv-b", "ws-b", "get_result_maybe/"+id+"?get_started=true"), `200 {"started":false,"success":null,"completed":false,"result":null}`; got != want {
+			t.Errorf("ws-b's get_result_maybe of ws-a's job %s: %s, want %s", id, got, want)
+		}
+		if got, want := poll("inv-b", "ws-b", "get_result/"+id), "404 Not found: Completed Job not found at name "+id; got != want {
+			t.Errorf("ws-b's get_result of ws-a's job %s: %s, want %s", id, got, want)
+		}
+		if got, want := poll("inv-a", "ws-a", "get_result_maybe/"+id), `200 {"started":true,"success":true,"completed":true,"result":"a"}`; got != want {
+			t.Errorf("ws-a's get_result_maybe of its job %s: %s, want %s", id, got, want)
+		}
+		if got, want := poll("inv-a", "ws-a", "get_result/"+id), `200 "a"`; got != want {
+			t.Errorf("ws-a's get_result of its job %s: %s, want %s", id, got, want)
+		}
+	}
+}
