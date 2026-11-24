@@ -155,18 +155,35 @@ func (r *run) noInvocationJob(fr *frame, i, idx int, o *outcome) {
 	r.mu.Lock()
 	r.indexLeaf(id, fr, i, idx, !launched)
 	r.mu.Unlock()
-	r.e.platform.JobRegistry().Begin(platform.Job{ID: id, Kind: platform.JobScript, Root: r.rootID, Run: r.id, Host: r.host})()
+	r.e.platform.JobRegistry().Begin(platform.Job{ID: id, Kind: platform.JobScript, Root: r.rootID, Run: r.id})()
 }
 
 // JobRecord renders the record of the job id names (platform.JobView).
 func (v runView) JobRecord(id string) ([]byte, error) {
-	r := v.r
 	// The user state is read before the run's lock: its service takes
 	// locks of its own.
-	states, hasStates, err := r.platform.FlowUserStates(context.Background(), id)
+	states, hasStates, err := v.r.platform.FlowUserStates(context.Background(), id)
 	if err != nil {
 		return nil, err
 	}
+	return v.record(id, states, hasStates)
+}
+
+// JobRecordFor renders the record of the job that j registers, with the
+// flow user state of that registration, as a job read found it
+// (platform.JobViewFor).
+func (v runView) JobRecordFor(j platform.Job) ([]byte, error) {
+	states, hasStates, err := v.r.platform.FlowUserStatesOf(context.Background(), j)
+	if err != nil {
+		return nil, err
+	}
+	return v.record(j.ID, states, hasStates)
+}
+
+// record renders the record of the job id names, with the flow user state
+// states when hasStates.
+func (v runView) record(id string, states json.RawMessage, hasStates bool) ([]byte, error) {
+	r := v.r
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	ref, err := r.lookupJob(id)
@@ -962,7 +979,7 @@ func (r *run) jobScheduled(fr *frame, i, idx int, stored jsonval.Value, identity
 	r.sched[idx] = schedJob{id: id, waiting: true}
 	r.nsched.Add(1)
 	r.mu.Unlock()
-	job := platform.Job{ID: id, Kind: platform.JobScript, Root: r.rootID, Run: r.id, Host: r.host}
+	job := platform.Job{ID: id, Kind: platform.JobScript, Root: r.rootID, Run: r.id}
 	if !identity {
 		// An identity job runs no script: it has no path and no
 		// variables, as noInvocationJob registers it.
@@ -1001,7 +1018,7 @@ func (r *run) subflowScheduled(fr *frame, i, idx int, stored jsonval.Value) *fra
 	c.scheduled = true
 	r.sched[idx] = schedJob{id: c.id, waiting: true}
 	r.mu.Unlock()
-	r.e.platform.JobRegistry().Begin(platform.Job{ID: c.id, Kind: platform.JobFlow, Root: r.rootID, Path: c.path, Run: r.id, View: runView{r}, Host: r.host})()
+	r.e.platform.JobRegistry().Begin(platform.Job{ID: c.id, Kind: platform.JobFlow, Root: r.rootID, Path: c.path, Run: r.id, View: runView{r}})()
 	return c
 }
 
@@ -1012,6 +1029,6 @@ func (r *run) subflowScheduled(fr *frame, i, idx int, stored jsonval.Value) *fra
 func (r *run) unlaunchedSubflow(fr *frame, i int, stored jsonval.Value) *frame {
 	c := r.subflowFrame(fr, i, r.e.prog.Flows[fr.moduleAt(i).Subflow.Path], stored)
 	r.addChild(fr, i, 0, c)
-	r.e.platform.JobRegistry().Begin(platform.Job{ID: c.id, Kind: platform.JobFlow, Root: r.rootID, Path: c.path, Run: r.id, View: runView{r}, Host: r.host})()
+	r.e.platform.JobRegistry().Begin(platform.Job{ID: c.id, Kind: platform.JobFlow, Root: r.rootID, Path: c.path, Run: r.id, View: runView{r}})()
 	return c
 }

@@ -687,10 +687,15 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	// a job id, job reads and flow user state find it (ADR 0007, D3,
 	// WA-14, WA-19); its user state is discarded when its tree is, and the
 	// registry's reference to the run with it.
+	// An id that a job of another workspace holds refuses the run, before
+	// it starts (ADR 0007, a workspace per run).
+	endJob, ok := platform.BeginExclusive(e.platform.JobRegistry(), platform.Job{ID: id, Kind: platform.JobFlow, Root: r.rootID, Path: f.Path, Run: id, View: runView{r}, Host: r.host})
+	if !ok {
+		return nil, heldElsewhere(id)
+	}
 	if req.Started != nil {
 		req.Started(ctx, r)
 	}
-	endJob := e.platform.JobRegistry().Begin(platform.Job{ID: id, Kind: platform.JobFlow, Root: r.rootID, Path: f.Path, Run: id, View: runView{r}, Host: r.host})
 	r.run(ctx)
 	r.mu.Lock()
 	r.rootEnd = &flowEnd{status: r.trace.Status, result: r.trace.Result}
@@ -805,4 +810,10 @@ func newUUID() string {
 	b[8] = b[8]&0x3f | 0x80
 	h := hex.EncodeToString(b[:])
 	return h[:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:]
+}
+
+// heldElsewhere is the error of a run whose id a job of another workspace
+// holds in the job registry, live or ended (platform.BeginExclusive).
+func heldElsewhere(id string) error {
+	return fmt.Errorf("engine: the job id %s is held by a job of another workspace", id)
 }

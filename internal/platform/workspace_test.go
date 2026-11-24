@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
+	"slices"
 	"sync"
 	"testing"
 )
@@ -271,51 +273,77 @@ func TestStateCleanupKeepsALaterRegistration(t *testing.T) {
 	}
 }
 
-// The jobs of a run of workspace B whose run id is a job of workspace A
-// (registered first) are B's: a child flow job with its own view, and a
-// step that falls back to its run's view, which B's registration of the
-// shared id keeps for B. A reads them as unknown ids, and B reads its own.
-// Once both runs have ended, the registry holds none of their jobs, so no
-// view of B's run stays reachable.
-func TestJobsOfACollidingRun(t *testing.T) {
+// BeginExclusive refuses a registration whose id a job of another
+// workspace holds, live or among the ended jobs the registry keeps, and
+// takes one of the same workspace, as Begin does. A job known only from a
+// script job's variables holds nothing.
+func TestExclusiveRegistration(t *testing.T) {
 	r := NewRegistry()
-	s := &Services{Jobs: r}
-	a, b := Host{Workspace: "ws-a"}, Host{Workspace: "ws-b"}
-	endRunA := r.Begin(Job{ID: "run-a", Kind: JobFlow, Run: "run-a", View: argsView("a"), Host: a})
-	endStepA := r.Begin(Job{ID: "x", Kind: JobScript, Root: "run-a", Run: "run-a", Host: a})
-	endRunB := r.Begin(Job{ID: "x", Kind: JobFlow, Run: "x", View: argsView("b"), Host: b})
-	endChild := r.Begin(Job{ID: "child", Kind: JobFlow, Root: "x", Run: "x", View: argsView("child-b"), Host: b})
-	endStepB := r.Begin(Job{ID: "step", Kind: JobScript, Root: "x", Run: "x", Host: b})
-	for _, tc := range []struct{ id, ws, want string }{
-		{"child", "ws-a", "Not found: Job Args not found at name child"},
-		{"step", "ws-a", "Not found: Job Args not found at name step"},
-		{"child", "ws-b", `{"args":"child-b"}`},
-		{"step", "ws-b", `{"args":"b"}`},
-	} {
-		body, err := s.GetJobArgsIn(tc.id, tc.ws)
-		got := string(body)
-		var api *Error
-		if errors.As(err, &api) {
-			got = api.Body()
-		} else if err != nil {
-			got = err.Error()
-		}
-		if got != tc.want {
-			t.Errorf("%s reads %s: %s, want %s", tc.ws, tc.id, got, tc.want)
-		}
+	a, b := Host{Workspace: "ws-a"}, Host{}
+	endA := r.Begin(Job{ID: "x", Kind: JobFlow, Run: "x", Host: a})
+	if _, ok := r.BeginExclusive(Job{ID: "x", Kind: JobFlow, Run: "x", Host: b}); ok {
+		t.Error("windmill-lite registered ws-a's live x")
 	}
-	endStepB()
-	endChild()
-	endRunB()
-	endStepA()
-	endRunA()
-	r.mu.Lock()
-	held := len(r.jobs)
-	r.mu.Unlock()
-	if held != 0 {
-		t.Errorf("the registry holds %d jobs after both runs ended", held)
+	end, ok := r.BeginExclusive(Job{ID: "x", Kind: JobScript, Root: "x", Run: "x", Host: a})
+	if !ok {
+		t.Fatal("ws-a could not register its own x again")
 	}
-	if j, live, ok := r.Job("child"); !ok || live || j.View != nil {
-		t.Errorf("B's ended child: %+v, live %v, known %v; want an ended record without a view", j, live, ok)
+	end()
+	endA()
+	if _, ok := r.BeginExclusive(Job{ID: "x", Kind: JobFlow, Run: "x", Host: b}); ok {
+		t.Error("windmill-lite registered ws-a's ended x")
+	}
+	if j, _, ok := r.Job("x"); !ok || j.Host.EffectiveWorkspace() != "ws-a" {
+		t.Errorf("x after the refusal: %+v, %v; want ws-a's ended job", j, ok)
+	}
+	// y is known only from a script job of ws-a's variables.
+	defer r.Begin(Job{ID: "step", Kind: JobScript, Root: "y", Run: "run", Host: a, Env: map[string]string{"WM_ROOT_JOB_ID": "y"}})()
+	endY, ok := r.BeginExclusive(Job{ID: "y", Kind: JobFlow, Run: "y", Host: b})
+	if !ok {
+		t.Fatal("windmill-lite could not register y, which only a script job named")
+	}
+	endY()
+}
+
+// A host's store gets one key per job: the id for a job of windmill-lite,
+// the workspace, a slash and the id for one of another workspace, and no
+// key for an id with a slash. A run of workspace alpha with id u and one of
+// windmill-lite with id alpha/u so never share a value.
+func TestHostStateKeys(t *testing.T) {
+	ctx := context.Background()
+	jobs := &scriptedJobs{}
+	store := &hostStates{vals: map[string]json.RawMessage{}}
+	s := &Services{Jobs: jobs, UserState: store}
+	alpha := scripted{Job{ID: "u", Kind: JobFlow, Root: "u", Host: Host{Workspace: "alpha"}}, true}
+	slashed := scripted{Job{ID: "alpha/u", Kind: JobFlow, Root: "alpha/u"}, true}
+	plain := scripted{Job{ID: "v", Kind: JobFlow, Root: "v"}, true}
+	jobs.id = "u"
+	jobs.set(alpha)
+	if err := s.SetFlowUserStateIn(ctx, "u", "k", []byte(`"alpha's"`), "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	jobs.id = "alpha/u"
+	jobs.set(slashed)
+	if v, _ := s.FlowUserStateIn(ctx, "alpha/u", "k", ""); string(v) != "null" {
+		t.Errorf("windmill-lite's alpha/u read %s", v)
+	}
+	if err := s.SetFlowUserStateIn(ctx, "alpha/u", "k", []byte(`"mine"`), ""); !errors.Is(err, ErrFlowJobNotFound) {
+		t.Errorf("a write to windmill-lite's alpha/u: %v, want ErrFlowJobNotFound", err)
+	}
+	jobs.id = "u"
+	jobs.set(alpha)
+	if v, _ := s.FlowUserStateIn(ctx, "u", "k", "alpha"); string(v) != `"alpha's"` {
+		t.Errorf("alpha's u read %s, want its own value", v)
+	}
+	jobs.id = "v"
+	jobs.set(plain)
+	if err := s.SetFlowUserStateIn(ctx, "v", "k", []byte(`1`), ""); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	keys := slices.Sorted(maps.Keys(store.vals))
+	store.mu.Unlock()
+	if want := []string{"alpha/u/k", "v/k"}; !slices.Equal(keys, want) {
+		t.Errorf("the host's store holds %v, want %v", keys, want)
 	}
 }

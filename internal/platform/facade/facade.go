@@ -322,7 +322,9 @@ func (f *Facade) Register(id, run string, env map[string]string) *Session {
 // from its invocation, never from a lookup by its job id, which an
 // InvocationEnv hook may change and another live invocation may share. Its
 // job registers with host, and a job of an invocation that names no host
-// takes its run's.
+// takes its run's. A job id that a job of another workspace holds, which
+// only such a hook can give it, leaves that job alone: the invocation's job
+// registers under the invocation's own id instead.
 func (f *Facade) register(id, run string, env map[string]string, p *platform.Services, host *platform.Host) *Session {
 	e := &entry{caller: Caller{ID: id, Run: run, Env: env, Platform: p}, token: env["WM_TOKEN"], idle: make(chan struct{})}
 	var registered platform.Host
@@ -333,7 +335,17 @@ func (f *Facade) register(id, run string, env map[string]string, p *platform.Ser
 	if job == "" {
 		job = id
 	}
-	e.endJob = f.platform.JobRegistry().Begin(platform.Job{ID: job, Kind: platform.JobScript, Root: env["WM_ROOT_JOB_ID"], Path: env["WM_JOB_PATH"], Env: env, Run: run, Host: registered})
+	jobs := f.platform.JobRegistry()
+	j := platform.Job{ID: job, Kind: platform.JobScript, Root: env["WM_ROOT_JOB_ID"], Path: env["WM_JOB_PATH"], Env: env, Run: run, Host: registered}
+	end, ok := platform.BeginExclusive(jobs, j)
+	if !ok && job != id {
+		j.ID = id
+		end, ok = platform.BeginExclusive(jobs, j)
+	}
+	if !ok {
+		end = func() {}
+	}
+	e.endJob = end
 	f.mu.Lock()
 	f.invs[id] = e
 	if e.token != "" {

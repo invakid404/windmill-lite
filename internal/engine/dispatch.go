@@ -134,7 +134,11 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 	// completed while its root lives, which outlives it when its dispatch
 	// placed it in another run's tree.
 	view := &scriptView{id: id, env: reserved, script: s, args: args}
-	defer e.platform.JobRegistry().Begin(platform.Job{ID: id, Kind: platform.JobScript, Root: env["WM_ROOT_JOB_ID"], Path: s.Path, Env: env, Run: id, View: view, Host: host})()
+	endJob, ok := platform.BeginExclusive(e.platform.JobRegistry(), platform.Job{ID: id, Kind: platform.JobScript, Root: env["WM_ROOT_JOB_ID"], Path: s.Path, Env: env, Run: id, View: view, Host: host})
+	if !ok {
+		return ScriptResult{}, heldElsewhere(id)
+	}
+	defer endJob()
 	defer func() { view.complete(res, err, rep.latch.Err() != nil) }()
 	// An envs entry the worker refuses fails the job once it is picked up,
 	// after the result cache and the entrypoint's check (WR-22).
@@ -162,7 +166,7 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 					reason, canceler := cancellationOf(ctx)
 					return ScriptResult{ID: id, Failed: true, Canceled: true, Result: killedError("", reason, canceler)}, nil
 				}
-				e.registerHit(env, id, host, nil)
+				e.registerHit(env, id, nil)
 				return ScriptResult{ID: id, Result: c.value()}, nil
 			}
 		}
