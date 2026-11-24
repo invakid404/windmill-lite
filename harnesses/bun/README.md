@@ -261,8 +261,11 @@ shape with `bundle` ([Errors and refusals](#errors-and-refusals)):
    of its own, it refuses the `plugin` option (`options`). It checks the
    bundle's plugin (`bundle`): a key, a module of `plugins/` that the
    manifest lists, reached through no symbolic link, with the manifest's
-   digest. Another `connect` of this process, in progress or done, must not
-   have taken a plugin with other bytes from that path.
+   digest.
+   - **Other bytes from the same path** are refused while another
+     `connect` in progress holds that path, or once this process has copied
+     a plugin from it (`bundle`). An attempt that fails before its copy
+     gives the path back when no other attempt holds it.
 3. It registers the host's instances of the bundle's
    [host-provided modules](../../docs/glossary.md#host-provided-module)
    (`hostModules`), before any step loads. It writes a diagnostic for a
@@ -586,9 +589,9 @@ the rules of each hook.
   `plugin`) holds it in `plugins/`, with host-provided modules resolved to
   their shims. The engine names it with `--plugin` when `wl` names none,
   and `connect` loads it, checked first, when its `plugin` option is absent
-  ([What connect() does](#what-connect-does)). `connect` refuses a plugin
-  file whose path this process took other bytes from; an unchanged plugin
-  file keeps its loaded module, so restart the host for a release.
+  ([What connect() does](#what-connect-does)). Once this process has loaded
+  a plugin, other bytes from its path are refused, and an unchanged plugin
+  file keeps its module: restart the host for a release.
 - **When it loads.** A harness loads its plugin after the runtime has
   installed its process-wide hooks and the native realms have taken the
   web APIs, and `connect` loads a bundle's plugin at the same point. A

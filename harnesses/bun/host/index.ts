@@ -387,15 +387,16 @@ function thrownText(e: unknown): string {
 }
 
 /** Each bundle plugin this process has taken, by the URL of its file in the
- * bundle: its digest, the connect() calls that hold it and have not copied
- * it yet, and the URL of the private copy of the checked bytes once one of
- * them has made it. connect() takes a plugin when it has checked it, before
- * it publishes any process-wide state, and holds it until the copy exists
- * or the attempt fails. A plugin at the same bundle path with other bytes
- * is refused while one is held or copied: a release that replaced the file
- * would otherwise run beside the plugin already imported, and an
+ * bundle: its digest, the connect() calls in progress that hold it, and the
+ * URL of the private copy of the checked bytes once one of them has made
+ * it. connect() takes a plugin when it has checked it, before it publishes
+ * any process-wide state, and gives it back when the attempt ends. A plugin
+ * at the same bundle path with other bytes is refused while an attempt in
+ * progress holds the entry, or once a copy exists: a release that replaced
+ * the file would otherwise run beside the plugin already imported, and an
  * overlapping connect() would replace the process-wide hooks of the one it
- * overlaps. */
+ * overlaps. An entry without a copy goes when its last holder gives it
+ * back, so a later connect() may take other bytes from that path. */
 const loadedPlugins = new Map<string, { digest: string; holders: number; copy?: string }>();
 // The private directories of those copies, by the temporary directory they
 // are made in: each is made on first use and removed when the process exits.
@@ -539,14 +540,13 @@ function register(modules: Record<string, object> | undefined, listed: string[],
 }
 
 export async function connect(o: ConnectOptions): Promise<Host> {
-  // A bundle's own plugin, once taken, is given back when the attempt fails
-  // before it is copied.
+  // A bundle's own plugin, once taken, is given back when the attempt ends;
+  // its entry stays once the plugin is copied.
   const held: { release?: () => void } = {};
   try {
     return await connectOnce(o, held);
-  } catch (e) {
+  } finally {
     held.release?.();
-    throw e;
   }
 }
 
