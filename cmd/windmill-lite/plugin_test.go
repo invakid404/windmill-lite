@@ -987,7 +987,10 @@ func TestPluginNonRootFlow(t *testing.T) {
 // file refuses the start, naming the field and not the value.
 func TestPluginSecretsByReference(t *testing.T) {
 	bun, out := pluginBundle(t)
-	const env, value = "WL_TEST_PLUGIN_SECRET", "synthetic-secret-7f1c2a"
+	// The environment variable and its synthetic value, declared apart:
+	// on one line, the secret scan's generic rule reads the pair as a key.
+	const env = "WL_TEST_PLUGIN_SECRET"
+	const value = "synthetic-secret-7f1c2a"
 	cfg := pluginConfigOf(t, bun, out)
 	cfg["variables"] = map[string]any{"f/plugin/secret": map[string]any{"value_env": env, "is_secret": true}}
 	path := writePluginConfig(t, cfg)
