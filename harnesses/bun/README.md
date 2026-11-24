@@ -588,17 +588,18 @@ the rules of each hook.
 - **The bundle's own.** A bundle built with a plugin (the host contract's
   `plugin`) holds it in `plugins/`, with host-provided modules resolved to
   their shims. The engine names it with `--plugin` when `wl` names none,
-  and `connect` loads it, checked first, when its `plugin` option is absent
-  ([What connect() does](#what-connect-does)). Once this process has loaded
-  a plugin, other bytes from its path are refused, and an unchanged plugin
-  file keeps its module: restart the host for a release.
+  and `connect` loads it when its `plugin` option is absent
+  ([What connect() does](#what-connect-does)). Once this process has copied
+  a plugin, even one that fails to load, other bytes from its path are
+  refused, and an unchanged file keeps its module: restart the host for a
+  release.
 - **When it loads.** A harness loads its plugin after the runtime has
   installed its process-wide hooks and the native realms have taken the
   web APIs, and `connect` loads a bundle's plugin at the same point. A
   `fetch` wrapper that such a plugin installs at load reaches ordinary
-  steps, and no native step, and stays for the rest of the process. After
-  a bundle's plugin, a host's later native realms take the runtime's first
-  fetch view, not `globalThis.fetch`.
+  steps, and no native step, and stays for the rest of the process. Once
+  `connect` starts loading a bundle's plugin, even one whose load fails,
+  later native realms take the first fetch view.
 - **The declaration.** The harness sends the plugin's hooks and selectors
   to the engine in its hello. The engine refuses a host whose declaration
   it cannot use with `plugin_mismatch`: a malformed or ambiguous selector,
