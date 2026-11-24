@@ -115,7 +115,7 @@ func TestUserStateBoundToItsRegistration(t *testing.T) {
 // argsView renders every job's arguments as its name.
 type argsView string
 
-func (v argsView) JobRecord(string) ([]byte, error) {
+func (v argsView) JobRecord(Job) ([]byte, error) {
 	return []byte(`{"view":"` + string(v) + `"}`), nil
 }
 func (v argsView) JobArgs(string) ([]byte, error) { return []byte(`{"args":"` + string(v) + `"}`), nil }
@@ -210,38 +210,30 @@ func TestRegistrationNumbers(t *testing.T) {
 	}
 }
 
-// With a registry that numbers no registration (Gen 0), as a host's Jobs
-// may, the state of a flow job of workspace A is still not that of B when
-// the id is reused: in the services' own store and in a host's store.
+// The services' own store keeps workspaces apart even over a registry that
+// numbers no registration (Gen 0): the state of a flow job of workspace A
+// is not that of B when the id passes from A to B.
 func TestUserStateWithoutRegistrationNumbers(t *testing.T) {
 	ctx := context.Background()
 	const id = "x"
 	a := scripted{Job{ID: id, Kind: JobFlow, Root: id, Host: Host{Workspace: "ws-a"}}, true}
 	b := scripted{Job{ID: id, Kind: JobFlow, Root: id, Host: Host{Workspace: "ws-b"}}, true}
-	for name, store := range map[string]func(Jobs) FlowUserState{
-		"the services' store": func(j Jobs) FlowUserState { return NewUserStates(j) },
-		"a host's store":      func(Jobs) FlowUserState { return &hostStates{vals: map[string]json.RawMessage{}} },
-	} {
-		jobs := &scriptedJobs{id: id}
-		s := &Services{Jobs: jobs, UserState: store(jobs)}
-		jobs.set(a)
-		if err := s.SetFlowUserStateIn(ctx, id, "k", []byte(`"a"`), "ws-a"); err != nil {
-			t.Fatal(err)
-		}
-		jobs.set(b)
-		if v, _ := s.FlowUserStateIn(ctx, id, "k", "ws-b"); string(v) != "null" {
-			t.Errorf("%s: B read A's %s", name, v)
-		}
-		if err := s.SetFlowUserStateIn(ctx, id, "k", []byte(`"b"`), "ws-b"); err != nil {
-			t.Fatal(err)
-		}
-		jobs.set(a)
-		if v, _ := s.FlowUserStateIn(ctx, id, "k", "ws-a"); string(v) != `"a"` && string(v) != "null" {
-			t.Errorf("%s: A read %s, want its own value or none", name, v)
-		}
-		if v, _ := s.FlowUserStateIn(ctx, id, "k", "ws-a"); string(v) == `"b"` {
-			t.Errorf("%s: A read B's value", name)
-		}
+	jobs := &scriptedJobs{id: id}
+	s := &Services{Jobs: jobs, UserState: NewUserStates(jobs)}
+	jobs.set(a)
+	if err := s.SetFlowUserStateIn(ctx, id, "k", []byte(`"a"`), "ws-a"); err != nil {
+		t.Fatal(err)
+	}
+	jobs.set(b)
+	if v, _ := s.FlowUserStateIn(ctx, id, "k", "ws-b"); string(v) != "null" {
+		t.Errorf("B read A's %s", v)
+	}
+	if err := s.SetFlowUserStateIn(ctx, id, "k", []byte(`"b"`), "ws-b"); err != nil {
+		t.Fatal(err)
+	}
+	jobs.set(a)
+	if v, _ := s.FlowUserStateIn(ctx, id, "k", "ws-a"); string(v) == `"b"` {
+		t.Error("A read B's value")
 	}
 }
 
@@ -305,45 +297,30 @@ func TestExclusiveRegistration(t *testing.T) {
 	endY()
 }
 
-// A host's store gets one key per job: the id for a job of windmill-lite,
-// the workspace, a slash and the id for one of another workspace, and no
-// key for an id with a slash. A run of workspace alpha with id u and one of
-// windmill-lite with id alpha/u so never share a value.
-func TestHostStateKeys(t *testing.T) {
+// A host's store, which serves windmill-lite's workspace only (the engine
+// runs another workspace's runs only with the services' own store), gets
+// each flow job's id as its key, as it always did: a store that already
+// holds a value for a job whose id has a slash gives it back, and takes a
+// write.
+func TestHostStoreKeepsJobIDs(t *testing.T) {
 	ctx := context.Background()
-	jobs := &scriptedJobs{}
-	store := &hostStates{vals: map[string]json.RawMessage{}}
+	jobs := &scriptedJobs{id: "alpha/u"}
+	store := &hostStates{vals: map[string]json.RawMessage{"alpha/u/k": json.RawMessage(`"kept"`)}}
 	s := &Services{Jobs: jobs, UserState: store}
-	alpha := scripted{Job{ID: "u", Kind: JobFlow, Root: "u", Host: Host{Workspace: "alpha"}}, true}
-	slashed := scripted{Job{ID: "alpha/u", Kind: JobFlow, Root: "alpha/u"}, true}
-	plain := scripted{Job{ID: "v", Kind: JobFlow, Root: "v"}, true}
-	jobs.id = "u"
-	jobs.set(alpha)
-	if err := s.SetFlowUserStateIn(ctx, "u", "k", []byte(`"alpha's"`), "alpha"); err != nil {
+	jobs.set(scripted{Job{ID: "alpha/u", Kind: JobFlow, Root: "alpha/u"}, true})
+	if v, _ := s.FlowUserStateIn(ctx, "alpha/u", "k", ""); string(v) != `"kept"` {
+		t.Errorf("alpha/u read %s, want the value the store held", v)
+	}
+	if err := s.SetFlowUserStateIn(ctx, "alpha/u", "j", []byte(`1`), ""); err != nil {
 		t.Fatal(err)
 	}
-	jobs.id = "alpha/u"
-	jobs.set(slashed)
-	if v, _ := s.FlowUserStateIn(ctx, "alpha/u", "k", ""); string(v) != "null" {
-		t.Errorf("windmill-lite's alpha/u read %s", v)
-	}
-	if err := s.SetFlowUserStateIn(ctx, "alpha/u", "k", []byte(`"mine"`), ""); !errors.Is(err, ErrFlowJobNotFound) {
-		t.Errorf("a write to windmill-lite's alpha/u: %v, want ErrFlowJobNotFound", err)
-	}
-	jobs.id = "u"
-	jobs.set(alpha)
-	if v, _ := s.FlowUserStateIn(ctx, "u", "k", "alpha"); string(v) != `"alpha's"` {
-		t.Errorf("alpha's u read %s, want its own value", v)
-	}
-	jobs.id = "v"
-	jobs.set(plain)
-	if err := s.SetFlowUserStateIn(ctx, "v", "k", []byte(`1`), ""); err != nil {
-		t.Fatal(err)
+	if v, _ := s.FlowUserStateIn(ctx, "alpha/u", "j", ""); string(v) != `1` {
+		t.Errorf("alpha/u read back %s", v)
 	}
 	store.mu.Lock()
 	keys := slices.Sorted(maps.Keys(store.vals))
 	store.mu.Unlock()
-	if want := []string{"alpha/u/k", "v/k"}; !slices.Equal(keys, want) {
+	if want := []string{"alpha/u/j", "alpha/u/k"}; !slices.Equal(keys, want) {
 		t.Errorf("the host's store holds %v, want %v", keys, want)
 	}
 }

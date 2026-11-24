@@ -158,21 +158,12 @@ func (r *run) noInvocationJob(fr *frame, i, idx int, o *outcome) {
 	r.e.platform.JobRegistry().Begin(platform.Job{ID: id, Kind: platform.JobScript, Root: r.rootID, Run: r.id})()
 }
 
-// JobRecord renders the record of the job id names (platform.JobView).
-func (v runView) JobRecord(id string) ([]byte, error) {
+// JobRecord renders the record of the job that j registers, with the flow
+// user state of that registration, as the job read checked it
+// (platform.JobView).
+func (v runView) JobRecord(j platform.Job) ([]byte, error) {
 	// The user state is read before the run's lock: its service takes
 	// locks of its own.
-	states, hasStates, err := v.r.platform.FlowUserStates(context.Background(), id)
-	if err != nil {
-		return nil, err
-	}
-	return v.record(id, states, hasStates)
-}
-
-// JobRecordFor renders the record of the job that j registers, with the
-// flow user state of that registration, as a job read found it
-// (platform.JobViewFor).
-func (v runView) JobRecordFor(j platform.Job) ([]byte, error) {
 	states, hasStates, err := v.r.platform.FlowUserStatesOf(context.Background(), j)
 	if err != nil {
 		return nil, err
@@ -836,7 +827,8 @@ func (v *scriptView) check(id string) error {
 // JobRecord renders the script run's record (platform.JobView). A job
 // stored canceled is not served: the oracle recorded no canceled job's
 // record, so it is refused as a canceled step's is (leafRecord).
-func (v *scriptView) JobRecord(id string) ([]byte, error) {
+func (v *scriptView) JobRecord(j platform.Job) ([]byte, error) {
+	id := j.ID
 	if err := v.check(id); err != nil {
 		return nil, err
 	}

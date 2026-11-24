@@ -134,6 +134,9 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 	// completed while its root lives, which outlives it when its dispatch
 	// placed it in another run's tree.
 	view := &scriptView{id: id, env: reserved, script: s, args: args}
+	if err := e.admits(host, req.Platform); err != nil {
+		return ScriptResult{}, err
+	}
 	endJob, ok := platform.BeginExclusive(e.platform.JobRegistry(), platform.Job{ID: id, Kind: platform.JobScript, Root: env["WM_ROOT_JOB_ID"], Path: s.Path, Env: env, Run: id, View: view, Host: host})
 	if !ok {
 		return ScriptResult{}, heldElsewhere(id)

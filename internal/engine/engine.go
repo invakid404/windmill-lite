@@ -688,7 +688,11 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	// WA-14, WA-19); its user state is discarded when its tree is, and the
 	// registry's reference to the run with it.
 	// An id that a job of another workspace holds refuses the run, before
-	// it starts (ADR 0007, a workspace per run).
+	// it starts (ADR 0007, a workspace per run), and so do services that
+	// cannot keep workspaces apart.
+	if err := e.admits(r.host, req.Platform); err != nil {
+		return nil, err
+	}
 	endJob, ok := platform.BeginExclusive(e.platform.JobRegistry(), platform.Job{ID: id, Kind: platform.JobFlow, Root: r.rootID, Path: f.Path, Run: id, View: runView{r}, Host: r.host})
 	if !ok {
 		return nil, heldElsewhere(id)
@@ -816,4 +820,19 @@ func newUUID() string {
 // holds in the job registry, live or ended (platform.BeginExclusive).
 func heldElsewhere(id string) error {
 	return fmt.Errorf("engine: the job id %s is held by a job of another workspace", id)
+}
+
+// admits refuses a run of host's identity, with its own services p (nil for
+// the engine's), in a workspace other than DefaultHost's when the engine's
+// services keep jobs or flow user state in a host's registry or store
+// (platform.Services.OwnsJobs): only their own keep workspaces apart. An
+// engine with no services registers no job, so it admits every run.
+func (e *Engine) admits(host platform.Host, p *platform.Services) error {
+	if host.EffectiveWorkspace() == platform.DefaultHost.Workspace || e.platform == nil {
+		return nil
+	}
+	if !e.platform.OwnsJobs() || p != nil && !p.OwnsJobs() {
+		return fmt.Errorf("engine: a run in workspace %q needs the services' own job registry and flow user state store", host.EffectiveWorkspace())
+	}
+	return nil
 }

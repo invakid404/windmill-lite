@@ -148,7 +148,9 @@ var ErrPreWriteDeadline = engine.ErrPreWriteDeadline
 
 // ErrRunInFlight is Run's error for an id (RunOptions.ID) that a run of the
 // runtime in flight already has. Nothing runs; the id can be used again
-// once that run has returned.
+// once that run has returned, by a run of the same workspace. A run of
+// another workspace is refused with an error of its own while the runtime
+// keeps that run's jobs, running or ended (ADR 0007, a workspace per run).
 var ErrRunInFlight = errors.New("wl: a run with this id is in flight")
 
 // RunPlatform is a run's own platform providers (H13, ADR 0008). The run's

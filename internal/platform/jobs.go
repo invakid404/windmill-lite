@@ -7,7 +7,6 @@ import (
 	"errors"
 	"maps"
 	"slices"
-	"strings"
 	"sync"
 
 	"github.com/invakid404/windmill-lite/internal/jsonval"
@@ -74,11 +73,14 @@ type Job struct {
 //
 // [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
 type JobView interface {
-	// JobRecord returns the record of the job id names, as the JSON text
-	// the route answers. It fails with a *NotServed when the run does not
-	// hold the job, or holds it in a state whose record windmill-lite does
-	// not reproduce.
-	JobRecord(id string) ([]byte, error)
+	// JobRecord returns the record of the job that j registers, as the
+	// JSON text the route answers: j is the registration that the read
+	// checked, whose flow user state the record lists
+	// (Services.FlowUserStatesOf), whatever the registry holds for its id
+	// by then. It fails with a *NotServed when the run does not hold the
+	// job, or holds it in a state whose record windmill-lite does not
+	// reproduce.
+	JobRecord(j Job) ([]byte, error)
 	// JobArgs returns the stored arguments of the job id names, as GET
 	// jobs_u/get_args/{id} answers them: jsonb's text output of the job's
 	// args, or of a flow job's input. It fails as JobRecord does.
@@ -127,10 +129,9 @@ type Jobs interface {
 // key/value map per flow job, which the stock helpers address by their
 // effective root. The facade and the engine only read or write the map of
 // a live flow job (Services.FlowUserState, Services.SetFlowUserState), so
-// a service need not check that itself. The job they name is the flow
-// job's id, and for a job of another workspace than DefaultHost's its
-// workspace, a slash and its id, so that runs of two workspaces that reuse
-// an id never share a map; a flow job whose id has a slash gets no state.
+// a service need not check that itself. A host's FlowUserState serves the
+// workspace of DefaultHost only: the engine runs another workspace's runs
+// only with the services' own store (Services.OwnsJobs).
 type FlowUserState interface {
 	// UserState returns the value stored under key for the flow job, as
 	// the JSON text a read gives back, and false when there is none.
@@ -692,22 +693,7 @@ func (s *Services) GetJobIn(id, scope string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if v, ok := j.View.(JobViewFor); ok {
-		// The record of the registration that was checked, its flow user
-		// state included (FlowUserStatesOf).
-		return v.JobRecordFor(j)
-	}
-	return j.View.JobRecord(id)
-}
-
-// JobViewFor is a JobView that renders a job's record for one registration
-// of it, as GetJobIn found it, so that the record's flow user state is that
-// registration's (Services.FlowUserStatesOf) whatever the registry holds by
-// the time it is listed.
-type JobViewFor interface {
-	JobView
-	// JobRecordFor renders the record of the job that j registers.
-	JobRecordFor(j Job) ([]byte, error)
+	return j.View.JobRecord(j)
 }
 
 // GetJobArgs answers GET jobs_u/get_args/{id} ([WA-19]): the stored
@@ -797,21 +783,24 @@ func (s *Services) FlowUserStates(ctx context.Context, id string) (json.RawMessa
 }
 
 // FlowUserStatesOf is FlowUserStates for the registration j, as a job read
-// found it (JobViewFor): with the services' own store, that registration's
-// map in its workspace, and none of a later registration of the id; with a
-// host's, j's key (stateKey). It returns false for a job that is not a flow
-// job.
+// found it (JobView.JobRecord): it lists only while the registry still holds
+// that registration live as a flow job, in its workspace (a completed child
+// flow lists none, as FlowUserStates would not), and with the services' own
+// store it lists that registration's map and none of another's.
 func (s *Services) FlowUserStatesOf(ctx context.Context, j Job) (json.RawMessage, bool, error) {
 	l, ok := s.userState().(FlowUserStateLister)
-	if !ok || j.Kind != JobFlow {
+	if !ok {
+		return nil, false, nil
+	}
+	if cur, live, known := s.jobs().Job(j.ID); !known || !live || cur.Kind != JobFlow || cur.Gen != j.Gen || !sameWorkspace(cur.Host, j.Host) {
 		return nil, false, nil
 	}
 	var m map[string]json.RawMessage
 	var err error
 	if u, own := l.(*UserStates); own {
 		m = u.statesAt(j)
-	} else if key, keyed := stateKey(j); keyed {
-		m, err = l.UserStates(ctx, key)
+	} else {
+		m, err = l.UserStates(ctx, j.ID)
 	}
 	if err != nil || len(m) == 0 {
 		return nil, false, err
@@ -893,9 +882,9 @@ func (s *Services) FlowUserState(ctx context.Context, id, key string) (json.RawM
 // scope: a flow job of another scope reads null, as an unknown one does.
 // With the services' own store a read gives the map of the registration
 // it checked (Job.Gen, in its workspace) and none other. With a host's
-// store, the key of a job of another workspace than DefaultHost's holds
-// its workspace (stateKey), and the job is looked up again after the read:
-// a value read while the id stopped naming that registration reads null.
+// store, which serves DefaultHost's workspace only (OwnsJobs), the job is
+// looked up again after the read: a value read while the id stopped naming
+// that registration reads null.
 func (s *Services) FlowUserStateIn(ctx context.Context, id, key, scope string) (json.RawMessage, error) {
 	j, ok := s.liveFlowJob(id, scope)
 	if !ok {
@@ -907,11 +896,7 @@ func (s *Services) FlowUserStateIn(ctx context.Context, id, key, scope string) (
 		}
 		return json.RawMessage("null"), nil
 	}
-	k, keyed := stateKey(j)
-	if !keyed {
-		return json.RawMessage("null"), nil
-	}
-	v, ok, err := s.userState().UserState(ctx, k, key)
+	v, ok, err := s.userState().UserState(ctx, id, key)
 	switch {
 	case err != nil:
 		return nil, err
@@ -924,21 +909,15 @@ func (s *Services) FlowUserStateIn(ctx context.Context, id, key, scope string) (
 	return v, nil
 }
 
-// stateKey is the job that a host's FlowUserState keys the flow job j's
-// state by: its id, and for a job of another workspace than DefaultHost's
-// the workspace, a slash and the id, so that runs of two workspaces that
-// use one id never share a host's map. It reports false for an id with a
-// slash, which has no state in a host's store: every key is then one id
-// without a slash, or a workspace, a slash and such an id, and no two jobs
-// share a key. No API call can name such an id (the routes take UUIDs).
-func stateKey(j Job) (string, bool) {
-	if strings.Contains(j.ID, "/") {
-		return "", false
-	}
-	if ws := j.Host.EffectiveWorkspace(); ws != DefaultHost.Workspace {
-		return ws + "/" + j.ID, true
-	}
-	return j.ID, true
+// OwnsJobs reports whether the services keep jobs and flow user state in
+// their own job registry and store (Registry, UserStates), as wl's do, and
+// not in a host's Jobs or FlowUserState. Only these keep workspaces apart
+// (BeginExclusive, a map per registration and workspace), so the engine
+// refuses a run of a workspace other than DefaultHost's without them.
+func (s *Services) OwnsJobs() bool {
+	_, reg := s.jobs().(*Registry)
+	_, states := s.userState().(*UserStates)
+	return reg && states
 }
 
 // SetFlowUserState writes body, a JSON text, at key of the job id names
@@ -977,11 +956,7 @@ func (s *Services) SetFlowUserStateIn(ctx context.Context, id, key string, body 
 		}
 		return nil
 	}
-	k, keyed := stateKey(j)
-	if !keyed {
-		return ErrFlowJobNotFound
-	}
-	return s.userState().SetUserState(ctx, k, key, v)
+	return s.userState().SetUserState(ctx, id, key, v)
 }
 
 // userStateValue is a flow user state value as a read gives it back:

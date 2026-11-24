@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"encoding/json"
-	"maps"
 	"strings"
 	"sync"
 	"testing"
@@ -49,31 +48,9 @@ func TestRunIDHeldByAnotherWorkspace(t *testing.T) {
 	}
 }
 
-// switchingJobs is a job registry that, once armed, answers the third and
-// later lookups of id with other, as if the run that held id ended and a
-// run of another workspace registered it between a job read's check and
-// its state listing.
-type switchingJobs struct {
-	platform.Jobs
-	id    string
-	other platform.Job
-	mu    sync.Mutex
-	armed bool
-	seen  int
-}
-
-func (j *switchingJobs) Job(id string) (platform.Job, bool, bool) {
-	j.mu.Lock()
-	if id == j.id && j.armed {
-		j.seen++
-		if j.seen > 2 {
-			j.mu.Unlock()
-			return j.other, true, true
-		}
-	}
-	j.mu.Unlock()
-	return j.Jobs.Job(id)
-}
+// forwardingJobs is a job registry that forwards to another, as a host's
+// wrapper around the services' own registry would: it is not their own.
+type forwardingJobs struct{ platform.Jobs }
 
 // hostStates is a host's flow user state store over a map.
 type hostStates struct {
@@ -98,34 +75,70 @@ func (h *hostStates) SetUserState(_ context.Context, job, key string, v json.Raw
 	return nil
 }
 
-func (h *hostStates) UserStates(_ context.Context, job string) (map[string]json.RawMessage, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return maps.Clone(h.vals[job]), nil
+// A run in a workspace other than windmill-lite needs the services' own job
+// registry and flow user state store, which alone keep workspaces apart: with
+// a host's registry (here one that forwards to the services' own) or a host's
+// store, a flow run and a root script run of another workspace are refused
+// before any step, while runs of windmill-lite run as they always did.
+func TestWorkspaceNeedsOwnServices(t *testing.T) {
+	for name, services := range map[string]func() *platform.Services{
+		"a host's registry": func() *platform.Services {
+			s := &platform.Services{}
+			s.Jobs = forwardingJobs{s.Registry()}
+			return s
+		},
+		"a host's store": func() *platform.Services {
+			return &platform.Services{UserState: &hostStates{vals: map[string]map[string]json.RawMessage{}}}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ran := 0
+			x := execFunc(func(_ context.Context, inv Invocation) (StepOutcome, error) {
+				ran++
+				return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(`null`))}, nil
+			})
+			e := openWithPlatform(t, map[string]string{"f/t/main": flowOf(mod("a", "echo", "", ""))}, x, services())
+			args := jsonval.FromProducer([]byte(`{}`))
+			ws := platform.Host{Workspace: "ws-b"}
+			if _, err := e.Run(context.Background(), RunRequest{Path: "f/t/main", Args: args, Host: ws}); err == nil || !strings.Contains(err.Error(), "needs the services' own job registry") {
+				t.Errorf("a flow run of ws-b: %v, want refused", err)
+			}
+			if _, err := e.RunScript(context.Background(), ScriptRequest{Path: "f/t/echo", Args: args, Host: ws}); err == nil || !strings.Contains(err.Error(), "needs the services' own job registry") {
+				t.Errorf("a script run of ws-b: %v, want refused", err)
+			}
+			if ran != 0 {
+				t.Errorf("%d steps of refused runs ran", ran)
+			}
+			if tr, err := e.Run(context.Background(), RunRequest{Path: "f/t/main", Args: args}); err != nil || tr.Status != "success" {
+				t.Errorf("a run of windmill-lite: %v, %+v", err, tr)
+			}
+		})
+	}
 }
 
-// The record of a run's flow job lists the flow user state of the run's
-// registration that the job read checked: when another workspace's run
-// takes the id between the check and the listing, the record lists none
-// of that run's state.
+// The record of a run's flow job lists the flow user state of the
+// registration that it is rendered for: the run's own lists the state its
+// step wrote, and another registration of the id (another number, or
+// another workspace) lists none.
 func TestRunRecordListsTheCheckedRegistration(t *testing.T) {
+	services := &platform.Services{}
 	const id = "00000000-0000-4000-8000-0000000000da"
-	store := &hostStates{vals: map[string]map[string]json.RawMessage{
-		"ws-b/" + id: {"k": json.RawMessage(`"other's"`)},
-	}}
-	services := &platform.Services{UserState: store}
-	jobs := &switchingJobs{Jobs: services.Registry(), id: id, other: platform.Job{ID: id, Kind: platform.JobFlow, Root: id, Run: id, Host: platform.Host{Workspace: "ws-b"}}}
-	services.Jobs = jobs
-	var record string
-	x := execFunc(func(_ context.Context, inv Invocation) (StepOutcome, error) {
-		jobs.mu.Lock()
-		jobs.armed = true
-		jobs.mu.Unlock()
-		b, err := services.GetJobIn(id, "ws-a")
-		if err != nil {
-			record = err.Error()
-		} else {
-			record = string(b)
+	records := map[string]string{}
+	x := execFunc(func(ctx context.Context, inv Invocation) (StepOutcome, error) {
+		if err := services.SetFlowUserStateIn(ctx, id, "k", []byte(`"mine"`), "ws-a"); err != nil {
+			return StepOutcome{}, err
+		}
+		j, _, _ := services.JobRegistry().Job(id)
+		later, elsewhere := j, j
+		later.Gen++
+		elsewhere.Host = platform.Host{Workspace: "ws-b"}
+		for name, reg := range map[string]platform.Job{"own": j, "later": later, "elsewhere": elsewhere} {
+			b, err := j.View.JobRecord(reg)
+			if err != nil {
+				records[name] = err.Error()
+			} else {
+				records[name] = string(b)
+			}
 		}
 		return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(`null`))}, nil
 	})
@@ -133,7 +146,58 @@ func TestRunRecordListsTheCheckedRegistration(t *testing.T) {
 	if _, err := e.Run(context.Background(), RunRequest{ID: id, Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`)), Host: platform.Host{Workspace: "ws-a"}}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(record, `"id":"`+id+`"`) || strings.Contains(record, "other's") {
-		t.Errorf("the run's record: %s; want the run's own, without the other run's state", record)
+	if !strings.Contains(records["own"], `"mine"`) {
+		t.Errorf("the run's record for its own registration: %s; want its state", records["own"])
 	}
+	for _, name := range []string{"later", "elsewhere"} {
+		if !strings.Contains(records[name], `"id":"`+id+`"`) || strings.Contains(records[name], `"mine"`) {
+			t.Errorf("the run's record for another registration (%s): %s; want the record without the state", name, records[name])
+		}
+	}
+}
+
+// A child flow job's record lists its flow user state while the child runs,
+// and none once it has completed, though the run that holds it lives on:
+// state is listed for a live flow job only, as it always was.
+func TestCompletedChildRecordListsNoState(t *testing.T) {
+	services := &platform.Services{}
+	var mu sync.Mutex
+	var child, live, completed string
+	x := execFunc(func(ctx context.Context, inv Invocation) (StepOutcome, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch inv.Env["WM_FLOW_STEP_ID"] {
+		case "s":
+			child = inv.Env["WM_FLOW_JOB_ID"]
+			if err := services.SetFlowUserState(ctx, child, "k", []byte(`"child's"`)); err != nil {
+				return StepOutcome{}, err
+			}
+			b, err := services.GetJob(child)
+			live = string(b) + errString(err)
+		case "after":
+			b, err := services.GetJob(child)
+			completed = string(b) + errString(err)
+		}
+		return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(`null`))}, nil
+	})
+	e := openWithPlatform(t, map[string]string{"f/t/main": flowOf(
+		branchAllOf("b", []string{`{"modules":[` + mod("s", "echo", "", "") + `]}`}, false, ""),
+		mod("after", "echo", "", ""),
+	)}, x, services)
+	if tr, err := e.Run(context.Background(), RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`))}); err != nil || tr.Status != "success" {
+		t.Fatalf("%v, %+v", err, tr)
+	}
+	if !strings.Contains(live, `"child's"`) {
+		t.Errorf("the running child's record: %s; want its state", live)
+	}
+	if !strings.Contains(completed, `"id":"`+child+`"`) || strings.Contains(completed, "user_states") {
+		t.Errorf("the completed child's record: %s; want it without user_states", completed)
+	}
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return " " + err.Error()
 }

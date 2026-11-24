@@ -44,7 +44,7 @@ func (j *changingJobs) Job(id string) (platform.Job, bool, bool) {
 // namedView renders every job as its name.
 type namedView string
 
-func (v namedView) JobRecord(string) ([]byte, error) {
+func (v namedView) JobRecord(platform.Job) ([]byte, error) {
 	return []byte(`{"view":"` + string(v) + `"}`), nil
 }
 func (v namedView) JobArgs(string) ([]byte, error) {
@@ -69,10 +69,10 @@ func (m mapStates) SetUserState(_ context.Context, job, key string, v json.RawMe
 // the caller's workspace, to a job of another workspace between two
 // lookups, the root lookup, the job reads and the flow user state read
 // never answer with the other workspace's job. The job reads answer from
-// the entry they checked. The state read, through a host's store keyed by
-// workspace (each workspace's value under the key the store receives),
-// gives the caller's value while its registration stays, and null once it
-// finds the id registered again.
+// the entry they checked. The state read, through a host's store (the
+// value under the key the store receives, the job's id), gives the
+// caller's value while its registration stays, and null once it finds the
+// id registered again.
 func TestJobLookupsAgainstARegistrationChange(t *testing.T) {
 	const job, localRoot, otherRoot = "00000000-0000-4000-8000-0000000000c1", "00000000-0000-4000-8000-0000000000c2", "00000000-0000-4000-8000-0000000000c3"
 	local := platform.Job{ID: job, Kind: platform.JobFlow, Root: localRoot, Run: localRoot, View: namedView("local"), Host: platform.Host{Workspace: "ws-a"}}
@@ -81,7 +81,7 @@ func TestJobLookupsAgainstARegistrationChange(t *testing.T) {
 		localRoot: {ID: localRoot, Kind: platform.JobFlow, Root: localRoot, Host: platform.Host{Workspace: "ws-a"}},
 		otherRoot: {ID: otherRoot, Kind: platform.JobFlow, Root: otherRoot, Host: platform.Host{Workspace: "ws-b"}},
 	}}
-	states := mapStates{"ws-a/" + job + "/k": json.RawMessage(`"local's"`), "ws-b/" + job + "/k": json.RawMessage(`"other's"`)}
+	states := mapStates{job + "/k": json.RawMessage(`"local's"`)}
 	f := newFacade(t, Config{Platform: &platform.Services{Jobs: jobs, UserState: states}})
 	s := f.register("inv-a", localRoot, map[string]string{"WM_JOB_ID": "00000000-0000-4000-8000-0000000000c4", "WM_ROOT_JOB_ID": localRoot, "WM_TOKEN": "tok-a", "WM_WORKSPACE": "ws-a"}, nil, &platform.Host{Workspace: "ws-a"})
 	defer s.End()
@@ -200,20 +200,7 @@ func TestReadWithAJobIDOfAnotherWorkspace(t *testing.T) {
 // lists through the services as the engine's run view does.
 type listingView struct{ s *platform.Services }
 
-func (v listingView) JobRecord(id string) ([]byte, error) {
-	states, ok, err := v.s.FlowUserStates(context.Background(), id)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		states = json.RawMessage("null")
-	}
-	return []byte(`{"view":"local","states":` + string(states) + `}`), nil
-}
-
-// JobRecordFor renders the record for the registration j, with that
-// registration's state, as the engine's run view does.
-func (v listingView) JobRecordFor(j platform.Job) ([]byte, error) {
+func (v listingView) JobRecord(j platform.Job) ([]byte, error) {
 	states, ok, err := v.s.FlowUserStatesOf(context.Background(), j)
 	if err != nil {
 		return nil, err
@@ -265,7 +252,9 @@ func TestJobRecordAgainstARegistrationChange(t *testing.T) {
 		local := platform.Job{ID: job, Kind: platform.JobFlow, Root: localRoot, Run: localRoot, View: view, Host: platform.Host{Workspace: "ws-a"}, Gen: 1}
 		other := platform.Job{ID: job, Kind: platform.JobFlow, Root: otherRoot, Run: otherRoot, View: view, Host: platform.Host{Workspace: "ws-b"}, Gen: 2}
 		services.Jobs = &changingJobs{id: job, first: local, firstKnown: true, then: other, roots: roots}
-		services.UserState = listingStates{mapStates{"ws-b/" + job + "/k": json.RawMessage(`"other's"`)}}
+		// The other registration's value, under the key a host's store
+		// receives, the job's id.
+		services.UserState = listingStates{mapStates{job + "/k": json.RawMessage(`"other's"`)}}
 		if got, want := read(t, services), `200 {"view":"local","states":null}`; got != want {
 			t.Errorf("the job record: %s, want %s", got, want)
 		}
@@ -359,8 +348,8 @@ func TestHookedJobIDOfAnotherWorkspace(t *testing.T) {
 // engine's run view answers then: ErrEndedRun.
 type endingView struct{}
 
-func (endingView) JobRecord(string) ([]byte, error) { return nil, platform.ErrEndedRun }
-func (endingView) JobArgs(string) ([]byte, error)   { return nil, platform.ErrEndedRun }
+func (endingView) JobRecord(platform.Job) ([]byte, error) { return nil, platform.ErrEndedRun }
+func (endingView) JobArgs(string) ([]byte, error)         { return nil, platform.ErrEndedRun }
 
 // A job read of a run that ends while the read renders it answers as for a
 // job of a run that has ended (501), on the default identity, though the
