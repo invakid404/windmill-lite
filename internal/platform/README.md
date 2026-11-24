@@ -629,12 +629,15 @@ address by their effective root
   registration that the read checked (`JobRecord(Job)`), and lists that
   registration's state while it is a live flow job (`FlowUserStatesOf`).
 - **Which services keep workspaces apart.** Only the services' own
-  registry and store (`OwnsJobs`): the engine refuses a run of another
-  workspace than `windmill-lite` with a host's `Jobs` or `FlowUserState`.
-  With the own ones, two workspaces never share a map, and an id that ends
-  and is registered again starts with no state.
-- **A host's store** gets each job's id as its key, as before; it serves
-  `windmill-lite`'s runs alone, so no two workspaces share a key.
+  registry and store (`OwnsJobs`), shared between engines or not: two
+  workspaces never share a registry entry or a map, and an id that ends
+  and is registered again starts with no state. The engine refuses a run
+  in another workspace than its configured one with a host's `Jobs` or
+  `FlowUserState`.
+- **A host's registry or store** keeps the base's behaviour: it gets each
+  job's id, an engine configured with one workspace over it runs as
+  before, and engines that share a registry through it are not kept
+  apart.
 - **Faithful where a step can look.** This lifetime matches every access the
   stock helpers make during the run. A read or a write by id after the run
   gets `null` or the 404, as Windmill answers once the root's completion is

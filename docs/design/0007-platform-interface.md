@@ -331,10 +331,15 @@ its run's workspace.
   another as for an unknown id, as Windmill does
   ([WA-V2](../semantics/client-api.md#wa-v2)). Each checks the workspace
   on the registry entry that it answers from.
-- **The services it needs.** A run in a workspace other than
-  `windmill-lite` needs the services' own job registry and flow user state
-  store, which `wl` always uses. With a host's registry or store, which
-  cannot keep workspaces apart, the engine refuses such a run.
+- **The services it needs.** The guarantees of this section hold with the
+  services' own job registry and flow user state store, which `wl` always
+  uses, shared between engines or not. A run in a workspace other than the
+  engine's configured one, which only a run's own identity asks for, needs
+  them: with a host's registry or store the engine refuses it.
+- **A host's registry or store** keeps the base's behaviour. An engine
+  configured with one workspace (`Config.Workspace`) over a host's
+  registry or store runs as it always did. Engines that share a registry
+  through a host's `Jobs` get no isolation from this section.
 - **One workspace per id.** A run whose id a job of another workspace
   holds, live or among the ended jobs kept, is refused before it starts.
   A step whose hook sets a `WM_JOB_ID` held so registers under its own
