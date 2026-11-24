@@ -138,4 +138,6 @@ interceptor on a fake stream:
 `TestGateWatchSendsEachChange` holds a `Watch`'s first send while the
 `Gate` serves and then drains, and still gets `NOT_SERVING`, `SERVING`,
 `NOT_SERVING`. `TestGateCloseEndsUnknownWatch` ends a `Watch` of another
-name with the `Gate`'s `Close`.
+name with the `Gate`'s `Close`. `TestGateDrainBeforeServe` checks that a
+`Gate` that drained while the engine started keeps every call from the
+`Runner` that `Serve` then offers.

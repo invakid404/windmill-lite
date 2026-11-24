@@ -65,13 +65,13 @@ func NewGate() *Gate {
 
 // Serve makes the engine serve: the Runner calls go to srv, a *Server, and
 // health answers SERVING, to every open Watch too. A Gate that drains
-// already keeps draining.
+// already keeps draining, and does not take srv: a drain that began while
+// the engine started answers every call UNAVAILABLE.
 func (g *Gate) Serve(srv plugin.RunnerServer) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.srv = srv
 	if g.state == Starting {
-		g.state = Serving
+		g.srv, g.state = srv, Serving
 		g.notifyLocked()
 	}
 }

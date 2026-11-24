@@ -2,13 +2,16 @@ package host
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 
 	"github.com/invakid404/windmill-lite/wl/plugin"
 )
@@ -120,5 +123,39 @@ func TestGateCloseEndsUnknownWatch(t *testing.T) {
 	}
 	if got := w.statuses(); len(got) != 1 || got[0] != healthpb.HealthCheckResponse_SERVICE_UNKNOWN {
 		t.Errorf("the Watch of another name sent %v, want [SERVICE_UNKNOWN]", got)
+	}
+}
+
+// TestGateDrainBeforeServe checks the Runner calls of a Gate whose drain
+// began while the engine started, and that Serve then finds draining:
+// GetBuildInfo, Cancel and GetRun answer UNAVAILABLE and never reach the
+// Runner that Serve offered (which would answer UNIMPLEMENTED), and Run
+// answers UNAVAILABLE (draining). A Gate that drains after it served keeps
+// its Runner for those calls.
+func TestGateDrainBeforeServe(t *testing.T) {
+	ctx := context.Background()
+	g := NewGate()
+	g.Drain()
+	g.Serve(plugin.UnimplementedRunnerServer{})
+	r := g.Runner()
+	_, err := r.GetBuildInfo(ctx, &plugin.GetBuildInfoRequest{})
+	if status.Code(err) != codes.Unavailable {
+		t.Errorf("GetBuildInfo of a Gate that drained while starting: %v, want UNAVAILABLE", err)
+	}
+	if _, err := r.Cancel(ctx, &plugin.CancelRequest{Id: "x"}); status.Code(err) != codes.Unavailable {
+		t.Errorf("Cancel of a Gate that drained while starting: %v, want UNAVAILABLE", err)
+	}
+	if _, err := r.GetRun(ctx, &plugin.GetRunRequest{}); status.Code(err) != codes.Unavailable {
+		t.Errorf("GetRun of a Gate that drained while starting: %v, want UNAVAILABLE", err)
+	}
+	if _, err := r.Run(ctx, &plugin.RunRequest{Path: "f/x"}); status.Code(err) != codes.Unavailable || !strings.Contains(status.Convert(err).Message(), "draining") {
+		t.Errorf("Run of a Gate that drained while starting: %v, want UNAVAILABLE (draining)", err)
+	}
+
+	served := NewGate()
+	served.Serve(plugin.UnimplementedRunnerServer{})
+	served.Drain()
+	if _, err := served.Runner().GetBuildInfo(ctx, &plugin.GetBuildInfoRequest{}); status.Code(err) != codes.Unimplemented {
+		t.Errorf("GetBuildInfo of a Gate that drained after it served: %v, want the Runner's answer, UNIMPLEMENTED", err)
 	}
 }

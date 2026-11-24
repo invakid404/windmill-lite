@@ -927,7 +927,8 @@ func (rt *Runtime) Close() error {
 		rt.mu.Lock()
 		rt.closed = true
 		rt.mu.Unlock()
-		// No failed start of a pool process is reported from here on
+		// From here on, a failed start of a pool process finds no function
+		// to report to; one that had already taken it may still call it
 		// (wlext.OnPoolStartFailure).
 		rt.poolFailure.Store(nil)
 		rt.cancelStop(closing)

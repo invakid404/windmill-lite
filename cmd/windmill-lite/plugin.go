@@ -132,8 +132,8 @@ func runPlugin(args []string, stderr io.Writer) int {
 	var drainOnce sync.Once
 	drain := func(why string) {
 		drainOnce.Do(func() {
-			fmt.Fprintf(stderr, "windmill-lite plugin: draining: %s\n", why)
 			gate.Drain()
+			fmt.Fprintf(stderr, "windmill-lite plugin: draining: %s\n", why)
 			drains <- why
 		})
 	}

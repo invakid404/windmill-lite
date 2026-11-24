@@ -501,10 +501,12 @@ func TestPluginDrainDispatchedRun(t *testing.T) {
 }
 
 // TestPluginDrainAtPublication checks SIGTERM at the moment the engine is
-// about to serve, held there by its test hook (holdServeEnv): the drain
-// begins first, so the engine never serves. A Watch opened before
-// receives NOT_SERVING only, a run answers UNAVAILABLE (draining), and the
-// engine exits with status 0.
+// about to serve, held there by its test hook (holdServeEnv). A Watch
+// opened while the engine starts receives NOT_SERVING. The engine writes
+// its drain's reason once the Gate drains, so after that line, with the
+// engine still held, a run answers UNAVAILABLE (draining). Released, the
+// engine never serves: the Watch receives nothing more before it ends, and
+// the engine exits with status 0.
 func TestPluginDrainAtPublication(t *testing.T) {
 	bun, out := pluginBundle(t)
 	hold := t.TempDir()
@@ -515,22 +517,20 @@ func TestPluginDrainAtPublication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if r, err := w.Recv(); err != nil || r.GetStatus() != healthpb.HealthCheckResponse_NOT_SERVING {
+		t.Fatalf("the Watch while the engine starts: %v, %v; want NOT_SERVING", r.GetStatus(), err)
+	}
 	waitFile(t, hold, "at-serve")
 	d.signal(t, syscall.SIGTERM)
 	d.waitStderr(t, "draining: SIGTERM")
+	_, err = d.runner.Run(ctx, &plugin.RunRequest{Path: "f/plugin/echo", Args: []byte(`{"x":1}`)})
+	checkRefused(t, "a run once a drain began at the engine's publication", err, codes.Unavailable, "draining")
+
 	if err := os.WriteFile(filepath.Join(hold, "release"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err = d.runner.Run(ctx, &plugin.RunRequest{Path: "f/plugin/echo", Args: []byte(`{"x":1}`)})
-	if err != nil {
-		checkRefused(t, "a run once a drain began at the engine's publication", err, codes.Unavailable, "draining")
-	} else {
-		t.Errorf("a run started once a drain began at the engine's publication")
-	}
-	for _, st := range watchUntilEnd(t, w) {
-		if st == healthpb.HealthCheckResponse_SERVING {
-			t.Errorf("the engine served after a drain began before it served")
-		}
+	if sts := watchUntilEnd(t, w); len(sts) != 0 {
+		t.Errorf("the Watch received %v after a drain began before the engine served, want nothing more", sts)
 	}
 	if code := d.exitCode(t); code != 0 {
 		t.Errorf("the engine exited with %d, want 0\nits standard error:\n%s", code, d.stderr)
