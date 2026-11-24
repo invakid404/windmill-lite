@@ -227,9 +227,11 @@ host plugin can keep the run's state there. `PinRuns` pins every run, and
   step of the run waits for a slot there.
 - **What it holds.** The process does not leave while the run is live.
   After the run's end, its late hook calls, such as `onRunSettled`, still
-  go there while the process lives, but no longer hold it. A run that
-  never ends holds its process until its hard deadline, so give pinned
-  runs one.
+  go there while the process can answer, draining or not, but no longer
+  hold it. A run that never ends holds its process until its hard
+  deadline, so give pinned runs one.
+- **An id used again.** A later run with the same id has a pin of its
+  own, or none, while the earlier run's late calls keep to its process.
 - **When its process ends.** A step in flight there fails as a process
   that dies fails it. The run's next step or host-plugin call latches the
   run with `ErrPinnedProcessLost`, and the step does not start.

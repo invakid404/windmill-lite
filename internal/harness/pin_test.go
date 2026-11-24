@@ -103,7 +103,7 @@ func TestNoNewPinOnTaintedProcess(t *testing.T) {
 // once the run has ended.
 func TestPinHoldsUntilRunEnd(t *testing.T) {
 	pool, ctl, log := fakePool(t, PoolConfig{Max: 1})
-	pool.PinRun("A")
+	pinA := pool.PinRun("A")
 	a := fakeRun(t, pool, "s", onRun("A"))
 	// Another run's abandoned step taints a; A is between steps.
 	abandon(t, pool, ctl, "x", onRun("B"))
@@ -114,7 +114,7 @@ func TestPinHoldsUntilRunEnd(t *testing.T) {
 		t.Fatalf("the idle tainted process drained while a pinned run is live: %q", log.after(""))
 	}
 	log.note("run ended")
-	pool.RunEnded("A")
+	pool.RunEnded(pinA)
 	log.waitFor(t, "run ended", fmt.Sprintf("drain %d", a))
 }
 
@@ -124,7 +124,7 @@ func TestPinHoldsUntilRunEnd(t *testing.T) {
 // ended.
 func TestPinAfterTaintClears(t *testing.T) {
 	pool, ctl, log := fakePool(t, PoolConfig{Max: 1})
-	pool.PinRun("A")
+	pinA := pool.PinRun("A")
 	a := fakeRun(t, pool, "s", onRun("A"))
 	abandon(t, pool, ctl, "x", onRun("B"))
 	q := fakeRun(t, pool, "s", onRun("C"))
@@ -143,7 +143,7 @@ func TestPinAfterTaintClears(t *testing.T) {
 		t.Fatalf("the surplus process drained while its pinned run is live: %q", log.after(""))
 	}
 	log.note("run ended")
-	pool.RunEnded("A")
+	pool.RunEnded(pinA)
 	log.waitFor(t, "run ended", fmt.Sprintf("drain %d", a))
 }
 
@@ -176,7 +176,7 @@ func TestPinnedRunCapFull(t *testing.T) {
 // has ended, its late calls go to another process.
 func TestPinnedRunProcessLost(t *testing.T) {
 	pool, ctl, log := fakePool(t, PoolConfig{Max: 1}, "WL_FAKE_PLUGIN=same")
-	pool.PinRun("A")
+	pinA := pool.PinRun("A")
 	h := startHeld(t, pool, ctl, "h", onRun("A"))
 	var a int
 	for _, s := range pool.Stats() {
@@ -201,29 +201,23 @@ func TestPinnedRunProcessLost(t *testing.T) {
 	if _, err := pool.HostCall(ctx, "resource", "A", "", jsonval.FromProducer([]byte(`{}`))); !errors.Is(err, engine.ErrPinnedProcessLost) {
 		t.Fatalf("the pinned run's host call: %v; want pinned_process_lost", err)
 	}
-	pool.RunEnded("A")
+	pool.RunEnded(pinA)
 	if _, err := pool.HostCall(ctx, "onRunSettled", "A", "", jsonval.FromProducer([]byte(`{}`))); err != nil {
 		t.Fatalf("a late host call of the ended run: %v", err)
 	}
 }
 
 // A pinned run's host calls go to its process, also when that process is
-// tainted, and, after the run has ended, while the process lives: the
-// late onRunSettled reaches it. Another live pin keeps the process here.
+// tainted. After the run's end, its late onRunSettled still reaches that
+// process while it can answer: with the last live pin released, the
+// process drains, its drain held, and the call goes there. An unpinned
+// run's call goes to the replacement, and once the process has exited, so
+// do the ended run's late calls.
 func TestPinnedRunHostCalls(t *testing.T) {
-	pool, ctl, _ := fakePool(t, PoolConfig{Min: 2, Max: 2, RecycleTimeout: time.Minute}, "WL_FAKE_PLUGIN=same")
+	pool, ctl, log := fakePool(t, PoolConfig{Max: 1, RecycleTimeout: time.Minute}, "WL_FAKE_PLUGIN=same")
+	holdDrains(t, ctl)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := pool.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	pool.PinRun("A")
-	pool.PinRun("B")
-	a := fakeRun(t, pool, "s", onRun("A"))
-	if got := fakeRun(t, pool, "s", onRun("B")); got != a {
-		t.Fatalf("the test needs both pins on one process: %d and %d", a, got)
-	}
-	abandon(t, pool, ctl, "x", onRun("A"))
 	hostCall := func(hook, run string) int {
 		t.Helper()
 		out, err := pool.HostCall(ctx, hook, run, "", jsonval.FromProducer([]byte(`{}`)))
@@ -233,34 +227,165 @@ func TestPinnedRunHostCalls(t *testing.T) {
 		}
 		return r.PID
 	}
+	pinA := pool.PinRun("A")
+	a := fakeRun(t, pool, "s", onRun("A"))
+	abandon(t, pool, ctl, "x", onRun("A"))
 	if got := hostCall("resource", "A"); got != a {
 		t.Fatalf("the pinned run's host call went to %d, want its tainted process %d", got, a)
 	}
-	pool.RunEnded("A")
+	log.note("run ended")
+	pool.RunEnded(pinA)
+	drainA, exitA := fmt.Sprintf("drain %d", a), fmt.Sprintf("exit %d", a)
+	log.waitFor(t, "run ended", drainA)
 	if got := hostCall("onRunSettled", "A"); got != a {
-		t.Fatalf("the ended run's onRunSettled went to %d, want its process %d", got, a)
+		t.Fatalf("the ended run's onRunSettled went to %d, want its draining process %d", got, a)
 	}
 	if got := hostCall("resource", "C"); got == a {
-		t.Fatalf("an unpinned run's host call went to the tainted process %d", a)
+		t.Fatalf("an unpinned run's host call went to the leaving process %d", a)
+	}
+	if slices.Contains(log.after("run ended"), exitA) {
+		t.Fatalf("the process exited with its drain held: %q", log.after(""))
+	}
+	releaseDrain(t, ctl, a)
+	log.waitFor(t, "run ended", exitA)
+	if got := hostCall("onRunSettled", "A"); got == a {
+		t.Fatalf("a late call went to the exited process %d", a)
 	}
 }
 
-// The live count with pins (Max 1, MaxLive 2). A pinned run's process is
-// tainted, its replacement starts, and its taint clears while the
-// replacement fills Max: it is surplus, still serving the pin, with
-// unrelated work in flight. The pin ends; that process drains only once the
+// Each admitted run owns its pin. A run that takes the id of an earlier
+// run whose settlement is still to come is routed as its own: pinned, by
+// its new pin from its first call, so not to the earlier run's tainted
+// process; unpinned, as any run. The earlier run's late call, which
+// carries its pin, still reaches its process, and its settlement forgets
+// its own pin only.
+func TestPinIDReuse(t *testing.T) {
+	pool, ctl, _ := fakePool(t, PoolConfig{Max: 2, RecycleTimeout: time.Minute}, "WL_FAKE_PLUGIN=same")
+	holdDrains(t, ctl)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	hostCall := func(ctx context.Context, run string) int {
+		t.Helper()
+		out, err := pool.HostCall(ctx, "onRunSettled", run, "", jsonval.FromProducer([]byte(`{}`)))
+		var r struct{ PID int }
+		if err != nil || json.Unmarshal(out.Producer(), &r) != nil {
+			t.Fatalf("a host call of %s: %s, %v", run, out.Producer(), err)
+		}
+		return r.PID
+	}
+	first := pool.PinRun("A")
+	p := fakeRun(t, pool, "s", onRun("A"))
+	// Another run's abandoned step taints p, and the first run ends, not
+	// yet settled: p drains, its drain held.
+	abandon(t, pool, ctl, "x", onRun("X"))
+	pool.RunEnded(first)
+	second := pool.PinRun("A")
+	q := fakeRun(t, pool, "s", onRun("A"))
+	if q == p {
+		t.Fatalf("the second run with the id went to the first run's tainted process %d", p)
+	}
+	if got := hostCall(WithPin(ctx, first), "A"); got != p {
+		t.Fatalf("the first run's late call went to %d, want its process %d", got, p)
+	}
+	if got := hostCall(ctx, "A"); got != q {
+		t.Fatalf("the second run's host call went to %d, want its process %d", got, q)
+	}
+	// The first run's settlement leaves the second run's pin: once the
+	// second run's own abandoned step taints q, its next step still goes
+	// there.
+	pool.ForgetRun(first)
+	abandon(t, pool, ctl, "y", onRun("A"))
+	if got := fakeRun(t, pool, "s", onRun("A")); got != q {
+		t.Fatalf("the second run's step went to %d after the first run settled, want its tainted process %d", got, q)
+	}
+	pool.RunEnded(second)
+	pool.ForgetRun(second)
+
+	// An unpinned run that takes the id of an ended pinned run.
+	pool2, ctl2, _ := fakePool(t, PoolConfig{Max: 2, RecycleTimeout: time.Minute})
+	holdDrains(t, ctl2)
+	pinB := pool2.PinRun("B")
+	b := fakeRun(t, pool2, "s", onRun("B"))
+	abandon(t, pool2, ctl2, "x", onRun("X"))
+	pool2.RunEnded(pinB)
+	pool2.UnpinRun("B")
+	if got := fakeRun(t, pool2, "s", onRun("B")); got == b {
+		t.Fatalf("an unpinned run went to the tainted process %d of an earlier pinned run with its id", b)
+	}
+}
+
+// A pin binds again when every call that it sent to its process was
+// refused before dispatch, so no work or state of the run reached that
+// process: here the run's first pick finds a process that no longer takes
+// the call, which the pool has not seen yet. The call goes to another
+// process, and so does the run's next step.
+//   - A first step: the process was drained behind the pool's back, its
+//     exit held, so it takes no invocation.
+//   - A first host call: a draining process still answers host calls, so
+//     the process is marked as ending, the state its stopped reader leaves
+//     until its exit is observed, which the fake harness cannot hold.
+func TestPinRebindsAfterARefusedFirstCall(t *testing.T) {
+	for _, first := range []string{"step", "host call"} {
+		t.Run(first, func(t *testing.T) {
+			pool, ctl, _ := fakePool(t, PoolConfig{Max: 2}, "WL_FAKE_PLUGIN=same")
+			holdDrains(t, ctl)
+			p := fakeRun(t, pool, "s", onRun("U"))
+			proc := memberProcess(t, pool, p)
+			if first == "step" {
+				go proc.Drain(context.Background()) //nolint:errcheck // its exit is held, and the pool kills it at Close
+				waitFor(t, "the process to stop serving", func() bool {
+					proc.mu.Lock()
+					defer proc.mu.Unlock()
+					return proc.state == stateDraining
+				})
+			} else {
+				proc.mu.Lock()
+				proc.ending = true
+				proc.mu.Unlock()
+			}
+			pool.PinRun("A")
+			var q int
+			if first == "step" {
+				q = fakeRun(t, pool, "s", onRun("A"))
+			} else {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				out, err := pool.HostCall(ctx, "resource", "A", "", jsonval.FromProducer([]byte(`{}`)))
+				var r struct{ PID int }
+				if err != nil || json.Unmarshal(out.Producer(), &r) != nil {
+					t.Fatalf("%s, %v", out.Producer(), err)
+				}
+				q = r.PID
+			}
+			if q == p {
+				t.Fatalf("the run's first call ran in the process %d that stopped serving", p)
+			}
+			if got := fakeRun(t, pool, "s", onRun("A")); got != q {
+				t.Fatalf("the run's next step went to %d, want %d", got, q)
+			}
+		})
+	}
+}
+
+// The live count with pins (Max 1, MaxLive 2, drains held). A pinned run's
+// process is tainted, its replacement starts, and its taint clears while
+// the replacement fills Max: it is surplus, still serving the pin, with
+// unrelated work in flight. The pin ends; the replacement trips the RSS
+// trigger with work of its own in flight, so two leavers fill MaxLive and
+// a new invocation waits. The surplus process drains only once the
 // unrelated work, held past RecycleTimeout, has completed, and frees its
-// place only at its exit. Meanwhile the replacement trips the RSS trigger
-// and starts no third process (an invocation held in it keeps it from
-// draining); the next replacement trips the module trigger and keeps
-// serving while the first leaver for a trigger holds the slot. Spawns
+// place only at its exit: the new invocation waits through the held drain,
+// and runs in a third process once the exit is observed. That process
+// trips the module trigger and keeps serving while the RSS leaver holds
+// the slot; its replacement starts once that leaver has exited. Spawns
 // minus observed exits never pass 2.
 func TestPoolAliveCount(t *testing.T) {
 	const recycle = 50 * time.Millisecond
 	// The first process runs three scripts (s, held, abandoned), which
 	// Modules 3 allows.
 	pool, ctl, log := fakePool(t, PoolConfig{Max: 1, MaxLive: 2, RecycleTimeout: recycle, Recycle: RecycleTriggers{RSS: 1000, Modules: 3}})
-	pool.PinRun("A")
+	holdDrains(t, ctl)
+	pinA := pool.PinRun("A")
 	a := fakeRun(t, pool, "s", onRun("A"))
 	u := startHeld(t, pool, ctl, "u", onRun("U"))
 	abandon(t, pool, ctl, "x", onRun("X"))
@@ -274,40 +399,47 @@ func TestPoolAliveCount(t *testing.T) {
 		t.Fatalf("the pinned run went to %d, want its surplus process %d", got, a)
 	}
 	log.note("pin ended")
-	pool.RunEnded("A")
+	pool.RunEnded(pinA)
 	unrelatedSince := time.Now()
-	if slices.Contains(log.after("pin ended"), fmt.Sprintf("drain %d", a)) {
-		t.Fatalf("the process drained with unrelated work in flight: %q", log.after(""))
-	}
-	// The replacement trips the RSS trigger with an invocation held in it;
-	// MaxLive 2 holds back its own replacement.
+	// The replacement trips the RSS trigger with an invocation held in it.
 	hq := startHeld(t, pool, ctl, "hq", onRun("H"))
 	for range 2 {
 		if got := fakeRun(t, pool, "s", onRun("D", map[string]any{"rss": 2000})); got != q {
 			t.Fatalf("a report went to %d, want %d", got, q)
 		}
 	}
-	if n := log.count("spawn"); n != 2 {
-		t.Fatalf("%d spawns with two processes alive and MaxLive 2: %q", n, log.after(""))
-	}
-	// The unrelated work stays held past RecycleTimeout, then completes.
+	// Demand while two leavers fill MaxLive: no process can start.
+	log.note("demand")
+	w := goRun(pool, "s", onRun("W"))
+	log.waitFor(t, "demand", "wait")
+	notReturned(t, w, "an invocation while two leavers fill MaxLive")
+	// The unrelated work outlives RecycleTimeout before it completes.
 	time.Sleep(time.Until(unrelatedSince.Add(2 * recycle)))
+	drainA, exitA := fmt.Sprintf("drain %d", a), fmt.Sprintf("exit %d", a)
+	if slices.Contains(log.after("pin ended"), drainA) {
+		t.Fatalf("the process drained with unrelated work in flight: %q", log.after(""))
+	}
 	log.note("unrelated done")
 	u.release(t)
 	if r := <-u.done; pidOfOutcome(t, r.out, r.err) != a {
 		t.Fatalf("the unrelated work ran elsewhere: %+v", r.out)
 	}
-	drainA, exitA := fmt.Sprintf("drain %d", a), fmt.Sprintf("exit %d", a)
-	log.waitFor(t, "unrelated done", exitA)
-	if !log.before("note: unrelated done", 1, drainA, 1) || !log.before(exitA, 1, "spawn", 3) {
-		t.Fatalf("want the unrelated work's end, the drain, the exit, then the third spawn: %q", log.after(""))
+	log.waitFor(t, "unrelated done", drainA)
+	// The drained process holds its place until its exit.
+	notReturned(t, w, "an invocation while the drained process has not exited")
+	if n := log.count("spawn"); n != 2 {
+		t.Fatalf("%d spawns before the surplus process exited: %q", n, log.after(""))
 	}
-	// The next replacement trips the module trigger while the RSS leaver
-	// still holds the slot: it keeps serving.
-	r := fakeRun(t, pool, "s", onRun("E"))
+	releaseDrain(t, ctl, a)
+	r := wait(t, w)
 	if r == a || r == q {
-		t.Fatalf("went to %d (a %d, q %d)", r, a, q)
+		t.Fatalf("the waiting invocation went to %d (a %d, q %d)", r, a, q)
 	}
+	if !log.before(exitA, 1, "spawn", 3) {
+		t.Fatalf("the third process started before the surplus one exited: %q", log.after(""))
+	}
+	// The third process trips the module trigger while the RSS leaver
+	// still holds the slot: it keeps serving.
 	for _, script := range []string{"t", "v", "w"} {
 		if got := fakeRun(t, pool, script, onRun("F")); got != r {
 			t.Fatalf("script %s went to %d, want %d", script, got, r)
@@ -316,12 +448,19 @@ func TestPoolAliveCount(t *testing.T) {
 	if got := fakeRun(t, pool, "s", onRun("G")); got != r {
 		t.Fatalf("the module retiree stopped serving while the slot is held: went to %d", got)
 	}
-	exitQ := fmt.Sprintf("exit %d", q)
+	log.note("q released")
 	hq.release(t)
-	if r := <-hq.done; pidOfOutcome(t, r.out, r.err) != q {
-		t.Fatalf("the held invocation ran elsewhere: %+v", r.out)
+	if res := <-hq.done; pidOfOutcome(t, res.out, res.err) != q {
+		t.Fatalf("the held invocation ran elsewhere: %+v", res.out)
 	}
-	log.waitFor(t, "unrelated done", exitQ)
+	drainQ, exitQ := fmt.Sprintf("drain %d", q), fmt.Sprintf("exit %d", q)
+	log.waitFor(t, "q released", drainQ)
+	if n := log.count("spawn"); n != 3 {
+		t.Fatalf("%d spawns while the RSS leaver holds the slot: %q", n, log.after(""))
+	}
+	releaseDrain(t, ctl, q)
+	log.waitFor(t, "q released", exitQ)
+	waitFor(t, "the module retiree's replacement", func() bool { return log.count("spawn") >= 4 })
 	if !log.before(exitQ, 1, "spawn", 4) {
 		t.Fatalf("the module retiree's replacement started before the slot freed: %q", log.after(""))
 	}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/engine"
+	"github.com/invakid404/windmill-lite/internal/harness"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 	"github.com/invakid404/windmill-lite/internal/platform"
 	"github.com/invakid404/windmill-lite/internal/platform/facade"
@@ -198,31 +199,41 @@ var ErrPreWriteDeadline = engine.ErrPreWriteDeadline
 
 // pin pins the run id to a pool process when it asks for it (pin) or the
 // runtime pins every run (Options.Pool.PinRuns), and the bundle has a pool.
-// It returns the settlement callback, which then also forgets the pin,
-// wrapping settled, and the function to call when the run has ended, which
-// ends the pin's hold on its process. A run that settles is forgotten at
-// its settlement, and one that never settles keeps a pin that holds
-// nothing.
-func (rt *Runtime) pin(id string, pin bool, settled func()) (func(), func()) {
-	if rt.pool == nil || !(pin || rt.pinRuns) {
-		return settled, func() {}
+// It returns the run's pin, nil for none, which the run's calls carry in
+// their context (harness.WithPin); the settlement callback, which then
+// also forgets the pin, wrapping settled; and the function to call when
+// the run has ended, which ends the pin's hold on its process. A run that
+// settles is forgotten at its settlement, and one that never settles keeps
+// a pin that holds nothing. An unpinned run that takes the id of an
+// earlier pinned one is routed as its own: the earlier pin then routes
+// only the calls that carry it.
+func (rt *Runtime) pin(id string, pin bool, settled func()) (*harness.Pin, func(), func()) {
+	switch {
+	case rt.pool == nil:
+		return nil, settled, func() {}
+	case !(pin || rt.pinRuns):
+		if rt.pinned.Load() {
+			rt.pool.UnpinRun(id)
+		}
+		return nil, settled, func() {}
 	}
-	rt.pool.PinRun(id)
-	return func() {
-			rt.pool.ForgetRun(id)
+	rt.pinned.Store(true)
+	p := rt.pool.PinRun(id)
+	return p, func() {
+			rt.pool.ForgetRun(p)
 			if settled != nil {
 				settled()
 			}
 		}, func() {
-			rt.pool.RunEnded(id)
+			rt.pool.RunEnded(p)
 		}
 }
 
 // forgetPin drops the pin of a run that did not start, which never
 // settles.
-func (rt *Runtime) forgetPin(id string) {
+func (rt *Runtime) forgetPin(p *harness.Pin) {
 	if rt.pool != nil {
-		rt.pool.ForgetRun(id)
+		rt.pool.ForgetRun(p)
 	}
 }
 
@@ -332,8 +343,9 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		ctx = calls.reportStoreFailures(ctx)
 		req := engine.ScriptRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Around: rt.aroundAt(), MaxHeldBytes: opts.Limits.MaxHeldBytes,
 			Bytes: opts.Limits.Bytes, ByteTotal: rt.byteTotal}
-		settled, unpin := rt.pin(id, opts.Pin, settled)
+		p, settled, unpin := rt.pin(id, opts.Pin, settled)
 		defer unpin()
+		ctx = harness.WithPin(ctx, p)
 		var s *engine.RunSettlement
 		if settled != nil {
 			// A script job has its own one invocation, which settles it.
@@ -342,7 +354,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		}
 		res, err := rt.eng.RunScript(ctx, req)
 		if err != nil {
-			rt.forgetPin(id)
+			rt.forgetPin(p)
 			return nil, err
 		}
 		out := &Result{ID: res.ID, Status: StatusSuccess, Result: storedText(res.Result), Warnings: calls.warned()}
@@ -380,13 +392,17 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	if err != nil {
 		return nil, err
 	}
-	settled, unpin := rt.pin(id, opts.Pin, settled)
+	p, settled, unpin := rt.pin(id, opts.Pin, settled)
 	defer unpin()
+	ctx = harness.WithPin(ctx, p)
+	if h != nil {
+		h.pin = p
+	}
 	var services *platform.Services
-	bind := &runBinding{id: id}
+	bind := &runBinding{id: id, pin: p}
 	if opts.Platform != nil || rt.answersPlatform() || rt.readCache {
 		if services, err = rt.runServices(opts.Platform, bind); err != nil {
-			rt.forgetPin(id)
+			rt.forgetPin(p)
 			return nil, err
 		}
 	}
@@ -420,7 +436,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	ctx = calls.reportStoreFailures(ctx)
 	tr, err := rt.eng.Run(ctx, req)
 	if err != nil {
-		rt.forgetPin(id)
+		rt.forgetPin(p)
 		return nil, err
 	}
 	if h != nil {

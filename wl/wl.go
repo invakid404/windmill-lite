@@ -326,6 +326,9 @@ type Runtime struct {
 	readCache bool // Options.ReadCache
 	capped    bool // Options.Pool.Cap is set: each flow run's trace lists "D15"
 	pinRuns   bool // Options.Pool.PinRuns
+	// pinned is set once a run of the runtime has been pinned: from then
+	// on an unpinned run's id drops an earlier run's pin (Runtime.pin).
+	pinned atomic.Bool
 	// byteTotal is Options.Limits.Bytes, nil for none.
 	byteTotal *engine.ByteTotal
 	// foreign is Options.ForeignWindmillOrigins as the welcomes carry

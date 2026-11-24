@@ -643,7 +643,10 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
   tainted, recycling or idle process does not leave while a live run is
   pinned to it. After the run's end, the pin still sends the run's
   remaining hook calls, such as `onRunSettled`, to that process while it
-  lives, but no longer holds it.
+  can answer, draining or not, but no longer holds it.
+- **One pin per run.** A pin belongs to the run that it was made for: a
+  later run with the same id has its own, or none, and the earlier run's
+  late calls still follow the earlier pin.
 - So a pinned run that never settles holds no process, and one that never
   ends holds its process until its hard deadline or its cancellation ends
   it. A host that pins runs gives them a hard deadline.
