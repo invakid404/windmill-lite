@@ -197,9 +197,6 @@ var stagedFields = []struct {
 	set  func(*plugin.RunRequest) bool
 }{
 	{"hooks", func(r *plugin.RunRequest) bool { return r.GetHooks() != nil }},
-	{"pin", func(r *plugin.RunRequest) bool { return r.GetPin() }},
-	{"limits", func(r *plugin.RunRequest) bool { return r.GetLimits() != nil }},
-	{"run_data", func(r *plugin.RunRequest) bool { return len(r.GetRunData()) > 0 }},
 }
 
 // flowOnlyFields are the fields of RunRequest that only a flow run takes,
@@ -268,8 +265,19 @@ func mapRequest(req *plugin.RunRequest, receipt time.Time) (*request, error) {
 			PermissionedAs: id.GetPermissionedAs(), BaseURL: id.GetBaseUrl(), WorkerGroup: id.GetWorkerGroup(),
 		}
 	}
+	// Runtime.Run refuses run data that is not JSON, and a pin that the
+	// runtime cannot keep: a fresh runtime's.
+	r.opts.Data = json.RawMessage(req.GetRunData())
+	r.opts.Pin = req.GetPin()
 	if r.opts.Kind == wl.KindScript {
 		return r, nil
+	}
+	if l := req.GetLimits(); l != nil {
+		limits, err := runLimits(l)
+		if err != nil {
+			return nil, err
+		}
+		r.opts.Limits = limits
 	}
 	if req.PreWriteDeadlineMs != nil {
 		r.opts.PreWriteDeadline = receipt.Add(budget(req.GetPreWriteDeadlineMs()))
@@ -356,14 +364,42 @@ func decodeSelectors(raw []byte, sels *[]wl.Selector) error {
 	return nil
 }
 
-// nestedUnknown refuses a request whose identity, resources or variables
-// hold fields that this engine does not know, naming the field that holds
-// them and their field numbers. The staged messages, hooks and limits,
-// refuse whole.
+// runLimits maps a request's limits to wl's. A count that an int cannot
+// hold, either way, refuses here, naming its field, so that no value
+// changes as it narrows; Runtime.Run refuses a negative limit that an int
+// holds.
+func runLimits(l *plugin.Limits) (wl.RunLimits, error) {
+	for _, f := range []struct {
+		name string
+		v    int64
+	}{
+		{"limits.max_in_flight", l.GetMaxInFlight()},
+		{"limits.max_args_bytes", l.GetMaxArgsBytes()},
+	} {
+		if f.v < math.MinInt || f.v > math.MaxInt {
+			return wl.RunLimits{}, invalid(f.name, fmt.Sprintf("%d is outside what this engine can count (%d to %d)", f.v, math.MinInt, math.MaxInt))
+		}
+	}
+	return wl.RunLimits{
+		MaxInFlight:  int(l.GetMaxInFlight()),
+		MaxArgsBytes: int(l.GetMaxArgsBytes()),
+		MaxHeldBytes: l.GetMaxHeldBytes(),
+		Bytes:        l.GetBytes(),
+	}, nil
+}
+
+// nestedUnknown refuses a request whose identity, limits, resources or
+// variables hold fields that this engine does not know, naming the field
+// that holds them and their field numbers. The staged message, hooks,
+// refuses whole.
 func nestedUnknown(req *plugin.RunRequest) error {
 	if id := req.GetIdentity(); id != nil && len(id.ProtoReflect().GetUnknown()) > 0 {
 		u := id.ProtoReflect().GetUnknown()
 		return invalid("identity", fmt.Sprintf("it sets fields that this engine does not know (%s)", unknownFields(u)))
+	}
+	if l := req.GetLimits(); l != nil && len(l.ProtoReflect().GetUnknown()) > 0 {
+		u := l.ProtoReflect().GetUnknown()
+		return invalid("limits", fmt.Sprintf("it sets fields that this engine does not know (%s)", unknownFields(u)))
 	}
 	for _, path := range slices.Sorted(maps.Keys(req.GetResources())) {
 		if r := req.GetResources()[path]; r != nil && len(r.ProtoReflect().GetUnknown()) > 0 {

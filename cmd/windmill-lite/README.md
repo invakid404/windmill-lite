@@ -389,6 +389,10 @@ warm start when the configuration asks for it, until the host stops it.
   `GetBuildInfo` and `Cancel` answer `UNAVAILABLE`; then health answers
   `SERVING` and the calls run. An open that fails writes its reason to
   standard error and exits with status 1.
+- **The bundle's host plugin.** A
+  [host plugin](../../docs/glossary.md#host-plugin) that the bundle's
+  manifest names loads with the bundle, as `wl.Open` loads it. The
+  configuration names no plugin of its own.
 - **Health.** The engine answers `Check`, `List` and `Watch` of
   `grpc.health.v1.Health` itself, for the empty service name, `plugin`
   and `windmill_lite.v1.Runner`. `Check` of another name answers
@@ -436,16 +440,16 @@ whose digest passed.
 | `providers` | An object of `{"value": <JSON>}` by provider name | None | A static answer for each named [provider](../../docs/glossary.md#provider) of the host contract |
 | `plugin_timeout_ms` | A number from 1 to 9,223,372,036,854 | 60000 | How long a call to the bundle's host plugin waits for its reply |
 | `read_cache` | `true` or `false` | `false` | As `host -read-cache` |
-| `pool` | An object of `min`, `max`, `cap`, `lag_threshold_ms`, `recycle_timeout_ms`, `recycle` (`rss`, `samples`, `modules`) and `warm_start` | One process, no cap | A warm runtime's pool (`Pool` in [wl](../../wl/README.md#options)). Its two settings in milliseconds lie between −9,223,372,036,854 and 9,223,372,036,854, which a duration holds |
+| `pool` | An object of `min`, `max`, `cap`, `lag_threshold_ms`, `recycle_timeout_ms`, `recycle` (`rss`, `samples`, `modules`), `max_live`, `pin_runs` and `warm_start` | One process, no cap | A warm runtime's pool (`Pool` in [wl](../../wl/README.md#options)), with its bound on live processes (`MaxLive`) and pinned runs for every run (`PinRuns`). Its two settings in milliseconds lie between −9,223,372,036,854 and 9,223,372,036,854, which a duration holds |
 | `result_polls_for_all_jobs` | `true` or `false` | `false` | As `host -result-polls-for-all-jobs` |
+| `foreign_windmill_origins` | An array of origins, such as `https://windmill.example.com` | None | As `host -foreign-windmill`: a step's dispatch to one of them loses windmill-lite's job ids (`ForeignWindmillOrigins` in `wl`) |
 | `max_message_bytes` | A positive number | 536870912 | The largest gRPC message that the engine sends or receives |
+| `bytes_total` | A number of bytes, 0 or more | 0: none | The runtime's byte total, which every run's reservations share, beside each run's own budget (`Limits.Bytes` in `wl`) |
 | `labels` | An object of strings | None | Names and values that `GetBuildInfo` echoes |
 
 These fields of the configuration are not served yet, and each refuses
-the start, naming the field: `engine_recycle_rss`, `drain_timeout_ms`,
-`bytes_total`, `foreign_windmill_origins`, `pool`'s `max_live` and
-`pin_runs`, and a provider set to `"broker"`. So does a bundle whose
-manifest names a [host plugin](../../docs/glossary.md#host-plugin).
+the start, naming the field: `engine_recycle_rss`, `drain_timeout_ms` and
+a provider set to `"broker"`.
 
 ### Secrets by reference
 
@@ -564,7 +568,7 @@ gives the setup.
 | `runcmd_test.go` | `run`'s usage errors, which exit with status 2. Arguments, a bundle or a profile file that do not open exit with status 1, and print nothing on standard output. A synthetic folder's flow, run `warm` and `fresh`, reads a host's secret through its arguments. A run that succeeds exits 0 with its result, trace and CPU profile, a run that fails exits 1, and a run without the harness runtime does not start. |
 | `runcmd_test.go`, the resource store | On `-resource-store memory`, each run starts without the state the last one wrote. An unknown store, `redis` without `WL_REDIS_URL`, an unreachable Redis or Sentinel, and URLs that do not parse do not start; each runs in an engine process of its own, whose whole standard error holds no password. With `WL_TEST_REDIS_URL` ([wl/redisstore](../../wl/redisstore/README.md#tests)), two engine processes on one Redis share the state: the second's create is refused as taken, and it reads the first's value. |
 | `host_test.go`, `argsfile_test.go`, `readcache_test.go`, `tracedetail_test.go`, `foreign_test.go`, `resultpolls_test.go` | Host mode end to end, on the Bun host `testdata/host/host.ts` ([Host-mode tests](#host-mode-tests)) |
-| `plugin_test.go` | `plugin` end to end, through `wl/plugin` ([Plugin tests](#plugin-tests)) |
+| `plugin_test.go`, `runoptions_test.go` | `plugin` end to end, through `wl/plugin` ([Plugin tests](#plugin-tests)) |
 | `memory_test.go` | What `warm` step modules cost a host process ([Memory tests](#memory-tests)) |
 | `realm_test.go` | What native invocations leave in a long-lived Bun process ([Native realm tests](#native-realm-tests)) |
 | `retain_test.go` | `TestSettledRunLetsGoOfItsValuesOnHosts`: on the plain host and on the plugin host, a run's step results are unreachable once the run has settled, while the runtime and its host go on |
@@ -656,7 +660,7 @@ How these tests run:
 
 ### Plugin tests
 
-`plugin_test.go` launches the test binary as the engine through
+`plugin_test.go` and `runoptions_test.go` launch the test binary as the engine through
 `wl/plugin`'s `ClientConfig`, with its SHA-256 and a literal environment
 in which `WL_TEST_ENGINE` is `1`, and calls it through `plugin.Client`
 over go-plugin's connection. The tests build their bundles from
@@ -666,23 +670,29 @@ synthetic folders that the test file holds.
 |---|---|
 | `TestPluginDeadlineOnlyItsRun` | While a run is in its step, which signals its entry and waits for the test's release, one with `deadline_ms` 0 ends `canceled` with the cause `deadline`, and the first, released, succeeds. A run without `deadline_ms`, whose call has no deadline either, runs to its end. |
 | `TestPluginDeadlineFromReceipt` | In the test's own process, a server whose clock stamps the receipt 10 s early ends a run with `deadline_ms` 5000 `canceled` with the cause `deadline`, and one stamped now succeeds. |
-| `TestPluginScriptRun` | A root script's run with `deadline_ms` 0 ends `canceled` with `may_have_mutated` false. A script that fails after a write ends `failure` with `may_have_mutated` true. `pre_write_deadline_ms`, `hooks`, `write_capable` and a trace level refuse a script's run, naming the field, and a script reads the run's own identity. |
+| `TestPluginScriptRun` | A root script's run with `deadline_ms` 0 ends `canceled` with `may_have_mutated` false. A script that fails after a write ends `failure` with `may_have_mutated` true. `pre_write_deadline_ms`, `hooks`, `write_capable`, a trace level and `limits` refuse a script's run, naming the field, and a script reads the run's own identity. |
 | `TestPluginCancelReason` | `Cancel` ends a run in flight `canceled`, with the cause `canceled` and an error that names the reason and the canceler. An id of no run answers `NOT_FOUND`. |
-| `TestPluginErrorCodes` | `UNAVAILABLE` for a run while the engine starts. `ALREADY_EXISTS` for a second run with the id of a run in its step. `NOT_FOUND` for a path that names no flow or root script. `INVALID_ARGUMENT` for the request's other refusals, such as unknown fields at the top or in `identity` or a resource, and selectors that are `null` or followed by more JSON. |
+| `TestPluginErrorCodes` | `UNAVAILABLE` for a run while the engine starts. `ALREADY_EXISTS` for a second run with the id of a run in its step. `NOT_FOUND` for a path that names no flow or root script. `INVALID_ARGUMENT` for the request's other refusals, such as unknown fields at the top or in `identity`, `limits` or a resource, and selectors that are `null` or followed by more JSON. |
 | `TestPluginDispatchedID` | The id of a run that a step dispatched refuses a run with `ALREADY_EXISTS` and the `RUN_NOT_STARTED` detail. One run is dispatched to start in a day, which the test cannot outlast, so it waits for its start; another runs its step. The second then goes on to its end. |
 | `TestPluginServesBundle` | With the runtime's open held by the engine's test hook (`WL_TEST_PLUGIN_HOLD_OPEN`), the engine has completed the handshake, health answers `NOT_SERVING` and `GetBuildInfo` `UNAVAILABLE`. Released, health answers `SERVING`, and `GetBuildInfo` returns `wl`'s build information with the labels, the configuration's digest and the protocol version. With a Bun that cannot start a harness process, the engine serves without a warm start; with one, it never serves, and exits with status 1 after the handshake, naming the warm start. |
 | `TestPluginShutdownWhileStarting` | go-plugin's shutdown call, with the runtime's open held, ends the engine within 10 seconds of the call's start. With the runtime opened and the engine held before it serves (`WL_TEST_PLUGIN_HOLD_PUBLISH`), the engine closes the runtime, whose temporary data directory is then gone, before it exits. |
 | `TestPluginHealthMethods` | `Check` and `List` answer the engine's state for the three names, while it starts and once it serves. Another name answers `NOT_FOUND` to `Check` and `SERVICE_UNKNOWN` to `Watch`. A `Watch` opened while the engine starts receives `NOT_SERVING`, then `SERVING`. |
 | `TestPluginNonRootFlow` | A flow that only a root calls by path runs, as `wl`'s `Runtime.Run` runs it. |
 | `TestPluginRefusalDetail` | Each of those refusals, the one while the engine starts included, carries the `RUN_NOT_STARTED` detail, so `Client.Run` reports `ErrNotStarted`. A run that started and failed, or was canceled, answers its result. |
-| `TestPluginStagedFields` | A request with `pin`, `limits`, `run_data` or `hooks`, and a configuration with each field that the engine does not serve yet, or a bundle with a host plugin, are refused, naming the field. A bundle that a test hook replaces with one with a host plugin after its check does not open: the engine exits with status 1 after the handshake line, which a test hook delays (`WL_TEST_PLUGIN_DELAY_HANDSHAKE`) past the failing open's time. |
-| `TestPluginConfigRefusals` | Settings in milliseconds beyond what a duration holds refuse the start, naming the field, and a socket directory that is a file ends the engine with status 1 and no handshake. |
+| `TestPluginStagedFields` | A request with `hooks`, and a configuration with each field that the engine does not serve yet, are refused, naming the field. |
+| `TestPluginConfigRefusals` | Settings in milliseconds beyond what a duration holds refuse the start, naming the field, and a socket directory that is a file ends the engine with status 1 and no handshake. A bundle that a test hook replaces with another after its check does not open: the engine exits with status 1 after the handshake line, which a test hook delays (`WL_TEST_PLUGIN_DELAY_HANDSHAKE`) past the failing open's time. |
 | `TestPluginSecretsByReference` | A secret's value comes from `value_env` and reaches the step that reads it, but no stderr line or build information. Two variables may name one environment variable. The configuration's digest changes with the reference's name, not with the value. An unset variable, a secret `value` and a store's `url` refuse the start without the value. |
 | `TestPluginSocketPrivate` | Started under the umask `0027`, the engine serves on a socket of mode `0700`, and a step creates a file of mode `0640`. |
 | `TestRunnerResultPolls` | `result_polls_for_all_jobs`, through `Client.Run` on the result-polls fixture: on, the run gets the recorded answers; off, the default, the polls answer 501, which fails the step. |
 | `TestPluginHandshakeFirstLine` | With a configuration whose warm start starts a harness process, go-plugin's handshake line is the first line of the engine's standard output. |
 | `TestPluginHandshakeUnwritable` | With a standard output open read-only, the engine exits with status 1 within 30 seconds, naming the handshake line. |
 | `TestPluginFlowRequest` | A flow run's `intercept` stands in for its module, `trace` gives the `summary` and `full` traces of a host plugin's run-end hook, and the run's own `variables` replace the runtime's. |
+| `TestRunnerPinnedState` | The pool's module recycle threshold is one, so a process trips when a second distinct script is dispatched to it. Two concurrent runs of a flow of three scripts each keep their process with `pin`, and with `pool.pin_runs`: the bundle's host plugin holds each run's state whole. One unpinned run, the control, runs its third step in the replacement process, without that state. |
+| `TestRunnerLimits` | With `max_in_flight` 2, no more than two of four parallel branches are inside at once while the test holds them, and the result's deviations list the cap ([D15](../../docs/design/0001-equivalence-contract.md#5-named-deviations)). Without it, all four are inside together. Arguments past `max_args_bytes`, and a negative limit, refuse the run. Stored values past `max_held_bytes` latch `run_memory_limit`, and a reservation past the byte budget fails its step with a `RangeError`. |
+| `TestRunnerBytesTotal` | Under a `bytes_total` of 64 MiB, a second run's reservation of 48 MiB rejects in its step while the first holds 48 MiB, and a third run's succeeds once the first's step has settled. A negative total refuses the start. |
+| `TestRunnerRunData` | The bundle's host plugin reads each concurrent run's own `run_data` in its `around` wrapper, a root script's included, and undefined for a run without it. Data that is not JSON refuses the run. |
+| `TestRunnerMaxLive` | A `pool.max_live` of 1 with a `pool.max` of 2 refuses the start, naming the bound, and a `max_live` of 2 serves runs. |
+| `TestRunnerForeignOrigins` | A step's dispatch to the loopback origin that `foreign_windmill_origins` lists loses its `parent_job` and `root_job`, and the same dispatch to another origin keeps them. An origin with the path `/api` refuses the start. |
 
 ### Memory tests
 
