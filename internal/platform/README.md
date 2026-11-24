@@ -116,10 +116,10 @@ Every exported name, grouped by concern. "Engine", "facade", "`wl`" and
 |---|---|---|---|
 | `Jobs`, `Registry`, `NewRegistry` | interface, struct, constructor | The job registry and its local default ([The job registry and flow user state](#the-job-registry-and-flow-user-state)) | the package; the engine, the facade and `wltest` reach `Jobs` through `Services.JobRegistry` |
 | `Job`, `JobKind` (`JobFlow`, `JobScript`) | struct, type | What the registry knows of one job | engine, facade, `wltest` |
-| `JobView` | interface | Renders a live run's job records | engine implements it |
+| `JobView` | interface | Renders a live run's job records, and answers the result polls of its jobs (`JobPoll`) | engine implements it |
 | `FlowUserState`, `FlowUserStateLister`, `UserStates`, `NewUserStates` | interfaces, struct, constructor | Flow user state and its local default | the package; hosts implement `FlowUserState` |
 | `JobLookup` | function type | Finds the job an interpolated read names | facade |
-| `Services.Registry`, `JobRegistry`, `RootJob`, `JobEnv`, `ReadJobEnv`, `GetJob`, `GetJobArgs`, `FlowUserState`, `FlowUserStates`, `SetFlowUserState`, `JobScope`, `InScope`, `KnownIn`, and `RootJobIn`, `ReadJobEnvIn`, `GetJobIn`, `GetJobArgsIn`, `FlowUserStateIn`, `SetFlowUserStateIn` | methods | The lookups ([Lookups](#lookups)) and the job reads | engine, facade, `wltest` (`JobRegistry`); `Services.Registry` only inside the package |
+| `Services.Registry`, `JobRegistry`, `RootJob`, `JobEnv`, `ReadJobEnv`, `GetJob`, `GetJobArgs`, `ResultPoll`, `FlowUserState`, `FlowUserStates`, `SetFlowUserState`, `JobScope`, `InScope`, `KnownIn`, and `RootJobIn`, `ReadJobEnvIn`, `GetJobIn`, `GetJobArgsIn`, `FlowUserStateIn`, `SetFlowUserStateIn` | methods | The lookups ([Lookups](#lookups)) and the job reads | engine, facade, `wltest` (`JobRegistry`); `Services.Registry` only inside the package |
 
 ### Objects, dispatch and results
 
@@ -582,8 +582,10 @@ lives, the job running or completed.
   id as `Job.Run` and itself as `Job.View`, a `JobView`. Every other job of
   the run names the run in `Run`, so `Registry.Job` gives it that view.
 - **What the view supplies.** `GetJob` answers with the view's
-  `JobRecord(id)`, and `GetJobArgs` with its `JobArgs(id)`. A `JobView`
-  implementer, the engine's run, renders both.
+  `JobRecord(id)`, `GetJobArgs` with its `JobArgs(id)`, and `ResultPoll`
+  with its `JobPoll(id)`. A `JobView` implementer, the engine's run,
+  renders all three, so a view that serves a job's record also answers
+  its result polls.
 - **No copy.** The registry keeps the view, a reference to the run, never a
   copy of its state, and drops it with the tree, as it drops a job's
   variables.
@@ -595,6 +597,13 @@ lives, the job running or completed.
   The root lookup still answers for it.
 - **A job that no run of the runtime holds**, such as one in a host's `Jobs`
   without views, fails with a `NotServed` too.
+- **`Services.ResultPoll`** answers the result polls that the facade
+  answers with its `ResultPollsForAllJobs` option
+  ([WA-V2](../../docs/semantics/client-api.md#wa-v2)) from the view's
+  `JobPoll`: the record's state, and a completed job's whole result in
+  jsonb's text output. One lookup of the id classifies the job, a job that
+  is its own root included; it fails as `GetJob` fails, and reports an
+  unknown id as unknown.
 - **`Services.FlowUserStates`** lists a live flow job's user state as its
   flow status holds it, in jsonb's key order, when the services'
   `FlowUserState` can list maps (`FlowUserStateLister`, which `UserStates`

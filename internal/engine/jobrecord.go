@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"sync"
 
@@ -190,6 +191,65 @@ func (v runView) record(id string, states json.RawMessage, hasStates bool) ([]by
 		return x.flowRecord(id, ref, us)
 	}
 	return x.leafRecord(id, ref)
+}
+
+// JobPoll answers the result polls for the job id names
+// (platform.JobView). The job's state is the record's, as JobRecord
+// renders it but without the flow user state, which the polls do not
+// read, so that the polls serve the jobs that the job read serves;
+// a completed job's result is its whole stored result, in jsonb's text
+// output, where the record replaces a result that is too large (tooBig),
+// since Windmill's polls read the result column itself.
+func (v runView) JobPoll(id string) (platform.JobResult, error) {
+	rec, err := v.record(id, nil, false)
+	if err != nil {
+		return platform.JobResult{}, err
+	}
+	st, err := pollState(rec)
+	if err != nil || !st.Completed {
+		return st, err
+	}
+	r := v.r
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	ref, err := r.lookupJob(id)
+	if err != nil {
+		return platform.JobResult{}, err
+	}
+	if ref.idx >= 0 {
+		st.Result = databaseText(recordText(r.trace.Steps[ref.idx].Result))
+		return st, nil
+	}
+	end := ref.end
+	if ref.fr == r.root {
+		end = r.rootEnd
+	}
+	if end != nil {
+		st.Result = databaseText(recordText(end.result))
+	}
+	return st, nil
+}
+
+// pollState reads the result polls' state of a job from its record: a
+// completed job's success and the record's result, or whether the job
+// runs.
+func pollState(rec []byte) (platform.JobResult, error) {
+	var v struct {
+		Type    string          `json:"type"`
+		Running bool            `json:"running"`
+		Success bool            `json:"success"`
+		Result  json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(rec, &v); err != nil {
+		return platform.JobResult{}, fmt.Errorf("the job's record: %w", err)
+	}
+	if v.Type != recordType(true) {
+		return platform.JobResult{Started: v.Running}, nil
+	}
+	if v.Result == nil {
+		v.Result = json.RawMessage("null")
+	}
+	return platform.JobResult{Started: true, Completed: true, Success: v.Success, Result: v.Result}, nil
 }
 
 // JobArgs renders the stored arguments of the job id names
@@ -866,6 +926,24 @@ func (v *scriptView) JobRecord(j platform.Job) ([]byte, error) {
 	o.field("email", jsonText(v.env["WM_EMAIL"]))
 	o.field("permissioned_as", jsonText(v.env["WM_PERMISSIONED_AS"]))
 	return o.close(), nil
+}
+
+// JobPoll answers the result polls for a dispatched script's job
+// (platform.JobView), as a run's JobPoll does: the record's state and
+// the whole stored result.
+func (v *scriptView) JobPoll(id string) (platform.JobResult, error) {
+	rec, err := v.JobRecord(platform.Job{ID: id})
+	if err != nil {
+		return platform.JobResult{}, err
+	}
+	st, err := pollState(rec)
+	if err != nil || !st.Completed {
+		return st, err
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	st.Result = databaseText(recordText(v.result))
+	return st, nil
 }
 
 // argsText is a job's arguments as GET jobs_u/get/{id} writes them, as

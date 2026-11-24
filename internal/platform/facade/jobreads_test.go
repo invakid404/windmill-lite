@@ -21,6 +21,11 @@ func (v viewOf) JobArgs(string) ([]byte, error) {
 	return []byte(fmt.Sprintf(`{"run": %q}`, string(v))), nil
 }
 
+// JobPoll answers a completed job whose result is the run's id.
+func (v viewOf) JobPoll(string) (platform.JobResult, error) {
+	return platform.JobResult{Started: true, Completed: true, Success: true, Result: []byte(fmt.Sprintf("%q", string(v)))}, nil
+}
+
 // The job reads ([WA-19]): GET jobs_u/get/{id} and jobs_u/get_args/{id}
 // answer a job of a live run from the run that holds it, as JSON, a step
 // that has ended included; the id is read as Windmill's UUID parser reads

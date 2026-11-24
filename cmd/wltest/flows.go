@@ -245,6 +245,7 @@ func (fc *flowChecker) runFixture(ctx context.Context, f *conformance.Fixture) [
 			Bun: fc.bun, HarnessRuntime: fc.harnessRuntime(), DataDir: filepath.Join(work, "data"), ModuleState: fc.mode,
 			Resources: b.resources, Variables: b.variables, Diagnostics: &diag, ExpressionSlots: 4,
 			Providers: fixtureProviders(f), QuickJSOnly: fc.quickJSOnly || quickJSOnlyAll,
+			ResultPollsForAllJobs: f.ResultPollsForAllJobs,
 		}
 		if fc.redisURL != "" {
 			store, err := fc.fixtureStore(ctx)

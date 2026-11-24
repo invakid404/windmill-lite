@@ -51,6 +51,11 @@ func (v namedView) JobArgs(string) ([]byte, error) {
 	return []byte(`{"args":"` + string(v) + `"}`), nil
 }
 
+// JobPoll answers a completed job whose result is the view's name.
+func (v namedView) JobPoll(string) (platform.JobResult, error) {
+	return platform.JobResult{Started: true, Completed: true, Success: true, Result: []byte(`"` + string(v) + `"`)}, nil
+}
+
 // mapStates is a flow user state store over a map, by job and key.
 type mapStates map[string]json.RawMessage
 
@@ -212,6 +217,9 @@ func (v listingView) JobRecord(j platform.Job) ([]byte, error) {
 }
 
 func (listingView) JobArgs(string) ([]byte, error) { return []byte(`{}`), nil }
+func (listingView) JobPoll(string) (platform.JobResult, error) {
+	return platform.JobResult{Started: true}, nil
+}
 
 // listingStates is mapStates that lists a job's map.
 type listingStates struct{ mapStates }
@@ -350,6 +358,9 @@ type endingView struct{}
 
 func (endingView) JobRecord(platform.Job) ([]byte, error) { return nil, platform.ErrEndedRun }
 func (endingView) JobArgs(string) ([]byte, error)         { return nil, platform.ErrEndedRun }
+func (endingView) JobPoll(string) (platform.JobResult, error) {
+	return platform.JobResult{}, platform.ErrEndedRun
+}
 
 // A job read of a run that ends while the read renders it answers as for a
 // job of a run that has ended (501), on the default identity, though the

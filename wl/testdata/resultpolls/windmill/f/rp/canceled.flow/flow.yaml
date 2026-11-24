@@ -1,0 +1,24 @@
+summary: result polls of a step that its timeout canceled
+value:
+  modules:
+    - id: x
+      value:
+        type: rawscript
+        content: '!inline x.ts'
+        input_transforms: {}
+        language: bun
+      timeout: {type: static, value: 1}
+      continue_on_error: true
+    - id: d
+      value:
+        type: script
+        path: f/rp/drive
+        input_transforms:
+          ids:
+            type: static
+            value: ["x"]
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

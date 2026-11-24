@@ -85,6 +85,15 @@ type JobView interface {
 	// jobs_u/get_args/{id} answers them: jsonb's text output of the job's
 	// args, or of a flow job's input. It fails as JobRecord does.
 	JobArgs(id string) ([]byte, error)
+	// JobPoll returns the state of the job id names for the result polls
+	// ([WA-15], [WA-V2]): whether it has started, and once it has completed
+	// whether it succeeded and its whole result in jsonb's text output,
+	// which JobRecord replaces once it is too large. It serves the jobs
+	// that JobRecord serves, and fails as JobRecord does for the others.
+	//
+	// [WA-15]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-15
+	// [WA-V2]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-v2
+	JobPoll(id string) (JobResult, error)
 }
 
 // NotServed is why windmill-lite does not answer GET jobs_u/get/{id} for a
@@ -742,20 +751,55 @@ func (s *Services) GetJobArgsIn(id, scope string) ([]byte, error) {
 	return j.View.JobArgs(id)
 }
 
+// ResultPoll answers the result polls ([WA-15], [WA-V2]) for the job id
+// names from the run that holds it (JobView.JobPoll), for every job that
+// GetJob answers for. One lookup of the id classifies the job, so that a
+// poll sees one state of the registry for it: known is false when the
+// registry does not know it. A known job that GetJob does not serve fails
+// as GetJob fails: ErrEndedRun for a job of a run that has ended, a
+// *NotServed for a job in a state whose record windmill-lite does not
+// reproduce, such as a canceled job.
+//
+// [WA-15]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-15
+// [WA-V2]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-v2
+func (s *Services) ResultPoll(id string) (r JobResult, known bool, err error) {
+	jobs := s.jobs()
+	j, live, ok := jobs.Job(id)
+	if !ok {
+		return JobResult{}, false, nil
+	}
+	if j, err = liveOf(jobs, j, live, id); err != nil {
+		return JobResult{}, true, err
+	}
+	r, err = j.View.JobPoll(id)
+	return r, true, err
+}
+
 // liveJob returns the job id names when a run that is live holds it: an
 // id the registry does not know, or knows in another scope than scope,
 // fails with the API's 404 of format, a job whose root run has ended with
 // ErrEndedRun.
 func (s *Services) liveJob(id, scope, format string) (Job, error) {
 	jobs := s.jobs()
-	j, _, ok := s.jobs().Job(id)
+	j, live, ok := jobs.Job(id)
 	if !ok || !s.InScope(j, scope) {
 		return Job{}, notFound(format, id)
 	}
+	return liveOf(jobs, j, live, id)
+}
+
+// liveOf returns j, which one lookup of id found with live, when a run
+// that is live holds it, and fails with ErrEndedRun when its root has
+// ended. A job that is its own root takes that lookup's live; another
+// asks the registry for its root.
+func liveOf(jobs Jobs, j Job, live bool, id string) (Job, error) {
 	// A job of a live run is known while its root lives, running or
 	// completed; once the root has ended, the registry keeps only the ids
 	// of its tree's jobs.
-	_, rootLive, _ := jobs.Job(cmp.Or(j.Root, id))
+	rootLive := live
+	if root := cmp.Or(j.Root, id); root != id {
+		_, rootLive, _ = jobs.Job(root)
+	}
 	switch {
 	case !rootLive:
 		return Job{}, ErrEndedRun

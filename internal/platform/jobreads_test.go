@@ -21,6 +21,11 @@ func (v testView) JobArgs(id string) ([]byte, error) {
 	return []byte(fmt.Sprintf(`{"run": %q}`, v.run)), nil
 }
 
+// JobPoll answers a completed job whose result is the run's id.
+func (v testView) JobPoll(string) (JobResult, error) {
+	return JobResult{Started: true, Completed: true, Success: true, Result: []byte(fmt.Sprintf("%q", v.run))}, nil
+}
+
 func readRun(t *testing.T, body []byte) (run, id string) {
 	t.Helper()
 	var v struct{ Run, ID string }

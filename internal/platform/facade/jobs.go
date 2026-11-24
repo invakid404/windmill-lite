@@ -4,14 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
 // The job routes of ADR 0007's services: the root lookup and the job
 // reads of a live run, from the job registry (D3, [WA-19]); flow user
-// state ([WA-14]); and the result polls of the runs a step dispatched
-// ([WA-15], [WA-V2]). Each route's job id is a UUID path parameter, which
+// state ([WA-14]); and the result polls of the runs a step dispatched, or
+// with Config.ResultPollsForAllJobs of every job of a live run ([WA-15],
+// [WA-V2]). Each route's job id is a UUID path parameter, which
 // Windmill's web framework refuses with a 400 of its own before the
 // handler runs when it is not one (pathUUID).
 //
@@ -170,9 +172,14 @@ func (f *Facade) setFlowUserState(ctx context.Context, c *Call) Reply {
 // success and result; or not, with started null unless get_started=true
 // asks for it. A UUID that names no job, and any job looked up in a
 // workspace other than the caller's, answer as Windmill does for an id
-// with no job row (WA-V2/a, /b, /d); a job of windmill-lite's that the
-// dispatcher did not start answers 501, since job introspection beyond
-// dispatched runs is `later` (ADR 0007, Jobs).
+// with no job row (WA-V2/a, /b, /d). By default, a job of
+// windmill-lite's that the dispatcher did not start answers 501. With
+// Config.ResultPollsForAllJobs, such a job of a live run answers alike
+// from the run that holds it (polled, platform.Services.ResultPoll), as
+// the oracle recorded it (fixture conformance/flows/client-api/result-polls):
+// its state is the one that the job read's record shows, and a completed
+// job's result is its whole stored result in jsonb's text output, which
+// the job read's record replaces with a placeholder once it is too large.
 func (f *Facade) resultMaybe(ctx context.Context, c *Call) Reply {
 	id, refused := pathUUID(c, "id", "id")
 	if refused != nil {
@@ -187,9 +194,21 @@ func (f *Facade) resultMaybe(ctx context.Context, c *Call) Reply {
 	out.Result = json.RawMessage("null")
 	asked := c.Query.Get("get_started") == "true"
 	r, ok, err := f.dispatched(ctx, c, id)
+	record, classified := false, false
+	if err == nil && !ok {
+		if r, ok, classified, refused = f.polled(c, id); refused != nil {
+			return *refused
+		}
+		record = ok
+	}
 	switch {
 	case err != nil:
 		return answer(nil, err)
+	case record && r.Completed:
+		// The run gives the whole stored result in jsonb's text output,
+		// which the answer embeds as it is, as Windmill's does;
+		// json.Marshal would compact it and escape <, > and &.
+		return jsonReply(200, fmt.Appendf(nil, `{"started":true,"success":%t,"completed":true,"result":%s}`, r.Success, r.Result))
 	case ok && r.Completed:
 		started := true
 		out.Started, out.Success, out.Completed, out.Result = &started, &r.Success, true, r.Result
@@ -198,7 +217,7 @@ func (f *Facade) resultMaybe(ctx context.Context, c *Call) Reply {
 			out.Started = &r.Started
 		}
 	default:
-		if f.known(c, id) {
+		if !classified && f.known(c, id) {
 			return text(501, UnsupportedPrefix+c.Route.Name())
 		}
 		if asked {
@@ -219,19 +238,28 @@ func (f *Facade) resultMaybe(ctx context.Context, c *Call) Reply {
 // in a workspace other than the caller's answer 404 `Not found: Completed
 // Job not found at name <id>` (WA-15/e, WA-19/d), without Windmill's
 // parenthesised Rust location (D14). A job of windmill-lite's that the
-// dispatcher did not start answers 501, as resultMaybe's does.
+// dispatcher did not start answers 501 by default, as resultMaybe's does.
+// With Config.ResultPollsForAllJobs such a job of a live run answers from
+// the run that holds it: its whole stored result in jsonb's text output
+// once it has completed, the 404 before.
 func (f *Facade) result(ctx context.Context, c *Call) Reply {
 	id, refused := pathUUID(c, "id", "id")
 	if refused != nil {
 		return *refused
 	}
 	r, ok, err := f.dispatched(ctx, c, id)
+	classified := false
+	if err == nil && !ok {
+		if r, ok, classified, refused = f.polled(c, id); refused != nil {
+			return *refused
+		}
+	}
 	switch {
 	case err != nil:
 		return answer(nil, err)
 	case ok && r.Completed:
 		return jsonReply(200, r.Result)
-	case !ok && f.known(c, id):
+	case !ok && !classified && f.known(c, id):
 		return text(501, UnsupportedPrefix+c.Route.Name())
 	}
 	return Error{Variant: "NotFound", Message: "Completed Job not found at name " + id}.Reply()
@@ -246,6 +274,33 @@ func (f *Facade) dispatched(ctx context.Context, c *Call, id string) (platform.J
 		return platform.JobResult{}, false, nil
 	}
 	return d.Result(ctx, id, callerScope(c))
+}
+
+// polled returns the state of a job of a live run for the result polls,
+// with Config.ResultPollsForAllJobs set (platform.Services.ResultPoll):
+// classified is false when the option is off or the path's workspace is
+// not the caller's, and ok is false when the registry does not know the
+// job. A poll that classified the id answers from that one lookup alone,
+// so the registry is not asked again. A job that the job read does not
+// serve refuses the poll with that read's 501, the reason after the
+// route's name: a job of a run that has ended (platform.ErrEndedRun), or
+// one in a state whose record windmill-lite does not reproduce, such as a
+// canceled job or a flow job that ended canceled.
+func (f *Facade) polled(c *Call, id string) (r platform.JobResult, ok, classified bool, refused *Reply) {
+	if !f.allPolls || !ownWorkspace(c) {
+		return platform.JobResult{}, false, false, nil
+	}
+	r, ok, err := f.platform.ResultPoll(id)
+	var ns *platform.NotServed
+	switch {
+	case errors.As(err, &ns):
+		reply := text(501, UnsupportedPrefix+c.Route.Name()+": "+ns.Reason)
+		return platform.JobResult{}, false, true, &reply
+	case err != nil:
+		reply := answer(nil, err)
+		return platform.JobResult{}, false, true, &reply
+	}
+	return r, ok, true, nil
 }
 
 // known reports whether the job registry knows the job id names, looked

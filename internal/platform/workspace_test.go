@@ -119,6 +119,9 @@ func (v argsView) JobRecord(Job) ([]byte, error) {
 	return []byte(`{"view":"` + string(v) + `"}`), nil
 }
 func (v argsView) JobArgs(string) ([]byte, error) { return []byte(`{"args":"` + string(v) + `"}`), nil }
+func (v argsView) JobPoll(string) (JobResult, error) {
+	return JobResult{Started: true, Completed: true, Success: true, Result: []byte(`"` + string(v) + `"`)}, nil
+}
 
 // When runs of two workspaces register one job id at once, as a hook that
 // sets WM_JOB_ID or a host that reuses a run id can make them, the id stays

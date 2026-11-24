@@ -181,6 +181,13 @@ type Config struct {
 	// variable is found, the registry knows only the facade's invocations,
 	// an object call answers 500, and no dispatch target is in the bundle.
 	Platform *platform.Services
+	// ResultPollsForAllJobs makes the result polls (GET
+	// jobs_u/completed/get_result_maybe/{id} and get_result/{id}) answer
+	// for every job of a live run that the job read answers for, as
+	// Windmill does, and not only for the runs that the dispatcher started.
+	// Off, the default, a job of windmill-lite's that the dispatcher did
+	// not start answers 501.
+	ResultPollsForAllJobs bool
 }
 
 // Facade is the platform facade: its routes and handlers, the registry of
@@ -192,6 +199,7 @@ type Facade struct {
 	recorded func(string, []Record)
 	answered func(string, Record)
 	platform *platform.Services
+	allPolls bool
 	routes   *routeTable
 	handlers map[string]Handler
 	warm     *reservation
@@ -236,6 +244,7 @@ func New(cfg Config) (*Facade, error) {
 		recorded: cfg.Recorded,
 		answered: cfg.Answered,
 		platform: cfg.Platform,
+		allPolls: cfg.ResultPollsForAllJobs,
 		routes:   defaultRoutes,
 		handlers: map[string]Handler{},
 		invs:     map[string]*entry{},

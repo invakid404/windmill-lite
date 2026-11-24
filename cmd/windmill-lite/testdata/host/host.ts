@@ -82,6 +82,7 @@ try {
     resourceStore: env.WL_RESOURCE_STORE ? { kind: env.WL_RESOURCE_STORE as "memory" } : undefined,
     skipArgsFile: env.WL_SKIP_ARGS_FILE === "1",
     identity: env.WL_IDENTITY ? JSON.parse(env.WL_IDENTITY) : undefined,
+    resultPollsForAllJobs: env.WL_RESULT_POLLS_FOR_ALL_JOBS === "1",
     foreignWindmillOrigins: env.WL_FOREIGN_WINDMILL ? env.WL_FOREIGN_WINDMILL.split(" ") : undefined,
   });
 } catch (e) {

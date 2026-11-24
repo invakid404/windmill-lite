@@ -1602,8 +1602,11 @@ is accepted, and the run starts with the arguments without it ([FX-48/d](../../d
 A run renders the record that `GET jobs_u/get/{id}` answers for each job
 of its tree while it lives, and the arguments that
 `GET jobs_u/get_args/{id}` answers
-([WA-19](../../docs/semantics/client-api.md#wa-19)). The facade reaches
-them through the job registry. `jobrecord.go` holds the code.
+([WA-19](../../docs/semantics/client-api.md#wa-19)). It also answers the
+result polls of those jobs (`JobPoll`): the record's state, and a
+completed job's whole stored result, where the record replaces a result
+that is too large. The facade reaches them through the job registry.
+`jobrecord.go` holds the code.
 
 ### References, not copies
 
@@ -2359,6 +2362,7 @@ engine on the real Bun harness in `wltest check`
 | `flowenv_test.go` | What input transforms store from `flow_env`, with the sealed values unmasked (`TestFlowEnvStoredArguments`): exact reads in both spellings, computed reads, a `$res:` entry, a chained reference, a computed key and the whole object. A subflow's input, a collapsed body, the failure module, a host-provided site and a failed secrecy lookup. A secret entry under the empty key (`TestFlowEnvEmptyKey`), and the texts that read an entry by name (`TestReadsByName`) |
 | `env_test.go` | A path script's `envs` in a Bun step's environment, and none in a native step's (`TestScriptEnvs`); an entry with no `=` (`TestScriptEnvsWithoutEquals`); `NODE_PATH` (`TestScriptEnvNodePath`) |
 | `jobrecord_test.go` | The job records, with an executor that registers each invocation as the facade does (below) |
+| `jobpoll_test.go` | The result polls' states (`TestJobPollStates`): a running job, a job pushed for later while a held clock keeps its retry waiting, and that job once completed. Whole results (`TestJobPollWholeResults`, on a configured registry): a step's, a child flow's and a dispatched script's large result, which the record replaces, and the placeholder's text as a result |
 | `settle_test.go` | Settlement with a fake executor: completion, abandonment with a late end, a non-final late error, a process exit, a never-dispatched invocation. An `escaped` outcome fixed while the call is pending. Holds before and after `End`, released once, and in a run's context |
 | `retain_test.go` | `TestSettledRunLetsGoOfItsValues`: a settled run's step results become unreachable (weak pointers), while a run that ended with an invocation still open gets late output and keeps its values until it settles |
 | `cancel_test.go` | `TestSubflowCanceledWhileWaiting`: a flow step canceled while it waits fails at pickup and lists its subflow's modules, none started |
