@@ -118,7 +118,9 @@ type Options struct {
 	// declaration is not usable (a malformed or ambiguous selector, a
 	// provider the host contract names that neither Providers nor the
 	// plugin has). A fresh runtime takes none: its processes live for one
-	// step. In host mode the plugin is the host's.
+	// step. In host mode the plugin is the host's. A bundle built with a
+	// plugin (its host contract's plugin field) loads that plugin the same
+	// way when Plugin is empty, and Open refuses a runtime given both.
 	Plugin string
 	// PluginTimeout bounds each host_call: a hook whose reply does not come
 	// within it fails with ErrHostCallTimeout, which latches the run. Zero
@@ -491,6 +493,15 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	switch {
 	case opts.Plugin != "" && opts.Host != nil:
 		return nil, errors.New("wl: in host mode the host plugin is the host's, not Options.Plugin")
+	case opts.Host == nil && rt.manifest.Plugin != nil:
+		// The bundle's own host plugin (ADR 0004, host plugins) loads as
+		// the module that Options.Plugin names does, and a runtime given
+		// both refuses to open. In host mode the plugin is the host's: the
+		// Bun host SDK loads the bundle's.
+		if opts.Plugin != "" {
+			return nil, fmt.Errorf("wl: the bundle has its own host plugin, %s, and Options.Plugin names another; give one of them", rt.manifest.Plugin.Key)
+		}
+		opts.Plugin = filepath.Join(rt.dir, filepath.FromSlash(rt.manifest.Plugin.File))
 	case opts.Plugin == "" && opts.Host == nil:
 		// A plugin's providers count too, once it has declared them.
 		if err := checkProviders(prog, opts.Providers); err != nil {
@@ -509,7 +520,7 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 		return nil, fmt.Errorf("wl: module state %q is neither warm nor fresh", rt.state)
 	}
 	if opts.Plugin != "" && rt.state == engine.ModuleStateFresh {
-		return nil, errors.New("wl: a host plugin needs warm harness processes: a fresh process lives for one step (Options.Plugin)")
+		return nil, errors.New("wl: a host plugin needs warm harness processes: a fresh process lives for one step (Options.Plugin or the bundle's plugin)")
 	}
 	if opts.Pool != (PoolOptions{}) {
 		if rt.state == engine.ModuleStateFresh {
@@ -553,7 +564,9 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	switch {
 	case opts.Host != nil:
 		inner = hostExec{proc: &rt.hostProc}
-	case len(prog.Scripts) > 0:
+	case len(prog.Scripts) > 0 || opts.Plugin != "":
+		// A plugin runs in the harness processes, so a bundle with no
+		// step but a plugin has them too.
 		if rt.pool, err = rt.harness(opts); err != nil {
 			return nil, err
 		}

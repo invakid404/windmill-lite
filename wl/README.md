@@ -156,7 +156,7 @@ The zero value of each field is its default.
 | `ExpressionSlots` | The number of evaluation slots of the expression engine | `min(GOMAXPROCS, 8)` | To change how many expressions can evaluate at once |
 | `QuickJSOnly` | Turns off the engine's Go evaluator of templates, arithmetic, comparisons and predicates over JSON values. Every expression that the shortcuts and the member paths do not answer then runs in QuickJS-ng. Nothing observable changes. | Off | To compare the two evaluators, or to rule the Go evaluator out when a result looks wrong |
 | `Providers` | The named providers of the bundle's [provided sites](../docs/glossary.md#provided-site) | None | When the host contract names providers ([Providers](#providers)) |
-| `Plugin` | The path of a [host plugin](../docs/glossary.md#host-plugin) module, which every `warm` harness process loads | None | To give [hooks](../docs/glossary.md#hook) in TypeScript ([Host plugins](#host-plugins)) |
+| `Plugin` | The path of a [host plugin](../docs/glossary.md#host-plugin) module, which every `warm` harness process loads | None, or the bundle's own plugin | To give [hooks](../docs/glossary.md#hook) in TypeScript ([Host plugins](#host-plugins)) |
 | `PluginTimeout` | How long each call to the host plugin waits for its reply | `DefaultPluginTimeout`, 60 s | To change that bound |
 | `Pool` | The pool of `warm` harness processes: its size, cap, lag threshold, recycle timeout, recycle triggers, bound on live processes and warm start ([The harness pool](#the-harness-pool)) | One process, no cap, started on the first step or earlier for a host plugin | To run CPU-bound steps beside others, to replace processes that grow, or to start processes before the first run |
 | `ReadCache` | Gives each flow run a read cache: the run reads each of the host's and the bundle's resources and variables once, and answers its later reads from that read. A provider's error is not kept, so the next read asks again, and an update of a variable through the run drops its cached value ([the read cache](../internal/platform/README.md#the-read-cache)). A state that steps wrote to the `ResourceStore` is read again each time, so a run sees its latest value. | Off | When a run reads the same values often and need not see a change during the run |
@@ -582,6 +582,13 @@ to write one.
   loads it, and `Open` starts the first process to read the plugin's
   declaration. A `fresh` runtime refuses a plugin. In host mode, the
   plugin is the host's.
+- A bundle built with a plugin of its own (the host contract's `plugin`)
+  loads it as if `Options.Plugin` named it, a bundle with no step
+  included. `Open` refuses such a bundle when `Options.Plugin` names
+  another, and in a `fresh` runtime.
+- A process loads its plugin after the native realms have taken the web
+  APIs: a `fetch` wrapper that the plugin installs at load reaches ordinary
+  steps, and no native step.
 - The runtime checks the declaration's selectors as it checks a Go host's.
   Each provider that the host contract names must be in
   `Options.Providers` or in the plugin, not in both. Otherwise `Open`
@@ -777,7 +784,8 @@ build helper's dependencies, and skip without them unless
 | `settled_test.go` | The run-settlement hooks | No |
 | `bun_test.go` | A real bundle in `warm` and `fresh`: platform calls in the trace, cached results shared between runtimes, cancellation, `InvocationEnv`, per-run variables, the first write and the pre-write deadline, the step API (`TestStepAPI`), plugin trace parity and `around` | Yes |
 | `outside_test.go` | A bundle whose host contract lists two modules outside the [sync folder](../docs/glossary.md#sync-folder), without a host | Yes |
-| `plugincases_test.go` | The cases of `conformance/plugins/hooks.yaml`, through the TypeScript case plugin and through Go callbacks built from the same plugins | Yes |
+| `plugincases_test.go` | The cases of `conformance/plugins/hooks.yaml`, through the TypeScript case plugin, named by `Options.Plugin` and built into the bundle, and through Go callbacks built from the same plugins | Yes |
+| `bundledplugin_test.go` | A bundle's own plugin. Its `around` wrapper and the step share a host-provided module in 16 concurrent runs (`TestBundledPluginSharesHostModule`), and a bundle with no step starts processes for it (`TestBundledPluginWithoutSteps`). `Open` refuses it with `Options.Plugin` and in `fresh` (`TestOpenRefusesTwoPlugins`), and refuses a manifest that names a module outside the bundle (`TestOpenRefusesUnverifiedPlugin`). A `fetch` wrapper it installs at load reaches an ordinary step and not a native one (`TestPluginFetchWrapperOrder`) | Yes |
 | `store_test.go` | `Options.ResourceStore` on real steps (`TestResourceStoreOnBun`): two runtimes that share a memory store, one with its own, a failing store's warning, and `D24` in the trace; a run id in flight refused (`TestRunIDInFlight`). Without Bun: `Close` releasing its own store while readers use it (`TestCloseReleasesItsOwnStore`), and a late answer kept from a later run of the same id (`TestLateAnswerAcrossIDReuse`) | Yes, but for the last two |
 | `pool_test.go` | `Options.Pool`. Without Bun: `Open`'s refusals in `fresh` and host mode (`TestPoolOptionsRefusedFresh`) and of `MaxLive` below `Max` (`TestPoolMaxLiveBelowMax`), and the cap's entry in the trace. On real steps: a second process for a step beside a CPU-bound one and under `Cap`, the module and RSS triggers (`TestWlPoolOptions`), and the warm start (`TestWarmStart`). A step reads a plugin's resource under `Cap: 1` (`TestPoolCapLeavesPluginCalls`) and while its process leaves (`TestPoolRecyclingProcessServesPluginCalls`); zero settings call the diagnostics writer as before (`TestDiagnosticsZeroSettings`) | Yes, but for the refusals and the trace |
 | `foreign_test.go` | `ForeignWindmillOrigins` in the welcome, and its refusals (`TestForeignWindmillOrigins`). The stock client's and a native step's dispatch to two loopback servers that stand in for real Windmill instances, in `warm` and `fresh`, with and without the option (`TestForeignWindmillLinks`, on the cases of `testdata/foreign/cases.json`). That test also needs `WL_WINDMILL_CLIENT`. | Yes, but for the first |

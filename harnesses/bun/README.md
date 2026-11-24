@@ -249,14 +249,23 @@ the host's own instance of `f/shared/ctx.ts`.
 
 `connect(options)` resolves with a [`Host`](#the-host) once the engine has
 welcomed the host. When a step below fails, it rejects with a `HostError`
-whose `code` names that step. A plugin of the wrong shape rejects with an
-ordinary `Error` instead ([Errors and refusals](#errors-and-refusals)):
+whose `code` names that step. A `plugin` option of the wrong shape rejects
+with an ordinary `Error` instead, and a bundle's own plugin of the wrong
+shape with `bundle` ([Errors and refusals](#errors-and-refusals)):
 
 1. It checks `workdir`: a directory that this process can write
    (`workdir_not_writable`), and already this process's working directory,
    once both are resolved without symbolic links (`workdir_mismatch`).
    Then it checks the fields of the `collect` option (`options`).
-2. It reads the bundle's manifest (`bundle`).
+2. It reads the bundle's manifest (`bundle`). For a bundle with a plugin
+   of its own, it refuses the `plugin` option (`options`). It checks the
+   bundle's plugin (`bundle`): a key, a module of `plugins/` that the
+   manifest lists, reached through no symbolic link, with the manifest's
+   digest.
+   - **Other bytes from the same path** are refused while another
+     `connect` in progress holds that path, or once this process has copied
+     a plugin from it (`bundle`). An attempt that fails before its copy
+     gives the path back when no other attempt holds it.
 3. It registers the host's instances of the bundle's
    [host-provided modules](../../docs/glossary.md#host-provided-module)
    (`hostModules`), before any step loads. It writes a diagnostic for a
@@ -268,8 +277,18 @@ ordinary `Error` instead ([Errors and refusals](#errors-and-refusals)):
    a `-foreign-windmill` flag for each origin, and `engineFlags`, as the
    options ask (`engine_start`). The
    [`host` command](../../cmd/windmill-lite/README.md#host) describes
-   those flags.
-6. It runs the harness runtime in this process, and greets the engine.
+   those flags. For a bundle with a plugin of its own, it first runs the
+   same command with `-check-bundle` and the digest of the manifest it read.
+   The engine reads the flags as at start and checks the bundle against its
+   manifest, any `-digest` pin and that digest.
+   - **The check's outcomes.** Exit 0 lets `connect` go on. Exit 1, a
+     failed check, stops it with `bundle`; another exit, such as a usage
+     error in `engineFlags`, with `rejected`; an engine that does not
+     start, with `engine_start`.
+6. It runs the harness runtime in this process, loads the bundle's own
+   plugin from a private copy of the bytes it checked, and greets the
+   engine. A plugin that cannot be copied or loaded rejects with `bundle`,
+   and an engine that ends while it loads with `rejected`.
    The engine checks the host's Bun, the bundle, the working directory, the
    SDK's version and the plugin, and welcomes or refuses the host. A
    refusal rejects `connect` with the engine's code.
@@ -293,7 +312,7 @@ sees them.
 | `engineArgs` | `string[]` | `[]` | Arguments before the engine's `host` command |
 | `engineFlags` | `string[]` | `[]` | Flags after the `host` command's own, such as `-variables`, `-resources` or `-cpuprofile` |
 | `hostModules` | `Record<string, object>` | None | The host's instances of the bundle's host-provided modules, by the keys that the host contract gives them |
-| `plugin` | `Plugin` | None | The host's plugin ([Host plugins](#host-plugins)) |
+| `plugin` | `Plugin` | None, or the bundle's own | The host's plugin ([Host plugins](#host-plugins)). Leave it out for a bundle built with a plugin of its own, which `connect()` then loads; it refuses both with `HostError` `options`. |
 | `watchdog` | `{ killAfter: number }` | `{ killAfter: 30000 }` | The engine kills this process when no frame has come from it for `killAfter` ms. `0` turns the watchdog off. |
 | `readCache` | `boolean` | `false` | Each run keeps the answer of its first read of a host's or bundle's resource or variable, the plugin's `resource` and `variable` hooks included, and answers its later reads of that path from it. An error is not kept, and a variable that a step updates and a stored state are read again ([the read cache](../../internal/platform/README.md#the-read-cache)). Windmill reads them for each job, so this is a named deviation of the [equivalence contract](../../docs/design/0001-equivalence-contract.md#5-named-deviations). |
 | `resourceStore` | `{ kind: "memory" }` or `{ kind: "redis"; url: string; prefix?: string; allowEviction?: boolean }` | `{ kind: "memory" }` | The store of the resources that steps write through the job API, such as the stock client's state ([The resource store](#the-resource-store)). Available from version 0.4.0. |
@@ -566,6 +585,21 @@ the rules of each hook.
 - **Where it comes from.** In host mode, `connect`'s `plugin` option. In a
   `warm` harness that the engine starts, the default export, or the export
   `plugin`, of the module that `--plugin` names (`wl.Options.Plugin`).
+- **The bundle's own.** A bundle built with a plugin (the host contract's
+  `plugin`) holds it in `plugins/`, with host-provided modules resolved to
+  their shims. The engine names it with `--plugin` when `wl` names none,
+  and `connect` loads it when its `plugin` option is absent
+  ([What connect() does](#what-connect-does)). Once this process has copied
+  a plugin, even one that fails to load, other bytes from its path are
+  refused, and an unchanged file keeps its module: restart the host for a
+  release.
+- **When it loads.** A harness loads its plugin after the runtime has
+  installed its process-wide hooks and the native realms have taken the
+  web APIs, and `connect` loads a bundle's plugin at the same point. A
+  `fetch` wrapper that such a plugin installs at load reaches ordinary
+  steps, and no native step, and stays for the rest of the process. Once
+  `connect` starts loading a bundle's plugin, even one whose load fails,
+  later native realms take the first fetch view.
 - **The declaration.** The harness sends the plugin's hooks and selectors
   to the engine in its hello. The engine refuses a host whose declaration
   it cannot use with `plugin_mismatch`: a malformed or ambiguous selector,
@@ -632,8 +666,9 @@ table below. Its `code` names the cause, and its message is
 error that has no `code`:
 
 - `connect()` rejects with an `Error` that starts `windmill-lite plugin:`
-  when the plugin has a wrong shape, such as an interception with both or
-  neither of `static` and `fn`. Fix the plugin.
+  when the `plugin` option has a wrong shape, such as an interception with
+  both or neither of `static` and `fn`. Fix the plugin. A bundle's own
+  plugin of a wrong shape rejects with a `HostError` `bundle` instead.
 - `run()` rejects with the `TypeError` of `JSON.stringify` when `args`
   does not serialise, such as a cycle or a `BigInt`. Pass JSON values.
 
@@ -642,9 +677,10 @@ error that has no `code`:
 | `workdir_not_writable` | `connect`, or the engine | `workdir` is not a directory that this process can write. | Pass a writable directory. |
 | `workdir_mismatch` | `connect`, or the engine | `workdir` is not the process's working directory. | `process.chdir(workdir)` before `connect`, or pass `process.cwd()`. |
 | `options` | `connect` | The `collect` option has an `rss` that is not above 0 (missing, 0, negative or `NaN`), a `cooldown` or a `quiet` that is negative, `NaN` or infinite, or a `policy` other than `"idle"` and `"heartbeat"`. The `rss` check compares values and does not test the type, so a numeric string such as `"1"` passes it; pass a number, as the type says. `cooldown` and `quiet` must be finite numbers, so a string is refused. | Fix the option. The message names the rule that failed. |
-| `bundle` | `connect` | The bundle's `manifest.json` does not read. | Pass the bundle directory, as an absolute path. |
+| `options` | `connect` | The bundle has a host plugin of its own, and the `plugin` option gives another. | Leave the option out, or build the bundle without the contract's `plugin`. |
+| `bundle` | `connect` | The bundle's `manifest.json` does not read. Or the bundle's own host plugin is not a module of `plugins/` that the manifest lists, does not have the manifest's digest, fails the engine's check, cannot be copied, does not load or has a wrong shape. | Pass the bundle directory, as an absolute path. Rebuild the bundle, or fix the plugin, whose message the error carries. |
 | `assets` | `connect` | The bundle's assets do not extract into `workdir`. | Check the directory's space and permissions. |
-| `engine_start` | `connect` | The engine binary does not start. | Check `engine`'s path and its execute permission. |
+| `engine_start` | `connect` | The engine binary does not start, for the check of a bundle with its own plugin or for the host command. | Check `engine`'s path and its execute permission. |
 | `version_mismatch` | The engine, or the SDK | The SDK's version is not the engine's. An unversioned engine or SDK pairs with any. | Take the SDK and the engine from the same release. |
 | `runtime_mismatch` | The engine | The host does not run on Bun 1.4.3. | Run the host on Bun 1.4.3. |
 | `engine_refused` | The engine | The bundle does not open: another engine version built it, or it does not verify. Or a file that `engineFlags` names does not open. | Build the bundle with this engine. The message gives the reason. |
@@ -652,7 +688,7 @@ error that has no `code`:
 | `bundle_mismatch` | The engine | The bundle that the host loaded is not the engine's. | Pass the same directory as `bundle`. |
 | `pid_mismatch` | The engine | The host that greets the engine is not its parent process. | Start the engine through `connect`. |
 | `proto_mismatch`, `harness_mismatch` | The engine | The SDK speaks another protocol, or is no host. | Take the SDK and the engine from the same release. |
-| `rejected` | `connect` | The connection ended before a welcome, without a code. | Read the engine's stderr. |
+| `rejected` | `connect` | The connection ended before a welcome, without a code. Or, for a bundle with its own plugin, the engine's check exited with a status other than 0 and 1, such as a usage error in `engineFlags`. | Read the engine's stderr. |
 | `refused` | `run` | The engine has no such target, the arguments are not an object, or a selector option is not a list of objects, or the engine finds a selector malformed or ambiguous. The message names the selector, such as `the run's haltAfter[0]`. | Fix the path or the options. |
 | `draining` | `run` | The host is draining. | Submit the run to the next host process. |
 

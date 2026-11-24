@@ -140,6 +140,14 @@ if (req.op !== "scan") {
     }
   }
 }
+// The host plugin, after the host-provided modules' shims exist.
+if (req.op === "build" && req.plugin !== undefined) {
+  try {
+    response.plugin = await builder.buildPlugin(req.plugin);
+  } catch (e) {
+    response.plugin = { error: problemOf(e) };
+  }
+}
 // The shared layout of the scripts that built (ADR 0013).
 if (req.op === "build" && req.shared_code) {
   try {

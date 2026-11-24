@@ -627,7 +627,20 @@ let fetchRoute:
     }
   | undefined;
 let errorRoute: ((kind: string, e: unknown, promise?: unknown) => void) | undefined;
-let fetchInstalled = false;
+// The fetch view that installFetch installed first.
+let fetchView: typeof fetch | undefined;
+// Whether this process has loaded a bundle's own host plugin (the host SDK
+// notes it, noteBundledPlugin). Such a plugin may wrap globalThis.fetch,
+// and the wrapper outlives its connection.
+let bundledPluginLoaded = false;
+
+/** Notes that this process loads a bundle's own host plugin: from then on,
+ * installFetch gives a later runtime the fetch view it installed first,
+ * not globalThis.fetch, so a wrapper the plugin installs never reaches a
+ * later connection's native realms. */
+export function noteBundledPlugin(): void {
+  bundledPluginLoaded = true;
+}
 
 /** The reason a request an invocation left in flight is aborted with when
  * it settles: an AbortError, as for any aborted fetch. */
@@ -654,15 +667,19 @@ function settledAbort(): DOMException {
  *   (ADR 0007, async dispatch).
  *
  * origin() and foreign() are read per call, because the welcome names the
- * facade and the foreign origins after this is installed. */
+ * facade and the foreign origins after this is installed. It returns the
+ * fetch that the runtime's native realms take: the view, when it installs
+ * it. A later call, from a host that reconnects, returns globalThis.fetch
+ * as it is then, a host's own replacement included, unless the process has
+ * loaded a bundle's own plugin (noteBundledPlugin): then it returns the
+ * view again. */
 export function installFetch(
   origin: () => string | undefined,
   call: (c: PlatformCall, signal: AbortSignal) => Promise<PlatformAnswer>,
   foreign: () => ReadonlySet<string> = () => NO_ORIGINS,
-) {
+): typeof fetch {
   fetchRoute = { origin, call, foreign };
-  if (fetchInstalled) return;
-  fetchInstalled = true;
+  if (fetchView !== undefined) return bundledPluginLoaded ? fetchView : globalThis.fetch;
   const inner = globalThis.fetch;
   const wrapped = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const route = fetchRoute!;
@@ -707,7 +724,9 @@ export function installFetch(
       done?.();
     }
   };
-  globalThis.fetch = Object.assign(wrapped, { preconnect: inner.preconnect }) as typeof fetch;
+  fetchView = Object.assign(wrapped, { preconnect: inner.preconnect }) as typeof fetch;
+  globalThis.fetch = fetchView;
+  return fetchView;
 }
 
 /** The reason phrases Go's net/http writes on a status line

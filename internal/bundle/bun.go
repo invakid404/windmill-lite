@@ -82,6 +82,10 @@ type BunConfig struct {
 	Scripts     map[string]string
 	Entries     []BunScript
 	HostModules []HostModule
+	// Plugin, when set, is the host plugin that the host contract names: a
+	// Bun script of the folder, which the build bundles into
+	// plugins/<ID>.mjs with every host-provided module resolved to its shim.
+	Plugin *BunPlugin
 	// Env is the environment of the helper and of the `bun install` runs
 	// it starts (registry configuration, BUN_INSTALL_CACHE_DIR); nil means
 	// this process's environment. NODE_ENV is always removed from it.
@@ -93,6 +97,22 @@ type BunConfig struct {
 	// SharedCode builds the scripts' shared layout too (ADR 0013): one
 	// closure per build group and a shared-layout module per script.
 	SharedCode bool
+}
+
+// BunPlugin is the host plugin of a Bun build: ID names its bundle,
+// plugins/<ID>.mjs; Key is the module path as the host contract names it;
+// Path, File and Lock are its script's Windmill path, file and lock.
+type BunPlugin struct {
+	ID, Key, Path, File, Lock string
+}
+
+// PluginMeta is what the build of the host plugin reports: its key in the
+// host contract, the workspace scripts its bundle inlined, by Windmill
+// path, and the npm packages its own source imports.
+type PluginMeta struct {
+	Key      string
+	Imports  []string
+	Packages []string
 }
 
 // BunResult is what a Bun build produced.
@@ -113,6 +133,8 @@ type BunResult struct {
 	// Closures are the ids of the closures of shared code it wrote,
 	// sorted (ADR 0013).
 	Closures []string
+	// Plugin is the build of BunConfig.Plugin, nil without one.
+	Plugin *PluginMeta
 }
 
 // validID reports whether id can name files in the bundle tree: one or
@@ -237,6 +259,12 @@ func BuildBun(ctx context.Context, cfg BunConfig) (*BunResult, error) {
 	for _, e := range cfg.Entries {
 		req.Entries = append(req.Entries, helperEntry{ID: e.ID, Path: e.Path, File: e.File, Content: e.Content, Deps: addDeps(e.Lock), Language: e.Language})
 	}
+	if p := cfg.Plugin; p != nil {
+		if !validID(p.ID) {
+			return nil, fmt.Errorf("bundle: plugin id %q", p.ID)
+		}
+		req.Plugin = &helperPlugin{ID: p.ID, Key: p.Key, Path: p.Path, File: p.File, Deps: addDeps(p.Lock)}
+	}
 
 	res := &BunResult{Scripts: map[string]*ScriptMeta{}, HostModules: map[string]*HostModuleMeta{}}
 	var problems []ItemProblem
@@ -299,6 +327,17 @@ func BuildBun(ctx context.Context, cfg BunConfig) (*BunResult, error) {
 		return nil, err
 	}
 	res.setRuntime(resp.BunVersion)
+	if p := cfg.Plugin; p != nil {
+		item := "plugin " + p.Key
+		switch r := resp.Plugin; {
+		case r == nil:
+			problems = append(problems, ItemProblem{item, Problem{"internal", "the build did not report it"}})
+		case r.Error != nil:
+			problems = append(problems, ItemProblem{item, *r.Error})
+		default:
+			res.Plugin = &PluginMeta{Key: p.Key, Imports: nonNilStrings(r.Imports), Packages: nonNilStrings(r.Packages)}
+		}
+	}
 	for _, m := range req.HostModules {
 		r, ok := resp.HostModules[m.ID]
 		switch {
@@ -499,8 +538,8 @@ func sharedDependencies(id string, meta *ScriptMeta, byKey map[string]*HostModul
 }
 
 // bunImportsOfCodebaseModules refuses each workspace import of a listed
-// codebase script by a Bun script or a host-provided module of the Bun
-// build: listed maps such a script's Windmill path to its key, and names
+// codebase script by a Bun script, a host-provided module or the host
+// plugin of the Bun build: listed maps such a script's Windmill path to its key, and names
 // gives how problems name each script. The Bun build has no shim for it,
 // since esbuild builds its shared copy, so the import would inline a
 // second instance.
@@ -530,6 +569,9 @@ func bunImportsOfCodebaseModules(res *BunResult, names map[string]string, listed
 	}
 	for _, id := range slices.Sorted(maps.Keys(res.HostModules)) {
 		out = append(out, refuse("host module "+res.HostModules[id].Key, res.HostModules[id].Imports)...)
+	}
+	if res.Plugin != nil {
+		out = append(out, refuse("plugin "+res.Plugin.Key, res.Plugin.Imports)...)
 	}
 	return out
 }
@@ -600,6 +642,8 @@ type helperRequest struct {
 	EnvBinding  string             `json:"env_binding"`
 	HostModules []helperHostModule `json:"host_modules"`
 	Entries     []helperEntry      `json:"entries"`
+	// Plugin is the host plugin that the build op bundles.
+	Plugin *helperPlugin `json:"plugin,omitempty"`
 	// SharedCode asks the build op for the shared layout too (ADR 0013).
 	SharedCode bool `json:"shared_code,omitempty"`
 	// Closures are the closure bundles the kept op parses.
@@ -653,6 +697,21 @@ type helperHostModule struct {
 	LateCJS string   `json:"late_cjs,omitempty"`
 }
 
+type helperPlugin struct {
+	ID   string `json:"id"`
+	Key  string `json:"key"`
+	Path string `json:"path"`
+	File string `json:"file"`
+	Deps string `json:"deps,omitempty"`
+}
+
+type helperPluginResult struct {
+	Error       *Problem `json:"error"`
+	HostModules []string `json:"host_modules"`
+	Packages    []string `json:"packages"`
+	Imports     []string `json:"imports"`
+}
+
 type helperEntry struct {
 	ID       string `json:"id"`
 	Path     string `json:"path"`
@@ -674,6 +733,7 @@ type helperResponse struct {
 	Error       *Problem                    `json:"error"`
 	HostModules map[string]helperHostResult `json:"host_modules"`
 	Entries     map[string]helperEntryRes   `json:"entries"`
+	Plugin      *helperPluginResult         `json:"plugin"`
 	// Closures are the closures of shared code the build op wrote, and
 	// ClosureMeta, by closure, the name of its parameter that dependency
 	// code reads as import.meta, one no input of the closure spells.

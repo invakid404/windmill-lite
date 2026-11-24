@@ -13,9 +13,8 @@ own engine version built, and
 and every script in a process one shared instance of a listed module
 ([D12](0001-equivalence-contract.md#5-named-deviations)).
 
-**Not built yet:** the single executable (`windmill-lite pack --single`), the
-OCI image (`windmill-lite image`), and a build that writes host plugins into
-`plugins/`.
+**Not built yet:** the single executable (`windmill-lite pack --single`) and
+the OCI image (`windmill-lite image`).
 
 ## Context
 
@@ -42,7 +41,7 @@ A bundle is a directory, or the same tree as one `.wlb` file (a tar archive):
 | `scripts/bun/provided/<id>.mjs` | a bundled copy of each host-provided module, used when no host registers its own |
 | `assets/` | codebase assets, extracted into a harness process's working directory at start ([IR, loader and validation](0002-ir-and-loader.md)) |
 | `data/` | resources, resource types and non-secret variables from the folder |
-| `plugins/` | host plugins, when the host ships any ([host hooks](0008-host-hooks.md)); a `warm` runtime loads its plugin from a module the runtime names at open, and a host-mode plugin is the host's own, so no build writes this directory yet |
+| `plugins/` | the host plugin that the host contract's `plugin` field names, bundled to `plugins/<script path>.mjs`, which the manifest's `plugin` records ([harness protocol](0004-harness-protocol.md#host-plugins), item 7) |
 
 Secrets are never written into a bundle unless the host passes them
 explicitly. A runtime opens a bundle only if the manifest's engine version is

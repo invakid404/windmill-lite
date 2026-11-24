@@ -318,6 +318,7 @@ provided:                   # the mandatory host-provided call sites
     static: {logged: true}  # or a static value
     mandatory: true
 host_modules: [f/app/scope.ts]   # modules of which the host and the steps share one instance
+plugin: f/app/plugin.ts          # a host plugin that the build bundles
 ```
 
 - **The format.** The file is YAML or JSON, read with the sync folder's
@@ -331,6 +332,10 @@ host_modules: [f/app/scope.ts]   # modules of which the host and the steps share
 - **An empty module id.** A module id may be empty (`module: ''`), so
   `Selector.Module` is a pointer, and nil means no module field.
 - **A static provider's value** must be JSON text, `null` included.
+- **The host plugin** (`plugin`) is a module path from the sync root, as a
+  host-provided module of the folder is named, and not empty. It may not
+  be a host-provided module too (`invalid_contract`). The compiler only
+  records it; `internal/bundle` builds it.
 
 The rules of provided sites:
 
