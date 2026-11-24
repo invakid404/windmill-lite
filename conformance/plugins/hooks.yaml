@@ -123,6 +123,23 @@ scripts:
       while (performance.now() < end) {}
       return ms;
     }
+  f/plugins/fork.ts: |
+    // With child, returns its process id. Without, dispatches its own flow
+    // with child set through the job API, waits for it, and returns
+    // whether the child ran in another process than this step.
+    export async function main(child?: boolean) {
+      if (child) return process.pid;
+      const base = `${process.env.BASE_URL}/api/w/${process.env.WM_WORKSPACE}`;
+      const headers = { Authorization: `Bearer ${process.env.WM_TOKEN}`, "Content-Type": "application/json" };
+      const r = await fetch(`${base}/jobs/run/f/${process.env.WM_FLOW_PATH}`, { method: "POST", headers, body: JSON.stringify({ child: true }) });
+      if (r.status !== 201) throw new Error(`dispatch: ${r.status} ${await r.text()}`);
+      const id = await r.text();
+      for (;;) {
+        const j = await (await fetch(`${base}/jobs_u/completed/get_result_maybe/${id}`, { headers })).json();
+        if (j.completed) return { two_processes: j.result !== process.pid };
+        await new Promise((res) => setTimeout(res, 5));
+      }
+    }
   f/plugins/latch.ts: |
     // Latches its run through the step API (H5), then returns a value
     // that the latch outranks.
@@ -664,13 +681,12 @@ cases:
     title: >-
       a pinned run's hook calls reach one process, so a plugin's state per run
       stays whole, while a step that spins past a heartbeat makes that process
-      lag in a pool of two
+      lag and a run that its next step dispatches starts a second process
     flow:
       modules:
-        - {id: a, value: {type: script, path: f/plugins/spin, input_transforms: {ms: {type: static, value: 1300}}}}
-        - {id: b, value: {type: script, path: f/plugins/label, input_transforms: {label: {type: static, value: b}}}}
-        - {id: c, value: {type: script, path: f/plugins/label, input_transforms: {label: {type: static, value: c}}}}
+        - {id: a, value: {type: script, path: f/plugins/spin, input_transforms: {ms: {type: javascript, expr: "flow_input.child ? 0 : 1300"}}}}
+        - {id: b, value: {type: script, path: f/plugins/fork, input_transforms: {child: {type: javascript, expr: "flow_input.child ?? false"}}}}
     plugin: {state: true}
     pool: {max: 2, lag_threshold_ms: 50, pin_runs: true}
     go: false
-    expect: {status: success, result: c, log: ["state:m:a:1", "state:m:b:2", "state:m:c:3"]}
+    expect: {status: success, result: {two_processes: true}, log: ["state:m:a:1", "state:m:b:2"]}

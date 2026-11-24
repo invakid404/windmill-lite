@@ -843,7 +843,8 @@ The cases cover:
 - settlement: a run settles only once its hooks and providers finish; and
   later runs of a flow (`then`);
 - step code's `wl.latch` and `wl.signal`;
-- a pinned run whose plugin state stays whole in a pool of two processes.
+- a pinned run whose plugin state stays whole in one process, while a run
+  that it dispatches starts a second.
 
 The same cases run through a TypeScript plugin in `warm` processes and in host
 mode, and through Go callbacks built from the same plugin, except a case with
