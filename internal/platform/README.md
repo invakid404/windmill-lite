@@ -117,7 +117,7 @@ Every exported name, grouped by concern. "Engine", "facade", "`wl`" and
 | `JobView` | interface | Renders a live run's job records | engine implements it |
 | `FlowUserState`, `FlowUserStateLister`, `UserStates`, `NewUserStates` | interfaces, struct, constructor | Flow user state and its local default | the package; hosts implement `FlowUserState` |
 | `JobLookup` | function type | Finds the job an interpolated read names | facade |
-| `Services.Registry`, `JobRegistry`, `RootJob`, `JobEnv`, `ReadJobEnv`, `GetJob`, `GetJobArgs`, `FlowUserState`, `FlowUserStates`, `SetFlowUserState` | methods | The lookups ([Lookups](#lookups)) and the job reads | engine, facade, `wltest` (`JobRegistry`); `Services.Registry` only inside the package |
+| `Services.Registry`, `JobRegistry`, `RootJob`, `JobEnv`, `ReadJobEnv`, `GetJob`, `GetJobArgs`, `ResultPoll`, `FlowUserState`, `FlowUserStates`, `SetFlowUserState` | methods | The lookups ([Lookups](#lookups)) and the job reads | engine, facade, `wltest` (`JobRegistry`); `Services.Registry` only inside the package |
 
 ### Objects, dispatch and results
 
@@ -570,6 +570,12 @@ lives, the job running or completed.
   The root lookup still answers for it.
 - **A job that no run of the runtime holds**, such as one in a host's `Jobs`
   without views, fails with a `NotServed` too.
+- **`Services.ResultPoll`** reads the same record for the result polls that
+  the facade answers with its `ResultPollsForAllJobs` option
+  ([WA-V2](../../docs/semantics/client-api.md#wa-v2)). A completed job
+  gives its success and the record's result, in jsonb's text output; any
+  other job gives whether it runs. It fails as `GetJob` fails, and reports
+  an unknown id as unknown rather than failing.
 - **`Services.FlowUserStates`** lists a live flow job's user state as its
   flow status holds it, in jsonb's key order, when the services'
   `FlowUserState` can list maps (`FlowUserStateLister`, which `UserStates`

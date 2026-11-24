@@ -123,6 +123,13 @@ export type ConnectOptions = {
    * one is not an origin that wl accepts. Neither refusal repeats the
    * value. */
   foreignWindmillOrigins?: string[];
+  /** Off by default. Set, a step's result polls (getResultMaybe and
+   * getResult, which waitJob uses) answer for every job of a live run that
+   * its job read answers for, as Windmill answers them, and not only for
+   * the runs that the host's steps dispatched; a job that the job read
+   * does not serve, and a job of a run that has ended, still answer 501.
+   * The engine gets it as -result-polls-for-all-jobs. */
+  resultPollsForAllJobs?: boolean;
   /** Recycle triggers (none by default): health() reports the first that
    * trips, and onRecycle is called once with it ("rss", "modules" or
    * "retired"). A host that sees one drains and exits, and its supervisor
@@ -473,6 +480,7 @@ export async function connect(o: ConnectOptions): Promise<Host> {
       ...["host", "--bundle", o.bundle, "--workdir", workdir, "--kill-after", `${killAfter}ms`],
       ...(o.readCache ? ["-read-cache"] : []),
       ...(o.skipArgsFile ? ["-skip-args-file"] : []),
+      ...(o.resultPollsForAllJobs ? ["-result-polls-for-all-jobs"] : []),
       ...foreignFlags,
       ...(store ? ["-resource-store", store.kind] : []),
       ...(store?.kind === "redis" && store.prefix !== undefined ? ["-redis-prefix", store.prefix] : []),

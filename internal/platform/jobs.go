@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"slices"
 	"sync"
@@ -511,6 +512,47 @@ func (s *Services) GetJobArgs(id string) ([]byte, error) {
 		return nil, err
 	}
 	return j.View.JobArgs(id)
+}
+
+// ResultPoll answers the result polls ([WA-15], [WA-V2]) for the job id
+// names from the record that the run holding it renders, as GetJob reads
+// it: a completed job's success and result, the record's own result in
+// jsonb's text output; or a job that has not completed, started once it
+// runs. known is false when the job registry does not know the job. A job
+// that GetJob does not serve fails as GetJob fails: ErrEndedRun for a job
+// of a run that has ended, a *NotServed for a job in a state whose record
+// windmill-lite does not reproduce, such as a canceled job.
+//
+// [WA-15]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-15
+// [WA-V2]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-v2
+func (s *Services) ResultPoll(id string) (r JobResult, known bool, err error) {
+	if _, _, ok := s.jobs().Job(id); !ok {
+		return JobResult{}, false, nil
+	}
+	j, err := s.liveJob(id, "Job not found at name %s")
+	if err != nil {
+		return JobResult{}, true, err
+	}
+	rec, err := j.View.JobRecord(id)
+	if err != nil {
+		return JobResult{}, true, err
+	}
+	var v struct {
+		Type    string          `json:"type"`
+		Running bool            `json:"running"`
+		Success bool            `json:"success"`
+		Result  json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(rec, &v); err != nil {
+		return JobResult{}, true, fmt.Errorf("the job's record: %w", err)
+	}
+	if v.Type != "CompletedJob" {
+		return JobResult{Started: v.Running}, true, nil
+	}
+	if v.Result == nil {
+		v.Result = json.RawMessage("null")
+	}
+	return JobResult{Started: true, Completed: true, Success: v.Success, Result: v.Result}, true, nil
 }
 
 // liveJob returns the job id names when a run that is live holds it: an

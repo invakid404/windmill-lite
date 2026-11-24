@@ -365,8 +365,8 @@ These requests ask for observations that the reference cannot settle from
 the source. Most need a running Windmill, the [oracle](../glossary.md#oracle);
 a few optional checks need only PostgreSQL or the expression evaluator. They
 are requests, not design decisions, and all but two come from the semantics
-team. The build team made the other two: one that the oracle has recorded,
-and the result polls for a job that a flow created, which is open.
+team. The build team made the other two, and the oracle has recorded
+both.
 
 Each oracle request becomes a [fixture](../glossary.md#fixture) recorded in
 the session it names, or is deferred with its reason in a recording batch's
@@ -823,38 +823,6 @@ Each request here is made by a Bun driver step with `fetch` and its own
     caught `ApiError`'s `status`, `statusText` and `body`. The recording of
     WA-16/d kept only the message, `Internal Server Error`, which fixes the
     status at 500 but not CE's text.
-- **The result polls for a job that a flow created**
-  ([WA-V2](../semantics/client-api.md#wa-v2),
-  [WA-19](../semantics/client-api.md#wa-19)), in the two-worker session, so
-  that the driver runs while a sibling still runs. The build team asks for
-  it: the result polls are to answer for every job of a live run
-  ([platform interface](0007-platform-interface.md#services)).
-  - Deploy `f/x/fails`, `[x: bun: throw new Error("e")]`, and run by path
-    `[a: bun: return {"k": [1, 2.50]}, c: flow f/x/fails
-    (continue_on_error: true), p: branchall(parallel: true, branches:
-    [[w: the sibling], [d: the driver]])]`.
-  - The sibling `w` sets the flow user state `started` to `true`
-    ([WA-14](../semantics/client-api.md#wa-14)), then polls `release` every
-    100 ms until it is `true` or 60 s have passed, and returns 1.
-  - The driver polls `started` until it is `true`, at most 60 s, then reads
-    the root flow's job (its `WM_ROOT_JOB_ID`) and `p`'s first child flow
-    through `GET /api/w/<ws>/jobs_u/get/<id>`, to find the jobs of `a`, `c`
-    and `w` in `flow_status.modules`. Once it has the answers below, it
-    sets `release` to `true`.
-  - For each of the three jobs it calls
-    `GET /api/w/<ws>/jobs_u/completed/get_result_maybe/<id>`, the same with
-    `?get_started=true`, and `GET /api/w/<ws>/jobs_u/completed/get_result/<id>`.
-  - Predicted from the rules of the polls and the job read: `a` completed,
-    with `success` `true` and its result, and `c`'s flow job completed,
-    with `success` `false` and the subflow's error as its result. The
-    running `w` answers the unfinished nulls, `started` `true` when asked,
-    and `get_result`'s 404
-    `Not found: Completed Job not found at name <id><loc>`.
-  - Not predicted: the spelling of a result in the body, compact or with
-    the spaces of `jsonb`'s text output, which the job read uses. Every
-    answer above stays a prediction until the recording, which decides
-    what the planned option answers.
-
 #### Optional checks outside the equivalence contract
 
 - **PostgreSQL alone** ([Q-JE-9](../semantics/expressions.md#q-je-9)),
@@ -898,6 +866,7 @@ last column names the open request that asks for it.
 | A container as the failure module | [CF-31/a–c, CF-31/e](../semantics/conformance.md#cf-31) | An empty loop in the failure slot |
 | A container's own settings on handled failures and forwarded stops | [CF-16/e, CF-16/f](../semantics/conformance.md#cf-16), [CF-12/g](../semantics/conformance.md#cf-12), [CF-7/f](../semantics/conformance.md#cf-7), [FX-30/b](../semantics/conformance.md#fx-30) | |
 | A step canceled while it waits to start, also as a subflow step | [FX-38/b](../semantics/conformance.md#fx-38) | |
+| The result polls for a job that a flow created | The fixture `conformance/flows/client-api/result-polls` ([WA-V2](../semantics/client-api.md#wa-v2), [WA-19](../semantics/client-api.md#wa-19)): the answers that the rules predicted, with a result inside the compact answer in `jsonb`'s text output | |
 | A retried parallel container | [CF-22/h](../semantics/conformance.md#cf-22) | |
 | A flow that calls itself by path | [CF-17/j](../semantics/conformance.md#cf-17) | |
 | A container's throwing `timeout` and `parallelism` | [CF-21/e, CF-21/f](../semantics/conformance.md#cf-21) | |

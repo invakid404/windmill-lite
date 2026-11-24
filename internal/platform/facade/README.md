@@ -8,6 +8,10 @@ polls, and the object store. It also serves
 that last as long as one flow run, where state lives in the resource store.
 It answers a request to restart a flow as Windmill's Community Edition does.
 
+With an option that is off by default, the result polls also answer for
+every job of a live run, as Windmill answers them
+([Dispatch and results](#dispatch-and-results)).
+
 Any other route of Windmill's API answers 501 to a call that names a live
 invocation. On an authenticated workspace route, one under `/w/{ws}/` whose
 group does not end in `_u`, a call to another workspace gets 401 first; the
@@ -65,7 +69,7 @@ from the client API findings of the
 
 | Name | Kind | What it does | Who calls it |
 |---|---|---|---|
-| `New`, `Config`, `Facade` | function, structs | Make a facade with its two origins; the host receives a `*Facade`, safe for concurrent use. `Config` holds the 501 policy (`Policy`), the largest TCP body (`MaxBody`, 512 MiB when zero), the `Recorded` and `Answered` callbacks and the services (`Platform`) | `wl`, `wltest` |
+| `New`, `Config`, `Facade` | function, structs | Make a facade with its two origins; the host receives a `*Facade`, safe for concurrent use. `Config` holds the 501 policy (`Policy`), the largest TCP body (`MaxBody`, 512 MiB when zero), the `Recorded` and `Answered` callbacks, the services (`Platform`), and `ResultPollsForAllJobs`, off by default | `wl`, `wltest` |
 | `Facade.Close` | method | Release the origins; the listening one stops serving | `wl`, `wltest` |
 | `Facade.Executor` | method | A step executor that registers each invocation, applies the 501 policy and ends the registration when it settles | `wl`, `wltest` |
 | `Facade.Register`, `Session` (`Calls`, `End`, `Release`, `Unsupported`) | method, struct | One invocation's registration ([Attribution and transports](#attribution-and-transports)) | `Executor`; tests |
@@ -326,8 +330,20 @@ is `engine.Dispatcher`.
 - **A result poll whose id is not a UUID** gets the web framework's `400`. So
   a `waitJob` handed a refused dispatch's body fails at once instead of
   polling forever.
-- **A job that the dispatcher did not start** answers the polls with a 501:
-  windmill-lite answers them only for dispatched runs.
+- **A job that the dispatcher did not start** answers the polls with a 501
+  by default: windmill-lite answers them only for dispatched runs.
+- **With `Config.ResultPollsForAllJobs`**, a job of a live run that the job
+  read answers for answers the polls from its record
+  (`platform.Services.ResultPoll`), as the oracle recorded them (fixture
+  `conformance/flows/client-api/result-polls`):
+  - a completed job: the answer above, with the record's result as it is,
+    in `jsonb`'s text output (`{"k": [1, 2.5]}`); `getCompletedJobResult`
+    answers that text with `200`;
+  - a job that has not completed: the answer of a run in progress, with
+    `started` `true` once the job runs, and `getCompletedJobResult`'s `404`;
+  - a job whose record the job read does not serve, such as a canceled
+    job, and a job of a run that has ended: `501`, with the job read's
+    reason after the route's name.
 - **A query parameter that would change the run** and that no stock helper
   sends (`scheduled_for`, `cache_ttl`, `job_id`) answers 501, named by it. A
   `scheduled_in_secs`, when given and not empty, must be a base-ten integer
@@ -591,6 +607,7 @@ CI sets all three in its Go jobs
 | | — | A failed handler's 502 and bodyless replies on both transports; the enterprise restart's 400; the status and body of 14 error variants, `Generic` among them; handler registration |
 | `executor_test.go` | — | `TestSessionReporterLetsGo`: the Reporter lets go of its session once the invocation has settled, and a repeated `Settled` does nothing else |
 | `services_test.go` | — | On both transports: the root lookup and its `400`s, the workspace of a token (`TestTokenWorkspace`), and flow user state with its rejections. On the intercepted path: dispatch with a fake dispatcher, the result polls and their refusals, and the object routes |
+| `resultpolls_test.go` | — | `TestResultPollsFlowJobs`: the result polls of a live flow run's jobs that no step dispatched, without `ResultPollsForAllJobs` (each `501`) and with it (the recorded answers, the record's result as it is). Also the `501` of a canceled leaf, a latched flow job and an ended run's job, another workspace and an unknown id |
 | `jobreads_test.go` | — | `TestJobReadRoutes`: the job reads of a live run's jobs, a UUID in upper case, the 404 texts, the framework's `400`, and the 501 of an ended run's job while the root lookup still answers. `TestUnservedJobRoutes`: the `jobs_u` routes that stay unserved |
 | `providers_test.go` | — | The resource and variable reads on both transports; a facade with no services; a read's `job_id` (`TestReadWithAJobID`); the variable update and its refusals (`TestVariableUpdate`); a run's own providers next to the facade's (`TestCallerPlatform`) |
 | `resources_test.go` | — | The writes of state against the oracle's recording of `client-api/state` (`TestStateRoutes`, `TestStateValuesAndPaths`); the writes that answer 501 and the 422s (`TestStateWriteRefusals`); no store (`TestStateWritesWithoutAStore`); a failing store's 500 and warning (`TestStoreFailureAnswers`) |
