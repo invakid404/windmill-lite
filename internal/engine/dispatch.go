@@ -46,9 +46,11 @@ type ScriptRequest struct {
 	// ParentPath, so its state path is <ParentPath>/nostep_user (WA-5).
 	ParentJob, RootJob, ParentPath string
 	// MaxHeldBytes bounds the bytes of the job's stored arguments and
-	// result, as RunLimits.MaxHeldBytes bounds a flow run's: a job whose
-	// stored arguments and result together pass it latches with
-	// ErrRunMemoryLimit. Zero sets no bound.
+	// result, at their stored size, as RunLimits.MaxHeldBytes bounds a flow
+	// run's: arguments that pass it alone latch the job with
+	// ErrRunMemoryLimit before it runs, and a result, a cached or generated
+	// one included, that brings them past it latches it then. Zero sets no
+	// bound.
 	MaxHeldBytes int64
 	// Bytes and ByteTotal are the job's byte budget and the runtime's
 	// total, as RunLimits has them for a flow run.
@@ -135,6 +137,22 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 	view := &scriptView{id: id, env: reserved, script: s, args: args}
 	defer e.platform.JobRegistry().Begin(platform.Job{ID: id, Kind: platform.JobScript, Root: env["WM_ROOT_JOB_ID"], Path: s.Path, Env: env, Run: id, View: view})()
 	defer func() { view.complete(res, err, rep.latch.Err() != nil) }()
+	if req.MaxHeldBytes > 0 {
+		// The job's stored arguments alone may pass its limit, which then
+		// latches it before anything runs; its stored result counts
+		// however the job ends, a cached or generated one included.
+		if int64(len(stored)) > req.MaxHeldBytes {
+			rep.latch.Set(heldError(id, int64(len(stored)), req.MaxHeldBytes))
+			return ScriptResult{ID: id, Failed: true}, nil
+		}
+		defer func() {
+			if err == nil && rep.latch.Err() == nil && !res.Result.IsZero() {
+				if held := int64(len(stored)) + int64(storedLen(res.Result)); held > req.MaxHeldBytes {
+					rep.latch.Set(heldError(id, held, req.MaxHeldBytes))
+				}
+			}
+		}()
+	}
 	// An envs entry the worker refuses fails the job once it is picked up,
 	// after the result cache and the entrypoint's check (WR-22).
 	envErr := addScriptEnvs(env, s, boundary)
@@ -224,8 +242,9 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 		// rejects, and the job fails with the storage error.
 		return ScriptResult{ID: id, Failed: true, Result: engineError("InternalErr", databaseError(err).Error())}, nil
 	}
-	if held := int64(len(stored)) + int64(len(st.Value.Producer())); req.MaxHeldBytes > 0 && held > req.MaxHeldBytes {
-		rep.latch.Set(fmt.Errorf("engine: script job %s holds %d bytes of stored values, past its limit of %d: %w", id, held, req.MaxHeldBytes, ErrRunMemoryLimit))
+	if held := int64(len(stored)) + int64(storedLen(st.Value)); req.MaxHeldBytes > 0 && held > req.MaxHeldBytes {
+		// Latched before the cache could keep the result.
+		rep.latch.Set(heldError(id, held, req.MaxHeldBytes))
 	}
 	if key != "" && ttl.stores() && !st.Failed && rep.latch.Err() == nil {
 		// A store that fails leaves the job's result as it is: the

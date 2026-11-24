@@ -47,6 +47,14 @@ func TestRunLimits(t *testing.T) {
 	if started != 0 {
 		t.Fatalf("a refused run started %d modules", started)
 	}
+	// The size is the arguments' as given: ten spaces pass two bytes, though
+	// they run as {}, and no arguments at all fit one byte.
+	if res, err := rt.Run(ctx, "f/t/big", json.RawMessage("          "), RunOptions{Kind: KindScript, Limits: RunLimits{MaxArgsBytes: 2}}); !errors.Is(err, ErrRunArgsTooLarge) {
+		t.Fatalf("ten spaces under two bytes: %+v, %v; want ErrRunArgsTooLarge", res, err)
+	}
+	if res, err := rt.Run(ctx, "f/t/big", nil, RunOptions{Kind: KindScript, Limits: RunLimits{MaxArgsBytes: 1}}); err != nil || res.Status != StatusSuccess {
+		t.Fatalf("no arguments under one byte: %+v, %v", res, err)
+	}
 	res, err := rt.Run(ctx, "f/t/two", args, RunOptions{Limits: RunLimits{MaxArgsBytes: len(args), MaxInFlight: 1}})
 	if err != nil || res.Status != StatusSuccess || !slices.Contains(res.Trace.Deviations, "D15") {
 		t.Fatalf("arguments at the limit, MaxInFlight 1: %+v, %v", res, err)

@@ -142,9 +142,11 @@ type RunLimits struct {
 	MaxArgsBytes int
 	// MaxHeldBytes bounds the bytes of the stored values that the engine
 	// holds for the run: its arguments and the stored result of each of
-	// its jobs, counted as they are stored and not returned while the run
-	// lasts. Once they pass it, the run latches ErrRunMemoryLimit, as a
-	// latched hook does (H5): it starts nothing more.
+	// its jobs, a cached one included, counted at their stored size as
+	// they are stored (a script job's arguments before it runs), and not
+	// returned while the run lasts. Once they pass it, the run latches
+	// ErrRunMemoryLimit, as a latched hook does (H5): it starts nothing
+	// more.
 	MaxHeldBytes int64
 	// Bytes is the run's byte budget, which its steps, around wrappers
 	// included, draw on with wl.reserve(bytes) in the step API, for data
@@ -299,14 +301,15 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	defer context.AfterFunc(rt.stop, func() { cancel(context.Cause(rt.stop)) })()
-	if len(bytes.TrimSpace(args)) == 0 {
-		args = json.RawMessage("{}")
-	}
 	if l := opts.Limits; l.MaxInFlight < 0 || l.MaxArgsBytes < 0 || l.MaxHeldBytes < 0 || l.Bytes < 0 {
 		return nil, fmt.Errorf("wl: a run's limits are not negative (RunOptions.Limits: %+v)", l)
 	}
+	// The arguments as given, before an empty text becomes {}.
 	if l := opts.Limits.MaxArgsBytes; l > 0 && len(args) > l {
 		return nil, fmt.Errorf("%w: %d bytes, the limit is %d", ErrRunArgsTooLarge, len(args), l)
+	}
+	if len(bytes.TrimSpace(args)) == 0 {
+		args = json.RawMessage("{}")
 	}
 	if opts.Pin && (rt.state == engine.ModuleStateFresh || rt.host != nil) {
 		return nil, errors.New("wl: a pinned run needs a warm runtime's pool: a fresh runtime starts a process for each step, and in host mode the host is the one process (RunOptions.Pin)")

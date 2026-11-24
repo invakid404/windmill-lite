@@ -39,7 +39,8 @@ func (t *ByteTotal) Used() int64 {
 func (t *ByteTotal) take(n int64) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.used+n > t.limit {
+	// Compared with what is left, so that no sum can overflow.
+	if n > t.limit-t.used {
 		return fmt.Errorf("windmill-lite: wl.reserve(%d): the runtime's byte total of %d has %d left", n, t.limit, t.limit-t.used)
 	}
 	t.used += n
@@ -72,7 +73,7 @@ func newByteAccount(l RunLimits) *byteAccount {
 func (a *byteAccount) take(n int64) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.limit > 0 && a.used+n > a.limit {
+	if a.limit > 0 && n > a.limit-a.used {
 		return fmt.Errorf("windmill-lite: wl.reserve(%d): the run's byte budget of %d has %d left", n, a.limit, a.limit-a.used)
 	}
 	if a.total != nil {

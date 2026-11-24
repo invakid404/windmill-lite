@@ -558,8 +558,9 @@ type RunLimits struct {
 	MaxInFlight int
 	// MaxHeldBytes bounds the bytes of the stored values that the engine
 	// holds for the run: its arguments and the stored result of each of
-	// its jobs, counted as they are stored and not returned while the run
-	// lasts. Once they pass it, the run latches ErrRunMemoryLimit (H5).
+	// its jobs, a cached root's included, counted at their stored size as
+	// they are stored, and not returned while the run lasts. Once they
+	// pass it, the run latches ErrRunMemoryLimit (H5).
 	MaxHeldBytes int64
 	// Bytes is the run's byte budget, which its steps draw on with
 	// wl.reserve(bytes) (Invocation.Budget), wherever they run: a

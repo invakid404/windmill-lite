@@ -694,8 +694,8 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
 - **Limits on size.** A run may bound its arguments' size, which refuses
   it before it starts. It may also bound the bytes that the engine holds
   for its stored values, its arguments and each job's stored result,
-  counted as they are stored, which latches `run_memory_limit` once
-  passed.
+  counted at their stored size as they are stored, which latches
+  `run_memory_limit` once passed.
 - **A byte budget per run.** A run may have a budget of bytes that its
   steps and its host plugin's around wrappers draw on with
   `wl.reserve(bytes)` in the step API, for data that a step holds, such as

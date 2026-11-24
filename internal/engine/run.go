@@ -126,6 +126,29 @@ func (r *run) limit(l RunLimits) {
 	r.bytes = newByteAccount(l)
 }
 
+// holdValue counts v, a value stored for the run, at its stored size.
+func (r *run) holdValue(v jsonval.Value) {
+	if r.maxHeld > 0 {
+		r.holdBytes(storedLen(v))
+	}
+}
+
+// storedLen is the size of v as it is stored (jsonval.Value.Stored), which
+// may differ from its producer's text; that text's size when it cannot be
+// stored.
+func storedLen(v jsonval.Value) int {
+	if b, err := v.Stored(); err == nil {
+		return len(b)
+	}
+	return len(v.Producer())
+}
+
+// heldError is the latch of a run or script job id holding held bytes of
+// stored values, past its limit.
+func heldError(id string, held, limit int64) error {
+	return fmt.Errorf("engine: run %s holds %d bytes of stored values, past its limit of %d: %w", id, held, limit, ErrRunMemoryLimit)
+}
+
 // holdBytes counts n more bytes of stored values held for the run, and
 // latches it with ErrRunMemoryLimit once they pass its bound.
 func (r *run) holdBytes(n int) {
@@ -133,7 +156,7 @@ func (r *run) holdBytes(n int) {
 		return
 	}
 	if held := r.held.Add(int64(n)); held > r.maxHeld {
-		r.Latch(fmt.Errorf("engine: run %s holds %d bytes of stored values, past its limit of %d: %w", r.id, held, r.maxHeld, ErrRunMemoryLimit))
+		r.Latch(heldError(r.id, held, r.maxHeld))
 	}
 }
 
@@ -787,6 +810,11 @@ func (r *run) runList(ctx context.Context, fr *frame) (e flowEnd) {
 			return flowEnd{status: st}
 		}
 		if c, hit := r.lookup(ctx, key); hit {
+			if fr == r.root {
+				// The run's result is stored for it, though no module ran:
+				// a subflow's is counted where its step completes.
+				r.holdValue(c.value())
+			}
 			if st, end := r.hostEnd(ctx, false); end {
 				return flowEnd{status: st}
 			}

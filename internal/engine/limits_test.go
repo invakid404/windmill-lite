@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
@@ -160,5 +162,102 @@ func TestByteBudgetReturnsAtSettlement(t *testing.T) {
 	<-runLimited(e, `{}`, RunLimits{})
 	if !slices.Equal(got, []string{"no budget", "no budget"}) {
 		t.Fatalf("no budget: %q", got)
+	}
+}
+
+// MaxHeldBytes counts a value at its stored size, not its producer's: a
+// result whose stored text expands an exponent passes a limit that its
+// producer's text would not, in a flow and in a script job.
+func TestRunHeldBytesStoredSize(t *testing.T) {
+	exec := execFunc(func(ctx context.Context, inv Invocation) (StepOutcome, error) {
+		defer inv.Report.Settled(SettleCompleted)
+		return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(`1e+100`))}, nil
+	})
+	if n := storedLen(jsonval.FromProducer([]byte(`1e+100`))); n != 101 {
+		t.Fatalf("the stored size of 1e+100 is %d; the test needs 101", n)
+	}
+	e := mustOpen(t, map[string]string{"f/t/main": flowOf(value("a", "1", ""), value("b", "1", ""))}, exec)
+	// The arguments' 2 bytes and a's 101 pass 50; its producer's 6 would not.
+	tr := <-runLimited(e, `{}`, RunLimits{MaxHeldBytes: 50})
+	if tr.Status != conformance.RunLatched || !errors.Is(tr.Latched, ErrRunMemoryLimit) {
+		t.Fatalf("status %s, latched %v; want run_memory_limit", tr.Status, tr.Latched)
+	}
+	noRecord(t, tr, "m:b")
+	r, err := e.RunScript(context.Background(), ScriptRequest{Path: "f/t/echo", Args: jsonval.FromProducer([]byte(`{}`)), MaxHeldBytes: 50})
+	if err != nil || !errors.Is(r.Latched, ErrRunMemoryLimit) {
+		t.Fatalf("a script job: %+v, %v; want run_memory_limit", r, err)
+	}
+	if r, err := e.RunScript(context.Background(), ScriptRequest{Path: "f/t/echo", Args: jsonval.FromProducer([]byte(`{}`)), MaxHeldBytes: 103}); err != nil || r.Latched != nil || r.Failed {
+		t.Fatalf("a script job at its limit: %+v, %v", r, err)
+	}
+}
+
+// A script job's stored arguments alone over MaxHeldBytes latch it before
+// its script runs. A result that the cache answers counts too, for a root
+// script and a root flow alike, though nothing runs.
+func TestRunHeldBytesBeforeAndWithoutExecution(t *testing.T) {
+	big := `"` + strings.Repeat("x", 100) + `"`
+	var calls atomic.Int32
+	exec := execFunc(func(ctx context.Context, inv Invocation) (StepOutcome, error) {
+		calls.Add(1)
+		defer inv.Report.Settled(SettleCompleted)
+		return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(big))}, nil
+	})
+	e := mustOpen(t, map[string]string{"f/t/main": withTTL(flowOf(mod("a", "echo", "", "")), 60)}, exec)
+	ctx := context.Background()
+	r, err := e.RunScript(ctx, ScriptRequest{Path: "f/t/echo", Args: jsonval.FromProducer([]byte(`{"k":` + big + `}`)), MaxHeldBytes: 50})
+	if err != nil || !errors.Is(r.Latched, ErrRunMemoryLimit) || calls.Load() != 0 {
+		t.Fatalf("large arguments: %+v, %v, %d executor calls; want run_memory_limit and none", r, err, calls.Load())
+	}
+	// The first run of each root fills the cache; the second, limited,
+	// gets the hit.
+	if r, err := e.RunScript(ctx, ScriptRequest{Path: "f/t/cached", Args: jsonval.FromProducer([]byte(`{}`))}); err != nil || r.Failed {
+		t.Fatalf("%+v, %v", r, err)
+	}
+	wantStatus(t, <-runLimited(e, `{}`, RunLimits{}), conformance.RunSuccess, big)
+	before := calls.Load()
+	r, err = e.RunScript(ctx, ScriptRequest{Path: "f/t/cached", Args: jsonval.FromProducer([]byte(`{}`)), MaxHeldBytes: 50})
+	if err != nil || !errors.Is(r.Latched, ErrRunMemoryLimit) {
+		t.Fatalf("a script's cached result: %+v, %v; want run_memory_limit", r, err)
+	}
+	tr := <-runLimited(e, `{}`, RunLimits{MaxHeldBytes: 50})
+	if tr.Status != conformance.RunLatched || !errors.Is(tr.Latched, ErrRunMemoryLimit) {
+		t.Fatalf("a flow's cached result: status %s, latched %v; want run_memory_limit", tr.Status, tr.Latched)
+	}
+	if calls.Load() != before {
+		t.Fatalf("%d executor calls for two cache hits", calls.Load()-before)
+	}
+}
+
+// A reservation is compared with what is left, so no sum overflows: at a
+// total and a budget of math.MaxInt64, the exact rest fits, one byte more
+// does not, and a refusal leaves the balances as they were.
+func TestByteBudgetBoundaries(t *testing.T) {
+	const max = math.MaxInt64
+	total := NewByteTotal(max)
+	if err := total.take(max - 10); err != nil {
+		t.Fatal(err)
+	}
+	if err := total.take(11); err == nil || total.Used() != max-10 {
+		t.Fatalf("11 bytes past 10 left: %v, %d used", err, total.Used())
+	}
+	if err := total.take(10); err != nil || total.Used() != max {
+		t.Fatalf("the exact rest: %v, %d used", err, total.Used())
+	}
+	if err := total.take(1); err == nil || total.Used() != max {
+		t.Fatalf("a byte past a full total: %v, %d used", err, total.Used())
+	}
+	b, _ := newByteAccount(RunLimits{Bytes: max}).draw(NopReporter{})
+	if err := b.Reserve(max - 10); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Reserve(11); err == nil {
+		t.Fatal("11 bytes past a budget with 10 left")
+	}
+	if err := b.Reserve(10); err != nil {
+		t.Fatalf("the exact rest of the budget: %v", err)
+	}
+	if err := b.Reserve(1); err == nil {
+		t.Fatal("a byte past a full budget")
 	}
 }

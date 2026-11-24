@@ -256,7 +256,7 @@ func (r *run) jobPath(fr *frame, i int) string {
 // under its body module's id (CF-8).
 func (r *run) recordJob(fr *frame, i int, v jsonval.Value) {
 	v = v.WithoutNUL()
-	r.holdBytes(len(v.Producer()))
+	r.holdValue(v)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	fr.jobs[i] = v

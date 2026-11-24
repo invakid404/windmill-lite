@@ -493,7 +493,7 @@ iteration, sleep and retry delay.
 | `Options.PluginTimeout` | Each call to the host plugin | The run latches with `ErrHostCallTimeout`, unless its context ended first. A late `onRunEnd` adds a `plugin_error` warning instead, and a late `onRunSettled` goes to the diagnostics. |
 | `RunOptions.Limits.MaxInFlight` | The flow run's steps in flight at once. Its parallel branches and iterations wait for a slot, as jobs in the queue, before their timeouts start. | Nothing trips. The trace lists `D15`, since steps that wait on each other can wait until their timeout. |
 | `RunOptions.Limits.MaxArgsBytes` | The size of the run's arguments, as given to `Run` | `Run` returns `ErrRunArgsTooLarge`, and nothing runs. |
-| `RunOptions.Limits.MaxHeldBytes` | The bytes of the stored values that the engine holds for the run: its arguments and each job's stored result, counted as they are stored | The run latches with `ErrRunMemoryLimit` and starts nothing more. |
+| `RunOptions.Limits.MaxHeldBytes` | The bytes of the stored values that the engine holds for the run: its arguments and each job's stored result, a cached one included, at their stored size | The run latches with `ErrRunMemoryLimit` and starts nothing more. A script job whose arguments alone pass it latches before it runs. |
 | `RunOptions.Limits.Bytes` | What the run's steps reserve with `wl.reserve(bytes)`, wherever they run | The reservation rejects in the step with a `RangeError` that says how much is left. |
 | `Options.Limits.Bytes` | What every run's steps reserve together | The same, naming the runtime's total. |
 

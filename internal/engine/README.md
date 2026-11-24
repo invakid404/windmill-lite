@@ -736,10 +736,12 @@ parent's.
   run's invocations returns. A run that latches meanwhile launches it no
   more, and the trace lists `D15`.
 - **`MaxHeldBytes`.** The bytes of the stored values that the run holds:
-  its arguments and each job's stored result, counted as they are stored
-  and not returned while the run lasts. Once they pass it, the run
-  latches `ErrRunMemoryLimit`. A script job (`ScriptRequest.MaxHeldBytes`)
-  counts its stored arguments and result.
+  its arguments and each job's stored result, a cached root's included,
+  counted at their stored size as they are stored, and not returned while
+  the run lasts. Once they pass it, the run latches `ErrRunMemoryLimit`.
+- **A script job's** (`ScriptRequest.MaxHeldBytes`) counts its stored
+  arguments, which latch it before it runs when they pass it alone, and
+  its result, however the job ends.
 - **`Bytes` and `ByteTotal`.** The run's byte budget and the runtime's
   total: with either, each invocation gets a `Budget`, whose `Reserve` a
   step's `wl.reserve` reaches through the executor. A reservation must fit
