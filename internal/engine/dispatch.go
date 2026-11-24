@@ -290,14 +290,15 @@ type Dispatcher struct {
 // returns the context the run runs in, the run's limits, and two
 // functions, either of which may be nil: ended, called once the run has
 // ended, and settled, called once it has settled, or at once for a run
-// that did not start. Its error refuses the dispatch. The boundary with
-// Close is a dispatch's admission: a dispatch that a closing dispatcher
-// refuses calls none of these. One admitted before may call DispatchRun
-// while Close runs, its context then canceled; Close waits for that call
-// and, for a run that it then keeps from starting, its end and settlement
-// calls, as long as the context given to Close allows. A host gives the
-// runs it starts itself the same, such as their pin and the runtime's byte
-// total (ADR 0004 §Pooling).
+// that did not start. Its error refuses the dispatch. Once Close has
+// begun, Dispatch refuses a dispatch in one of two places, with the same
+// error: at its admission, which calls none of these; or, for one admitted
+// before, after DispatchRun has returned, which then calls ended and
+// settled, since the run will not start. Such a DispatchRun may run while
+// Close does, its context possibly canceled already. Close waits for it
+// and for those calls only as long as the context given to Close allows.
+// A host gives the runs it starts itself the same, such as their pin and
+// the runtime's byte total (ADR 0004 §Pooling).
 type DispatchRun func(ctx context.Context, id string) (_ context.Context, limits RunLimits, ended, settled func(), err error)
 
 // SetRuns makes f take part in each run that the dispatcher starts. Call
@@ -420,8 +421,8 @@ func (x *Dispatcher) Dispatch(_ context.Context, d platform.Dispatch) (string, e
 	// caller that returns at once).
 	links := x.links(d)
 	id := newUUID()
-	// The dispatch is admitted, and Close waits for it from here, before
-	// any host code runs: a closed dispatcher calls none.
+	// The dispatch is admitted, and holds a place in Close's wait from
+	// here, before any host code runs: one refused here calls none.
 	x.mu.Lock()
 	if x.closed {
 		x.mu.Unlock()
@@ -441,7 +442,8 @@ func (x *Dispatcher) Dispatch(_ context.Context, d platform.Dispatch) (string, e
 	x.mu.Lock()
 	if x.closed {
 		// Close began while the host prepared the run, which will not
-		// start: its end and settlement calls come before Close returns.
+		// start: its end and settlement calls come before this dispatch
+		// gives back its place in Close's wait.
 		x.mu.Unlock()
 		prep.abandon()
 		x.wg.Done()
