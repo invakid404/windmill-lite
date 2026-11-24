@@ -209,11 +209,18 @@ func TestRunHeldBytesBeforeAndWithoutExecution(t *testing.T) {
 	if err != nil || !errors.Is(r.Latched, ErrRunMemoryLimit) || calls.Load() != 0 {
 		t.Fatalf("large arguments: %+v, %v, %d executor calls; want run_memory_limit and none", r, err, calls.Load())
 	}
-	// The first run of each root fills the cache; the second, limited,
-	// gets the hit.
-	if r, err := e.RunScript(ctx, ScriptRequest{Path: "f/t/cached", Args: jsonval.FromProducer([]byte(`{}`))}); err != nil || r.Failed {
-		t.Fatalf("%+v, %v", r, err)
+	// A result over the limit latches its job before the cache could keep
+	// it: the next run of the script runs it, and fills the cache.
+	r, err = e.RunScript(ctx, ScriptRequest{Path: "f/t/cached", Args: jsonval.FromProducer([]byte(`{}`)), MaxHeldBytes: 50})
+	if err != nil || !errors.Is(r.Latched, ErrRunMemoryLimit) {
+		t.Fatalf("a script's result over the limit: %+v, %v; want run_memory_limit", r, err)
 	}
+	ran := calls.Load()
+	if r, err := e.RunScript(ctx, ScriptRequest{Path: "f/t/cached", Args: jsonval.FromProducer([]byte(`{}`))}); err != nil || r.Failed || calls.Load() != ran+1 {
+		t.Fatalf("after a latched result: %+v, %v, %d executor calls; want the script run", r, err, calls.Load()-ran)
+	}
+	// The first run of the flow fills the cache; the second run of each
+	// root, limited, gets the hit.
 	wantStatus(t, <-runLimited(e, `{}`, RunLimits{}), conformance.RunSuccess, big)
 	before := calls.Load()
 	r, err = e.RunScript(ctx, ScriptRequest{Path: "f/t/cached", Args: jsonval.FromProducer([]byte(`{}`)), MaxHeldBytes: 50})

@@ -301,14 +301,21 @@ func TestPinIDReuse(t *testing.T) {
 	pool.RunEnded(second)
 	pool.ForgetRun(second)
 
-	// An unpinned run that takes the id of an ended pinned run.
-	pool2, ctl2, _ := fakePool(t, PoolConfig{Max: 2, RecycleTimeout: time.Minute})
+	// An unpinned run that takes the id of an ended pinned run: its host
+	// calls, which an ended pin would still route, and its steps go as
+	// any run's, not to the earlier run's leaving process.
+	pool2, ctl2, _ := fakePool(t, PoolConfig{Max: 2, RecycleTimeout: time.Minute}, "WL_FAKE_PLUGIN=same")
 	holdDrains(t, ctl2)
 	pinB := pool2.PinRun("B")
 	b := fakeRun(t, pool2, "s", onRun("B"))
 	abandon(t, pool2, ctl2, "x", onRun("X"))
 	pool2.RunEnded(pinB)
 	pool2.UnpinRun("B")
+	out, err := pool2.HostCall(ctx, "resource", "B", "", jsonval.FromProducer([]byte(`{}`)))
+	var r struct{ PID int }
+	if err != nil || json.Unmarshal(out.Producer(), &r) != nil || r.PID == b {
+		t.Fatalf("an unpinned run's host call: %s, %v; want another process than the earlier pinned run's %d", out.Producer(), err, b)
+	}
 	if got := fakeRun(t, pool2, "s", onRun("B")); got == b {
 		t.Fatalf("an unpinned run went to the tainted process %d of an earlier pinned run with its id", b)
 	}
