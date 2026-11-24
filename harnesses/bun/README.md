@@ -116,9 +116,17 @@ The runtime sets `wl` on `globalThis` for step code:
   `error`, after the step's result.
 - `wl.signal()` is the invocation's abort signal, which aborts when the
   engine cancels the invocation.
+- `wl.reserve(bytes)` reserves `bytes` of the run's byte budget and the
+  runtime's total, which the engine keeps across processes: it resolves
+  once they are reserved, and rejects with a `RangeError` when they do
+  not fit. What an invocation reserves returns when it settles. Only an
+  `invoke` with `budget` makes it send `reserve` frames; without one it
+  takes nothing and resolves at once.
 
-Both throw a `TypeError` outside an open invocation. A step cannot replace
-`wl`, and a native step has none.
+All three throw a `TypeError` outside an open invocation (`wl.reserve`
+rejects with it). An `around` wrapper runs inside its step's invocation,
+so it can call them too. A step cannot replace `wl`, and a native step
+has none.
 
 #### The process scope
 

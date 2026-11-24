@@ -21,7 +21,8 @@ import (
 // TypeScript host plugin in warm harness processes (Options.Plugin, over
 // host_call), and through Go callbacks built from the same declarative
 // plugins (the path a Go host's hooks take): every case must give its
-// expected outcome both ways. cmd/windmill-lite runs them in host mode.
+// expected outcome each way it runs. cmd/windmill-lite runs them in host
+// mode, but for those with a pool of their own, which run only here.
 // They need the pinned Bun (WL_BUN) and the build helper's dependencies.
 
 func loadPluginCases(t *testing.T) *conformance.PluginFile {
@@ -111,15 +112,32 @@ func bundledCasePlugin(t *testing.T, f *conformance.PluginFile) (files map[strin
 	return files, contract, report
 }
 
-// runTypeScriptCases runs every case on rt, whose host plugin is the
-// TypeScript case plugin that reports to report.
-func runTypeScriptCases(t *testing.T, rt *Runtime, f *conformance.PluginFile, report string) {
+// runTypeScriptCases runs every case through the TypeScript case plugin,
+// which reports to report: on rt, or, for a case with a pool of its own,
+// on a runtime that open makes with the case's pool settings, closed once
+// every run has settled.
+func runTypeScriptCases(t *testing.T, rt *Runtime, open func(PoolOptions) (*Runtime, error), f *conformance.PluginFile, report string) {
+	var own []*Runtime
+	defer func() {
+		for _, o := range own {
+			o.Close()
+		}
+	}()
 	var runs []string
 	for _, c := range f.Cases {
 		t.Run(c.ID, func(t *testing.T) {
+			run := rt
+			if p := c.Pool; p != nil {
+				o, err := open(PoolOptions{Max: p.Max, LagThreshold: time.Duration(p.LagThresholdMS) * time.Millisecond, PinRuns: p.PinRuns})
+				if err != nil {
+					t.Fatal(err)
+				}
+				own = append(own, o)
+				run = o
+			}
 			for i, r := range caseRuns(c) {
 				ctx, cancel, opts := caseRun(c, r.Run, RunOptions{})
-				res, err := rt.Run(ctx, c.FlowPath(), json.RawMessage(`{}`), opts)
+				res, err := run.Run(ctx, c.FlowPath(), json.RawMessage(`{}`), opts)
 				cancel()
 				if err != nil {
 					t.Fatalf("run %d: %v", i, err)
@@ -224,7 +242,9 @@ func TestPluginCases(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer rt.Close()
-		runTypeScriptCases(t, rt, f, report)
+		runTypeScriptCases(t, rt, func(pool PoolOptions) (*Runtime, error) {
+			return Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, PluginTimeout: timeout, Pool: pool})
+		}, f, report)
 	})
 
 	// The same plugin built into the bundle (the host contract's plugin
@@ -237,7 +257,9 @@ func TestPluginCases(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer rt.Close()
-		runTypeScriptCases(t, rt, f, report)
+		runTypeScriptCases(t, rt, func(pool PoolOptions) (*Runtime, error) {
+			return Open(bundled, Options{Bun: bun, HarnessRuntime: runtimeDir, PluginTimeout: timeout, Pool: pool})
+		}, f, report)
 	})
 
 	t.Run("go callbacks", func(t *testing.T) {

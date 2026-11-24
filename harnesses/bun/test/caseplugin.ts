@@ -37,12 +37,17 @@ export type CaseSpec = {
   slow_start_ms?: number;
   providers?: Record<string, Answer>;
   warnings?: { code: string; message: string }[];
+  /** Keeps a count per run in this copy of the plugin, which each
+   * onModuleStart raises and logs as state:<site>:<count>: one run's state
+   * stays whole only while its hook calls reach one process. */
+  state?: boolean;
 };
 
 /** cases: each case's flow path and declarative plugin; report: the file
  * onRunSettled appends `{"run", "early"}` lines to. */
 export function casePlugin(cases: { flow: string; plugin: CaseSpec }[], report?: string): Plugin {
   const logs = new Map<string, string[]>();
+  const counts = new Map<string, number>();
   const runFlow = new Map<string, string>();
   // The hooks of each run still running, which its settlement must wait for.
   const active = new Map<string, number>();
@@ -122,6 +127,11 @@ export function casePlugin(cases: { flow: string; plugin: CaseSpec }[], report?:
         runFlow.set(run, site.flow);
         const s = byFlow.get(site.flow);
         if (s?.observe) log(run, `start:${site.path}`);
+        if (s?.state) {
+          const n = (counts.get(run) ?? 0) + 1;
+          counts.set(run, n);
+          log(run, `state:${site.path}:${n}`);
+        }
         if (s?.slow_start_ms) await Bun.sleep(s.slow_start_ms);
       }),
     onModuleEnd: ({ run, site, record }) => {
@@ -137,6 +147,7 @@ export function casePlugin(cases: { flow: string; plugin: CaseSpec }[], report?:
         ...(byFlow.get(runFlow.get(t.run) ?? "")?.warnings ?? []),
       ];
       logs.delete(t.run);
+      counts.delete(t.run);
       return ws;
     },
     onRunSettled: (t) => {

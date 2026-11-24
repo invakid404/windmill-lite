@@ -1550,7 +1550,8 @@ func TestHostRecycleRetired(t *testing.T) {
 }
 
 // TestHostPluginCases runs in host mode the plugin cases of
-// conformance/plugins/hooks.yaml, answered by the host's own TypeScript
+// conformance/plugins/hooks.yaml that host mode can run (all but those
+// with a pool of their own), answered by the host's own TypeScript
 // plugin (the host SDK's plugin option): its hooks and providers over
 // host_call, its around wrappers in the harness. Every case gives
 // its expected status, result, latched error, log and warnings, as through
@@ -1961,8 +1962,10 @@ func TestHostRefusesStalePluginRelease(t *testing.T) {
 	}
 }
 
-// runHostPluginCases runs every plugin case through a compiled host
-// started with env, whose plugin reports its onRunSettled to report.
+// runHostPluginCases runs the plugin cases that host mode can run
+// (PluginCase.RunsHost: every case but those with a pool of their own)
+// through a compiled host started with env, whose plugin reports its
+// onRunSettled to report.
 // scoped, the host's plugin also reports, in the warning plugin_scope, the
 // tenant its onRunEnd runs in, which must be the run's (H11).
 func runHostPluginCases(t *testing.T, f *conformance.PluginFile, report string, scoped bool, env ...string) {
@@ -1970,6 +1973,11 @@ func runHostPluginCases(t *testing.T, f *conformance.PluginFile, report string, 
 	s := supervise(t, 30000, append(env, fmt.Sprintf("WL_ENGINE_FLAGS=-plugin-timeout %dms", f.TimeoutMS))...)
 	var runs []string
 	for _, c := range f.Cases {
+		if !c.RunsHost() {
+			// A host is one process: a case with a pool of its own runs
+			// only in warm processes (go test ./wl).
+			continue
+		}
 		t.Run(c.ID, func(t *testing.T) {
 			// A case's later runs share the host's one connection with its
 			// first: a run's own hooks are that run's alone.

@@ -45,6 +45,17 @@ type ScriptRequest struct {
 	// first of RootJob, ParentJob and itself that is set, and its flow path
 	// ParentPath, so its state path is <ParentPath>/nostep_user (WA-5).
 	ParentJob, RootJob, ParentPath string
+	// MaxHeldBytes bounds the bytes of the job's stored arguments and
+	// result, at their stored size, as RunLimits.MaxHeldBytes bounds a flow
+	// run's: arguments that pass it alone latch the job with
+	// ErrRunMemoryLimit before it runs, and a result, a cached or generated
+	// one included, that brings them past it latches it then. Zero sets no
+	// bound.
+	MaxHeldBytes int64
+	// Bytes and ByteTotal are the job's byte budget and the runtime's
+	// total, as RunLimits has them for a flow run.
+	Bytes     int64
+	ByteTotal *ByteTotal
 	// Around, when set, gives a host plugin's around wrappers at the
 	// script job's site, a site with no path whose Script is the script's
 	// path (RunRequest.Around).
@@ -143,6 +154,22 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 	}
 	defer endJob()
 	defer func() { view.complete(res, err, rep.latch.Err() != nil) }()
+	if req.MaxHeldBytes > 0 {
+		// The job's stored arguments alone may pass its limit, which then
+		// latches it before anything runs; its stored result counts
+		// however the job ends, a cached or generated one included.
+		if int64(len(stored)) > req.MaxHeldBytes {
+			rep.latch.Set(heldError(id, int64(len(stored)), req.MaxHeldBytes))
+			return ScriptResult{ID: id, Failed: true}, nil
+		}
+		defer func() {
+			if err == nil && rep.latch.Err() == nil && !res.Result.IsZero() {
+				if held := int64(len(stored)) + int64(storedLen(res.Result)); held > req.MaxHeldBytes {
+					rep.latch.Set(heldError(id, held, req.MaxHeldBytes))
+				}
+			}
+		}()
+	}
 	// An envs entry the worker refuses fails the job once it is picked up,
 	// after the result cache and the entrypoint's check (WR-22).
 	envErr := addScriptEnvs(env, s, boundary)
@@ -197,7 +224,7 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 	defer cancel(nil)
 	t := time.AfterFunc(timeout, func() { cancel(CancelTimeout) })
 	defer t.Stop()
-	out, err := exec.Execute(stepCtx, Invocation{
+	inv := Invocation{
 		ID:          id,
 		Run:         id,
 		Site:        conformance.SitePath{},
@@ -211,8 +238,16 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 		Around:      around,
 		Platform:    req.Platform,
 		Host:        host,
-	})
+	}
+	if a := newByteAccount(RunLimits{Bytes: req.Bytes, ByteTotal: req.ByteTotal}); a != nil {
+		inv.Budget, inv.Report = a.draw(inv.Report)
+	}
+	out, err := exec.Execute(stepCtx, inv)
 	switch {
+	case errors.Is(err, ErrPinnedProcessLost):
+		// The latch outranks the job's outcome, as a step's latch does.
+		rep.latch.Set(err)
+		return ScriptResult{ID: id, Failed: true}, nil
 	case errors.Is(err, CancelTimeout):
 		return ScriptResult{ID: id, Failed: true, Canceled: boundary != BoundaryNative, Result: TimeoutError(boundary, "", timeout, atMax)}, nil
 	case err != nil && ctx.Err() != nil:
@@ -229,6 +264,12 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 		// FX-51 case 1: the completion insert refuses a value jsonb still
 		// rejects, and the job fails with the storage error.
 		return ScriptResult{ID: id, Failed: true, Result: engineError("InternalErr", databaseError(err).Error())}, nil
+	}
+	if req.MaxHeldBytes > 0 {
+		// Latched before the cache could keep the result.
+		if held := int64(len(stored)) + int64(storedLen(st.Value)); held > req.MaxHeldBytes {
+			rep.latch.Set(heldError(id, held, req.MaxHeldBytes))
+		}
 	}
 	if key != "" && ttl.stores() && !st.Failed && rep.latch.Err() == nil {
 		// A store that fails leaves the job's result as it is: the
@@ -260,6 +301,84 @@ type Dispatcher struct {
 	mu     sync.Mutex
 	closed bool
 	runs   map[string]*dispatched
+
+	// prepare takes part in each run the dispatcher starts (SetRuns); nil
+	// for none.
+	prepare DispatchRun
+}
+
+// DispatchRun takes part in each run that a Dispatcher starts: it is
+// called with the run's id when the run is dispatched, before Dispatch
+// returns the id, so that the id is the run's own from the start, and
+// returns the context the run runs in, the run's limits, and two
+// functions, either of which may be nil: ended, called once the run has
+// ended, and settled, called once it has settled, or at once for a run
+// that did not start. Its error refuses the dispatch. Once Close has
+// begun, Dispatch refuses a dispatch in one of two places, with the same
+// error: at its admission, which calls none of these; or, for one admitted
+// before, after DispatchRun has returned, which then calls ended and
+// settled, since the run will not start. Such a DispatchRun may run while
+// Close does, its context possibly canceled already. Close waits for it
+// and for those calls only as long as the context given to Close allows.
+// A host gives the runs it starts itself the same, such as their pin and
+// the runtime's byte total (ADR 0004 §Pooling).
+type DispatchRun func(ctx context.Context, id string) (_ context.Context, limits RunLimits, ended, settled func(), err error)
+
+// SetRuns makes f take part in each run that the dispatcher starts. Call
+// it before the dispatcher's first run.
+func (x *Dispatcher) SetRuns(f DispatchRun) { x.prepare = f }
+
+// errClosedDispatcher is Dispatch's refusal of a dispatch once Close has
+// begun.
+var errClosedDispatcher = errors.New("engine: the dispatcher is closed")
+
+// preparedRun is what the host gives a dispatched run (DispatchRun).
+type preparedRun struct {
+	ctx            context.Context
+	limits         RunLimits
+	ended, settled func()
+}
+
+// prepared returns what x.prepare gives the run id, or what a run with no
+// host part has.
+func (x *Dispatcher) prepared(id string) (preparedRun, error) {
+	if x.prepare == nil {
+		return preparedRun{ctx: x.ctx}, nil
+	}
+	ctx, limits, ended, settled, err := x.prepare(x.ctx, id)
+	if err != nil {
+		return preparedRun{}, err
+	}
+	return preparedRun{ctx: ctx, limits: limits, ended: ended, settled: settled}, nil
+}
+
+// abandon ends and settles a prepared run that will not start.
+func (p preparedRun) abandon() {
+	if p.ended != nil {
+		p.ended()
+	}
+	if p.settled != nil {
+		p.settled()
+	}
+}
+
+// onSettled is hooks that only learn of their run's settlement.
+type onSettled struct {
+	NoHooks
+	f func()
+}
+
+func (h onSettled) OnRunSettled(*Trace) { h.f() }
+
+// trackingExec counts each invocation of a script job in its settlement.
+type trackingExec struct {
+	inner  StepExecutor
+	settle *RunSettlement
+}
+
+func (x trackingExec) Execute(ctx context.Context, inv Invocation) (StepOutcome, error) {
+	inv.Report = x.settle.Track(inv.Report)
+	return x.inner.Execute(ctx, inv)
 }
 
 // dispatched is the record of one dispatched run.
@@ -327,17 +446,39 @@ func (x *Dispatcher) Dispatch(_ context.Context, d platform.Dispatch) (string, e
 	// caller that returns at once).
 	links := x.links(d)
 	id := newUUID()
-	rec := &dispatched{owner: d.Caller["WM_ROOT_JOB_ID"], workspace: d.Host.EffectiveWorkspace()}
+	// The dispatch is admitted, and holds a place in Close's wait from
+	// here, before any host code runs: one refused here calls none.
 	x.mu.Lock()
 	if x.closed {
 		x.mu.Unlock()
-		return "", errors.New("engine: the dispatcher is closed")
+		return "", errClosedDispatcher
+	}
+	x.wg.Add(1)
+	x.mu.Unlock()
+	// The host takes part in the run before anyone knows its id, which is
+	// so the run's own from the start, through a delayed start too. Its
+	// code runs outside x.mu.
+	prep, err := x.prepared(id)
+	if err != nil {
+		x.wg.Done()
+		return "", fmt.Errorf("engine: the dispatched run cannot start: %w", err)
+	}
+	rec := &dispatched{owner: d.Caller["WM_ROOT_JOB_ID"], workspace: d.Host.EffectiveWorkspace()}
+	x.mu.Lock()
+	if x.closed {
+		// Close began while the host prepared the run, which will not
+		// start: its end and settlement calls come before this dispatch
+		// gives back its place in Close's wait.
+		x.mu.Unlock()
+		prep.abandon()
+		x.wg.Done()
+		return "", errClosedDispatcher
 	}
 	x.sweep()
 	x.runs[id] = rec
-	x.wg.Add(1)
 	x.mu.Unlock()
-	go x.run(id, d, args, links, rec)
+	// The worker takes over the dispatch's place in x.wg.
+	go x.run(id, d, args, links, rec, prep)
 	return id, nil
 }
 
@@ -426,7 +567,7 @@ func surrogateError(body []byte, from, to int) (string, int) {
 }
 
 // run runs one dispatched target to its end.
-func (x *Dispatcher) run(id string, d platform.Dispatch, args jsonval.Value, links parentLinks, rec *dispatched) {
+func (x *Dispatcher) run(id string, d platform.Dispatch, args jsonval.Value, links parentLinks, rec *dispatched, prep preparedRun) {
 	defer x.wg.Done()
 	if d.ScheduledInSecs > 0 {
 		t := time.NewTimer(time.Duration(d.ScheduledInSecs) * time.Second)
@@ -441,9 +582,9 @@ func (x *Dispatcher) run(id string, d platform.Dispatch, args jsonval.Value, lin
 	x.mu.Unlock()
 	var res platform.JobResult
 	if d.Kind == platform.DispatchFlow {
-		res = x.runFlow(id, d.Target, args, links, d.Host)
+		res = x.runFlow(id, d.Target, args, links, d.Host, prep)
 	} else {
-		res = x.runScript(id, d.Target, args, links, d.Host)
+		res = x.runScript(id, d.Target, args, links, d.Host, prep)
 	}
 	res.Started, res.Completed = true, true
 	x.mu.Lock()
@@ -453,9 +594,20 @@ func (x *Dispatcher) run(id string, d platform.Dispatch, args jsonval.Value, lin
 
 // runFlow runs a dispatched flow, with the links its dispatch sent and its
 // dispatching run's identity.
-func (x *Dispatcher) runFlow(id, path string, args jsonval.Value, l parentLinks, host platform.Host) platform.JobResult {
-	t, err := x.e.Run(x.ctx, RunRequest{ID: id, Path: path, Args: args, Exec: x.exec, ParentJob: l.job, RootJob: l.root, ParentPath: l.path, Host: host, Platform: x.services(host)})
+func (x *Dispatcher) runFlow(id, path string, args jsonval.Value, l parentLinks, host platform.Host, prep preparedRun) platform.JobResult {
+	ctx, limits, ended, settled := prep.ctx, prep.limits, prep.ended, prep.settled
+	req := RunRequest{ID: id, Path: path, Args: args, Exec: x.exec, ParentJob: l.job, RootJob: l.root, ParentPath: l.path, Host: host, Platform: x.services(host), Limits: limits}
+	if settled != nil {
+		req.Hooks = onSettled{f: settled}
+	}
+	t, err := x.e.Run(ctx, req)
+	if ended != nil {
+		ended()
+	}
 	if err != nil {
+		if settled != nil {
+			settled()
+		}
 		return platform.JobResult{Result: storedText(engineError("InternalErr", err.Error()))}
 	}
 	return platform.JobResult{Success: t.Status == conformance.RunSuccess, Result: storedText(t.Result)}
@@ -463,8 +615,33 @@ func (x *Dispatcher) runFlow(id, path string, args jsonval.Value, l parentLinks,
 
 // runScript runs a dispatched script, with the links its dispatch sent and
 // its dispatching run's identity.
-func (x *Dispatcher) runScript(id, path string, args jsonval.Value, l parentLinks, host platform.Host) platform.JobResult {
-	r, err := x.e.RunScript(x.ctx, ScriptRequest{ID: id, Path: path, Args: args, Exec: x.exec, ParentJob: l.job, RootJob: l.root, ParentPath: l.path, Host: host, Platform: x.services(host)})
+func (x *Dispatcher) runScript(id, path string, args jsonval.Value, l parentLinks, host platform.Host, prep preparedRun) platform.JobResult {
+	ctx, limits, ended, settled := prep.ctx, prep.limits, prep.ended, prep.settled
+	req := ScriptRequest{ID: id, Path: path, Args: args, Exec: x.exec, ParentJob: l.job, RootJob: l.root, ParentPath: l.path, Host: host, Platform: x.services(host),
+		MaxHeldBytes: limits.MaxHeldBytes, Bytes: limits.Bytes, ByteTotal: limits.ByteTotal}
+	var s *RunSettlement
+	exec := req.Exec
+	if exec == nil {
+		exec = x.e.exec
+	}
+	if settled != nil && exec != nil {
+		// A script job has its own one invocation, which settles it.
+		// Without an executor, RunScript refuses the job, as it would
+		// without the tracking.
+		s = NewRunSettlement(settled)
+		req.Exec = trackingExec{inner: exec, settle: s}
+	}
+	r, err := x.e.RunScript(ctx, req)
+	if ended != nil {
+		ended()
+	}
+	switch {
+	case s != nil:
+		s.End()
+	case settled != nil:
+		// A job that did not start never settles on its own.
+		settled()
+	}
 	if err != nil {
 		return platform.JobResult{Result: storedText(engineError("InternalErr", err.Error()))}
 	}

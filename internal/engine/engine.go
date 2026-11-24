@@ -138,6 +138,14 @@ type ProvideFunc func(ctx context.Context, r Run, s Site, provider string, args 
 // provider cannot decline, so the run fails closed.
 var ErrProviderDeclined = errors.New("provider_declined")
 
+// ErrPinnedProcessLost is the latch of a pinned run whose process ended
+// while the run was live (ADR 0004 §Pooling, ADR 0008 H5,
+// pinned_process_lost): its per-run state lived there, so its next
+// invocation or host call latches the run instead of moving it. An
+// executor returns it, not dispatched, and the engine latches the run with
+// it.
+var ErrPinnedProcessLost = errors.New("pinned_process_lost")
+
 // ErrUnsupported marks a program that uses a feature the engine does not
 // run, such as a preprocessor module or a container as the failure module.
 var ErrUnsupported = errors.New("not supported by the engine yet")
@@ -540,7 +548,39 @@ type RunRequest struct {
 	// the host turns on for the run, such as D21's read cache, which the
 	// trace lists among its own.
 	Deviations []string
+	// Limits are the run's own limits (ADR 0004 §Pooling); zero sets none.
+	Limits RunLimits
 }
+
+// RunLimits are a run's own limits (ADR 0004 §Pooling). A zero field sets
+// no limit.
+type RunLimits struct {
+	// MaxInFlight bounds the run's invocations in flight at once, so its
+	// parallel branches and iterations wait for a slot, as jobs waiting in
+	// the queue, before their arguments resolve and their timeouts start.
+	// It is deviation D15 (ADR 0001), which the run's trace then lists. A
+	// script run has one invocation, so it does not apply there.
+	MaxInFlight int
+	// MaxHeldBytes bounds the bytes of the stored values that the engine
+	// holds for the run: its arguments and the stored result of each of
+	// its jobs, a cached root's included, counted at their stored size as
+	// they are stored, and not returned while the run lasts. Once they
+	// pass it, the run latches ErrRunMemoryLimit (H5).
+	MaxHeldBytes int64
+	// Bytes is the run's byte budget, which its steps draw on with
+	// wl.reserve(bytes) (Invocation.Budget), wherever they run: a
+	// reservation past it throws in the step, and each returns when the
+	// invocation that made it settles.
+	Bytes int64
+	// ByteTotal, when set, is the runtime's total, which every run's
+	// reservations share: a reservation must fit it too.
+	ByteTotal *ByteTotal
+}
+
+// ErrRunMemoryLimit is the latch of a run whose stored values passed its
+// RunLimits.MaxHeldBytes (ADR 0004 §Pooling, ADR 0008 H5,
+// run_memory_limit).
+var ErrRunMemoryLimit = errors.New("run_memory_limit")
 
 // ErrPreWriteDeadline is the cause of a run's context when its pre-write
 // deadline passed before its first write (H4). It wraps
@@ -654,6 +694,8 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	r.host = e.host.Override(req.Host)
 	ctx = context.WithValue(ctx, settlementKey{}, r.settle)
 	r.around = req.Around
+	r.limit(req.Limits)
+	r.holdBytes(len(stored))
 	if req.Platform != nil {
 		r.platform, r.own = req.Platform, true
 	}
@@ -662,6 +704,9 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	r.root.input = jsonval.FromProducer(flowInputText(stored, r.root.rng))
 	r.root.envSrc = flowEnv(f)
 	r.trace.Deviations = append(r.trace.Deviations, req.Deviations...)
+	if req.Limits.MaxInFlight > 0 && !slices.Contains(r.trace.Deviations, "D15") {
+		r.trace.Deviations = append(r.trace.Deviations, "D15")
+	}
 	if _, real := clock.(RealClock); !real {
 		r.trace.Deviations = append(r.trace.Deviations, "H10")
 	}

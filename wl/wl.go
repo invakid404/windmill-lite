@@ -155,6 +155,10 @@ type Options struct {
 	// runtime, which starts a process for each step, and host mode, whose
 	// one process is the host, refuse a Pool that is not zero.
 	Pool PoolOptions
+	// Limits are the limits that the runtime's runs share (ADR 0004
+	// §Pooling); the zero value sets none. A run's own are
+	// RunOptions.Limits.
+	Limits RuntimeLimits
 	// ForeignWindmillOrigins are the origins of real Windmill instances
 	// that steps call through their own client, such as
 	// "https://windmill.example.com" (ADR 0007, async dispatch).
@@ -200,6 +204,16 @@ type Options struct {
 	Host *Host
 }
 
+// RuntimeLimits are the limits that a runtime's runs share (ADR 0004
+// §Pooling). A zero field sets no limit; Open refuses a negative one.
+type RuntimeLimits struct {
+	// Bytes is a total of bytes that every run's reservations share: a
+	// step's wl.reserve(bytes) must fit both its run's byte budget
+	// (RunLimits.Bytes), when it has one, and this total, wherever the
+	// step runs. Runs that steps dispatch share it too.
+	Bytes int64
+}
+
 // PoolOptions set the pool of a warm runtime's harness processes (ADR 0004
 // §Pooling). The zero value of each field is its default.
 type PoolOptions struct {
@@ -232,6 +246,9 @@ type PoolOptions struct {
 	// serve, their handshakes done, instead of starting them on the first
 	// step. A bundle with no step has no pool, so nothing starts.
 	WarmStart bool
+	// PinRuns pins every run of the runtime, those that steps dispatch
+	// included, as RunOptions.Pin pins one.
+	PinRuns bool
 }
 
 // RecycleTriggers say when the pool replaces a process that is still
@@ -400,6 +417,9 @@ type Runtime struct {
 	readCache bool     // Options.ReadCache
 	identity  Identity // Options.Identity
 	capped    bool     // Options.Pool.Cap is set: each flow run's trace lists "D15"
+	pinRuns   bool     // Options.Pool.PinRuns
+	// byteTotal is Options.Limits.Bytes, nil for none.
+	byteTotal *engine.ByteTotal
 	// foreign is Options.ForeignWindmillOrigins as the welcomes carry
 	// them (foreignOrigins).
 	foreign []string
@@ -485,7 +505,7 @@ func Version() string {
 // store under the data directory, and the default dispatcher over the
 // bundle's program. The facade serves them to its steps.
 func Open(path string, opts Options) (_ *Runtime, err error) {
-	rt := &Runtime{version: opts.EngineVersion, readCache: opts.ReadCache, identity: opts.Identity, capped: opts.Pool.Cap > 0}
+	rt := &Runtime{version: opts.EngineVersion, readCache: opts.ReadCache, identity: opts.Identity, capped: opts.Pool.Cap > 0, pinRuns: opts.Pool.PinRuns}
 	if opts.Diagnostics != nil && opts.Pool != (PoolOptions{}) {
 		// The harness processes, the pool and the host plugin's calls write
 		// to it from goroutines of their own, and the pool settings let
@@ -611,6 +631,12 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	if opts.Plugin != "" && rt.state == engine.ModuleStateFresh {
 		return nil, errors.New("wl: a host plugin needs warm harness processes: a fresh process lives for one step (Options.Plugin or the bundle's plugin)")
 	}
+	switch {
+	case opts.Limits.Bytes < 0:
+		return nil, fmt.Errorf("wl: Options.Limits.Bytes is %d: a total is not negative", opts.Limits.Bytes)
+	case opts.Limits.Bytes > 0:
+		rt.byteTotal = engine.NewByteTotal(opts.Limits.Bytes)
+	}
 	if opts.Pool != (PoolOptions{}) {
 		if rt.state == engine.ModuleStateFresh {
 			return nil, errors.New("wl: a fresh runtime starts a harness process for each step and has no pool to set: Options.Pool must be zero")
@@ -672,6 +698,17 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	// through the facade, so their calls are attributed; it is in the
 	// services before any run starts.
 	rt.dispatch = engine.NewDispatcher(rt.eng, rt.fac.Executor(inner))
+	// A run that a step dispatches is a run of the runtime too: it takes
+	// the runtime's pinning and its byte total, with no limits of its own.
+	rt.dispatch.SetRuns(func(ctx context.Context, id string) (context.Context, engine.RunLimits, func(), func(), error) {
+		// Called before the dispatcher returns the run's id, so that a
+		// pin is the run's before anyone can take the id.
+		p, settled, ended, err := rt.pin(id, false, nil)
+		if err != nil {
+			return nil, engine.RunLimits{}, nil, nil, err
+		}
+		return harness.WithPin(ctx, p), engine.RunLimits{ByteTotal: rt.byteTotal}, ended, settled, nil
+	})
 	rt.services.Dispatcher = rt.dispatch
 	if opts.Plugin != "" {
 		if err := rt.loadPlugin(opts); err != nil {

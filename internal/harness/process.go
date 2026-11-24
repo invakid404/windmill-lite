@@ -331,9 +331,12 @@ const (
 )
 
 type invocation struct {
-	id      string
-	run     string
-	report  engine.Reporter
+	id     string
+	run    string
+	report engine.Reporter
+	// budget is the invocation's draw on its run's byte budget, which its
+	// reserve frames ask of; nil when the run has none.
+	budget  engine.Budget
 	state   invState
 	tail    tail
 	outcome chan execResult // buffered, receives exactly one value
@@ -768,6 +771,8 @@ func (p *Process) handleMessage(m Message) error {
 		p.bye = true
 	case PlatformRequest:
 		p.onPlatform(m)
+	case ReserveRequest:
+		p.onReserve(m)
 	case RunRequest:
 		err = p.onRun(m)
 	case Drain:
@@ -1707,6 +1712,30 @@ func (p *Process) onPlatform(req PlatformRequest) {
 	}()
 }
 
+// onReserve answers a step's wl.reserve from its invocation's budget. It
+// runs on the reader with p.mu held, in frame order, and sends the reply
+// on a goroutine of its own, as onPlatform does. A reservation of an
+// invocation that is no longer in flight, or whose run has no budget, is
+// refused.
+func (p *Process) onReserve(m ReserveRequest) {
+	rep := ReserveReply{ID: m.ID}
+	switch e := p.invs[m.Inv]; {
+	case e == nil:
+		rep.Refused = fmt.Sprintf("windmill-lite: wl.reserve(%d): the invocation is not in flight", m.Bytes)
+	case e.budget == nil:
+		rep.Refused = fmt.Sprintf("windmill-lite: wl.reserve(%d): the run has no byte budget", m.Bytes)
+	default:
+		if err := e.budget.Reserve(m.Bytes); err != nil {
+			rep.Refused = err.Error()
+		}
+	}
+	go func() {
+		if err := p.conn.send(rep); err != nil && !errors.Is(err, net.ErrClosed) {
+			p.diag.printf("reserve reply %q not sent: %v", m.ID, err)
+		}
+	}()
+}
+
 func platformText(req PlatformRequest, status int, msg string) PlatformReply {
 	return PlatformReply{ID: req.ID, Status: status, Headers: map[string]string{"content-type": "text/plain"}, Body: []byte(msg)}
 }
@@ -1789,6 +1818,7 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 		Env:      env,
 		Boundary: string(inv.Boundary),
 		Around:   inv.Around,
+		Budget:   inv.Budget != nil,
 	})
 	if err != nil {
 		return engine.StepOutcome{}, notDispatched, fmt.Errorf("harness: invoke %q: %w", inv.ID, err)
@@ -1805,7 +1835,7 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 	if times != nil {
 		times.ArgsWritten = time.Now()
 	}
-	e := &invocation{id: inv.ID, run: inv.Run, report: inv.Report, outcome: make(chan execResult, 1), drive: make(chan struct{}, 1), fixed: fixed, times: times}
+	e := &invocation{id: inv.ID, run: inv.Run, report: inv.Report, budget: inv.Budget, outcome: make(chan execResult, 1), drive: make(chan struct{}, 1), fixed: fixed, times: times}
 	fresh := p.cfg.ModuleState == engine.ModuleStateFresh
 	if fresh {
 		// Asked for before p.mu is taken: a caller's context may call

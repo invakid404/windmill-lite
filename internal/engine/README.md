@@ -61,6 +61,7 @@ share one vocabulary.
 | `frame.go` | A flow's frame: its results scope, its records, its retry state, its job identity |
 | `loop.go`, `branch.go`, `subflow.go` | For and while loops, branches, subflows by path |
 | `executor.go` | `StepExecutor`, `Invocation`, `StepOutcome`, `Reporter`, `CancelReason`, `SettleKind` |
+| `budget.go` | `Budget`, `ByteTotal`, `ErrBudgetSettled`: a run's byte budget and the runtime's total, the account that `wl.reserve` draws on |
 | `outcome.go` | `StoreOutcome`, `Stored`, `FailureValue`, `ManualFailure`, `LogTail`, `Entrypoint`, `TimeoutError` |
 | `settle.go` | `RunSettlement`, `HoldSettlement` |
 | `hooks.go` | `Hooks`, `NoHooks`, `HookLatchError`, `Site`, `Run`, `Latch`, `Clock`, `RealClock`, `StaticIntercepts` |
@@ -88,7 +89,9 @@ share one vocabulary.
 | `Config` | struct | The program, the bundle's digest, the default `StepExecutor`, the expression engine, the host's job environment, `InstanceTimeout`, `TransitionTimeout`, `Platform`, `ModuleState`, `SharedCode`, `Provide`, `QuickJSOnly` | `wl`, `wltest check` |
 | `Engine` | struct | An opened program. Safe for concurrent use | `wl` holds one per bundle |
 | `Engine.Run` | method | Runs one flow to its end and returns its `*Trace`. An error means the run could not start | `wl` (and through it `wltest check`) |
-| `RunRequest` | struct | One run: `ID`, `Path`, `Args`, `Hooks`, `Exec`, `ParentJob`, `RootJob`, `ParentPath`, `Seed`, `Clock`, `Jitter`, `Platform`, `PreWriteDeadline`, `Around`, `Started`, `Deviations` | `wl` |
+| `RunRequest` | struct | One run: `ID`, `Path`, `Args`, `Hooks`, `Exec`, `ParentJob`, `RootJob`, `ParentPath`, `Seed`, `Clock`, `Jitter`, `Platform`, `PreWriteDeadline`, `Around`, `Started`, `Deviations`, `Limits` | `wl` |
+| `RunLimits` | struct | A run's own limits ([Limits per run](#limits-per-run)): `MaxInFlight`, `MaxHeldBytes`, `Bytes`, `ByteTotal` | `wl` |
+| `ErrPinnedProcessLost`, `ErrRunMemoryLimit` | var | The latches `pinned_process_lost`, which an executor returns for a pinned run whose process has ended, and `run_memory_limit` | `wl`, `internal/harness` (`ErrPinnedProcessLost`) |
 | `Cancellation` | struct | The cause that a host cancels a run with: `Reason` and `Canceler` | `wl`, `internal/harness` |
 | `CancelCauseOf`, `CauseDeadline`, `CausePreWriteDeadline`, `CauseCanceled`, `CauseClosing`, `CauseFlowTimeout` | func, consts | The cause of a canceled run ([The cause](#the-cause)) | `wl` |
 | `Closing` | var | The `*Cancellation` with which a runtime that closes cancels its runs, whose cause is `CauseClosing` | `wl` |
@@ -103,7 +106,8 @@ share one vocabulary.
 | Name | Kind | What it does | Who calls it |
 |---|---|---|---|
 | `StepExecutor` | interface | `Execute(ctx, Invocation)`: runs one leaf step in a harness | implemented by `internal/harness` (`Pool`, `Process`); wrapped by the facade's `Executor` |
-| `Invocation` | struct | One leaf run: ids, site, attempt, script, entry, arguments, environment, boundary, module state, `Report`, `Platform`, `Around` | built by the engine |
+| `Invocation` | struct | One leaf run: ids, site, attempt, script, entry, arguments, environment, boundary, module state, `Report`, `Platform`, `Around`, `Budget` | built by the engine |
+| `Budget`, `ByteTotal`, `NewByteTotal`, `ErrBudgetSettled` | interface, struct, func, var | An invocation's draw on its run's byte budget (`Reserve`), the runtime's total that runs share, and `Reserve`'s error once the invocation has settled | `internal/harness` (`Budget`), `wl` (`ByteTotal`) |
 | `StepOutcome` | struct | How the invocation ended: `Kind`, `Body`, `Tail`, `ExitCode`, `Signal`, `Origin` | returned by the executor and by `Hooks.Intercept` |
 | `OutcomeKind` | string type | `OutcomeOK`, `OutcomeError`, `OutcomeEscaped`, `OutcomeEmpty` | set by `internal/harness`, the facade's `Executor`, `wl` (an `Intercept` outcome) and `wltest check` (its Node runs); read by the engine |
 | `Origin` | string type | Who produced an error value: `OriginNone`, `OriginUser`, `OriginEngine`, `OriginHarness`, `OriginFacade`, `OriginHost`; `Origin.Generated` | the comparator |
@@ -178,7 +182,7 @@ The engine fills the trace; `wl` returns it to its host and adds the platform ca
 | Name | Kind | What it does | Who calls it |
 |---|---|---|---|
 | `Engine.RunScript`, `ScriptRequest`, `ScriptResult` | method, structs | Runs a root script as a script job. `ScriptResult` has `Failed`, `Result`, `Canceled` and `Latched` | `wl`, the dispatcher |
-| `Dispatcher`, `NewDispatcher` | struct, func | The default dispatcher: runs a dispatched root as a separate run; `Dispatch`, `Result`, `Close` | a host's `platform.Services` |
+| `Dispatcher`, `NewDispatcher` | struct, func | The default dispatcher: runs a dispatched root as a separate run; `Dispatch`, `Result`, `Close`, and `SetRuns`, which gives each run a host part (`DispatchRun`), prepared before `Dispatch` returns the run's id. Once `Close` has begun, a dispatch refused at its admission calls none of it; one admitted before is prepared, its context possibly canceled, then refused with its end and settlement calls made. `Close` waits for those within the context that it is given | a host's `platform.Services` |
 
 ## Hooks
 
@@ -718,6 +722,31 @@ contains it, marked as recovered
   that it would have failed with.
 - A caller's own failure module still runs across a flow step, and decides
   as usual.
+
+## Limits per run
+
+`RunRequest.Limits` bounds one run, by the
+[pooling rules](../../docs/design/0004-harness-protocol.md#pooling-processes-the-engine-spawns).
+A zero field sets no limit. A run that a step dispatches has none of its
+parent's.
+
+- **`MaxInFlight`.** The run's invocations in flight at once: a step past
+  it waits, as a job in the queue, after its launch and before its
+  arguments resolve and its timeout starts, and launches once one of the
+  run's invocations returns. A run that latches meanwhile launches it no
+  more, and the trace lists `D15`.
+- **`MaxHeldBytes`.** The bytes of the stored values that the run holds:
+  its arguments and each job's stored result, a cached root's included,
+  counted at their stored size as they are stored, and not returned while
+  the run lasts. Once they pass it, the run latches `ErrRunMemoryLimit`.
+- **A script job's** (`ScriptRequest.MaxHeldBytes`) counts its stored
+  arguments, which latch it before it runs when they pass it alone, and
+  its result, however the job ends.
+- **`Bytes` and `ByteTotal`.** The run's byte budget and the runtime's
+  total: with either, each invocation gets a `Budget`, whose `Reserve` a
+  step's `wl.reserve` reaches through the executor. A reservation must fit
+  both, and returns when the invocation settles, before its Reporter hears
+  `Settled`. A script job has the same fields in `ScriptRequest`.
 
 ## Cancellation
 
@@ -2368,6 +2397,7 @@ engine on the real Bun harness in `wltest check`
 | `retain_test.go` | `TestSettledRunLetsGoOfItsValues`: a settled run's step results become unreachable (weak pointers), while a run that ended with an invocation still open gets late output and keeps its values until it settles |
 | `cancel_test.go` | `TestSubflowCanceledWhileWaiting`: a flow step canceled while it waits fails at pickup and lists its subflow's modules, none started |
 | `precedence_test.go` | `Start`, `Completion` and `AfterContinue`, case by case and over every combination of signals |
+| `limits_test.go` | The limits per run on the gated executor: `MaxInFlight` over a parallel branchall, with `D15` (`TestRunMaxInFlight`), and `MaxHeldBytes` from a step's result and from the arguments (`TestRunHeldBytes`), at the stored size (`TestRunHeldBytesStoredSize`). A script job's arguments latch it before it runs, and cached results count (`TestRunHeldBytesBeforeAndWithoutExecution`). A reservation returns at its invocation's settlement, under the runtime's total too (`TestByteBudgetReturnsAtSettlement`), and no sum overflows (`TestByteBudgetBoundaries`). Dispatched runs without an executor fail, their host calls made once (`TestDispatcherRunsWithoutAnExecutor`) |
 | `outcome_test.go` | Every row of `StoreOutcome`, `ManualFailure`, `FailureValue`, `LogTail`, `Entrypoint` and its walks, `TimeoutError` |
 | `hooks_test.go` | `NoHooks`, `HookLatchError`, the latch under concurrency, `RealClock.Wait` |
 | `storage_test.go` | `storeMembers`' held values; `argsWithoutNUL` |
