@@ -345,6 +345,7 @@ A flow [fixture](../../docs/glossary.md#fixture) is a directory
 | `roots` | list of strings, optional | windmill-lite only: the bundle's other roots, the scripts and flows that the steps dispatch, as a [host contract](../../docs/glossary.md#host-contract) lists them. `wltest check` compiles them as the default dispatcher's program; the oracle runs the whole workspace and ignores them |
 | `provided` | list of provided-site entries, optional | windmill-lite only: the mandatory [provided sites](../../docs/glossary.md#provided-site) of the bundle's host contract, each written as the contract writes them (a selector, a `static` value or a `provider` name, and `mandatory: true`). The oracle would run the real targets, so it skips every run of such a fixture and records the reason ([internal/oracle](../oracle/README.md#4-per-fixture)); such a fixture holds expectations only |
 | `providers` | object of name to provider, optional | The named providers that `wltest check` registers for `provided`, each with exactly one of `result`, `error` (an object) and `decline: true` (`FixtureProvider`) |
+| `result_polls_for_all_jobs` | boolean; default `false` | windmill-lite only: `wltest check` opens the runtime with `ResultPollsForAllJobs` ([wl](../../wl/README.md#options)), so that the steps' result polls answer for every job of a live run. The oracle, where Windmill always answers them, ignores it |
 | `note` | string, optional | Why the fixture reads as it does |
 
 `oracle`:

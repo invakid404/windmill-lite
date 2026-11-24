@@ -386,6 +386,7 @@ findings are linked; the fixture's `spec` and each run's name the cases.
 | `state-parallel` | Parallel writers and readers of one state on two workers: every read is one whole written value, and the last completed write stays |
 | `resource-writes` | The resource writes beside state: other types, an unknown type, another type's entry, and the create options the stock client never sends |
 | `dispatch` | The runs that a step dispatches, polled as `waitJob` polls ([WA-15](../docs/semantics/client-api.md#wa-15), [WA-V2](../docs/semantics/client-api.md#wa-v2)), on two workers. Its `roots` list the dispatched targets |
+| `result-polls` | The result polls of jobs that a flow created ([WA-V2](../docs/semantics/client-api.md#wa-v2), [WA-19](../docs/semantics/client-api.md#wa-19)), on two workers: a completed step, a failed sub-flow's flow job and a running sibling, each polled three ways while the sibling waits. windmill-lite answers them with `result_polls_for_all_jobs` |
 | `flow-path` | The runnable paths that a body step sees ([WA-6](../docs/semantics/client-api.md#wa-6)) |
 | `job-reads`, `job-reads-parallel` | The job reads of a live run ([WA-19](../docs/semantics/client-api.md#wa-19)): a step reads its own job, its ancestors and the jobs their statuses name, the error answers, and what `no_logs` and `no_code` change; parallel containers read while their children run |
 | `job-reads-large` | Large results and arguments, stored at 89,999 and 90,000 bytes after PostgreSQL's compression, either side of where Windmill replaces them |

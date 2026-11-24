@@ -171,6 +171,19 @@ type Options struct {
 	// parser refuses, since no request can go to it. Empty, the default,
 	// names none. In host mode they apply to the host's steps.
 	ForeignWindmillOrigins []string
+	// ResultPollsForAllJobs makes a step's result polls (getResultMaybe
+	// and getResult, which waitJob uses) answer for every job of a live
+	// run that its job read answers for, as Windmill answers them: a
+	// completed job with its success and its whole result in jsonb's text
+	// output, a job still running with the unfinished answer. Of the jobs
+	// that no step dispatched, one that the job read does not serve, such
+	// as a canceled job, and one of a run that has ended, whose record
+	// windmill-lite does not keep, still answer 501; a dispatched run's
+	// polls keep the dispatcher's answers. Off, the default, the polls
+	// answer only for the runs that steps dispatched, and a job of the
+	// runtime's that no step dispatched answers 501. In host mode it
+	// applies to the host's steps.
+	ResultPollsForAllJobs bool
 	// Host, when set, opens the runtime in host mode (ADR 0004 host mode,
 	// ADR 0009): its steps run in the host process that started it, which
 	// submits the runs. The bundle must then be a directory, which the
@@ -582,7 +595,7 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	_, rt.memoryStore = resourceStore.(*platform.MemoryResourceStore)
 	rt.services = &platform.Services{Resources: store, Variables: store, Objects: objects, Results: opts.Results, ResourceStore: resourceStore}
 	rt.exec = &recorder{runs: map[string]*callLog{}, invs: map[string]invocation{}}
-	if rt.fac, err = facade.New(facade.Config{Platform: rt.services, Answered: rt.exec.answered, Recorded: rt.exec.released}); err != nil {
+	if rt.fac, err = facade.New(facade.Config{Platform: rt.services, Answered: rt.exec.answered, Recorded: rt.exec.released, ResultPollsForAllJobs: opts.ResultPollsForAllJobs}); err != nil {
 		return nil, err
 	}
 

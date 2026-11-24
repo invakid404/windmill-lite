@@ -208,6 +208,13 @@ that leaves the engine.
 | D23 | Bun scripts run on Bun `1.4.3`, the version windmill-lite pins, where Windmill CE `v1.862.0`'s image runs `1.4.4` ([WR-3](../semantics/languages.md#wr-3)). A script sees it wherever Bun names its version (`Bun.version`, `process.versions.bun`): run `bun_version` of `conformance/flows/oracle/probes` records `"1.4.4"` on the oracle and is not required by the flow suite, while the step case WR-3/a (`conformance/steps/bun/wr-3.yaml`) holds windmill-lite to `"1.4.3"`. Bun 1.4.4's other changes that a script can observe differ as well (**D23, Bun 1.4.3 against 1.4.4**, below); no recorded case meets them | one Bun for every build, harness and host keeps a bundle's build and its run on the same runtime ([0010](0010-packaging.md)); the image's Bun moves with each Windmill release, and the pin moves only on purpose | [0010](0010-packaging.md) |
 | D24 | Steps write resources through the job API, such as the state of the stock client's `setState` ([WA-13](../semantics/client-api.md#wa-13)), into the runtime's resource store. The default memory store loses its entries when the runtime closes, and no other runtime or process sees them; Windmill keeps them in its database. A `windmill-lite run` keeps them for its one run, a host process for its connection (**D24, the memory resource store**, below) | a store is the host's choice, and the memory store needs nothing beyond the runtime; other stores implement the interface | [0007](0007-platform-interface.md) |
 
+**Result polls of an ended run's jobs.** The deviation above for a job
+read of a job of a run that has ended also holds for the result polls,
+with the result polls option ([0007](0007-platform-interface.md)). A poll
+of such a job that no step dispatched answers the same 501, naming its own
+route: `GET /w/{ws}/jobs_u/completed/get_result_maybe/{id}` or
+`get_result/{id}`. The dispatcher still answers the runs that it started.
+
 **D23, Bun 1.4.3 against 1.4.4.** Bun's v1.4.4 release notes list these
 changes that a script run by `bun run` can observe, each a difference
 between windmill-lite and the oracle's image. None reaches a recorded

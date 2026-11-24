@@ -1,0 +1,49 @@
+summary: result polls, the jobs of a completed step, a failed sub-flow and a
+  running sibling
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: '!inline a.ts'
+        input_transforms: {}
+        lock: '!inline a.lock'
+        language: bun
+    - id: c
+      value:
+        type: flow
+        input_transforms: {}
+        path: f/wl_rp/fails
+      continue_on_error: true
+    - id: p
+      value:
+        type: branchall
+        branches:
+          - modules:
+              - id: w
+                value:
+                  type: rawscript
+                  content: '!inline w.ts'
+                  input_transforms: {}
+                  lock: '!inline w.lock'
+                  language: bun
+            expr: ''
+            parallel: true
+            skip_failure: false
+          - modules:
+              - id: d
+                value:
+                  type: rawscript
+                  content: '!inline d.ts'
+                  input_transforms: {}
+                  lock: '!inline d.lock'
+                  language: bun
+            expr: ''
+            parallel: true
+            skip_failure: false
+        parallel: true
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

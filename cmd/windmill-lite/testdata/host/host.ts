@@ -80,6 +80,7 @@ try {
     readCache: env.WL_READ_CACHE === "1",
     resourceStore: env.WL_RESOURCE_STORE ? { kind: env.WL_RESOURCE_STORE as "memory" } : undefined,
     skipArgsFile: env.WL_SKIP_ARGS_FILE === "1",
+    resultPollsForAllJobs: env.WL_RESULT_POLLS_FOR_ALL_JOBS === "1",
     foreignWindmillOrigins: env.WL_FOREIGN_WINDMILL ? env.WL_FOREIGN_WINDMILL.split(" ") : undefined,
   });
 } catch (e) {

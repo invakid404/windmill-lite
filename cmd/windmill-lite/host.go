@@ -37,6 +37,7 @@ func runHost(args []string, stderr io.Writer) int {
 		foreign = append(foreign, v)
 		return nil
 	})
+	resultPolls := fs.Bool("result-polls-for-all-jobs", false, "answer the result polls for every job of a live run that the job read answers for, not only for the runs that steps dispatched")
 	store := storeFlags(fs)
 	quickJSOnly := fs.Bool("quickjs-only", false, "evaluate every expression the shortcuts and member paths do not answer in QuickJS, without the Go evaluator (ADR 0003)")
 	checkBundle := fs.String("check-bundle", "", "check the bundle against its manifest, -digest and this `digest`, as Open does, and exit without connecting (the host SDK runs it before it loads a bundle's own plugin)")
@@ -72,7 +73,7 @@ func runHost(args []string, stderr io.Writer) int {
 		defer children.Close()
 		host.Children = children
 	}
-	opts := wl.Options{DataDir: *data, Digest: *digest, EngineVersion: resolveVersion(), Diagnostics: stderr, Host: host, PluginTimeout: *pluginTimeout, ReadCache: *readCache, QuickJSOnly: *quickJSOnly, ForeignWindmillOrigins: foreign}
+	opts := wl.Options{DataDir: *data, Digest: *digest, EngineVersion: resolveVersion(), Diagnostics: stderr, Host: host, PluginTimeout: *pluginTimeout, ReadCache: *readCache, QuickJSOnly: *quickJSOnly, ForeignWindmillOrigins: foreign, ResultPollsForAllJobs: *resultPolls}
 	if opts.Variables, err = hostVariables(*variables); err == nil {
 		opts.Resources, err = hostResources(*resources)
 	}

@@ -70,7 +70,7 @@ planned ([host adapters](0009-host-adapters.md)).
 | [Harness protocol](0004-harness-protocol.md) | Length-prefixed JSON frames on a socketpair, with canonical envelopes and base64 part streams for large messages. A shared-process failure model attributes errors per invocation, intercepts `process.exit` and fences an invocation when it settles; host mode is never tainted, and a watchdog kills a host that stops answering. A deadline ends only its run, which names its cause. A bundle may carry a host plugin, warm pools may pin runs, and runs may have limits; planned: run data. |
 | [JSON at step boundaries](0005-json-step-boundaries.md) | Go holds every value as producer text plus a lazily computed jsonb text and never decodes what it passes through; a routing table says which consumer sees which; one streaming canonicaliser checked against PostgreSQL; host-plugin results serialised by the steps' own function; the normalising walk dropped, because it was not equivalent. |
 | [Module state](0006-module-state.md) | Two modes: `fresh` (a process per invocation, Windmill-equivalent) and `warm` (default: one module instance per script for the process lifetime, `globalThis` shared), plus host-provided modules as the one shared exception; `shared` left out of the first edition, and shared code added by [shared module code](0013-shared-module-code.md). |
-| [Platform interface](0007-platform-interface.md) | Go service interfaces with local defaults and host replacements, and one interpolation walker with three modes and a host secret layer. Steps reach a facade by intercepted `fetch` (warm) or per-invocation tokens (`fresh`); unsupported routes fail with `UnsupportedPlatformCall`. Planned: hybrid dispatch to a real Windmill behind interfaces (its remote adapter held for a licence decision), result polls for the jobs that the job read answers for, identity settings; suspending flows take a declared stand-in. |
+| [Platform interface](0007-platform-interface.md) | Go service interfaces with local defaults and host replacements, and one interpolation walker with three modes and a host secret layer. Steps reach a facade by intercepted `fetch` (warm) or per-invocation tokens (`fresh`); unsupported routes fail with `UnsupportedPlatformCall`. An option makes the result polls answer for the jobs that the job read answers for. Planned: hybrid dispatch to a real Windmill behind interfaces (its remote adapter held for a licence decision), identity settings; suspending flows take a declared stand-in. |
 | [Host hooks](0008-host-hooks.md) | Thirteen hooks with typed selectors, as Go callbacks or TypeScript host plugins, which are declared up front, called over `host_call` and may wrap a step with `around`; a hook's error or timeout before the run's outcome latches the run. Step code has `wl.latch`, `wl.signal` and `wl.reserve`, mandatory host-provided call sites fail closed, and scopes reach steps through host-provided modules. Planned: Go callbacks over go-plugin's broker, beside the settings that a run carries. |
 | [Host adapters](0009-host-adapters.md) | The `wl` Go library is the only engine API, and the adapters are go-plugin, a Bun host SDK, plain gRPC, HTTP and a CLI. The Bun host SDK and the CLI are built; a Bun host installs the SDK from npm or vendors it. `runner.proto` defines `windmill_lite.v1.Runner`, and `wl/plugin` launches, pins and calls the engine as a go-plugin plugin. Planned: the engine binary serving `Runner`, `wl/plugin`'s supervisor, three routes for hooks, and typed clients generated from Windmill schemas. |
 | [Packaging](0010-packaging.md) | A bundle with a manifest of digests, tied to one exact engine version; a Bun build helper on the pinned Bun `1.4.3`; host-provided modules through a registry (D12), registered in the order of their load-time imports, with one shim generator and one define table and support module for both bundlers; a bundle digest in every handshake, trace and build-info call; a single executable; an OCI image written without Docker; a `verify` command. |
@@ -365,8 +365,8 @@ These requests ask for observations that the reference cannot settle from
 the source. Most need a running Windmill, the [oracle](../glossary.md#oracle);
 a few optional checks need only PostgreSQL or the expression evaluator. They
 are requests, not design decisions, and all but two come from the semantics
-team. The build team made the other two: one that the oracle has recorded,
-and the result polls for a job that a flow created, which is open.
+team. The build team made the other two, and the oracle has recorded
+both.
 
 Each oracle request becomes a [fixture](../glossary.md#fixture) recorded in
 the session it names, or is deferred with its reason in a recording batch's
@@ -823,38 +823,6 @@ Each request here is made by a Bun driver step with `fetch` and its own
     caught `ApiError`'s `status`, `statusText` and `body`. The recording of
     WA-16/d kept only the message, `Internal Server Error`, which fixes the
     status at 500 but not CE's text.
-- **The result polls for a job that a flow created**
-  ([WA-V2](../semantics/client-api.md#wa-v2),
-  [WA-19](../semantics/client-api.md#wa-19)), in the two-worker session, so
-  that the driver runs while a sibling still runs. The build team asks for
-  it: the result polls are to answer for every job of a live run
-  ([platform interface](0007-platform-interface.md#services)).
-  - Deploy `f/x/fails`, `[x: bun: throw new Error("e")]`, and run by path
-    `[a: bun: return {"k": [1, 2.50]}, c: flow f/x/fails
-    (continue_on_error: true), p: branchall(parallel: true, branches:
-    [[w: the sibling], [d: the driver]])]`.
-  - The sibling `w` sets the flow user state `started` to `true`
-    ([WA-14](../semantics/client-api.md#wa-14)), then polls `release` every
-    100 ms until it is `true` or 60 s have passed, and returns 1.
-  - The driver polls `started` until it is `true`, at most 60 s, then reads
-    the root flow's job (its `WM_ROOT_JOB_ID`) and `p`'s first child flow
-    through `GET /api/w/<ws>/jobs_u/get/<id>`, to find the jobs of `a`, `c`
-    and `w` in `flow_status.modules`. Once it has the answers below, it
-    sets `release` to `true`.
-  - For each of the three jobs it calls
-    `GET /api/w/<ws>/jobs_u/completed/get_result_maybe/<id>`, the same with
-    `?get_started=true`, and `GET /api/w/<ws>/jobs_u/completed/get_result/<id>`.
-  - Predicted from the rules of the polls and the job read: `a` completed,
-    with `success` `true` and its result, and `c`'s flow job completed,
-    with `success` `false` and the subflow's error as its result. The
-    running `w` answers the unfinished nulls, `started` `true` when asked,
-    and `get_result`'s 404
-    `Not found: Completed Job not found at name <id><loc>`.
-  - Not predicted: the spelling of a result in the body, compact or with
-    the spaces of `jsonb`'s text output, which the job read uses. Every
-    answer above stays a prediction until the recording, which decides
-    what the planned option answers.
-
 #### Optional checks outside the equivalence contract
 
 - **PostgreSQL alone** ([Q-JE-9](../semantics/expressions.md#q-je-9)),
@@ -898,6 +866,7 @@ last column names the open request that asks for it.
 | A container as the failure module | [CF-31/a–c, CF-31/e](../semantics/conformance.md#cf-31) | An empty loop in the failure slot |
 | A container's own settings on handled failures and forwarded stops | [CF-16/e, CF-16/f](../semantics/conformance.md#cf-16), [CF-12/g](../semantics/conformance.md#cf-12), [CF-7/f](../semantics/conformance.md#cf-7), [FX-30/b](../semantics/conformance.md#fx-30) | |
 | A step canceled while it waits to start, also as a subflow step | [FX-38/b](../semantics/conformance.md#fx-38) | |
+| The result polls for a job that a flow created | The fixture `conformance/flows/client-api/result-polls` ([WA-V2](../semantics/client-api.md#wa-v2), [WA-19](../semantics/client-api.md#wa-19)): the answers that the rules predicted, with a result inside the compact answer in `jsonb`'s text output | |
 | A retried parallel container | [CF-22/h](../semantics/conformance.md#cf-22) | |
 | A flow that calls itself by path | [CF-17/j](../semantics/conformance.md#cf-17) | |
 | A container's throwing `timeout` and `parallelism` | [CF-21/e, CF-21/f](../semantics/conformance.md#cf-21) | |
