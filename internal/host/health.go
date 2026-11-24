@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"sync"
 
@@ -42,7 +43,10 @@ var healthServices = []string{"", "plugin", plugin.Runner_ServiceDesc.ServiceNam
 type Gate struct {
 	mu    sync.Mutex
 	state State
-	srv   *Server
+	srv   plugin.RunnerServer
+	// history holds every state that the Gate has been in, in order, so
+	// that each Watch sends each change, however close together they come.
+	history []State
 	// changed closes when the state changes, and is then replaced.
 	changed chan struct{}
 	// runs counts the Run calls that went to the Server and have not
@@ -56,13 +60,13 @@ type Gate struct {
 
 // NewGate returns a Gate in the state Starting.
 func NewGate() *Gate {
-	return &Gate{changed: make(chan struct{}), closed: make(chan struct{})}
+	return &Gate{history: []State{Starting}, changed: make(chan struct{}), closed: make(chan struct{})}
 }
 
-// Serve makes the engine serve: the Runner calls go to srv, and health
-// answers SERVING, to every open Watch too. A Gate that drains already
-// keeps draining.
-func (g *Gate) Serve(srv *Server) {
+// Serve makes the engine serve: the Runner calls go to srv, a *Server, and
+// health answers SERVING, to every open Watch too. A Gate that drains
+// already keeps draining.
+func (g *Gate) Serve(srv plugin.RunnerServer) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.srv = srv
@@ -106,16 +110,25 @@ func (g *Gate) Close() {
 	g.closeOnce.Do(func() { close(g.closed) })
 }
 
-// notifyLocked tells every open Watch that the state changed.
+// notifyLocked records the new state and tells every open Watch.
 func (g *Gate) notifyLocked() {
+	g.history = append(g.history, g.state)
 	close(g.changed)
 	g.changed = make(chan struct{})
+}
+
+// since returns the states from the i-th of the history on, and the
+// channel that closes at the next change.
+func (g *Gate) since(i int) ([]State, <-chan struct{}) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return slices.Clone(g.history[i:]), g.changed
 }
 
 // beginRun returns the state, and the Server once the engine serves or
 // drains. While it serves, it counts a Run call in flight, which endRun
 // ends.
-func (g *Gate) beginRun() (State, *Server) {
+func (g *Gate) beginRun() (State, plugin.RunnerServer) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.state == Serving {
@@ -137,7 +150,7 @@ func (g *Gate) endRun() {
 
 // current returns the state, the Server once serving, and the channel that
 // closes at the next change.
-func (g *Gate) current() (State, *Server, <-chan struct{}) {
+func (g *Gate) current() (State, plugin.RunnerServer, <-chan struct{}) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.state, g.srv, g.changed
@@ -214,28 +227,38 @@ func (g *Gate) stream(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo
 	ctx := ss.Context()
 	if !known(req.GetService()) {
 		// As gRPC's own health server: the status SERVICE_UNKNOWN, and the
-		// stream stays open.
+		// stream stays open, until Close.
 		if err := ss.SendMsg(&healthpb.HealthCheckResponse{Status: healthpb.HealthCheckResponse_SERVICE_UNKNOWN}); err != nil {
 			return err
 		}
-		<-ctx.Done()
-		return status.FromContextError(ctx.Err()).Err()
-	}
-	// Each change of status, from the current one on, until Close, after
-	// which the current status is the last.
-	sent := healthpb.HealthCheckResponse_UNKNOWN
-	for {
-		state, _, changed := g.current()
-		if st := healthOf(state); st != sent {
-			if err := ss.SendMsg(&healthpb.HealthCheckResponse{Status: st}); err != nil {
-				return err
-			}
-			sent = st
-		}
 		select {
 		case <-g.closed:
-			if st, _, _ := g.current(); healthOf(st) != sent {
-				return ss.SendMsg(&healthpb.HealthCheckResponse{Status: healthOf(st)})
+			return nil
+		case <-ctx.Done():
+			return status.FromContextError(ctx.Err()).Err()
+		}
+	}
+	// The current status, then each change, in order, from the Gate's
+	// history: a change that comes before this stream has sent the last is
+	// still sent. After Close, the changes recorded so far are the last.
+	sent := healthpb.HealthCheckResponse_UNKNOWN
+	states, _ := g.since(0)
+	next := len(states) - 1
+	for {
+		states, changed := g.since(next)
+		for _, st := range states {
+			if h := healthOf(st); h != sent {
+				if err := ss.SendMsg(&healthpb.HealthCheckResponse{Status: h}); err != nil {
+					return err
+				}
+				sent = h
+			}
+		}
+		next += len(states)
+		select {
+		case <-g.closed:
+			if rest, _ := g.since(next); len(rest) > 0 {
+				continue
 			}
 			return nil
 		default:

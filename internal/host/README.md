@@ -99,7 +99,7 @@ opens, and can drain, so the engine serves in three states, which a `Gate` holds
 |---|---|---|---|
 | `Starting`: the runtime opens, with its warm start | `NOT_SERVING` | `UNAVAILABLE` with the `RUN_NOT_STARTED` detail | `UNAVAILABLE` |
 | `Serving`: after `Gate.Serve` | `SERVING` | the `Server` | the `Server` |
-| `Draining`, for good: after `Gate.Drain` | `NOT_SERVING` | `UNAVAILABLE` (`draining`) with the `RUN_NOT_STARTED` detail; the runs in flight go on | the `Server` |
+| `Draining`, for good: after `Gate.Drain` | `NOT_SERVING` | `UNAVAILABLE` (`draining`) with the `RUN_NOT_STARTED` detail; the runs in flight go on | the `Server`, or `UNAVAILABLE` if the drain began while the engine started |
 
 - **`NewGate()`** returns a `Gate` in `Starting`. `Gate.Serve(srv)` moves it
   to `Serving` once, with the `Server` of the opened runtime.
@@ -131,5 +131,11 @@ The tests of this package run the real engine:
 launches its test binary as the engine through `wl/plugin` and calls this
 service over go-plugin's connection. `TestPluginDeadlineFromReceipt` there
 runs a `Server` in its own process, over a runtime of the test bundle, with
-a `Config.Now` that stamps the receipt earlier. The package has no tests of
-its own.
+a `Config.Now` that stamps the receipt earlier.
+
+The package's own tests, in `health_test.go`, run the `Gate`'s health
+interceptor on a fake stream:
+`TestGateWatchSendsEachChange` holds a `Watch`'s first send while the
+`Gate` serves and then drains, and still gets `NOT_SERVING`, `SERVING`,
+`NOT_SERVING`. `TestGateCloseEndsUnknownWatch` ends a `Watch` of another
+name with the `Gate`'s `Close`.

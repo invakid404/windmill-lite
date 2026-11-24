@@ -301,6 +301,10 @@ type Dispatcher struct {
 	mu     sync.Mutex
 	closed bool
 	runs   map[string]*dispatched
+	// active counts the runs in runs that have not ended; idle, when not
+	// nil, closes when it reaches zero.
+	active int
+	idle   chan struct{}
 
 	// prepare takes part in each run the dispatcher starts (SetRuns); nil
 	// for none.
@@ -476,6 +480,7 @@ func (x *Dispatcher) Dispatch(_ context.Context, d platform.Dispatch) (string, e
 	}
 	x.sweep()
 	x.runs[id] = rec
+	x.active++
 	x.mu.Unlock()
 	// The worker takes over the dispatch's place in x.wg.
 	go x.run(id, d, args, links, rec, prep)
@@ -589,6 +594,11 @@ func (x *Dispatcher) run(id string, d platform.Dispatch, args jsonval.Value, lin
 	res.Started, res.Completed = true, true
 	x.mu.Lock()
 	rec.result, rec.done = res, true
+	x.active--
+	if x.active == 0 && x.idle != nil {
+		close(x.idle)
+		x.idle = nil
+	}
 	x.mu.Unlock()
 }
 
@@ -730,6 +740,23 @@ func (x *Dispatcher) InFlight(id string) bool {
 	defer x.mu.Unlock()
 	rec := x.runs[id]
 	return rec != nil && !rec.done
+}
+
+// Idle returns a channel that is closed once no run that the dispatcher
+// started is in flight, through a delayed start too: at once if none is.
+// A run that one in flight dispatches before it ends keeps it open.
+func (x *Dispatcher) Idle() <-chan struct{} {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	if x.active == 0 {
+		ch := make(chan struct{})
+		close(ch)
+		return ch
+	}
+	if x.idle == nil {
+		x.idle = make(chan struct{})
+	}
+	return x.idle
 }
 
 // Close cancels the runs still going, as a canceled run is (FX-38), and

@@ -933,6 +933,54 @@ const holdOpenEnv = "WL_TEST_PLUGIN_HOLD_OPEN"
 // id, for a test that signals an engine that go-plugin started.
 const pidEnv = "WL_TEST_PLUGIN_PID"
 
+// drainTimerEnv names a directory through which the engine's test hook
+// drives a drain's timer (drainTimer): it writes the duration that the
+// drain asked for into duration, and fires once the test creates expire.
+const drainTimerEnv = "WL_TEST_PLUGIN_DRAIN_TIMER"
+
+// rssTicksEnv names a directory through which the engine's test hook
+// drives the memory trigger's samples (rssTicker): the n-th sample is
+// taken once the test creates tick-n.
+const rssTicksEnv = "WL_TEST_PLUGIN_RSS_TICKS"
+
+// holdAnswerEnv is the id of a run whose Run call the engine's test hook
+// never lets answer (wrapRunner).
+const holdAnswerEnv = "WL_TEST_PLUGIN_HOLD_ANSWER"
+
+// closeMarkEnv names a file that the engine's test hook writes when a
+// drain closes the runtime (beforeClose).
+const closeMarkEnv = "WL_TEST_PLUGIN_CLOSE_MARK"
+
+// whenFile returns a channel that is closed once path exists, polled every
+// 10 ms.
+func whenFile(path string) <-chan struct{} {
+	ch := make(chan struct{})
+	go func() {
+		for {
+			if _, err := os.Stat(path); err == nil {
+				close(ch)
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+	return ch
+}
+
+// heldAnswer is the Runner server of holdAnswerEnv's hook.
+type heldAnswer struct {
+	plugin.RunnerServer
+	id string
+}
+
+func (h heldAnswer) Run(ctx context.Context, req *plugin.RunRequest) (*plugin.RunResult, error) {
+	res, err := h.RunnerServer.Run(ctx, req)
+	if req.GetId() == h.id {
+		select {}
+	}
+	return res, err
+}
+
 // holdPublishEnv names a file that the engine's test hook writes once its
 // runtime has opened, before it serves; the hook then holds the engine
 // there until its shutdown, at most 2 minutes (beforePublish).
@@ -962,6 +1010,41 @@ func installPluginTestHooks() {
 	if file := os.Getenv(pidEnv); file != "" {
 		if err := os.WriteFile(file, []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
 			panic(err)
+		}
+	}
+	if dir := os.Getenv(drainTimerEnv); dir != "" {
+		drainTimer = func(d time.Duration) (<-chan time.Time, func()) {
+			if err := os.WriteFile(filepath.Join(dir, "duration"), []byte(d.String()), 0o600); err != nil {
+				panic(err)
+			}
+			fired := make(chan time.Time, 1)
+			go func() {
+				<-whenFile(filepath.Join(dir, "expire"))
+				fired <- time.Now()
+			}()
+			return fired, func() {}
+		}
+	}
+	if dir := os.Getenv(rssTicksEnv); dir != "" {
+		rssTicker = func() (<-chan time.Time, func()) {
+			ticks := make(chan time.Time)
+			go func() {
+				for n := 1; ; n++ {
+					<-whenFile(filepath.Join(dir, "tick-"+strconv.Itoa(n)))
+					ticks <- time.Now()
+				}
+			}()
+			return ticks, func() {}
+		}
+	}
+	if id := os.Getenv(holdAnswerEnv); id != "" {
+		wrapRunner = func(r plugin.RunnerServer) plugin.RunnerServer { return heldAnswer{r, id} }
+	}
+	if file := os.Getenv(closeMarkEnv); file != "" {
+		beforeClose = func() {
+			if err := os.WriteFile(file, nil, 0o600); err != nil {
+				panic(err)
+			}
 		}
 	}
 	if file := os.Getenv(holdPublishEnv); file != "" {

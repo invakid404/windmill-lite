@@ -5,6 +5,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -233,20 +234,36 @@ func TestPluginDrainOnSIGTERM(t *testing.T) {
 	}
 }
 
-// TestPluginDrainTimeout checks a drain's bound: with drain_timeout_ms 100,
-// a run whose step waits for a release that never comes is canceled once
-// the drain's time is up, by the runtime's close (cause closing), and that
-// outcome reaches its caller before the engine exits with status 0.
+// TestPluginDrainTimeout checks a drain's bound, with the drain's timer in
+// the test's hands (drainTimerEnv): the drain asks for the configured
+// drain_timeout_ms, 12345; while the timer has not fired, a run whose step
+// waits for a release that never comes is still in flight; once it fires,
+// the runtime's close cancels the run (cause closing), its caller receives
+// that outcome, and the engine exits with status 0, saying that the
+// drain's time is up.
 func TestPluginDrainTimeout(t *testing.T) {
 	bun, out := pluginBundle(t)
 	cfg := pluginConfigOf(t, bun, out)
-	cfg["drain_timeout_ms"] = 100
-	d := startDirect(t, cfg, true)
+	cfg["drain_timeout_ms"] = 12345
+	timer := t.TempDir()
+	d := startDirect(t, cfg, true, drainTimerEnv+"="+timer)
 	dir, args := newGate(t)
 	held := d.runAsync(&plugin.RunRequest{Path: "f/plugin/gate", Args: args})
 	waitFile(t, dir, "entered")
 
 	d.signal(t, syscall.SIGTERM)
+	waitFile(t, timer, "duration")
+	if got, err := os.ReadFile(filepath.Join(timer, "duration")); err != nil || string(got) != "12.345s" {
+		t.Errorf("the drain's timer: %q, %v; want drain_timeout_ms, 12.345s", got, err)
+	}
+	select {
+	case o := <-held:
+		t.Fatalf("the run ended before the drain's time was up: %v, %v", o.res, o.err)
+	default:
+	}
+	if err := os.WriteFile(filepath.Join(timer, "expire"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	o := <-held
 	if o.err != nil || o.res.GetStatus() != "canceled" || o.res.GetCancelCause() != "closing" {
 		t.Errorf("the run past the drain's time: %v, %v; want canceled with the cause closing", o.res, o.err)
@@ -254,26 +271,58 @@ func TestPluginDrainTimeout(t *testing.T) {
 	if code := d.exitCode(t); code != 0 {
 		t.Errorf("the drained engine exited with %d, want 0\nits standard error:\n%s", code, d.stderr)
 	}
+	if !strings.Contains(d.stderr.String(), "the drain's time is up") {
+		t.Errorf("the engine's standard error does not say that the drain's time is up:\n%s", d.stderr)
+	}
 }
 
-// TestPluginEngineRecycle checks the engine's memory trigger: with an
-// engine_recycle_rss of one byte, the engine drains once two consecutive
-// samples of its resident set reach it, naming the trigger on its standard
-// error; a Watch ends with NOT_SERVING, and the engine exits with status 0.
+// TestPluginEngineRecycle checks the engine's memory trigger, with its real
+// resident set read and its samples in the test's hands (rssTicksEnv). The
+// engine's open is held until a Watch is open; released, the Watch
+// receives SERVING. With a run in its step, two samples of an
+// engine_recycle_rss of one byte make the engine drain: the Watch receives
+// NOT_SERVING, a new run answers UNAVAILABLE (draining), the run in flight
+// succeeds once released, and the engine exits with status 0, naming the
+// trigger.
 func TestPluginEngineRecycle(t *testing.T) {
 	bun, out := pluginBundle(t)
 	cfg := pluginConfigOf(t, bun, out)
 	cfg["engine_recycle_rss"] = 1
-	d := startDirect(t, cfg, false)
+	hold := filepath.Join(t.TempDir(), "release-open")
+	ticks := t.TempDir()
+	d := startDirect(t, cfg, false, holdOpenEnv+"="+hold, rssTicksEnv+"="+ticks)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	w, err := d.health.Watch(ctx, &healthpb.HealthCheckRequest{Service: plugin.Runner_ServiceDesc.ServiceName})
 	if err != nil {
 		t.Fatal(err)
 	}
-	sts := watchUntilEnd(t, w)
-	if len(sts) == 0 || sts[len(sts)-1] != healthpb.HealthCheckResponse_NOT_SERVING {
-		t.Errorf("the Watch received %v, want NOT_SERVING last", sts)
+	if r, err := w.Recv(); err != nil || r.GetStatus() != healthpb.HealthCheckResponse_NOT_SERVING {
+		t.Fatalf("the Watch while the engine starts: %v, %v; want NOT_SERVING", r.GetStatus(), err)
+	}
+	if err := os.WriteFile(hold, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if r, err := w.Recv(); err != nil || r.GetStatus() != healthpb.HealthCheckResponse_SERVING {
+		t.Fatalf("the Watch once the engine serves: %v, %v; want SERVING", r.GetStatus(), err)
+	}
+	dir, args := newGate(t)
+	first := d.runAsync(&plugin.RunRequest{Path: "f/plugin/gate", Args: args})
+	waitFile(t, dir, "entered")
+
+	for _, tick := range []string{"tick-1", "tick-2"} {
+		if err := os.WriteFile(filepath.Join(ticks, tick), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if r, err := w.Recv(); err != nil || r.GetStatus() != healthpb.HealthCheckResponse_NOT_SERVING {
+		t.Fatalf("the Watch after two samples over engine_recycle_rss: %v, %v; want NOT_SERVING", r.GetStatus(), err)
+	}
+	_, err = d.runner.Run(ctx, &plugin.RunRequest{Path: "f/plugin/echo", Args: []byte(`{"x":1}`)})
+	checkRefused(t, "a run while the memory trigger drains the engine", err, codes.Unavailable, "draining")
+	release(t, dir)
+	if o := <-first; o.err != nil || o.res.GetStatus() != "success" {
+		t.Errorf("the run in flight when the drain began: %v, %v; want success", o.res, o.err)
 	}
 	if code := d.exitCode(t); code != 0 {
 		t.Errorf("the engine exited with %d, want 0\nits standard error:\n%s", code, d.stderr)
@@ -363,6 +412,120 @@ func TestPluginReplacementFailure(t *testing.T) {
 	}
 	if !strings.Contains(d.stderr.String(), "draining: the warm pool failed to start a harness process") {
 		t.Errorf("the engine's standard error does not name the failed start:\n%s", d.stderr)
+	}
+}
+
+// TestPluginDrainWhileStarting checks SIGTERM while the engine's open is
+// held: the engine drains without ever serving. A Watch opened before the
+// signal receives NOT_SERVING only, and the engine exits with status 0
+// once the open is released.
+func TestPluginDrainWhileStarting(t *testing.T) {
+	bun, out := pluginBundle(t)
+	hold := filepath.Join(t.TempDir(), "release-open")
+	d := startDirect(t, pluginConfigOf(t, bun, out), false, holdOpenEnv+"="+hold)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	w, err := d.health.Watch(ctx, &healthpb.HealthCheckRequest{Service: plugin.Runner_ServiceDesc.ServiceName})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r, err := w.Recv(); err != nil || r.GetStatus() != healthpb.HealthCheckResponse_NOT_SERVING {
+		t.Fatalf("the Watch while the engine starts: %v, %v; want NOT_SERVING", r.GetStatus(), err)
+	}
+	d.signal(t, syscall.SIGTERM)
+	for until := time.Now().Add(time.Minute); !strings.Contains(d.stderr.String(), "draining: SIGTERM"); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(until) {
+			t.Fatalf("no drain on SIGTERM within a minute\nits standard error:\n%s", d.stderr)
+		}
+	}
+	if err := os.WriteFile(hold, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, st := range watchUntilEnd(t, w) {
+		if st == healthpb.HealthCheckResponse_SERVING {
+			t.Errorf("the engine served after a drain while it started")
+		}
+	}
+	if code := d.exitCode(t); code != 0 {
+		t.Errorf("the engine exited with %d, want 0\nits standard error:\n%s", code, d.stderr)
+	}
+}
+
+// TestPluginDrainDispatchedRun checks that a drain lets a run that a step
+// dispatched go on: the script f/plugin/dispatch starts the flow
+// f/plugin/gate and returns, so no Run call is in flight while the gate's
+// step waits for its release. SIGTERM drains the engine; released, the
+// dispatched step ends on its own (it writes left), and only then does the
+// drain close the runtime (closeMarkEnv's file is written after left), and
+// the engine exits with status 0.
+func TestPluginDrainDispatchedRun(t *testing.T) {
+	bun, out := pluginBundle(t)
+	mark := filepath.Join(t.TempDir(), "closing")
+	d := startDirect(t, pluginConfigOf(t, bun, out), true, closeMarkEnv+"="+mark)
+	dir := t.TempDir()
+	args, err := json.Marshal(map[string]any{"dir": dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o := <-d.runAsync(&plugin.RunRequest{Kind: "script", Path: "f/plugin/dispatch", Args: args}); o.err != nil || o.res.GetStatus() != "success" {
+		t.Fatalf("the dispatch: %v, %v", o.res, o.err)
+	}
+	waitFile(t, dir, "entered")
+
+	d.signal(t, syscall.SIGTERM)
+	d.waitHealth(t, healthpb.HealthCheckResponse_NOT_SERVING)
+	release(t, dir)
+	waitFile(t, dir, "left")
+	if code := d.exitCode(t); code != 0 {
+		t.Errorf("the engine exited with %d, want 0\nits standard error:\n%s", code, d.stderr)
+	}
+	left, err := os.Stat(filepath.Join(dir, "left"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	closing, err := os.Stat(mark)
+	if err != nil {
+		t.Fatalf("the drain did not close the runtime: %v\nits standard error:\n%s", err, d.stderr)
+	}
+	if closing.ModTime().Before(left.ModTime()) {
+		t.Errorf("the drain closed the runtime at %v, before the dispatched step ended at %v", closing.ModTime(), left.ModTime())
+	}
+}
+
+// TestPluginDrainAnswerGrace checks the bound on a drained engine's wait
+// for the Run calls to answer after its runtime's close. Two runs wait in
+// their steps; the engine's test hook keeps the call of the run outlives
+// from answering (holdAnswerEnv). Once the drain's time is up
+// (drainTimerEnv), the other run's caller receives canceled (cause
+// closing), and the engine exits with status 0 though the held call never
+// answered, saying so.
+func TestPluginDrainAnswerGrace(t *testing.T) {
+	bun, out := pluginBundle(t)
+	timer := t.TempDir()
+	d := startDirect(t, pluginConfigOf(t, bun, out), true, holdAnswerEnv+"=outlives", drainTimerEnv+"="+timer)
+	heldDir, heldArgs := newGate(t)
+	held := d.runAsync(&plugin.RunRequest{Id: "outlives", Path: "f/plugin/gate", Args: heldArgs})
+	otherDir, otherArgs := newGate(t)
+	other := d.runAsync(&plugin.RunRequest{Path: "f/plugin/gate", Args: otherArgs})
+	waitFile(t, heldDir, "entered")
+	waitFile(t, otherDir, "entered")
+
+	d.signal(t, syscall.SIGTERM)
+	waitFile(t, timer, "duration")
+	if err := os.WriteFile(filepath.Join(timer, "expire"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if o := <-other; o.err != nil || o.res.GetStatus() != "canceled" || o.res.GetCancelCause() != "closing" {
+		t.Errorf("the run whose call answers: %v, %v; want canceled with the cause closing", o.res, o.err)
+	}
+	if code := d.exitCode(t); code != 0 {
+		t.Errorf("the engine exited with %d, want 0\nits standard error:\n%s", code, d.stderr)
+	}
+	if o := <-held; o.err == nil {
+		t.Errorf("the held call answered %v, want the error of an engine that exited", o.res)
+	}
+	if !strings.Contains(d.stderr.String(), "a Run call did not answer within") {
+		t.Errorf("the engine's standard error does not report the call that did not answer:\n%s", d.stderr)
 	}
 }
 

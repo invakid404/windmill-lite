@@ -419,11 +419,16 @@ the engine drains.
   engine serves. It writes the reason to standard error. Health answers
   `NOT_SERVING`, and a new `Run` answers `UNAVAILABLE` (`draining`) with
   the `RUN_NOT_STARTED` detail.
-- **The end of a drain.** The `Run` calls in flight go on for up to
-  `drain_timeout_ms`. The engine then closes the runtime, which cancels
-  the runs left with the cause `closing`. Once their calls have answered,
-  it gives the answers up to a second to reach the host, and exits with
-  status 0.
+- **The end of a drain.** The `Run` calls in flight, then the runs that
+  steps dispatched, go on for up to `drain_timeout_ms` in all. The engine
+  then closes the runtime, which cancels the runs left with the cause
+  `closing`. Once their calls have answered, or 2 seconds after the close
+  if one does not, it gives the answers up to a second to reach the host
+  and exits with status 0.
+- **A drain while the runtime opens.** SIGTERM before the engine serves
+  drains too, without serving. The open gets `drain_timeout_ms` to
+  complete, and its runtime is then closed; past it, the runtime ends with
+  the process. `GetBuildInfo` and `Cancel` answer `UNAVAILABLE` meanwhile.
 - **Signals.** go-plugin ignores SIGINT. SIGTERM drains, as above, while
   the runtime opens too.
 - **Diagnostics.** The harness processes' output that no step owns, and
@@ -444,7 +449,7 @@ whose digest passed.
 | `digest` | A digest | None | The digest that the bundle must have |
 | `bun` | A path | `bun` on the engine's `PATH` | The Bun 1.4.3 executable of the harness processes |
 | `harness_runtime` | A directory | None | The [harness runtime](../../docs/glossary.md#harness-runtime) that the bundle was built for, needed by a bundle with steps |
-| `data_dir` | A directory | A temporary directory, which the runtime's close removes after go-plugin's shutdown call or a drain. A kill leaves it behind, as does a shutdown call that comes over a second before the runtime's open completes | The data directory that the runtime writes into |
+| `data_dir` | A directory | A temporary directory, which the runtime's close removes after go-plugin's shutdown call or a drain. A kill leaves it behind, as does a shutdown call that comes over a second before the runtime's open completes, or a drain while the open outlasts `drain_timeout_ms` | The data directory that the runtime writes into |
 | `resources` | An object of `{"resource_type", "value"}` by path | None | The host's resources, as in a bundle's `data/resources.json` |
 | `variables` | An object of variables by path | None | The host's variables: each `value` or `value_env`, and `is_secret` and `encrypted` ([Secrets by reference](#secrets-by-reference)) |
 | `resource_store` | `{"kind": "memory"}`, or `{"kind": "redis", "url_env", "prefix", "allow_eviction"}` | `memory` | The store of the resources that steps write, as `run`'s `-resource-store` and its Redis flags |
@@ -703,8 +708,11 @@ names, and so sees its exit status and can signal it.
 | `TestPluginHandshakeFirstLine` | With a configuration whose warm start starts a harness process, go-plugin's handshake line is the first line of the engine's standard output. |
 | `TestPluginHandshakeUnwritable` | With a standard output open read-only, the engine exits with status 1 within 30 seconds, naming the handshake line. |
 | `TestPluginDrainOnSIGTERM` | While a run waits in its step for the test's release, SIGTERM makes health answer `NOT_SERVING`, and a new run answers `UNAVAILABLE` with the `RUN_NOT_STARTED` detail, naming draining, while the first call is still in flight. Released, the first run succeeds, and the engine exits with status 0. |
-| `TestPluginDrainTimeout` | With `drain_timeout_ms` 100, a run whose step is never released ends `canceled` with the cause `closing`, which its caller receives, and the engine exits with status 0. |
-| `TestPluginEngineRecycle` | With an `engine_recycle_rss` of one byte, the engine drains, naming the trigger; a `Watch` ends with `NOT_SERVING`, and the engine exits with status 0. |
+| `TestPluginDrainTimeout` | With the drain's timer in the test's hands (`WL_TEST_PLUGIN_DRAIN_TIMER`), the drain asks for `drain_timeout_ms`, 12345. Until the timer fires, a run whose step is never released is still in flight. Once it fires, the run ends `canceled` with the cause `closing`, which its caller receives, and the engine exits with status 0. |
+| `TestPluginEngineRecycle` | With the open held until a `Watch` is open and the samples in the test's hands (`WL_TEST_PLUGIN_RSS_TICKS`), two samples of the real resident set over an `engine_recycle_rss` of one byte drain the engine: the `Watch` receives `SERVING`, then `NOT_SERVING`. A new run answers `UNAVAILABLE` (draining), the run in flight succeeds, and the engine exits with status 0, naming the trigger. |
+| `TestPluginDrainWhileStarting` | SIGTERM while the open is held: released, the engine never serves, and exits with status 0. |
+| `TestPluginDrainDispatchedRun` | A run that a step dispatched, with no `Run` call in flight, goes on through a drain: the runtime closes only after its step ends (`WL_TEST_PLUGIN_CLOSE_MARK`), and the engine exits with status 0. |
+| `TestPluginDrainAnswerGrace` | A test hook holds one call from answering (`WL_TEST_PLUGIN_HOLD_ANSWER`). Once the drain's time is up, the other call's caller receives `canceled` (cause `closing`), and the engine exits with status 0 after the 2 seconds' bound, reporting the call that did not answer. |
 | `TestPluginWatchTransition` | A `Watch` opened while the engine serves receives `SERVING`, then `NOT_SERVING` after SIGTERM, and ends with the engine. |
 | `TestPluginReplacementFailure` | The engine's Bun is a fake that runs the real one until the test creates a marker file. With the marker, a canceled run whose step ignores its cancellation taints the only process, and the next run needs a replacement, which fails to start. The engine drains, naming the failed start, a `Watch` ends with `NOT_SERVING`, and the engine exits with status 0. |
 | `TestEngineRSSTrigger` | The memory trigger trips at the second consecutive sample at or over its threshold, and never on samples that alternate around it. |

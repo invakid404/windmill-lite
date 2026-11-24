@@ -344,6 +344,15 @@ func (rt *Runtime) Run(ctx context.Context, path string, args json.RawMessage, o
 }
 
 func init() {
+	wlext.DispatchIdle = func(r any) <-chan struct{} {
+		rt := r.(*Runtime)
+		if rt.dispatch == nil {
+			ch := make(chan struct{})
+			close(ch)
+			return ch
+		}
+		return rt.dispatch.Idle()
+	}
 	wlext.OnPoolStartFailure = func(r any, f func(error)) {
 		rt := r.(*Runtime)
 		if f == nil {
