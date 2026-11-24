@@ -284,6 +284,9 @@ type Outcome =
 type PendingCall = { resolve: (a: PlatformAnswer) => void; reject: (e: unknown) => void } | typeof DISCARD;
 const DISCARD = Symbol("discard");
 
+/** A step's wl.reserve waiting for its reserve_reply. */
+type PendingReserve = { resolve: () => void; reject: (e: unknown) => void };
+
 export class Runtime {
   private reader = new FrameReader();
   private assembler = new Assembler();
@@ -314,6 +317,8 @@ export class Runtime {
   private foreign: ReadonlySet<string> = new Set();
   private platformSeq = 0;
   private platformCalls = new Map<string, PendingCall>();
+  private reserveSeq = 0;
+  private reserves = new Map<string, PendingReserve>();
   private runs = new Map<string, { resolve: (o: RunOutcome) => void; reject: (e: Error) => void }>();
   private scopes = new Map<string, <R>(fn: () => R) => R>();
   /** Host mode: what to call when a run settles, from its submission
@@ -450,6 +455,9 @@ export class Runtime {
       case "platform_reply":
         this.onPlatformReply(m);
         break;
+      case "reserve_reply":
+        this.onReserveReply(m);
+        break;
       case "run_done":
         this.onRunDone(m);
         break;
@@ -582,6 +590,8 @@ export class Runtime {
       this.sendLog(inv);
       this.sendWarning(inv.id, text, LATCH);
     };
+    // Only an invoke that says the run has a budget gets reserve frames.
+    if (m.budget === true) ctx.reserve = (bytes) => this.reserveCall(inv, bytes);
     inv.context = ctx;
     // The module loads and the entrypoint runs inside the invocation's
     // context, and in host mode inside the scope the host had when it
@@ -1133,6 +1143,31 @@ export class Runtime {
     });
   }
 
+  /** Sends a reserve frame for a step's wl.reserve and waits for its
+   * reply, which the engine always sends. */
+  private reserveCall(inv: Invocation, bytes: number): Promise<void> {
+    if (inv.state !== "running") return Promise.reject(new TypeError("windmill-lite: wl.reserve needs an open invocation: this step's outcome is already decided"));
+    if (this.closing()) return Promise.reject(new TypeError("windmill-lite: the engine connection is closed"));
+    const id = `r${++this.reserveSeq}`;
+    return new Promise((resolve, reject) => {
+      this.reserves.set(id, { resolve, reject });
+      try {
+        this.send({ t: "reserve", id, inv: inv.id, bytes });
+      } catch (e) {
+        this.reserves.delete(id);
+        reject(e as Error);
+      }
+    });
+  }
+
+  private onReserveReply(m: Message) {
+    const call = this.reserves.get(m.id);
+    if (!call) throw new ProtocolError("unexpected_message", `reserve_reply for unknown request ${JSON.stringify(m.id)}`);
+    this.reserves.delete(m.id);
+    if (typeof m.refused === "string") call.reject(new RangeError(m.refused));
+    else call.resolve();
+  }
+
   private onPlatformReply(m: Message) {
     const call = this.platformCalls.get(m.id);
     if (!call) throw new ProtocolError("unexpected_message", `platform_reply for unknown request ${JSON.stringify(m.id)}`);
@@ -1361,8 +1396,10 @@ export class Runtime {
     }
     const lost = new Error("windmill-lite: the engine connection ended");
     for (const c of this.platformCalls.values()) if (c !== DISCARD) c.reject(lost);
+    for (const c of this.reserves.values()) c.reject(lost);
     for (const r of this.runs.values()) r.reject(lost);
     this.platformCalls.clear();
+    this.reserves.clear();
     this.runs.clear();
     this.scopes.clear();
     this.settledHandlers.clear();

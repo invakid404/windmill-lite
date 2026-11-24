@@ -12,6 +12,7 @@ import (
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/engine"
+	"github.com/invakid404/windmill-lite/internal/harness"
 	"github.com/invakid404/windmill-lite/internal/ir"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
@@ -413,6 +414,9 @@ func matches(s Selector, site Site) bool {
 type hooks struct {
 	h     *Hooks
 	calls func() []PlatformCall
+	// pin is the run's pin, nil for none, which the host plugin's
+	// onRunSettled carries (settlingPins).
+	pin *harness.Pin
 
 	mu    sync.Mutex
 	ended bool
@@ -527,6 +531,17 @@ func (x *hooks) OnRunEnd(ctx context.Context, t *engine.Trace) []engine.Warning 
 
 func (x *hooks) OnRunSettled(t *engine.Trace) {
 	if x.h.OnRunSettled != nil {
-		x.h.OnRunSettled(x.withCalls(t))
+		c := x.withCalls(t)
+		if x.pin != nil {
+			settlingPins.Store(c, x.pin)
+			defer settlingPins.Delete(c)
+		}
+		x.h.OnRunSettled(c)
 	}
 }
+
+// settlingPins maps the trace that a pinned run's OnRunSettled callbacks
+// get to the run's pin, for the duration of the call, so that the host
+// plugin's onRunSettled carries it (harness.WithPin): the trace, made for
+// that call, names the run when its id alone may not.
+var settlingPins sync.Map

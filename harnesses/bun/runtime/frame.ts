@@ -45,7 +45,7 @@ export type Outgoing = { t: string; [k: string]: unknown };
 const FIELDS: Record<string, readonly string[]> = {
   hello: ["proto", "harness", "runtime", "caps", "bundle", "pid", "workdir", "plugin"],
   welcome: ["proto", "engine", "bundle", "config", "reject"],
-  invoke: ["id", "run", "site", "script", "entry", "args", "env", "boundary", "around"],
+  invoke: ["id", "run", "site", "script", "entry", "args", "env", "boundary", "around", "budget"],
   result: ["id", "outcome", "body", "origin", "tail", "exit_code", "settled"],
   late: ["id", "kind", "body", "settled"],
   cancel: ["id", "reason"],
@@ -60,6 +60,8 @@ const FIELDS: Record<string, readonly string[]> = {
   run_settled: ["id"],
   host_call: ["id", "hook", "run", "site", "payload"],
   host_reply: ["id", "payload", "error"],
+  reserve: ["id", "inv", "bytes"],
+  reserve_reply: ["id", "refused"],
   ping: ["id", "in_flight", "abandoned", "errors", "lag_ms", "rss"],
   pong: ["id", "in_flight", "abandoned", "errors", "lag_ms", "rss"],
   part: ["id", "seq", "last", "chunk"],
@@ -111,11 +113,11 @@ function present(k: string, v: unknown): boolean {
 }
 
 /** Boolean fields written only when true, as Go writes them. */
-const WRITTEN_WHEN_TRUE = new Set(["run_done.may_have_mutated"]);
+const WRITTEN_WHEN_TRUE = new Set(["run_done.may_have_mutated", "invoke.budget"]);
 
 /** String fields written only when not empty, as Go writes them: an empty
  * one counts as absent, on decoding too. */
-const WRITTEN_WHEN_NOT_EMPTY = new Set(["run_done.cancel_cause", "run_cancel.reason", "run_cancel.canceler"]);
+const WRITTEN_WHEN_NOT_EMPTY = new Set(["run_done.cancel_cause", "run_cancel.reason", "run_cancel.canceler", "reserve_reply.refused"]);
 
 /** The canonical payload text of a message. */
 export function encodeText(m: Outgoing): string {
@@ -192,6 +194,8 @@ const REQUIRED: Record<string, Record<string, Check>> = {
   run_settled: { id: "string" },
   host_call: { id: "string", hook: "string", run: "string", site: "string", payload: "raw" },
   host_reply: { id: "string" },
+  reserve: { id: "string", inv: "string", bytes: "int" },
+  reserve_reply: { id: "string" },
   ping: { id: "string" },
   pong: { id: "string" },
   part: { id: "string", seq: "int", last: "bool", chunk: "string" },
@@ -262,6 +266,13 @@ export function decode(payload: Uint8Array): Message {
       break;
     case "invoke":
       if (m.around != null && !(Array.isArray(m.around) && m.around.every(isInt))) throw new ProtocolError("bad_field", 'field "around" has the wrong type');
+      if (m.budget != null) checkField(m.t, m, "budget", "bool");
+      break;
+    case "reserve":
+      if (m.bytes <= 0) throw new ProtocolError("bad_field", `reserve bytes ${m.bytes}`);
+      break;
+    case "reserve_reply":
+      if (m.refused != null) checkField(m.t, m, "refused", "string");
       break;
     case "host_call":
       if (typeof m.payload !== "object" || m.payload === null || Array.isArray(m.payload)) throw new ProtocolError("bad_field", "host_call payload is not an object");

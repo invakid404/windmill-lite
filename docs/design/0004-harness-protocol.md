@@ -15,7 +15,6 @@ itself.
 **Not built yet:**
 
 - log limits in the welcome;
-- pinned runs and limits per run (§Pooling);
 - run data in a host plugin's processes (§Host plugins).
 
 ## Context
@@ -101,7 +100,7 @@ step without failing the others.
 |---|---|---|---|
 | `hello` | harness → engine | `proto`, `harness` (kind, version), `runtime` (for Bun, `Bun.version`), `caps` (`fetch`, `native`, `fresh`, `host`), `bundle` (digest of what it loaded), `pid` (its process id), `workdir` (host mode: the host's working directory, host mode item 7), `plugin` (raw: the declaration of the host plugin it loaded, §Host plugins) | handshake |
 | `welcome` | engine → harness | `proto`, `engine`, `bundle`, `config` (module-state mode, `heartbeat_ms`, `max_message`, the facade origin, the origins of real Windmill instances; log limits once windmill-lite uses them) or `reject` (`code`, `message`) | handshake result |
-| `invoke` | engine → harness | `id`, `run`, `site` (typed path, [differential testing](0011-differential-testing.md)), `script` (inventory id), `entry` (a validated export name, below), `args` (raw JSON object), `env` (the invocation's `WM_*` and other job variables), `boundary` (`bun` or `native`), `around` (the host plugin's around wrappers for its site, by index, §Host plugins) | run one step |
+| `invoke` | engine → harness | `id`, `run`, `site` (typed path, [differential testing](0011-differential-testing.md)), `script` (inventory id), `entry` (a validated export name, below), `args` (raw JSON object), `env` (the invocation's `WM_*` and other job variables), `boundary` (`bun` or `native`). Then, when set, `around` (the host plugin's around wrappers for its site, by index, §Host plugins) and `budget` (`true` when the run has a byte budget or the runtime a total, §Pooling) | run one step |
 | `result` | harness → engine | `id`, `outcome` (`ok`, `error`, `escaped`, `empty`), `body` (raw JSON: the serialised result, or the error object), `origin` (`harness`, for an `error` whose object the harness generated in place of the worker's; absent for the step code's own), `tail` and `exit_code` (for `escaped`: the last log text, and the exit code the job's process would have had), `settled` (false when the outcome was fixed while the entrypoint call goes on: an intercepted `process.exit`, D11, or an attributed process-level error, item 2 of the failure model below) | step outcome |
 | `late` | harness → engine | `id`, `kind` (`result`, `error`, `log`), `body`, `settled` (true on the one late result or error that says how an entrypoint call ended after it was abandoned or after its outcome was fixed early) | something an already settled or abandoned invocation produced (D9) |
 | `cancel` | engine → harness | `id`, `reason` (`timeout`, `canceled`, `run_ended`) | abandon one invocation, and kill its child processes (failure model item 7) |
@@ -111,6 +110,7 @@ step without failing the others.
 | `platform` | harness → engine | `id`, `inv` (invocation id), `method`, `url`, `headers`, `body` | an intercepted `fetch` to the platform facade ([platform interface](0007-platform-interface.md)) |
 | `platform_reply` | engine → harness | `id`, `status`, `headers`, `body` | its answer |
 | `host_call` / `host_reply` | engine → harness / back | `host_call`: `id`, `hook`, `run`, `site` (`""` for a hook of the run as a whole), `payload` (raw object); `host_reply`: `id`, then `payload` (raw object) or `error` (`code`: `plugin_error` or `unknown_hook`, `message`) | a host plugin hook ([host hooks](0008-host-hooks.md), §Host plugins) |
+| `reserve` / `reserve_reply` | harness → engine / back | `reserve`: `id`, `inv` (invocation id), `bytes` (positive); `reserve_reply`: `id`, then `refused` (why not) when the bytes were not reserved; an empty one counts as absent | a step's `wl.reserve(bytes)`, sent only for an invocation whose `invoke` has `budget` (§Pooling) |
 | `run` / `run_done` / `run_cancel` | harness → engine / back / harness → engine | the fields that they share with `runner.proto`'s `RunRequest`, `RunResult` and `CancelRequest`, under the same names, JSON values raw ([host adapters](0009-host-adapters.md#the-runner-service)). `run`: `id`, `kind`, `path`, `args`, `intercept`, `write_capable`, `halt_before` and `halt_after` (raw arrays of selectors), `fatal_error_names`, `deadline_ms`, `pre_write_deadline_ms` and `clock` (`real` or `record`). `run_done`: `id`, then `status`, `result`, `may_have_mutated`, `warnings` (raw, each a `code` and a `message`), `latched` and `deviations`, or `error` for a run the engine did not start (`code`: `draining` or `refused`); then `cancel_cause`. `run_cancel`: `id`, `reason`, `canceler` | host mode: a harness that is also the host submits runs |
 | `run_settled` | engine → harness | `id` | host mode: one of the host's runs has settled, after its `run_done` (host mode item 5) |
 | `ping` / `pong` | either way | `id`; from a harness also `in_flight`, `abandoned`, `errors` (process-level errors no invocation owned), `lag_ms` (event-loop lag), `rss` | health; a harness also pings on its own every `heartbeat_ms` |
@@ -627,10 +627,11 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
 - These settings, pinned runs and recycle triggers are a `warm` pool's: a
   `fresh` pool and host mode have none of them, and `wl.Open` refuses
   settings that are not zero there.
-- **Pinned runs** (planned), for a runtime or for one run. A run is pinned
-  to the process that serves its first invocation or host-plugin call, and
-  each later one of the run goes there while that process lives, even when
-  it lags, is tainted or is being recycled. This is the one exception to
+- **Pinned runs**, for a runtime (`PinRuns` in `wl.Options.Pool`) or for
+  one run (`wl.RunOptions.Pin`). A run is pinned to the process that
+  serves its first invocation or host-plugin call, and each later one of
+  the run goes there while that process lives, even when it lags, is
+  tainted or is being recycled. This is the one exception to
   the taint rule, above and in §Cancellation and deadlines item 4: such a
   process takes no new invocations but its pinned runs'.
 - **No new pins on a leaving process.** The pool pins no run to a process
@@ -640,23 +641,30 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
   tainted, recycling or idle process does not leave while a live run is
   pinned to it. After the run's end, the pin still sends the run's
   remaining hook calls, such as `onRunSettled`, to that process while it
-  lives, but no longer holds it.
+  can answer, draining or not, but no longer holds it.
+- **One pin per run.** A pin belongs to the run that it was made for: a
+  later run with the same id has its own, or none. The earlier run's late
+  calls still follow the earlier pin, or, for an unpinned run, the
+  ordinary routing. A live pinned run's id, a run that a step dispatched
+  included, refuses another run until it has ended.
 - So a pinned run that never settles holds no process, and one that never
   ends holds its process until its hard deadline or its cancellation ends
   it. A host that pins runs gives them a hard deadline.
-- **A pinned run's process ends** (planned). A pinned run never moves to
+- **A pinned run's process ends.** A pinned run never moves to
   another process, since its per-run state lived in the one that ended. Its
   invocation in flight there fails as `escaped`, as any does. If the run
   then starts another invocation or calls a hook, that latches
   `pinned_process_lost` ([H5](0008-host-hooks.md#the-hooks)), as a host-mode run ends with
-  `harness_lost` (§Host mode item 6).
+  `harness_lost` (§Host mode item 6), and the step does not launch.
+- **Its last step.** A run whose last step was in flight when its process
+  ended latches nothing more: it fails as that step's error.
 - **Recycle triggers.** The pool replaces a process whose resident set,
   its heartbeat's `rss`, reaches a threshold on consecutive heartbeats (2
   by default), or that has loaded more script modules than a cap, counted
   from the distinct scripts that the engine sent it. The process then takes
   no new invocations, a replacement starts beside it outside the maximum,
   and the process leaves once nothing is in flight in it.
-- With pinned runs (planned), such a process still takes its pinned runs'
+- With pinned runs, such a process still takes its pinned runs'
   invocations, and leaves only once no pinned run holds it either.
 - **Overlap.** A replacement runs beside the process it replaces until that
   process leaves, which waits for its steps in flight. While one process
@@ -672,7 +680,7 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
   process that can take it, and waits only when none can and the process
   it needs cannot start.
 - A leaving process first waits until no invocation is active in it, and
-  with pinned runs (planned) until no pinned run holds it. Then it drains
+  with pinned runs until no pinned run holds it. Then it drains
   within the recycle timeout, and its slot frees once its exit is
   observed. `max_live` below the pool's maximum refuses to open, since the
   pool could not reach its size.
@@ -681,21 +689,31 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
   container's memory limit is the one hard bound on bytes. A host sizes it
   from `max_live`, times its workload's measured peak per process, plus the
   engine's peak and headroom.
-- **Limits per run** (planned). A run may bound its invocations in
-  flight, so its parallel iterations and branches wait: a host-set cap that
-  deviation [D15](0001-equivalence-contract.md#5-named-deviations) is to cover per run as well as per process. It may
-  bound its arguments' size, which refuses it before it starts, and the
-  bytes that the engine holds for its stored values, which latches
+- **Limits per run** (`wl.RunOptions.Limits`). A run may bound its
+  invocations in flight. Its parallel iterations and branches then wait
+  for a slot, as jobs waiting in the queue, before their timeouts start.
+  This is a host-set cap that deviation [D15](0001-equivalence-contract.md#5-named-deviations) covers per run as well
+  as per process, and the run's trace then lists it.
+- **Limits on size.** A run may bound its arguments' size, which refuses
+  it before it starts. It may also bound the bytes that the engine holds
+  for its stored values, its arguments and each job's stored result,
+  counted at their stored size as they are stored, which latches
   `run_memory_limit` once passed.
-- **A byte budget per run** (planned). A run may have a budget of bytes
-  that its steps and its host plugin draw on with `wl.reserve(bytes)` in
-  the step API, for data that a step holds, such as a source it downloads.
-  The engine keeps the account, so the budget holds across processes. A
-  reservation past the budget throws in the step, and each reservation
-  returns to the budget when the invocation that made it settles.
-- **A total for the runtime** (planned). A runtime may also set a total of
-  bytes that every run's reservations share, so a reservation must fit both
-  its run's budget and the runtime's total.
+- **A byte budget per run.** A run may have a budget of bytes that its
+  steps and its host plugin's around wrappers draw on with
+  `wl.reserve(bytes)` in the step API, for data that a step holds, such as
+  a source it downloads. The engine keeps the account, so the budget holds
+  across processes. A reservation past the budget rejects in the step
+  with a `RangeError`, and each reservation returns to the budget when the
+  invocation that made it settles.
+- **Reservations on the wire.** Each reservation is a `reserve` frame. A
+  run with neither a budget nor a total sends none, and its reservations
+  take nothing.
+- **A total for the runtime** (`Bytes` in `wl.Options.Limits`). A runtime
+  may also set a total of bytes that every run's reservations share, so a
+  reservation must fit both its run's budget and the runtime's total. A
+  run that a step dispatches shares it too, and a runtime's pinning pins
+  such a run as well.
 - A shared process has no measure of one run's JavaScript heap, so a
   run's limits count only what the engine holds and what its steps
   reserve.

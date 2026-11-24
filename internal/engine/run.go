@@ -105,6 +105,59 @@ type run struct {
 	// run tracked in its parent stays in its root's tree after it ends,
 	// and its record then shows it completed.
 	rootEnd *flowEnd
+	// slots holds a token per invocation in flight when the run bounds
+	// them (RunLimits.MaxInFlight); nil means no bound.
+	slots chan struct{}
+	// held counts the bytes of the stored values held for the run, and
+	// maxHeld bounds them (RunLimits.MaxHeldBytes); zero means no bound.
+	held    atomic.Int64
+	maxHeld int64
+	// bytes is the run's account of its steps' reservations (RunLimits.Bytes
+	// and ByteTotal); nil when it has neither.
+	bytes *byteAccount
+}
+
+// limit applies the run's own limits.
+func (r *run) limit(l RunLimits) {
+	if l.MaxInFlight > 0 {
+		r.slots = make(chan struct{}, l.MaxInFlight)
+	}
+	r.maxHeld = l.MaxHeldBytes
+	r.bytes = newByteAccount(l)
+}
+
+// holdValue counts v, a value stored for the run, at its stored size.
+func (r *run) holdValue(v jsonval.Value) {
+	if r.maxHeld > 0 {
+		r.holdBytes(storedLen(v))
+	}
+}
+
+// storedLen is the size of v as it is stored (jsonval.Value.Stored), which
+// may differ from its producer's text; that text's size when it cannot be
+// stored.
+func storedLen(v jsonval.Value) int {
+	if b, err := v.Stored(); err == nil {
+		return len(b)
+	}
+	return len(v.Producer())
+}
+
+// heldError is the latch of a run or script job id holding held bytes of
+// stored values, past its limit.
+func heldError(id string, held, limit int64) error {
+	return fmt.Errorf("engine: run %s holds %d bytes of stored values, past its limit of %d: %w", id, held, limit, ErrRunMemoryLimit)
+}
+
+// holdBytes counts n more bytes of stored values held for the run, and
+// latches it with ErrRunMemoryLimit once they pass its bound.
+func (r *run) holdBytes(n int) {
+	if r.maxHeld <= 0 {
+		return
+	}
+	if held := r.held.Add(int64(n)); held > r.maxHeld {
+		r.Latch(heldError(r.id, held, r.maxHeld))
+	}
 }
 
 func newRun(e *Engine, f *ir.Flow, id string, hooks Hooks, exec StepExecutor, rng *rand.Rand, clock Clock, jitter Jitter, cancel context.CancelCauseFunc) *run {
@@ -757,6 +810,11 @@ func (r *run) runList(ctx context.Context, fr *frame) (e flowEnd) {
 			return flowEnd{status: st}
 		}
 		if c, hit := r.lookup(ctx, key); hit {
+			if fr == r.root {
+				// The run's result is stored for it, though no module ran:
+				// a subflow's is counted where its step completes.
+				r.holdValue(c.value())
+			}
 			if st, end := r.hostEnd(ctx, false); end {
 				return flowEnd{status: st}
 			}
@@ -2616,6 +2674,20 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 	if r.latch.Err() != nil {
 		return StepOutcome{}, "", jsonval.Value{}, errNotLaunched
 	}
+	if r.slots != nil {
+		// The run's bound on its invocations in flight (D15): the job
+		// waits as if in the queue, until one of the run's invocations in
+		// flight returns.
+		select {
+		case r.slots <- struct{}{}:
+		case <-ctx.Done():
+			return StepOutcome{}, inv.ID, jsonval.Value{}, context.Cause(ctx)
+		}
+		defer func() { <-r.slots }()
+		if r.latch.Err() != nil {
+			return StepOutcome{}, "", jsonval.Value{}, errNotLaunched
+		}
+	}
 	// The worker resolves the arguments once it has picked the job up,
 	// before the script runs (JE-41, JE-42, WR-5).
 	resolved, err := r.platform.ResolveArgs(ctx, args, reserved, platform.APIEnv(reserved))
@@ -2624,6 +2696,9 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 	}
 	inv.Args = resolved
 	inv.Report = r.settle.Track(&runReporter{run: r, idx: idx})
+	if r.bytes != nil {
+		inv.Budget, inv.Report = r.bytes.draw(inv.Report)
+	}
 	stepCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	if timeout <= 0 {
@@ -2635,6 +2710,13 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 	start := r.clock.Now()
 	out, err := r.exec.Execute(stepCtx, inv)
 	r.span(site.Path, SpanHarness, start)
+	if errors.Is(err, ErrPinnedProcessLost) {
+		// The process the run is pinned to has ended, with the run's state
+		// in it: the run latches instead of moving, and the step never
+		// launched.
+		r.Latch(err)
+		return StepOutcome{}, "", jsonval.Value{}, errNotLaunched
+	}
 	return out, inv.ID, resolved, err
 }
 

@@ -13,6 +13,7 @@ import (
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/engine"
+	"github.com/invakid404/windmill-lite/internal/harness"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 	"github.com/invakid404/windmill-lite/internal/platform"
 	"github.com/invakid404/windmill-lite/internal/platform/facade"
@@ -114,7 +115,63 @@ type RunOptions struct {
 	// Jitter is the flow run's retry-jitter source (H10, FX-26); nil draws
 	// from one seeded with Seed. SeededJitter fixes it.
 	Jitter Jitter
+	// Pin pins the run to one warm harness process (ADR 0004 §Pooling), as
+	// Options.Pool.PinRuns does for every run: its first invocation or
+	// host-plugin call goes to a serving process, and every later one goes
+	// there while that process lives, even when it lags, is tainted or
+	// leaves for a recycle trigger, so a host plugin can keep the run's
+	// state there. The process does not leave while the run is live. If it
+	// ends, the run's next invocation or host-plugin call latches the run
+	// with ErrPinnedProcessLost. A fresh runtime and host mode refuse it.
+	Pin bool
+	// Limits are the run's own limits (ADR 0004 §Pooling); the zero value
+	// sets none.
+	Limits RunLimits
 }
+
+// RunLimits are a run's own limits (ADR 0004 §Pooling). A zero field sets
+// no limit; Run refuses a negative one.
+type RunLimits struct {
+	// MaxInFlight bounds a flow run's invocations in flight at once, so
+	// its parallel branches and iterations wait for a slot, as jobs
+	// waiting in the queue, before their timeouts start. It is deviation
+	// D15 (ADR 0001), which the run's trace then lists. A script run has
+	// one invocation.
+	MaxInFlight int
+	// MaxArgsBytes bounds the size of the run's arguments as given to Run:
+	// larger ones make Run return ErrRunArgsTooLarge, and nothing runs.
+	MaxArgsBytes int
+	// MaxHeldBytes bounds the bytes of the stored values that the engine
+	// holds for the run: its arguments and the stored result of each of
+	// its jobs, a cached one included, counted at their stored size as
+	// they are stored (a script job's arguments before it runs), and not
+	// returned while the run lasts. Once they pass it, the run latches
+	// ErrRunMemoryLimit, as a latched hook does (H5): it starts nothing
+	// more.
+	MaxHeldBytes int64
+	// Bytes is the run's byte budget, which its steps, around wrappers
+	// included, draw on with wl.reserve(bytes) in the step API, for data
+	// that a step holds, such as a source it downloads. The engine keeps
+	// the account, so the budget holds across processes. A reservation
+	// that does not fit it, or the runtime's total (Options.Limits.Bytes),
+	// rejects in the step with a RangeError, and each reservation returns
+	// when the invocation that made it settles. With neither a budget nor
+	// a total, a reservation takes nothing.
+	Bytes int64
+}
+
+// ErrRunArgsTooLarge is Run's error for arguments larger than
+// RunOptions.Limits.MaxArgsBytes. Nothing runs.
+var ErrRunArgsTooLarge = errors.New("wl: the run's arguments are larger than its limit (RunOptions.Limits.MaxArgsBytes)")
+
+// ErrRunMemoryLimit is the latch of a run whose stored values passed
+// RunOptions.Limits.MaxHeldBytes (run_memory_limit).
+var ErrRunMemoryLimit = engine.ErrRunMemoryLimit
+
+// ErrPinnedProcessLost is the latch of a pinned run whose process ended
+// while the run was live (pinned_process_lost): the run cannot move, since
+// its per-run state lived in that process.
+var ErrPinnedProcessLost = engine.ErrPinnedProcessLost
 
 // Clock is a run's clock (H10): Now, and Wait, which waits for a duration
 // or until the context ends.
@@ -140,8 +197,50 @@ func SeededJitter(seed uint64) Jitter { return engine.SeededJitter(seed) }
 // context.DeadlineExceeded.
 var ErrPreWriteDeadline = engine.ErrPreWriteDeadline
 
+// pin makes the routing choice of the run id in a runtime with a pool: it
+// pins the run to a pool process when it asks for it (pin) or the runtime
+// pins every run (Options.Pool.PinRuns), and otherwise marks it unpinned.
+// It returns the choice, nil without a pool, which the run's calls carry
+// in their context (harness.WithPin), its late ones included, so that no
+// other run's choice, of a later run with the id or of another runtime,
+// routes them; the settlement callback, which also forgets a pin, wrapping
+// settled; and the function to call when the run has ended, which ends the
+// pin's hold on its process. A run that settles is forgotten at its
+// settlement, and one that never settles keeps a pin that holds nothing.
+// A pin that a live run of the id holds, such as a run that a step
+// dispatched, refuses the run with ErrRunInFlight.
+func (rt *Runtime) pin(id string, pin bool, settled func()) (*harness.Pin, func(), func(), error) {
+	switch {
+	case rt.pool == nil:
+		return nil, settled, func() {}, nil
+	case !(pin || rt.pinRuns):
+		return rt.pool.Unpinned(id), settled, func() {}, nil
+	}
+	p, err := rt.pool.PinRun(id)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("%w: %w", ErrRunInFlight, err)
+	}
+	return p, func() {
+			rt.pool.ForgetRun(p)
+			if settled != nil {
+				settled()
+			}
+		}, func() {
+			rt.pool.RunEnded(p)
+		}, nil
+}
+
+// forgetPin drops the pin of a run that did not start, which never
+// settles.
+func (rt *Runtime) forgetPin(p *harness.Pin) {
+	if rt.pool != nil {
+		rt.pool.ForgetRun(p)
+	}
+}
+
 // ErrRunInFlight is Run's error for an id (RunOptions.ID) that a run of the
-// runtime in flight already has. Nothing runs; the id can be used again
+// runtime in flight already has, or, for a pinned run, that a live pinned
+// run that a step dispatched has. Nothing runs; the id can be used again
 // once that run has returned.
 var ErrRunInFlight = errors.New("wl: a run with this id is in flight")
 
@@ -215,8 +314,18 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	defer context.AfterFunc(rt.stop, func() { cancel(context.Cause(rt.stop)) })()
+	if l := opts.Limits; l.MaxInFlight < 0 || l.MaxArgsBytes < 0 || l.MaxHeldBytes < 0 || l.Bytes < 0 {
+		return nil, fmt.Errorf("wl: a run's limits are not negative (RunOptions.Limits: %+v)", l)
+	}
+	// The arguments as given, before an empty text becomes {}.
+	if l := opts.Limits.MaxArgsBytes; l > 0 && len(args) > l {
+		return nil, fmt.Errorf("%w: %d bytes, the limit is %d", ErrRunArgsTooLarge, len(args), l)
+	}
 	if len(bytes.TrimSpace(args)) == 0 {
 		args = json.RawMessage("{}")
+	}
+	if opts.Pin && (rt.state == engine.ModuleStateFresh || rt.host != nil) {
+		return nil, errors.New("wl: a pinned run needs a warm runtime's pool: a fresh runtime starts a process for each step, and in host mode the host is the one process (RunOptions.Pin)")
 	}
 	switch opts.Kind {
 	case "", KindFlow:
@@ -234,7 +343,14 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		}
 		defer rt.exec.end(id)
 		ctx = calls.reportStoreFailures(ctx)
-		req := engine.ScriptRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Around: rt.aroundAt()}
+		req := engine.ScriptRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Around: rt.aroundAt(), MaxHeldBytes: opts.Limits.MaxHeldBytes,
+			Bytes: opts.Limits.Bytes, ByteTotal: rt.byteTotal}
+		p, settled, unpin, err := rt.pin(id, opts.Pin, settled)
+		if err != nil {
+			return nil, err
+		}
+		defer unpin()
+		ctx = harness.WithPin(ctx, p)
 		var s *engine.RunSettlement
 		if settled != nil {
 			// A script job has its own one invocation, which settles it.
@@ -243,6 +359,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		}
 		res, err := rt.eng.RunScript(ctx, req)
 		if err != nil {
+			rt.forgetPin(p)
 			return nil, err
 		}
 		out := &Result{ID: res.ID, Status: StatusSuccess, Result: storedText(res.Result), Warnings: calls.warned()}
@@ -280,15 +397,26 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	if err != nil {
 		return nil, err
 	}
+	p, settled, unpin, err := rt.pin(id, opts.Pin, settled)
+	if err != nil {
+		return nil, err
+	}
+	defer unpin()
+	ctx = harness.WithPin(ctx, p)
+	if h != nil {
+		h.pin = p
+	}
 	var services *platform.Services
-	bind := &runBinding{id: id}
+	bind := &runBinding{id: id, pin: p}
 	if opts.Platform != nil || rt.answersPlatform() || rt.readCache {
 		if services, err = rt.runServices(opts.Platform, bind); err != nil {
+			rt.forgetPin(p)
 			return nil, err
 		}
 	}
 	req := engine.RunRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Seed: opts.Seed, Platform: services,
-		PreWriteDeadline: opts.PreWriteDeadline, Clock: opts.Clock, Jitter: opts.Jitter, Around: rt.aroundAt(), Started: bind.started}
+		PreWriteDeadline: opts.PreWriteDeadline, Clock: opts.Clock, Jitter: opts.Jitter, Around: rt.aroundAt(), Started: bind.started,
+		Limits: engine.RunLimits{MaxInFlight: opts.Limits.MaxInFlight, MaxHeldBytes: opts.Limits.MaxHeldBytes, Bytes: opts.Limits.Bytes, ByteTotal: rt.byteTotal}}
 	if rt.readCache {
 		req.Deviations = append(req.Deviations, "D21")
 	}
@@ -316,6 +444,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	ctx = calls.reportStoreFailures(ctx)
 	tr, err := rt.eng.Run(ctx, req)
 	if err != nil {
+		rt.forgetPin(p)
 		return nil, err
 	}
 	if h != nil {

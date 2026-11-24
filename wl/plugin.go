@@ -333,7 +333,13 @@ func (p *plugin) goHooks() *Hooks {
 	}
 	if p.decl.OnRunSettled {
 		h.OnRunSettled = func(t *Trace) {
-			if err := p.do(context.Background(), "on_run_settled", t.RunID, nil, p.tracePayload("on_run_settled", t), nil); err != nil {
+			// A pinned run's onRunSettled carries its pin, so it reaches
+			// the run's process even after a later run took its id.
+			ctx := context.Background()
+			if pin, ok := settlingPins.Load(t); ok {
+				ctx = harness.WithPin(ctx, pin.(*harness.Pin))
+			}
+			if err := p.do(ctx, "on_run_settled", t.RunID, nil, p.tracePayload("on_run_settled", t), nil); err != nil {
 				p.diag(fmt.Sprintf("windmill-lite: run %s: the host plugin's onRunSettled: %v", t.RunID, err))
 			}
 		}
@@ -390,7 +396,11 @@ func (p *plugin) platform(b *runBinding) (platform.Resources, platform.Variables
 // which holds its settlement and ends when its outcome is decided, and its
 // handle, which latches it.
 type runBinding struct {
-	id  string
+	id string
+	// pin is the run's pin, nil for none: its plugin calls carry it, so
+	// an abandoned step's late call reaches the run's process even after
+	// a later run took its id.
+	pin *harness.Pin
 	mu  sync.Mutex
 	ctx context.Context
 	run engine.Run
@@ -415,6 +425,7 @@ func (b *runBinding) call(ctx context.Context, p *plugin, hook, path string, out
 	if held == nil {
 		held = ctx
 	}
+	ctx = harness.WithPin(ctx, b.pin)
 	err := p.doHeld(ctx, held, hook, b.id, nil, map[string]any{"path": path}, out)
 	if err != nil && run != nil && held.Err() == nil && engine.HookLatchError(ctx, err) != nil {
 		run.Latch(err)
