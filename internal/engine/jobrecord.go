@@ -155,7 +155,7 @@ func (r *run) noInvocationJob(fr *frame, i, idx int, o *outcome) {
 	r.mu.Lock()
 	r.indexLeaf(id, fr, i, idx, !launched)
 	r.mu.Unlock()
-	r.e.platform.JobRegistry().Begin(platform.Job{ID: id, Kind: platform.JobScript, Root: r.rootID, Run: r.id})()
+	r.e.platform.JobRegistry().Begin(platform.Job{ID: id, Kind: platform.JobScript, Root: r.rootID, Run: r.id, Host: r.host})()
 }
 
 // JobRecord renders the record of the job id names (platform.JobView).
@@ -962,7 +962,7 @@ func (r *run) jobScheduled(fr *frame, i, idx int, stored jsonval.Value, identity
 	r.sched[idx] = schedJob{id: id, waiting: true}
 	r.nsched.Add(1)
 	r.mu.Unlock()
-	job := platform.Job{ID: id, Kind: platform.JobScript, Root: r.rootID, Run: r.id}
+	job := platform.Job{ID: id, Kind: platform.JobScript, Root: r.rootID, Run: r.id, Host: r.host}
 	if !identity {
 		// An identity job runs no script: it has no path and no
 		// variables, as noInvocationJob registers it.
@@ -1001,7 +1001,7 @@ func (r *run) subflowScheduled(fr *frame, i, idx int, stored jsonval.Value) *fra
 	c.scheduled = true
 	r.sched[idx] = schedJob{id: c.id, waiting: true}
 	r.mu.Unlock()
-	r.e.platform.JobRegistry().Begin(platform.Job{ID: c.id, Kind: platform.JobFlow, Root: r.rootID, Path: c.path, Run: r.id, View: runView{r}})()
+	r.e.platform.JobRegistry().Begin(platform.Job{ID: c.id, Kind: platform.JobFlow, Root: r.rootID, Path: c.path, Run: r.id, View: runView{r}, Host: r.host})()
 	return c
 }
 
@@ -1012,6 +1012,6 @@ func (r *run) subflowScheduled(fr *frame, i, idx int, stored jsonval.Value) *fra
 func (r *run) unlaunchedSubflow(fr *frame, i int, stored jsonval.Value) *frame {
 	c := r.subflowFrame(fr, i, r.e.prog.Flows[fr.moduleAt(i).Subflow.Path], stored)
 	r.addChild(fr, i, 0, c)
-	r.e.platform.JobRegistry().Begin(platform.Job{ID: c.id, Kind: platform.JobFlow, Root: r.rootID, Path: c.path, Run: r.id, View: runView{r}})()
+	r.e.platform.JobRegistry().Begin(platform.Job{ID: c.id, Kind: platform.JobFlow, Root: r.rootID, Path: c.path, Run: r.id, View: runView{r}, Host: r.host})()
 	return c
 }

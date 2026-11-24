@@ -2,6 +2,7 @@ package platform
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -204,5 +205,117 @@ func TestRegistrationNumbers(t *testing.T) {
 	defer r.Begin(Job{ID: "root", Kind: JobFlow, Run: "root", Host: ws})()
 	if registered, _, _ := r.Job("root"); registered.Gen != derived.Gen {
 		t.Errorf("the derived root's number %d changed to %d when its run registered it", derived.Gen, registered.Gen)
+	}
+}
+
+// With a registry that numbers no registration (Gen 0), as a host's Jobs
+// may, the state of a flow job of workspace A is still not that of B when
+// the id is reused: in the services' own store and in a host's store.
+func TestUserStateWithoutRegistrationNumbers(t *testing.T) {
+	ctx := context.Background()
+	const id = "x"
+	a := scripted{Job{ID: id, Kind: JobFlow, Root: id, Host: Host{Workspace: "ws-a"}}, true}
+	b := scripted{Job{ID: id, Kind: JobFlow, Root: id, Host: Host{Workspace: "ws-b"}}, true}
+	for name, store := range map[string]func(Jobs) FlowUserState{
+		"the services' store": func(j Jobs) FlowUserState { return NewUserStates(j) },
+		"a host's store":      func(Jobs) FlowUserState { return &hostStates{vals: map[string]json.RawMessage{}} },
+	} {
+		jobs := &scriptedJobs{id: id}
+		s := &Services{Jobs: jobs, UserState: store(jobs)}
+		jobs.set(a)
+		if err := s.SetFlowUserStateIn(ctx, id, "k", []byte(`"a"`), "ws-a"); err != nil {
+			t.Fatal(err)
+		}
+		jobs.set(b)
+		if v, _ := s.FlowUserStateIn(ctx, id, "k", "ws-b"); string(v) != "null" {
+			t.Errorf("%s: B read A's %s", name, v)
+		}
+		if err := s.SetFlowUserStateIn(ctx, id, "k", []byte(`"b"`), "ws-b"); err != nil {
+			t.Fatal(err)
+		}
+		jobs.set(a)
+		if v, _ := s.FlowUserStateIn(ctx, id, "k", "ws-a"); string(v) != `"a"` && string(v) != "null" {
+			t.Errorf("%s: A read %s, want its own value or none", name, v)
+		}
+		if v, _ := s.FlowUserStateIn(ctx, id, "k", "ws-a"); string(v) == `"b"` {
+			t.Errorf("%s: A read B's value", name)
+		}
+	}
+}
+
+// The cleanup of a root's ended registration drops only that
+// registration's maps: when a new registration of the id writes before the
+// cleanup runs, and the cleanup finds the id no longer live (it ended in
+// turn), the new registration's value stays until its own cleanup.
+func TestStateCleanupKeepsALaterRegistration(t *testing.T) {
+	ctx := context.Background()
+	const id = "x"
+	b2 := scripted{Job{ID: id, Kind: JobFlow, Root: id, Host: Host{Workspace: "ws-b"}, Gen: 2}, true}
+	ended := scripted{Job{ID: id, Kind: JobFlow, Root: id, Host: Host{Workspace: "ws-b"}, Gen: 2}, false}
+	jobs := &scriptedJobs{id: id}
+	states := NewUserStates(jobs)
+	s := &Services{Jobs: jobs, UserState: states}
+	// The write's three lookups see the new registration; the cleanup's
+	// sees it ended.
+	jobs.set(b2, b2, b2, ended)
+	if err := s.SetFlowUserStateIn(ctx, id, "k", []byte(`"b"`), "ws-b"); err != nil {
+		t.Fatal(err)
+	}
+	states.forgetRoot(id, 1)
+	if m := states.statesAt(b2.job); string(m["k"]) != `"b"` {
+		t.Errorf("the cleanup of registration 1 left registration 2 with %v", m)
+	}
+	states.forgetRoot(id, 2)
+	if m := states.statesAt(b2.job); m != nil {
+		t.Errorf("the cleanup of registration 2 left %v", m)
+	}
+}
+
+// The jobs of a run of workspace B whose run id is a job of workspace A
+// (registered first) are B's: a child flow job with its own view, and a
+// step that falls back to its run's view, which B's registration of the
+// shared id keeps for B. A reads them as unknown ids, and B reads its own.
+// Once both runs have ended, the registry holds none of their jobs, so no
+// view of B's run stays reachable.
+func TestJobsOfACollidingRun(t *testing.T) {
+	r := NewRegistry()
+	s := &Services{Jobs: r}
+	a, b := Host{Workspace: "ws-a"}, Host{Workspace: "ws-b"}
+	endRunA := r.Begin(Job{ID: "run-a", Kind: JobFlow, Run: "run-a", View: argsView("a"), Host: a})
+	endStepA := r.Begin(Job{ID: "x", Kind: JobScript, Root: "run-a", Run: "run-a", Host: a})
+	endRunB := r.Begin(Job{ID: "x", Kind: JobFlow, Run: "x", View: argsView("b"), Host: b})
+	endChild := r.Begin(Job{ID: "child", Kind: JobFlow, Root: "x", Run: "x", View: argsView("child-b"), Host: b})
+	endStepB := r.Begin(Job{ID: "step", Kind: JobScript, Root: "x", Run: "x", Host: b})
+	for _, tc := range []struct{ id, ws, want string }{
+		{"child", "ws-a", "Not found: Job Args not found at name child"},
+		{"step", "ws-a", "Not found: Job Args not found at name step"},
+		{"child", "ws-b", `{"args":"child-b"}`},
+		{"step", "ws-b", `{"args":"b"}`},
+	} {
+		body, err := s.GetJobArgsIn(tc.id, tc.ws)
+		got := string(body)
+		var api *Error
+		if errors.As(err, &api) {
+			got = api.Body()
+		} else if err != nil {
+			got = err.Error()
+		}
+		if got != tc.want {
+			t.Errorf("%s reads %s: %s, want %s", tc.ws, tc.id, got, tc.want)
+		}
+	}
+	endStepB()
+	endChild()
+	endRunB()
+	endStepA()
+	endRunA()
+	r.mu.Lock()
+	held := len(r.jobs)
+	r.mu.Unlock()
+	if held != 0 {
+		t.Errorf("the registry holds %d jobs after both runs ended", held)
+	}
+	if j, live, ok := r.Job("child"); !ok || live || j.View != nil {
+		t.Errorf("B's ended child: %+v, live %v, known %v; want an ended record without a view", j, live, ok)
 	}
 }

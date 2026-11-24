@@ -313,22 +313,27 @@ type Session struct {
 // it runs in become known with it, held by run, whose view renders its
 // record (WA-19).
 func (f *Facade) Register(id, run string, env map[string]string) *Session {
-	return f.register(id, run, env, nil, platform.Host{})
+	return f.register(id, run, env, nil, nil)
 }
 
 // register is Register for an invocation whose run chose its own platform
 // services, p (Caller.Platform), or none, and whose run has the identity
-// host (Caller.Host), which the invocation's job takes too. The caller
-// takes host from its invocation, never from a lookup by its job id,
-// which an InvocationEnv hook may change and another live invocation may
-// share.
-func (f *Facade) register(id, run string, env map[string]string, p *platform.Services, host platform.Host) *Session {
-	e := &entry{caller: Caller{ID: id, Run: run, Env: env, Platform: p, Host: host}, token: env["WM_TOKEN"], idle: make(chan struct{})}
+// host (Caller.Host), when the invocation names it. The caller takes host
+// from its invocation, never from a lookup by its job id, which an
+// InvocationEnv hook may change and another live invocation may share. Its
+// job registers with host, and a job of an invocation that names no host
+// takes its run's.
+func (f *Facade) register(id, run string, env map[string]string, p *platform.Services, host *platform.Host) *Session {
+	e := &entry{caller: Caller{ID: id, Run: run, Env: env, Platform: p}, token: env["WM_TOKEN"], idle: make(chan struct{})}
+	var registered platform.Host
+	if host != nil {
+		e.caller.Host, registered = *host, *host
+	}
 	job := env["WM_JOB_ID"]
 	if job == "" {
 		job = id
 	}
-	e.endJob = f.platform.JobRegistry().Begin(platform.Job{ID: job, Kind: platform.JobScript, Root: env["WM_ROOT_JOB_ID"], Path: env["WM_JOB_PATH"], Env: env, Run: run, Host: host})
+	e.endJob = f.platform.JobRegistry().Begin(platform.Job{ID: job, Kind: platform.JobScript, Root: env["WM_ROOT_JOB_ID"], Path: env["WM_JOB_PATH"], Env: env, Run: run, Host: registered})
 	f.mu.Lock()
 	f.invs[id] = e
 	if e.token != "" {

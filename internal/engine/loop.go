@@ -468,7 +468,7 @@ func (r *run) parallelLoop(ctx context.Context, fr *frame, i int, prev jsonval.V
 	regs := make([]func(), n)
 	for k, c := range children {
 		r.addChild(fr, i, k, c)
-		regs[k] = r.e.platform.JobRegistry().Begin(platform.Job{ID: c.id, Kind: platform.JobFlow, Root: r.rootID, Path: c.path, Run: r.id, View: runView{r}})
+		regs[k] = r.e.platform.JobRegistry().Begin(platform.Job{ID: c.id, Kind: platform.JobFlow, Root: r.rootID, Path: c.path, Run: r.id, View: runView{r}, Host: r.host})
 	}
 	defer func() {
 		for _, end := range regs {

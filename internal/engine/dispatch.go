@@ -162,7 +162,7 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 					reason, canceler := cancellationOf(ctx)
 					return ScriptResult{ID: id, Failed: true, Canceled: true, Result: killedError("", reason, canceler)}, nil
 				}
-				e.registerHit(env, id, nil)
+				e.registerHit(env, id, host, nil)
 				return ScriptResult{ID: id, Result: c.value()}, nil
 			}
 		}

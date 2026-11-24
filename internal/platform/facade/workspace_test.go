@@ -68,7 +68,8 @@ func (m mapStates) SetUserState(_ context.Context, job, key string, v json.RawMe
 // answers from: when the id's entry changes from unknown, or from a job of
 // the caller's workspace, to a job of another workspace between two
 // lookups, the root lookup, the job reads and the flow user state read
-// never answer with the other workspace's job.
+// never answer with the other workspace's job: a job read that finds the
+// entry changed after it rendered answers as for an unknown id.
 func TestJobLookupsAgainstARegistrationChange(t *testing.T) {
 	const job, localRoot, otherRoot = "00000000-0000-4000-8000-0000000000c1", "00000000-0000-4000-8000-0000000000c2", "00000000-0000-4000-8000-0000000000c3"
 	local := platform.Job{ID: job, Kind: platform.JobFlow, Root: localRoot, Run: localRoot, View: namedView("local"), Host: platform.Host{Workspace: "ws-a"}}
@@ -78,7 +79,7 @@ func TestJobLookupsAgainstARegistrationChange(t *testing.T) {
 		otherRoot: {ID: otherRoot, Kind: platform.JobFlow, Root: otherRoot, Host: platform.Host{Workspace: "ws-b"}},
 	}}
 	f := newFacade(t, Config{Platform: &platform.Services{Jobs: jobs, UserState: mapStates{job + "/k": json.RawMessage(`"other's"`)}}})
-	s := f.register("inv-a", localRoot, map[string]string{"WM_JOB_ID": "00000000-0000-4000-8000-0000000000c4", "WM_ROOT_JOB_ID": localRoot, "WM_TOKEN": "tok-a", "WM_WORKSPACE": "ws-a"}, nil, platform.Host{Workspace: "ws-a"})
+	s := f.register("inv-a", localRoot, map[string]string{"WM_JOB_ID": "00000000-0000-4000-8000-0000000000c4", "WM_ROOT_JOB_ID": localRoot, "WM_TOKEN": "tok-a", "WM_WORKSPACE": "ws-a"}, nil, &platform.Host{Workspace: "ws-a"})
 	defer s.End()
 	for _, tc := range []struct {
 		name       string
@@ -94,8 +95,10 @@ func TestJobLookupsAgainstARegistrationChange(t *testing.T) {
 		}},
 		{"of the caller's workspace, then of another", local, true, map[string]string{
 			"jobs_u/get_root_job_id/": `200 "` + localRoot + `"`,
-			"jobs_u/get/":             `200 {"view":"local"}`,
-			"jobs_u/get_args/":        `200 {"args":"local"}`,
+			// The read finds the id changed when it looks again after
+			// rendering, and answers as for an unknown id.
+			"jobs_u/get/":      "404 Not found: Job not found at name " + job,
+			"jobs_u/get_args/": "404 Not found: Job Args not found at name " + job,
 			// The read finds the id changed when it looks again.
 			"jobs/flow/user_states/": "200 null",
 		}},
@@ -126,7 +129,7 @@ func TestStateWriteOfAnotherWorkspace(t *testing.T) {
 	jobs := services.JobRegistry()
 	defer jobs.Begin(platform.Job{ID: mine, Kind: platform.JobFlow, Run: mine, Host: platform.Host{Workspace: "ws-a"}})()
 	defer jobs.Begin(platform.Job{ID: theirs, Kind: platform.JobFlow, Run: theirs, Host: platform.Host{Workspace: "ws-b"}})()
-	s := f.register("inv-a", mine, map[string]string{"WM_JOB_ID": "00000000-0000-4000-8000-0000000000d4", "WM_ROOT_JOB_ID": mine, "WM_TOKEN": "tok-a", "WM_WORKSPACE": "ws-a"}, nil, platform.Host{Workspace: "ws-a"})
+	s := f.register("inv-a", mine, map[string]string{"WM_JOB_ID": "00000000-0000-4000-8000-0000000000d4", "WM_ROOT_JOB_ID": mine, "WM_TOKEN": "tok-a", "WM_WORKSPACE": "ws-a"}, nil, &platform.Host{Workspace: "ws-a"})
 	defer s.End()
 	for _, body := range []string{`"a\u0000b"`, `1`} {
 		write := func(id string) string {
@@ -162,10 +165,10 @@ func TestReadWithAJobIDOfAnotherWorkspace(t *testing.T) {
 	jobs := services.JobRegistry()
 	defer jobs.Begin(platform.Job{ID: runA, Kind: platform.JobFlow, Run: runA, Host: platform.Host{Workspace: "ws-a"}})()
 	defer jobs.Begin(platform.Job{ID: runB, Kind: platform.JobFlow, Run: runB, Host: platform.Host{Workspace: "ws-b"}})()
-	a := f.register("inv-a", runA, map[string]string{"WM_JOB_ID": "00000000-0000-4000-8000-0000000000e4", "WM_FLOW_JOB_ID": runA, "WM_ROOT_JOB_ID": runA, "WM_TOKEN": "tok-a", "WM_WORKSPACE": "ws-a"}, nil, platform.Host{Workspace: "ws-a"})
+	a := f.register("inv-a", runA, map[string]string{"WM_JOB_ID": "00000000-0000-4000-8000-0000000000e4", "WM_FLOW_JOB_ID": runA, "WM_ROOT_JOB_ID": runA, "WM_TOKEN": "tok-a", "WM_WORKSPACE": "ws-a"}, nil, &platform.Host{Workspace: "ws-a"})
 	defer a.End()
 	// A step of ws-b whose hook set its WM_WORKSPACE to ws-a.
-	b := f.register("inv-b", runB, map[string]string{"WM_JOB_ID": stepB, "WM_FLOW_JOB_ID": runB, "WM_ROOT_JOB_ID": runB, "WM_TOKEN": "tok-b", "WM_WORKSPACE": "ws-a"}, nil, platform.Host{Workspace: "ws-b"})
+	b := f.register("inv-b", runB, map[string]string{"WM_JOB_ID": stepB, "WM_FLOW_JOB_ID": runB, "WM_ROOT_JOB_ID": runB, "WM_TOKEN": "tok-b", "WM_WORKSPACE": "ws-a"}, nil, &platform.Host{Workspace: "ws-b"})
 	defer b.End()
 	read := func(path, id string) string {
 		rep := intercept(f, "inv-a", "GET", "http://x/api/w/ws-a/resources/get_value_interpolated/"+path+"?job_id="+id, nil, nil)
@@ -185,5 +188,87 @@ func TestReadWithAJobIDOfAnotherWorkspace(t *testing.T) {
 	rep := intercept(f, "inv-b", "GET", "http://x/api/w/ws-b/resources/get_value_interpolated/u/x/ctx?job_id="+stepB, nil, nil)
 	if got, want := strconv.Itoa(rep.Status)+" "+string(rep.Body), `200 {"j":"`+stepB+`"}`; got != want {
 		t.Errorf("ws-b's read with its own job, through ws-b: %s, want %s", got, want)
+	}
+}
+
+// listingView renders a job's record with its flow user state, which it
+// lists through the services as the engine's run view does.
+type listingView struct{ s *platform.Services }
+
+func (v listingView) JobRecord(id string) ([]byte, error) {
+	states, ok, err := v.s.FlowUserStates(context.Background(), id)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		states = json.RawMessage("null")
+	}
+	return []byte(`{"view":"local","states":` + string(states) + `}`), nil
+}
+
+func (listingView) JobArgs(string) ([]byte, error) { return []byte(`{}`), nil }
+
+// listingStates is mapStates that lists a job's map.
+type listingStates struct{ mapStates }
+
+func (m listingStates) UserStates(_ context.Context, job string) (map[string]json.RawMessage, error) {
+	out := map[string]json.RawMessage{}
+	for k, v := range m.mapStates {
+		if key, ok := strings.CutPrefix(k, job+"/"); ok {
+			out[key] = v
+		}
+	}
+	return out, nil
+}
+
+// A job record lists the flow user state of the registration whose view
+// rendered it: when the id ends and a run of another workspace registers
+// it between the view's choice and the listing, the read answers as for
+// an unknown id, and never with the other workspace's state.
+func TestJobRecordAgainstARegistrationChange(t *testing.T) {
+	const job, localRoot, otherRoot = "00000000-0000-4000-8000-0000000000f1", "00000000-0000-4000-8000-0000000000f2", "00000000-0000-4000-8000-0000000000f3"
+	services := &platform.Services{}
+	view := listingView{services}
+	local := platform.Job{ID: job, Kind: platform.JobFlow, Root: localRoot, Run: localRoot, View: view, Host: platform.Host{Workspace: "ws-a"}, Gen: 1}
+	other := platform.Job{ID: job, Kind: platform.JobFlow, Root: otherRoot, Run: otherRoot, View: view, Host: platform.Host{Workspace: "ws-b"}, Gen: 2}
+	jobs := &changingJobs{id: job, first: local, firstKnown: true, then: other, roots: map[string]platform.Job{
+		localRoot: {ID: localRoot, Kind: platform.JobFlow, Root: localRoot, Host: platform.Host{Workspace: "ws-a"}},
+		otherRoot: {ID: otherRoot, Kind: platform.JobFlow, Root: otherRoot, Host: platform.Host{Workspace: "ws-b"}},
+	}}
+	services.Jobs = jobs
+	services.UserState = listingStates{mapStates{"ws-b/" + job + "/k": json.RawMessage(`"other's"`)}}
+	f := newFacade(t, Config{Platform: services})
+	s := f.register("inv-a", localRoot, map[string]string{"WM_JOB_ID": "00000000-0000-4000-8000-0000000000f4", "WM_ROOT_JOB_ID": localRoot, "WM_TOKEN": "tok-a", "WM_WORKSPACE": "ws-a"}, nil, &platform.Host{Workspace: "ws-a"})
+	defer s.End()
+	rep := intercept(f, "inv-a", "GET", "http://x/api/w/ws-a/jobs_u/get/"+job, nil, nil)
+	if got, want := strconv.Itoa(rep.Status)+" "+string(rep.Body), "404 Not found: Job not found at name "+job; got != want {
+		t.Errorf("the job record: %s, want %s", got, want)
+	}
+}
+
+// A step of a run with no identity of its own, whose run id is a live job
+// of another workspace, registers in windmill-lite, not in the workspace of
+// the job that holds the id: the other workspace reads it as an unknown id,
+// and its own reads it through its run's view.
+func TestStepOfACollidingRun(t *testing.T) {
+	services := &platform.Services{}
+	f := newFacade(t, Config{Platform: services})
+	const runA, shared, stepB = "00000000-0000-4000-8000-0000000000b1", "00000000-0000-4000-8000-0000000000b2", "00000000-0000-4000-8000-0000000000b3"
+	jobs := services.JobRegistry()
+	defer jobs.Begin(platform.Job{ID: runA, Kind: platform.JobFlow, Run: runA, View: namedView("a"), Host: platform.Host{Workspace: "ws-a"}})()
+	// A's step, whose hook gave it the id of B's run.
+	a := f.register("inv-a", runA, map[string]string{"WM_JOB_ID": shared, "WM_ROOT_JOB_ID": runA, "WM_TOKEN": "tok-a", "WM_WORKSPACE": "ws-a"}, nil, &platform.Host{Workspace: "ws-a"})
+	defer a.End()
+	defer jobs.Begin(platform.Job{ID: shared, Kind: platform.JobFlow, Run: shared, View: namedView("b"), Host: platform.Host{}})()
+	b := f.register("inv-b", shared, map[string]string{"WM_JOB_ID": stepB, "WM_FLOW_JOB_ID": shared, "WM_ROOT_JOB_ID": shared, "WM_TOKEN": "tok-b", "WM_WORKSPACE": "windmill-lite"}, nil, &platform.Host{})
+	defer b.End()
+	for _, tc := range []struct{ inv, ws, want string }{
+		{"inv-a", "ws-a", "404 Not found: Job Args not found at name " + stepB},
+		{"inv-b", "windmill-lite", `200 {"args":"b"}`},
+	} {
+		rep := intercept(f, tc.inv, "GET", "http://x/api/w/"+tc.ws+"/jobs_u/get_args/"+stepB, nil, nil)
+		if got := strconv.Itoa(rep.Status) + " " + string(rep.Body); got != tc.want {
+			t.Errorf("%s reads B's step: %s, want %s", tc.ws, got, tc.want)
+		}
 	}
 }

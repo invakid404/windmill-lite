@@ -725,7 +725,7 @@ func (r *run) runList(ctx context.Context, fr *frame) (e flowEnd) {
 		// whose parent_job names it gets its runnable path (WA-15), and its
 		// id answers root lookups and job reads, whether or not one of its
 		// steps has registered yet. Its record shows its end (WA-19).
-		defer r.e.platform.JobRegistry().Begin(platform.Job{ID: fr.id, Kind: platform.JobFlow, Root: r.rootID, Path: fr.path, Run: r.id, View: runView{r}})()
+		defer r.e.platform.JobRegistry().Begin(platform.Job{ID: fr.id, Kind: platform.JobFlow, Root: r.rootID, Path: fr.path, Run: r.id, View: runView{r}, Host: r.host})()
 		defer func() { r.childEnded(fr, e) }()
 	}
 	if fr.limit > 0 {
