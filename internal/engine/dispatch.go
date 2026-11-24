@@ -290,18 +290,22 @@ type Dispatcher struct {
 // returns the context the run runs in, the run's limits, and two
 // functions, either of which may be nil: ended, called once the run has
 // ended, and settled, called once it has settled, or at once for a run
-// that did not start. Its error refuses the dispatch. It is not called
-// once Close has begun, and Close waits for a call under way, and for the
-// end and settlement calls of a run that it then keeps from starting. A
-// host gives the runs it starts itself the same, such as their pin and the
-// runtime's byte total (ADR 0004 §Pooling).
+// that did not start. Its error refuses the dispatch. The boundary with
+// Close is a dispatch's admission: a dispatch that a closing dispatcher
+// refuses calls none of these. One admitted before may call DispatchRun
+// while Close runs, its context then canceled; Close waits for that call
+// and, for a run that it then keeps from starting, its end and settlement
+// calls, as long as the context given to Close allows. A host gives the
+// runs it starts itself the same, such as their pin and the runtime's byte
+// total (ADR 0004 §Pooling).
 type DispatchRun func(ctx context.Context, id string) (_ context.Context, limits RunLimits, ended, settled func(), err error)
 
 // SetRuns makes f take part in each run that the dispatcher starts. Call
 // it before the dispatcher's first run.
 func (x *Dispatcher) SetRuns(f DispatchRun) { x.prepare = f }
 
-// errClosedDispatcher is Dispatch's error once Close has begun.
+// errClosedDispatcher is Dispatch's refusal of a dispatch once Close has
+// begun.
 var errClosedDispatcher = errors.New("engine: the dispatcher is closed")
 
 // preparedRun is what the host gives a dispatched run (DispatchRun).

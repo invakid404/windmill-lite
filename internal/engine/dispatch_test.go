@@ -261,11 +261,12 @@ func TestDispatcherDetachedAndClose(t *testing.T) {
 	}
 }
 
-// The host's part in a dispatched run (SetRuns) never runs once Close has
-// begun: a dispatch after Close calls none of it. A dispatch admitted
-// before Close is waited for, its preparation and its cleanup included:
-// once Close has begun, the prepared run does not start, and Close returns
-// only after its end and settlement calls.
+// A dispatch that a closing dispatcher refuses calls none of the host's
+// part in the run (SetRuns). A dispatch admitted before Close is waited
+// for, its preparation and its cleanup included: here its preparation is
+// under way when Close begins, the prepared run does not start, and Close,
+// with a context that does not end, returns only after the run's end and
+// settlement calls.
 func TestDispatcherCloseAndTheHostPart(t *testing.T) {
 	e := openWithPlatform(t, map[string]string{}, &scripts{}, testServices(t))
 	var prepared, ended, settled atomic.Int32
