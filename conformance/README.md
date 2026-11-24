@@ -842,11 +842,13 @@ The cases cover:
   names, and a run's own hooks and budgets as the run carries them;
 - settlement: a run settles only once its hooks and providers finish; and
   later runs of a flow (`then`);
-- step code's `wl.latch` and `wl.signal`.
+- step code's `wl.latch` and `wl.signal`;
+- a pinned run whose plugin state stays whole in a pool of two processes.
 
 The same cases run through a TypeScript plugin in `warm` processes and in host
 mode, and through Go callbacks built from the same plugin, except a case with
-`go: false`, which runs only through the TypeScript plugin.
+`go: false`, which runs only through the TypeScript plugin. A case with a
+`pool` of its own runs only in `warm` processes, in a runtime of its own.
 
 To add a plugin case:
 

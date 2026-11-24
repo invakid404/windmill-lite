@@ -2370,6 +2370,7 @@ engine on the real Bun harness in `wltest check`
 | `retain_test.go` | `TestSettledRunLetsGoOfItsValues`: a settled run's step results become unreachable (weak pointers), while a run that ended with an invocation still open gets late output and keeps its values until it settles |
 | `cancel_test.go` | `TestSubflowCanceledWhileWaiting`: a flow step canceled while it waits fails at pickup and lists its subflow's modules, none started |
 | `precedence_test.go` | `Start`, `Completion` and `AfterContinue`, case by case and over every combination of signals |
+| `limits_test.go` | The limits per run on the gated executor: `MaxInFlight` over a parallel branchall, with `D15` (`TestRunMaxInFlight`), and `MaxHeldBytes` from a step's result and from the arguments (`TestRunHeldBytes`). A reservation returns at its invocation's settlement, under the runtime's total too (`TestByteBudgetReturnsAtSettlement`) |
 | `outcome_test.go` | Every row of `StoreOutcome`, `ManualFailure`, `FailureValue`, `LogTail`, `Entrypoint` and its walks, `TimeoutError` |
 | `hooks_test.go` | `NoHooks`, `HookLatchError`, the latch under concurrency, `RealClock.Wait` |
 | `storage_test.go` | `storeMembers`' held values; `argsWithoutNUL` |

@@ -126,7 +126,7 @@ fields are in `go doc`.
 
 | Name | Kind | What it does | Who calls it |
 |---|---|---|---|
-| `PluginFile`, `PluginCase` | structs | The plugin file; one case ([Host-plugin cases](#host-plugin-cases)) | `wl`, `cmd/windmill-lite` tests |
+| `PluginFile`, `PluginCase`, `PluginPool` | structs | The plugin file; one case; the pool of a case that has a runtime of its own ([Host-plugin cases](#host-plugin-cases)) | `wl`, `cmd/windmill-lite` tests |
 | `PluginSpec`, `PluginFailure` | structs | A case's declarative plugin; how one of its providers fails for a path | `wl`, `cmd/windmill-lite` tests |
 | `PluginRun`, `PluginThen`, `PluginExpect` | structs | A run's own hooks and budgets; one later run of the case; what a run expects | `wl`, `cmd/windmill-lite` tests |
 | `LoadPluginFile` | function | Read and check the plugin file | `wl`, `cmd/windmill-lite` tests |
@@ -685,12 +685,13 @@ its hosts, not Windmill's, so the oracle never records them.
 | `cases` | list, required | At the top of the file: the cases, at least one |
 | `id`, `spec`, `title` | string, list of strings, string; `id` required and unique | The case's id, findings and title |
 | `flow` | object, required | The flow's value |
-| `plugin` | object, required; `{}` for a case with no hooks | The case's declarative plugin: `intercept`, `rewrite_args`, `halt_before` and `halt_after`, `write_capable`, `first_write`, `fatal_error_names`, `around`, `observe`, `env`, `variables`, `fail_variables`, `fail_resources`, `slow_start_ms`, `providers`, `warnings`. The header of [`hooks.yaml`](../../conformance/plugins/hooks.yaml) says what each does |
+| `plugin` | object, required; `{}` for a case with no hooks | The case's declarative plugin: `intercept`, `rewrite_args`, `halt_before` and `halt_after`, `write_capable`, `first_write`, `fatal_error_names`, `around`, `observe`, `env`, `variables`, `fail_variables`, `fail_resources`, `slow_start_ms`, `providers`, `warnings`, `state`. The header of [`hooks.yaml`](../../conformance/plugins/hooks.yaml) says what each does |
 | `provided` | list of `{module, provider}`, optional | The case's provided sites: each `module` and the `provider` that answers it |
 | `run` | object, optional | The run's own hooks and budgets, which a Go host gives in `RunOptions` and a TypeScript host in its run frame: `write_capable`, `halt_before`, `halt_after`, `fatal_error_names`, `deadline_ms`, `pre_write_deadline_ms` (0 for a deadline that has already passed), `clock` |
 | `expect` | object, required; `status` required | The run's `status`, `may_have_mutated`, `result`, `latched` (a text of the latched error), the plugin's `log`, its `warnings`, the sites that ran no job (`not_ran`), the run's `deviations` and, for a canceled run, its `cancel_cause` |
 | `then` | list of `{run, expect}`, optional | More runs of the case's flow, each with its own `run` and `expect`, after its run on the same runtime and, in host mode, on the same connection |
-| `go` | boolean; default `true` | `false` runs the case only through the TypeScript plugin, as a failing or slow plugin needs |
+| `go` | boolean; default `true` | `false` runs the case only through the TypeScript plugin, as a failing or slow plugin needs, and a plugin that keeps state |
+| `pool` | `{max, lag_threshold_ms, pin_runs}`, optional; needs `go: false` | Runs the case in a `warm` runtime of its own with these pool settings, and not in host mode, whose host is one process (`PluginCase.RunsHost`) |
 
 The cases run through a TypeScript plugin
 (`harnesses/bun/test/caseplugin.ts`) and through Go callbacks

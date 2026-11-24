@@ -29,6 +29,9 @@
 #   around: [{module, throw: before | after}]: logs around-before:<site>
 #     and around-after:<site>:<outcome> (TypeScript only)
 #   observe: true: logs start:<site> and end:<site>:<status> (H6)
+#   state: true: keeps a count per run in the copy of the plugin that
+#     answers, which each onModuleStart raises and logs as
+#     state:<site>:<count> (TypeScript only)
 #   env: {name: value}: H12 sets them in each invocation's environment
 #   variables: {path: value}: H13's provider bridge answers them
 #   fail_variables / fail_resources: {path: {throw | delay_ms}}: H13's
@@ -63,6 +66,10 @@
 #   expect as above: on the same runtime, and in host mode on the same
 #   connection, so a run's own hooks must not reach them.
 # go: false runs a case only through the TypeScript plugin.
+# pool: {max, lag_threshold_ms, pin_runs}: the case runs in a warm runtime of
+#   its own with these pool settings (wl.PoolOptions Max, LagThreshold,
+#   PinRuns), only through the TypeScript plugin in warm processes: host
+#   mode has one process, and Go callbacks keep no state in one (go: false).
 # timeout_ms: the plugin timeout of the runtimes that run these cases.
 timeout_ms: 1000
 scripts:
@@ -107,6 +114,14 @@ scripts:
         });
       } catch {}
       return 1;
+    }
+  f/plugins/spin.ts: |
+    // Keeps its process's event loop busy for ms milliseconds, so that the
+    // process's heartbeat comes late and the pool reads it as lagging.
+    export async function main(ms: number) {
+      const end = performance.now() + ms;
+      while (performance.now() < end) {}
+      return ms;
     }
   f/plugins/latch.ts: |
     // Latches its run through the step API (H5), then returns a value
@@ -644,3 +659,18 @@ cases:
     run: {deadline_ms: 200}
     expect: {status: canceled}
     go: false
+  - id: pinned_state
+    spec: [H6, H9]
+    title: >-
+      a pinned run's hook calls reach one process, so a plugin's state per run
+      stays whole, while a step that spins past a heartbeat makes that process
+      lag in a pool of two
+    flow:
+      modules:
+        - {id: a, value: {type: script, path: f/plugins/spin, input_transforms: {ms: {type: static, value: 1300}}}}
+        - {id: b, value: {type: script, path: f/plugins/label, input_transforms: {label: {type: static, value: b}}}}
+        - {id: c, value: {type: script, path: f/plugins/label, input_transforms: {label: {type: static, value: c}}}}
+    plugin: {state: true}
+    pool: {max: 2, lag_threshold_ms: 50, pin_runs: true}
+    go: false
+    expect: {status: success, result: c, log: ["state:m:a:1", "state:m:b:2", "state:m:c:3"]}

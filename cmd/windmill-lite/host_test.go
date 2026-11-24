@@ -1504,6 +1504,11 @@ func TestHostPluginCases(t *testing.T) {
 		fmt.Sprintf("WL_ENGINE_FLAGS=-plugin-timeout %dms", f.TimeoutMS))
 	var runs []string
 	for _, c := range f.Cases {
+		if !c.RunsHost() {
+			// A host is one process: a case with a pool of its own runs
+			// only in warm processes (go test ./wl).
+			continue
+		}
 		t.Run(c.ID, func(t *testing.T) {
 			// A case's later runs share the host's one connection with its
 			// first: a run's own hooks are that run's alone.

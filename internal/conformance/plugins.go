@@ -18,7 +18,9 @@ import (
 // plugin in warm harness processes and in host mode: its callbacks over
 // host_call, and its around wrappers around each invocation, in the process
 // that runs it. Unless the case sets go: false, it also runs through Go
-// callbacks built from the same plugin, with the same expectations.
+// callbacks built from the same plugin, with the same expectations. A case
+// with a pool of its own runs only through the TypeScript plugin in warm
+// harness processes.
 
 // PluginFile is a plugin case file.
 type PluginFile struct {
@@ -54,6 +56,18 @@ type PluginCase struct {
 	Then []PluginThen `json:"then"`
 	// Go, when false, runs the case only through the TypeScript plugin.
 	Go *bool `json:"go"`
+	// Pool, when set, runs the case in a warm runtime of its own with these
+	// pool settings, and only there: host mode has one process, and Go
+	// callbacks keep no state in a harness process, so it needs go: false.
+	Pool *PluginPool `json:"pool"`
+}
+
+// PluginPool is the pool of a case's own warm runtime (wl.PoolOptions): its
+// maximum, its lag threshold, and whether every run is pinned.
+type PluginPool struct {
+	Max            int  `json:"max"`
+	LagThresholdMS int  `json:"lag_threshold_ms"`
+	PinRuns        bool `json:"pin_runs"`
 }
 
 // PluginSpec is a declarative plugin (the file's header says what each
@@ -102,6 +116,9 @@ type PluginSpec struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
 	} `json:"warnings"`
+	// State keeps a count per run in the plugin, in the process that
+	// answers: each onModuleStart raises it and logs state:<site>:<count>.
+	State bool `json:"state"`
 }
 
 // PluginFailure is how an H13 provider of a case plugin fails for a path.
@@ -226,6 +243,13 @@ func LoadPluginFile(path string) (*PluginFile, error) {
 		if h := c.Hooks; (len(h.FailVariables) > 0 || len(h.FailResources) > 0 || h.SlowStartMS > 0) && c.RunsGo() {
 			return nil, fmt.Errorf("%s: case %s: a plugin that fails or is slow runs only through TypeScript (go: false)", path, c.ID)
 		}
+		// Go callbacks keep no state in a harness process.
+		if (c.Hooks.State || c.Pool != nil) && c.RunsGo() {
+			return nil, fmt.Errorf("%s: case %s: a plugin that keeps state, or a case with a pool of its own, runs only through TypeScript (go: false)", path, c.ID)
+		}
+		if p := c.Pool; p != nil && (p.Max < 1 || p.LagThresholdMS < 0) {
+			return nil, fmt.Errorf("%s: case %s: a pool's max is at least 1 and its lag threshold is not negative", path, c.ID)
+		}
 	}
 	if len(f.Cases) == 0 {
 		return nil, errors.New(path + ": no cases")
@@ -241,6 +265,10 @@ func (c PluginCase) FlowPath() string { return "f/plugins/" + c.ID }
 
 // RunsGo reports whether the case runs through Go callbacks too.
 func (c PluginCase) RunsGo() bool { return c.Go == nil || *c.Go }
+
+// RunsHost reports whether the case runs in host mode too: a case with a
+// pool of its own does not, since a host is one process.
+func (c PluginCase) RunsHost() bool { return c.Pool == nil }
 
 // WriteFolder writes the file's sync folder below dir: wmill.yaml, the
 // scripts and each case's flow.

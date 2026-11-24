@@ -163,12 +163,30 @@ func TestPluginCases(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer rt.Close()
+		// The runtimes of the cases with a pool of their own, closed once
+		// every run has settled.
+		var own []*Runtime
+		defer func() {
+			for _, o := range own {
+				o.Close()
+			}
+		}()
 		var runs []string
 		for _, c := range f.Cases {
 			t.Run(c.ID, func(t *testing.T) {
+				run := rt
+				if p := c.Pool; p != nil {
+					o, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, PluginTimeout: timeout,
+						Pool: PoolOptions{Max: p.Max, LagThreshold: time.Duration(p.LagThresholdMS) * time.Millisecond, PinRuns: p.PinRuns}})
+					if err != nil {
+						t.Fatal(err)
+					}
+					own = append(own, o)
+					run = o
+				}
 				for i, r := range caseRuns(c) {
 					ctx, cancel, opts := caseRun(c, r.Run, RunOptions{})
-					res, err := rt.Run(ctx, c.FlowPath(), json.RawMessage(`{}`), opts)
+					res, err := run.Run(ctx, c.FlowPath(), json.RawMessage(`{}`), opts)
 					cancel()
 					if err != nil {
 						t.Fatalf("run %d: %v", i, err)
