@@ -580,7 +580,11 @@ test("data that JSON.stringify encodes as nothing refuses the run, and data it t
     for (const bad of [Symbol("s"), () => 1, { toJSON: () => undefined }]) {
       expect(await code(host.run("f/x", { echo: true }, { data: bad }))).toBe("refused");
     }
-    const thrown = await host.run("f/x", { echo: true }, { data: 10n }).then(
+    // A cyclic value: JSON.stringify throws on it whatever the process has
+    // patched (a BigInt, say, encodes once BigInt.prototype.toJSON is set).
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    const thrown = await host.run("f/x", { echo: true }, { data: cyclic }).then(
       () => undefined,
       (e: unknown) => e,
     );
