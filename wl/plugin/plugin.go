@@ -59,6 +59,12 @@ type RunnerPlugin struct {
 	// slow run-end hook can exceed. Zero means DefaultReplyMargin; a
 	// negative margin refuses to dispense.
 	ReplyMargin time.Duration
+
+	// PluginTimeout is the engine's plugin_timeout_ms, after which
+	// Client.RunWithHooks first asks GetRun about a run's hooks
+	// registration. Zero means DefaultPluginTimeout; a negative timeout
+	// refuses to dispense.
+	PluginTimeout time.Duration
 }
 
 var _ goplugin.GRPCPlugin = (*RunnerPlugin)(nil)
@@ -81,7 +87,16 @@ func (p *RunnerPlugin) GRPCClient(_ context.Context, b *goplugin.GRPCBroker, cc 
 	case margin == 0:
 		margin = DefaultReplyMargin
 	}
-	return newClient(cc, b, margin), nil
+	timeout := p.PluginTimeout
+	switch {
+	case timeout < 0:
+		return nil, fmt.Errorf("wl/plugin: negative PluginTimeout %v", timeout)
+	case timeout == 0:
+		timeout = DefaultPluginTimeout
+	}
+	c := newClient(cc, b, margin)
+	c.hooks.timeout = timeout
+	return c, nil
 }
 
 // newClient returns the Client of the connection cc.
@@ -92,5 +107,11 @@ func newClient(cc grpc.ClientConnInterface, b *goplugin.GRPCBroker, margin time.
 		broker: b,
 		margin: margin,
 		now:    time.Now,
+		conn:   cc,
+		hooks:  hooks{timeout: DefaultPluginTimeout, regs: map[string]*registration{}, done: make(chan struct{})},
+		timer: func(d time.Duration) (<-chan time.Time, func() bool) {
+			t := time.NewTimer(d)
+			return t.C, t.Stop
+		},
 	}
 }

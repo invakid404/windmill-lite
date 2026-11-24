@@ -71,6 +71,54 @@ var TraceJSON func(t *engine.Trace, level string) ([]byte, error)
 // sets it when it is initialized.
 var OnPoolStartFailure func(rt any, f func(error))
 
+// RunHooks are a run's hooks on a host's connection (ADR 0009, hooks
+// across the plugin boundary): a host plugin's declaration, as JSON, and
+// the function that sends one call of them and returns its answer. The
+// calls have a host plugin's host_call hook names and payloads, and a hook
+// that the host failed returns a *wl.HostCallError.
+type RunHooks struct {
+	Declaration []byte
+	Call        func(ctx context.Context, hook, run, site string, payload []byte) ([]byte, error)
+}
+
+type runHooksKey struct{}
+
+// WithRunHooks returns ctx carrying a flow run's hooks on a host's
+// connection: wl's Runtime.Run makes them the hooks of the flow run that it
+// starts with ctx, its own, ahead of the runtime's host plugin, and refuses
+// the run when their declaration is not one or declares around.
+func WithRunHooks(ctx context.Context, h RunHooks) context.Context {
+	return context.WithValue(ctx, runHooksKey{}, h)
+}
+
+// RunHooksOf returns the run's hooks that ctx carries.
+func RunHooksOf(ctx context.Context) (RunHooks, bool) {
+	h, ok := ctx.Value(runHooksKey{}).(RunHooks)
+	return h, ok
+}
+
+type settledKey struct{}
+
+// WithSettled returns ctx making wl's Runtime.Run call f once the run that
+// it starts with ctx has settled: its outcome decided, and every invocation
+// and hook call that it started settled. That may be never, and is never
+// for a run that does not start.
+func WithSettled(ctx context.Context, f func()) context.Context {
+	return context.WithValue(ctx, settledKey{}, f)
+}
+
+// Settled returns the function that ctx carries (WithSettled), or nil.
+func Settled(ctx context.Context) func() {
+	f, _ := ctx.Value(settledKey{}).(func())
+	return f
+}
+
+// BrokerProviders makes opts, a *wl.Options, answer each named provider of
+// names with the hooks of the run that reaches it (WithRunHooks); one whose
+// hooks do not serve it latches there. Package wl sets it when it is
+// initialized.
+var BrokerProviders func(opts any, names []string)
+
 // DispatchIdle returns a channel that is closed once no run that rt, a
 // *wl.Runtime, dispatched for a step is in flight, through a delayed start
 // too: at once if none is. A run that one in flight dispatches before it

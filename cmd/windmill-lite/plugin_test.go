@@ -858,38 +858,6 @@ func TestPluginRefusalDetail(t *testing.T) {
 	}
 }
 
-// TestPluginStagedFields checks the fields that the engine does not serve
-// yet: a request that sets one is refused with INVALID_ARGUMENT, naming
-// it, and the RUN_NOT_STARTED detail, and a configuration that sets one
-// refuses the start, naming it, rather than running without it.
-func TestPluginStagedFields(t *testing.T) {
-	bun, out := pluginBundle(t)
-	e := launchPlugin(t, pluginConfigOf(t, bun, out))
-	for _, c := range []struct {
-		field string
-		req   *plugin.RunRequest
-	}{
-		{"hooks", &plugin.RunRequest{Path: "f/plugin/echo", Hooks: &plugin.Hooks{BrokerId: 1, Token: "t"}}},
-	} {
-		_, err := e.run(c.req)
-		checkRefused(t, "a request with "+c.field, err, codes.InvalidArgument, c.field)
-	}
-
-	for _, c := range []struct {
-		field string
-		set   func(map[string]any)
-	}{
-		{`providers["tenants"]`, func(m map[string]any) { m["providers"] = map[string]any{"tenants": "broker"} }},
-	} {
-		cfg := pluginConfigOf(t, bun, out)
-		c.set(cfg)
-		code, stderr := startRefused(t, cfg)
-		if code != 1 || !strings.Contains(stderr, c.field) {
-			t.Errorf("a configuration with %s: exit %d, stderr %q; want 1, naming the field", c.field, code, stderr)
-		}
-	}
-}
-
 // startFails starts the engine directly, as go-plugin would, with the
 // configuration cfg and env added to its environment, and returns its exit
 // code and standard error once it exits, at most a minute later. Unlike
@@ -1003,6 +971,7 @@ const swapBundleEnv = "WL_TEST_PLUGIN_SWAP_BUNDLE"
 // installPluginTestHooks installs, in the engine that TestMain starts, the
 // hooks that the plugin tests set through the environment.
 func installPluginTestHooks() {
+	installTokenBound()
 	if file := os.Getenv(holdOpenEnv); file != "" {
 		beforeOpen = func() {
 			for until := time.Now().Add(2 * time.Minute); time.Now().Before(until); time.Sleep(10 * time.Millisecond) {

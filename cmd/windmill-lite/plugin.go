@@ -238,7 +238,11 @@ func runPlugin(args []string, stderr io.Writer) int {
 		wlext.OnPoolStartFailure(r.rt, func(err error) {
 			drain("the warm pool failed to start a harness process: " + err.Error())
 		})
-		var runner plugin.RunnerServer = host.New(host.Config{Runtime: r.rt, Labels: cfg.Labels, ConfigDigest: digest})
+		var runner plugin.RunnerServer = host.New(host.Config{
+			Runtime: r.rt, Labels: cfg.Labels, ConfigDigest: digest,
+			Broker: srv.broker.Load, PluginTimeout: opts.PluginTimeout, TokenBound: tokenBound,
+			OnTokenBound: func() { drain("the engine keeps its bound of tokens that GetRun answered gone for") },
+		})
 		if wrapRunner != nil {
 			runner = wrapRunner(runner)
 		}
@@ -497,6 +501,10 @@ var beforePublish func(stopped <-chan struct{})
 // Tests use it to hold a Run call's answer; it is nil otherwise.
 var wrapRunner func(plugin.RunnerServer) plugin.RunnerServer
 
+// tokenBound is how many tokens that GetRun answered gone for the engine
+// keeps before it drains; zero means host.DefaultTokenBound. Tests lower it.
+var tokenBound int
+
 // beforeServe, when set, is called just before the engine serves. Tests
 // use it to hold the engine there; it is nil otherwise.
 var beforeServe func()
@@ -516,12 +524,16 @@ var beforeHandshake func()
 type servedRunner struct {
 	plugin.RunnerPlugin
 	served atomic.Bool
+	// broker is go-plugin's broker of the connection, on which the host
+	// serves the runs' hooks.
+	broker atomic.Pointer[goplugin.GRPCBroker]
 }
 
 func (p *servedRunner) GRPCServer(b *goplugin.GRPCBroker, s *grpc.Server) error {
 	if err := p.RunnerPlugin.GRPCServer(b, s); err != nil {
 		return err
 	}
+	p.broker.Store(b)
 	p.served.Store(true)
 	return nil
 }
@@ -658,11 +670,6 @@ func decodePluginConfig(data []byte) (*pluginConfig, error) {
 	}
 	if c.Bundle == "" {
 		return nil, errors.New("bundle: required")
-	}
-	for _, name := range slices.Sorted(maps.Keys(c.Providers)) {
-		if c.Providers[name].Broker {
-			return nil, fmt.Errorf("providers[%q]: this engine does not serve broker providers yet", name)
-		}
 	}
 	for _, path := range slices.Sorted(maps.Keys(c.Variables)) {
 		v := c.Variables[path]
@@ -824,12 +831,20 @@ func (c *pluginConfig) options(stderr io.Writer) (wl.Options, func(), error) {
 	}
 	if len(c.Providers) > 0 {
 		opts.Providers = make(map[string]wl.Provider, len(c.Providers))
+		var broker []string
 		for name, p := range c.Providers {
+			if p.Broker {
+				broker = append(broker, name)
+				continue
+			}
 			value := p.Value
 			opts.Providers[name] = func(context.Context, wl.Call) (wl.Outcome, bool, error) {
 				return wl.Outcome{Result: value}, true, nil
 			}
 		}
+		// A provider set to broker is answered by the hooks of the run that
+		// reaches it, on the host's broker connection.
+		wlext.BrokerProviders(&opts, broker)
 	}
 	if p := c.Pool; p != nil {
 		opts.Pool = wl.PoolOptions{

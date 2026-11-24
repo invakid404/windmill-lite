@@ -5,9 +5,8 @@
 [go-plugin adapter](../docs/design/0009-host-adapters.md#the-go-plugin-adapter),
 and the `HostHooks` service that a host serves on go-plugin's broker. Their
 Go code is generated into [wl/plugin](../wl/plugin/README.md) and
-committed. The engine serves `Runner`
-([internal/host](../internal/host/README.md)); its client of `HostHooks`
-is planned.
+committed. The engine serves `Runner` and calls `HostHooks`
+([internal/host](../internal/host/README.md)).
 
 This README covers `proto/`: the service definitions and the script that
 generates their Go code.

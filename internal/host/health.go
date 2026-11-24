@@ -320,9 +320,20 @@ func (r gatedRunner) Cancel(ctx context.Context, req *plugin.CancelRequest) (*pl
 	return nil, status.Error(codes.Unavailable, errStarting)
 }
 
+// GetRun goes to the Server while the engine serves. While it drains, a
+// lookup answers UNAVAILABLE without the RUN_NOT_STARTED detail: it says
+// nothing about a run, which may have succeeded, and the host keeps its
+// registration until the engine's generation ends.
 func (r gatedRunner) GetRun(ctx context.Context, req *plugin.GetRunRequest) (*plugin.GetRunResponse, error) {
-	if _, srv, _ := r.g.current(); srv != nil {
+	switch state, srv, _ := r.g.current(); {
+	case state == Serving:
 		return srv.GetRun(ctx, req)
+	case state == Draining:
+		return nil, status.Error(codes.Unavailable, errDrainingLookup)
 	}
 	return nil, status.Error(codes.Unavailable, errStarting)
 }
+
+// errDrainingLookup is the message of a GetRun that the engine refuses
+// while it drains.
+const errDrainingLookup = "draining: the engine drains and answers no lookup"

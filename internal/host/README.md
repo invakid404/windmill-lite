@@ -1,9 +1,9 @@
 # internal/host
 
 **Current state:** the `windmill_lite.v1.Runner` gRPC service over one
-[wl](../../wl/README.md) runtime: `Run`, `Cancel` and `GetBuildInfo`.
-`GetRun` answers `UNIMPLEMENTED`, and a request with `hooks` is refused,
-until the engine serves the host's hooks on go-plugin's broker. A `Gate`
+[wl](../../wl/README.md) runtime: `Run`, `Cancel`, `GetBuildInfo` and
+`GetRun`, and a flow run's hooks, which the host answers on go-plugin's
+broker. A `Gate`
 answers gRPC health from the engine's state, Starting, Serving or
 Draining, and refuses the calls while the engine starts, and new runs
 while it drains. The plain gRPC and HTTP adapters
@@ -25,11 +25,19 @@ returns a `*Server`, a `plugin.RunnerServer` that `plugin.RunnerPlugin`
 registers on a gRPC server. It never closes the runtime. `Config.Now`, nil
 by default, is the clock that stamps a request's receipt; tests set it.
 
+The rest of `Config` serves the runs' hooks
+([A run's hooks on the broker](#a-runs-hooks-on-the-broker)).
+`Config.Broker` returns go-plugin's broker of the connection; without one,
+a request with `hooks` is refused. `Config.PluginTimeout` bounds the
+release call, 60 s when zero. `Config.TokenBound`, 65,536 when zero, is the
+bound of gone tokens, and `Config.OnTokenBound` is called once at it.
+
 | Call | What it does |
 |---|---|
 | `GetBuildInfo` | The runtime's `BuildInfo`, with `protocol_version` 1, the configuration's labels and its digest |
 | `Run` | Maps the request to `Runtime.Run`, and answers the run's `RunResult` or a refusal |
 | `Cancel` | Cancels the run in flight with the id, with a `wl.Cancellation` of the request's reason and canceler. An id of no run in flight answers `NOT_FOUND` |
+| `GetRun` | Says whether the engine still holds the run of a hooks registration, by its id and token: `held` or `gone` |
 
 ## How a request maps to a run
 
@@ -49,16 +57,15 @@ by default, is the clock that stamps a request's receipt; tests set it.
 | `pin` | `RunOptions.Pin`: the run keeps one harness process. A runtime without a `warm` pool refuses it |
 | `limits` | `RunOptions.Limits`: `max_in_flight`, `max_args_bytes`, `max_held_bytes` and the byte budget `bytes`, each 0 for none. A negative limit refuses the run, and so does a count that an `int` cannot hold |
 | `trace` | The level of the result's trace: `none` or empty, `summary` or `full` |
+| `hooks` | The run's hooks on go-plugin's broker: the broker id of the host's `HostHooks` connection, the registration's token and a host plugin's declaration |
 
 - **A root script's run** takes `id`, `kind`, `path`, `args`,
   `deadline_ms`, `identity`, `run_data`, `pin` and the trace level `none`.
   Any other field that the request sets refuses the run, naming the field.
-- **A field that the engine does not serve yet:** `hooks` refuses every
-  run, naming the field.
 - **Fields that the engine does not know,** which a newer host's request
   can hold, refuse the run, naming their field numbers. So do those of
-  `identity`, of `limits`, and of each value of `resources` and
-  `variables`, naming the field that holds them.
+  `identity`, of `limits`, of `hooks`, and of each value of `resources`
+  and `variables`, naming the field that holds them.
 - **The id of a run that a step dispatched** refuses the run until that
   run ends, from before the dispatch returned the id, through
   `internal/wlext`'s mark.
@@ -89,6 +96,31 @@ reason `RUN_NOT_STARTED`, which `wl/plugin`'s `Client.Run` reports as
 | `UNAVAILABLE` | The runtime is closed (`wl.ErrClosed`) |
 | `INVALID_ARGUMENT` | The request's own checks above, and every other error with which `Runtime.Run` refuses a run, such as arguments that are not a JSON object or are larger than `limits.max_args_bytes` (`wl.ErrRunArgsTooLarge`) |
 
+## A run's hooks on the broker
+
+A flow run's request can name hooks that the host answers on go-plugin's
+broker ([hooks across the plugin boundary](../../docs/design/0009-host-adapters.md#hooks-across-the-plugin-boundary)).
+
+- **Admission.** `hooks` needs a token. A token that a run of the engine
+  holds refuses the run with `ALREADY_EXISTS`, and one that `GetRun`
+  answered `gone` for with `INVALID_ARGUMENT`. Both carry the
+  `RUN_NOT_STARTED` detail, and neither reaches the host.
+- **The connection.** The engine dials each broker id once and keeps the
+  connection, so runs open no listener of their own.
+- **The run's hooks.** `wl` builds the declaration as a host plugin of the
+  run alone ([internal/wlext](../wlext/README.md)). Each of its calls goes
+  to `HostHooks.Call` with a `host_call`'s hook name and payload. A
+  `HookError` reply is the hook's failure, a `wl.HostCallError`.
+- **Release.** Once the run has settled, the engine sends the call
+  `released` with the run's id and token, and then no longer holds the
+  token. A run that does not start never holds it.
+- **`GetRun`** answers `held` while the engine holds the token for that run
+  id, and `gone` otherwise. The engine keeps each `gone` token for the life
+  of the process, and refuses a later run that carries it.
+- **The bound.** At `Config.TokenBound` gone tokens, the engine calls
+  `OnTokenBound` once. It then answers `UNAVAILABLE` for a token that it
+  does not keep, so it never keeps more.
+
 ## Health and readiness
 
 `windmill-lite plugin` completes go-plugin's handshake before its runtime
@@ -99,7 +131,7 @@ opens, and can drain, so the engine serves in three states, which a `Gate` holds
 |---|---|---|---|
 | `Starting`: the runtime opens, with its warm start | `NOT_SERVING` | `UNAVAILABLE` with the `RUN_NOT_STARTED` detail | `UNAVAILABLE` |
 | `Serving`: after `Gate.Serve` | `SERVING` | the `Server` | the `Server` |
-| `Draining`, for good: after `Gate.Drain` | `NOT_SERVING` | `UNAVAILABLE` (`draining`) with the `RUN_NOT_STARTED` detail; the runs in flight go on | the `Server`, or `UNAVAILABLE` if the drain began while the engine started |
+| `Draining`, for good: after `Gate.Drain` | `NOT_SERVING` | `UNAVAILABLE` (`draining`) with the `RUN_NOT_STARTED` detail; the runs in flight go on | the `Server`, or `UNAVAILABLE` if the drain began while the engine started; `GetRun` `UNAVAILABLE` without the detail |
 
 - **`NewGate()`** returns a `Gate` in `Starting`. `Gate.Serve(srv)` moves it
   to `Serving` once, with the `Server` of the opened runtime.
@@ -123,6 +155,7 @@ opens, and can drain, so the engine serves in three states, which a `Gate` holds
 |---|---|
 | `server.go` | The package comment, `Server`, the request and result mapping, and the refusals |
 | `health.go` | `State`, `Gate`: the engine's state, its gated `Runner` service and the health interceptors |
+| `hooks.go` | The runs' hooks on go-plugin's broker: their admission and calls, the tokens, `GetRun`'s answers and the release call |
 
 ## Tests
 
@@ -141,3 +174,24 @@ interceptor on a fake stream:
 name with the `Gate`'s `Close`. `TestGateDrainBeforeServe` checks that a
 `Gate` that drained while the engine started keeps every call from the
 `Runner` that `Serve` then offers.
+
+The broker tests, in `broker_test.go` and `brokerrun_test.go`, run the
+engine in this process with Bun 1.4.3. A `Server` over a `wl` runtime of
+the plugin cases' bundle stands behind a `Gate`, on go-plugin's test
+connection, which has a real broker on both sides. The host is the
+`wl/plugin` `Client` that the connection dispenses.
+
+| Test | What it shows |
+|---|---|
+| `TestBrokerCases` | The plugin cases (`conformance/plugins/hooks.yaml`) with each run's hooks on the broker: each meets its expectations, and the host hears exactly the calls that the case's fixture and the run's trace give. The cases of `around`, of step code, of a pool of their own and of the TypeScript plugin's failure options are left out, each with its reason |
+| `TestBrokerAroundRefused` | A declaration with `around` does not start its run, reaches no host, and leaves no registration |
+| `TestBrokerHookTimeout` | A hook whose host holds its answer latches the run with the `host_call` timeout |
+| `TestBrokerProviderMissing` | A provider set to broker answers from the run's hooks; a run whose hooks do not serve it, or that has none, latches there |
+| `TestBrokerPhaseFailures` | A failing `onRunEnd` is a warning, a failing `onRunSettled` a diagnostic, a failing observer a latch |
+| `TestBrokerOrderWithPlugin` | Where the run's hooks and a host plugin both intercept a step and answer a resource, the run's hooks answer. A provider that both serve refuses `wl.Open` |
+| `TestBrokerLateCallback` | A step that outlives its canceled run holds the settlement: `Run` returns, then `onRunSettled` reaches the host and is served, then the registration goes |
+| `TestBrokerIsolationNextRun` | The next run, with other hooks or none, never reaches a run's hooks |
+| `TestBrokerNoListenerGrowth` | 1,000 runs share one broker id and one connection, and leave descriptors, goroutines and registrations as they were |
+| `TestBrokerRegistrations` | The release call drops a provider-only run's registration without a lookup; a run without an id gets one; a refused run is dropped at once; a held id is refused and a released one reused |
+| `TestBrokerLostMessages` | With the test's transports losing or delaying messages: a lost refusal, a lost release, a delayed call of an earlier run, a failed lookup and a request delayed past `gone` |
+| `TestBrokerTokenBound` | With the bound lowered to 8: eight `gone` answers drain the engine, which keeps 8 tokens, answers the ninth lookup `UNAVAILABLE` without `RUN_NOT_STARTED`, and refuses new runs |

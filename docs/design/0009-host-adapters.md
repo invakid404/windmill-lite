@@ -19,10 +19,7 @@ and a Go host launches, pins, checks and supervises it with the package
 
 **Not built yet:**
 
-- the plugin command's calls of the host-hooks service on the broker: a request's `hooks`,
-  a provider set to `broker`, and `GetRun`;
-- `wl/plugin`'s supervisor, and its serving of a run's Go hooks on the
-  broker;
+- `wl/plugin`'s supervisor;
 - the plain gRPC and HTTP adapters;
 - typed methods (`windmill-lite gen`).
 
@@ -85,7 +82,7 @@ Every adapter below is a transport over these calls.
 
 ### Adapters, in order of delivery
 
-1. **go-plugin** (the engine's broker hooks are planned). The engine binary,
+1. **go-plugin**. The engine binary,
    started as `windmill-lite plugin`, serves the `windmill_lite.v1.Runner`
    gRPC service to a Go host that launches it with hashicorp/go-plugin,
    and `wl/plugin` gives the host the client side and, planned, an
@@ -411,7 +408,7 @@ its own file, and the runner has already checked it.
 | `Handshake`, `PluginName` | go-plugin's handshake configuration and the plugin's name ([Handshake and versions](#handshake-and-versions)) |
 | `VersionedPlugins` | The plugin sets by `Runner` version, for both sides |
 | `RunnerPlugin` | The go-plugin plugin type. On the engine's side it registers the `Runner` server; on the host's it returns a `Client` |
-| `Client` | Typed calls: `BuildInfo`, `Run`, `Cancel` and `Health`. `Run` is planned to serve the run's Go hooks on the broker |
+| `Client` | Typed calls: `BuildInfo`, `Run`, `Cancel` and `Health`. `RunWithHooks` runs a flow with its Go hooks on the broker ([Hooks across the plugin boundary](#hooks-across-the-plugin-boundary)) |
 | `ClientConfig` | go-plugin's client configuration for one launch: the runner that checks the executable's SHA-256 and starts it with its configuration file, gRPC only, a fresh private socket directory, a literal environment with go-plugin's `SkipHostEnv` on, and the message limits |
 | `Supervisor` | The optional supervisor, which is planned ([The supervisor](#the-supervisor)) |
 

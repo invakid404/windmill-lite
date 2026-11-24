@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	goplugin "github.com/hashicorp/go-plugin"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -41,6 +42,21 @@ type Config struct {
 	// Now is the clock that stamps the receipt of a request, from which
 	// its deadlines count; nil means time.Now. Tests set it.
 	Now func() time.Time
+	// Broker returns go-plugin's broker of the connection, on which the
+	// host serves the runs' hooks (RunRequest.hooks). go-plugin hands it
+	// over when it sets its gRPC server up, before any call reaches the
+	// Server. Nil, or a nil broker, refuses the hooks.
+	Broker func() *goplugin.GRPCBroker
+	// PluginTimeout bounds the release call of a run's hooks; zero means
+	// wl.DefaultPluginTimeout.
+	PluginTimeout time.Duration
+	// TokenBound is how many tokens that GetRun answered gone for the
+	// Server keeps before it calls OnTokenBound; zero means
+	// DefaultTokenBound.
+	TokenBound int
+	// OnTokenBound is called once, when the Server keeps TokenBound gone
+	// tokens; the engine then drains.
+	OnTokenBound func()
 }
 
 // Server serves windmill_lite.v1.Runner over a wl runtime. Its methods are
@@ -51,6 +67,9 @@ type Server struct {
 	rt   *wl.Runtime
 	info *plugin.BuildInfo
 	now  func() time.Time
+
+	// hooks serves the runs' hooks on go-plugin's broker.
+	hooks *brokerHooks
 
 	// mu guards runs: the cancellation of each run in flight, by its id,
 	// which Cancel finds.
@@ -69,9 +88,18 @@ func New(cfg Config) *Server {
 	if now == nil {
 		now = time.Now
 	}
+	timeout, bound := cfg.PluginTimeout, cfg.TokenBound
+	if timeout <= 0 {
+		timeout = wl.DefaultPluginTimeout
+	}
+	if bound <= 0 {
+		bound = DefaultTokenBound
+	}
 	return &Server{
 		rt:  cfg.Runtime,
 		now: now,
+		hooks: &brokerHooks{broker: cfg.Broker, timeout: timeout, bound: bound, onBound: cfg.OnTokenBound,
+			conns: map[uint32]plugin.HostHooksClient{}, held: map[string]string{}, gone: map[string]struct{}{}},
 		info: &plugin.BuildInfo{
 			BundleDigest:         bi.BundleDigest,
 			EngineVersion:        bi.EngineVersion,
@@ -130,11 +158,35 @@ func (s *Server) Run(ctx context.Context, req *plugin.RunRequest) (*plugin.RunRe
 	// The id of a run that a step dispatched refuses the run too, from
 	// before the dispatch returned it until that run ends.
 	ctx = wlext.WithExclusiveID(ctx)
+	forget := func() {}
+	if h := req.GetHooks(); h != nil {
+		// The run's hooks on the host's broker connection (ADR 0009, hooks
+		// across the plugin boundary): the engine holds the token until
+		// it has sent the run's release call.
+		if ctx, forget, err = s.hooks.admit(ctx, id, h); err != nil {
+			return nil, err
+		}
+	}
 	res, err := s.rt.Run(ctx, req.GetPath(), req.GetArgs(), r.opts)
 	if err != nil {
+		// A run that did not start never settles: the host drops its
+		// registration at this refusal.
+		forget()
 		return nil, runRefusal(err)
 	}
 	return resultOf(res, r.trace)
+}
+
+// GetRun says whether the engine still holds the run of a hooks
+// registration: held from the run's admission until the engine has sent
+// its release call, and gone otherwise, which the engine then remembers
+// for the life of the process, refusing a later run with that token.
+func (s *Server) GetRun(_ context.Context, req *plugin.GetRunRequest) (*plugin.GetRunResponse, error) {
+	state, err := s.hooks.lookup(req.GetId(), req.GetToken())
+	if err != nil {
+		return nil, err
+	}
+	return &plugin.GetRunResponse{State: state}, nil
 }
 
 // Cancel cancels a run in flight by its id, with the reason and the
@@ -189,16 +241,6 @@ const (
 	traceFull    = "full"
 )
 
-// stagedFields are the fields of RunRequest that the engine does not serve
-// yet, each with whether a request sets it. A request that sets one is
-// refused, naming it, rather than run without it.
-var stagedFields = []struct {
-	name string
-	set  func(*plugin.RunRequest) bool
-}{
-	{"hooks", func(r *plugin.RunRequest) bool { return r.GetHooks() != nil }},
-}
-
 // flowOnlyFields are the fields of RunRequest that only a flow run takes,
 // each with whether a request sets it. A root script's run takes id,
 // kind, path, args, deadline_ms, identity, run_data, pin and the trace
@@ -232,11 +274,6 @@ func mapRequest(req *plugin.RunRequest, receipt time.Time) (*request, error) {
 	}
 	if u := req.ProtoReflect().GetUnknown(); len(u) > 0 {
 		return nil, invalid("", fmt.Sprintf("the request sets fields that this engine does not know (%s)", unknownFields(u)))
-	}
-	for _, f := range stagedFields {
-		if f.set(req) {
-			return nil, invalid(f.name, "this engine does not serve it yet")
-		}
 	}
 	r := &request{trace: traceNone}
 	switch req.GetKind() {
@@ -388,10 +425,9 @@ func runLimits(l *plugin.Limits) (wl.RunLimits, error) {
 	}, nil
 }
 
-// nestedUnknown refuses a request whose identity, limits, resources or
-// variables hold fields that this engine does not know, naming the field
-// that holds them and their field numbers. The staged message, hooks,
-// refuses whole.
+// nestedUnknown refuses a request whose identity, limits, hooks, resources
+// or variables hold fields that this engine does not know, naming the
+// field that holds them and their field numbers.
 func nestedUnknown(req *plugin.RunRequest) error {
 	if id := req.GetIdentity(); id != nil && len(id.ProtoReflect().GetUnknown()) > 0 {
 		u := id.ProtoReflect().GetUnknown()
@@ -400,6 +436,10 @@ func nestedUnknown(req *plugin.RunRequest) error {
 	if l := req.GetLimits(); l != nil && len(l.ProtoReflect().GetUnknown()) > 0 {
 		u := l.ProtoReflect().GetUnknown()
 		return invalid("limits", fmt.Sprintf("it sets fields that this engine does not know (%s)", unknownFields(u)))
+	}
+	if h := req.GetHooks(); h != nil && len(h.ProtoReflect().GetUnknown()) > 0 {
+		u := h.ProtoReflect().GetUnknown()
+		return invalid("hooks", fmt.Sprintf("it sets fields that this engine does not know (%s)", unknownFields(u)))
 	}
 	for _, path := range slices.Sorted(maps.Keys(req.GetResources())) {
 		if r := req.GetResources()[path]; r != nil && len(r.ProtoReflect().GetUnknown()) > 0 {

@@ -8,6 +8,7 @@ import (
 
 	goplugin "github.com/hashicorp/go-plugin"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -44,6 +45,15 @@ type Client struct {
 	margin time.Duration
 	// now is the clock of the margin; tests replace it.
 	now func() time.Time
+
+	// conn is the connection, whose end stops the lookups of the runs'
+	// hooks registrations.
+	conn grpc.ClientConnInterface
+	// hooks is the state of the runs' hooks that the Client serves.
+	hooks hooks
+	// timer returns a channel that receives after d, and the function
+	// that stops it: the waits between GetRun lookups. Tests replace it.
+	timer func(d time.Duration) (<-chan time.Time, func() bool)
 }
 
 // BuildInfo returns the engine's build identity, which a host compares with
@@ -107,6 +117,12 @@ func (c *Client) Run(ctx context.Context, req *RunRequest) (*RunResult, error) {
 // shares req's byte slices, maps and messages, which neither side changes,
 // so a large argument is not copied.
 func withDeadline(req *RunRequest, ms int64) *RunRequest {
+	return withFields(req, func(r *RunRequest) { r.DeadlineMs = &ms })
+}
+
+// withFields returns a shallow copy of req, unknown fields included, that
+// set changed.
+func withFields(req *RunRequest, set func(*RunRequest)) *RunRequest {
 	out := &RunRequest{}
 	src, dst := req.ProtoReflect(), out.ProtoReflect()
 	src.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
@@ -114,7 +130,7 @@ func withDeadline(req *RunRequest, ms int64) *RunRequest {
 		return true
 	})
 	dst.SetUnknown(src.GetUnknown())
-	out.DeadlineMs = &ms
+	set(out)
 	return out
 }
 
