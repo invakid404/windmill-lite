@@ -331,6 +331,12 @@ its run's workspace.
   another as for an unknown id, as Windmill does
   ([WA-V2](../semantics/client-api.md#wa-v2)). Each checks the workspace
   on the registry entry that it answers from.
+- **Registrations.** A flow job's user state is that of the registration
+  it was written under (`platform.Job.Gen`), so a run that ends and whose
+  id is registered again never shares its state. An id that runs of two
+  workspaces register at once, through a hook's `WM_JOB_ID` or a reused
+  run id, stays the first one's. A `root_job` that names another
+  workspace's ended job leaves that job its workspace's.
 - **A hook's `WM_WORKSPACE`** ([H12](0008-host-hooks.md#the-hooks)) is the
   workspace of a run without a configured one, as it always was. A run
   with a configured workspace stays in it: its token is valid there only,
@@ -493,8 +499,8 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     facade too: each host-mode invocation carries its origin as `BASE_URL`
     ([harness protocol](0004-harness-protocol.md), host mode item 7). An
     authenticated route whose path names another workspace than the
-    caller's `WM_WORKSPACE` answers `401`; a `jobs_u` lookup there answers
-    as for an unknown job (the workspace of a token, below).
+    caller's answers `401`; a `jobs_u` lookup there answers as for an
+    unknown job (the workspace of a token, below).
 - The resource, variable and secret services, their local defaults, the
   host secret layer and the interpolation walker
   ([internal/platform](../../internal/platform/README.md)), their routes in
@@ -723,17 +729,19 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
   - **A token of another workspace.** A runtime with runs of two
     workspaces holds live tokens of both, so a step can send its token to a
     path of the other workspace. An authenticated route answers it `401`.
-    A `jobs_u` route finds no job there (the next item), as for WA-V2/d's
-    second request.
-  - **WA-V2/d's first request** reads a job of the path's workspace with
-    another workspace's token. Windmill reads that caller as anonymous, and
-    answers `400` for a job that a user ran. windmill-lite has no anonymous
-    callers, and answers it as an unknown id instead.
+    A `jobs_u` route finds no job there (the next item), as for
+    [WA-V2/d](../semantics/conformance.md#wa-v2)'s second request.
+  - **[WA-V2/d](../semantics/conformance.md#wa-v2)'s first request** reads a job of the path's
+    workspace with another workspace's token. Windmill reads that caller as
+    anonymous, and answers `400` for a job that a user ran. windmill-lite
+    has no anonymous callers, which the equivalence contract leaves
+    [out of scope](0001-equivalence-contract.md#3-out-of-scope), and
+    answers it as an unknown id.
   - **Job lookups in the path's workspace.** A `jobs_u` lookup in another
     workspace than the caller's finds no job. Neither does a lookup of a
     job of a run of another workspace (§Job identity, a workspace per run).
     The root lookup then answers as for an unknown id, and the result polls
-    as for a UUID with no job (WA-V2/d's second request).
+    as for a UUID with no job ([WA-V2/d](../semantics/conformance.md#wa-v2)'s second request).
   - **The root lookup of an unknown id** answers as Windmill answers an id
     with no job row ([WA-19](../semantics/client-api.md#wa-19)/b): `400`
     `text/plain` `SqlErr: no rows returned by a query that expected to

@@ -462,8 +462,10 @@ path or body.
 - **A token of another workspace's run** gets `401` on an authenticated
   route, and finds no job on a `jobs_u` route. Windmill reads such a caller
   as anonymous, and answers a job of the path's workspace that a user ran
-  `400` (WA-V2/d's first request); windmill-lite answers it as an unknown
-  id.
+  `400` ([WA-V2/d](../../../docs/semantics/conformance.md#wa-v2)'s first
+  request); windmill-lite answers it as an unknown id, since it has no
+  anonymous callers
+  ([out of scope](../../../docs/design/0001-equivalence-contract.md#3-out-of-scope)).
 
 ### A job's workspace
 

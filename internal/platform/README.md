@@ -533,6 +533,11 @@ scope: `windmill-lite` when neither the runtime nor the run set one.
 - **A job's workspace scope.** A job registered with no `Host` takes the
   `Host` of the run that its `Run` names. The jobs that a script job brings
   into the registry take the script job's.
+- **Registrations of an id.** `Registry` numbers each new registration
+  (`Job.Gen`). A second registration of a live id in another workspace
+  leaves the entry the first one's, its view included. A script job does
+  not make a flow job of an id that the registry keeps as another
+  workspace's ended job, such as the `root_job` of a dispatch.
 - **How long.** A job is live until it ends, and stays known while its root
   lives, so a step's job can be looked up after it ended. Once the root has
   ended, the registry keeps only what the next items say, and the tree's
@@ -611,6 +616,12 @@ address by their effective root
   job's effective root, read from whichever `Jobs` the services hold. It
   forgets a run's maps when the run's registration through
   `Services.JobRegistry` ends and the registry no longer reports it live.
+- **One registration's map.** With `UserStates`, each map belongs to the
+  registration of its job that it was written under (`Job.Gen`). A read,
+  a write and the job record's listing go to the registration that they
+  checked, and a write lands only while the registry still holds it. An id
+  that ends and is registered again starts with no state, and the old
+  registration's map is dropped.
 - **Faithful where a step can look.** This lifetime matches every access the
   stock helpers make during the run. A read or a write by id after the run
   gets `null` or the 404, as Windmill answers once the root's completion is
@@ -911,6 +922,7 @@ CI runs every package's tests with `-race` in its Go jobs
 | | `TestStateWrites`, `TestStateWritesNeverChangeAReplacement` | The recorded answers of create, update and delete; a provider's path; an entry of another type |
 | | `TestStoreReadOrder`, `TestStoreFailure`, `TestWithProvidersSharesTheStore`, `TestReleaseDropsTheEntries` | The read order behind the read cache; a failing store on every read and write; the store that a run's own providers share; a release dropping the memory store's entries |
 | `jobs_test.go` | `TestRegistryLifetime`, `TestRegistryOutlivedRoot`, `TestRegistryUnregisteredRoot` | A run and its jobs, the scopes a script job names, a job that ended while its run lives, a step that outlives its run, and jobs of a root never registered. `TestRegistryJobScope`: the workspace scope that a job takes from its run, that derived jobs take, and that ended jobs keep |
+| `workspace_test.go` | `TestUserStateBoundToItsRegistration`, `TestRegistrationNumbers`, `TestDuplicateRegistrationAcrossWorkspaces`, `TestTrackedRootOfAnotherWorkspace` | A flow job's user state against a registry whose entry for an id changes between lookups, and against the next registration of an id. One id registered by two workspaces at once. A script job whose root is another workspace's ended job |
 | | `TestRegistryEndedBound` | The bound on ended jobs: the oldest forgotten, and an id registered and ended again kept by its later end |
 | | `TestFlowUserState`, `TestFlowUserStateWithAHostsJobs`, `TestFlowUserStateSweepsDeadJobs`, `TestFlowUserStateWithAHostsStates` | Flow user state during and after the run, its stored form, the 404 and the 400; with a host's `Jobs`, with the sweep, and with a host's `FlowUserState` |
 | | `TestReadJobEnv`, `TestServicesRegistry` | The job that a read's `job_id` names; the services' one registry, shared by callers that first ask at once |
