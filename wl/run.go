@@ -325,12 +325,12 @@ type Result struct {
 // arguments that are not a JSON object or that cannot be stored.
 func (rt *Runtime) Run(ctx context.Context, path string, args json.RawMessage, opts RunOptions) (*Result, error) {
 	// The engine's own adapters give a flow run host mode's static
-	// interceptions, and the refusal of an id that a live job holds, this
-	// way (internal/wlext); no other caller can.
-	if wlext.ExclusiveID(ctx) && opts.ID != "" {
-		if _, live, _ := rt.services.JobRegistry().Job(opts.ID); live {
-			return nil, fmt.Errorf("%w: a live job of the runtime has the id %s", ErrRunInFlight, opts.ID)
-		}
+	// interceptions, and the refusal of the id of a run that a step
+	// dispatched, this way (internal/wlext); no other caller can. The
+	// dispatcher holds that id from before it returns it, through a delayed
+	// start, until the run returns.
+	if wlext.ExclusiveID(ctx) && opts.ID != "" && rt.dispatch != nil && rt.dispatch.InFlight(opts.ID) {
+		return nil, fmt.Errorf("%w: a run that a step dispatched has the id %s", ErrRunInFlight, opts.ID)
 	}
 	var extra engine.Hooks
 	if results := wlext.StaticIntercepts(ctx); results != nil {

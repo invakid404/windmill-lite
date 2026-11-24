@@ -1,7 +1,7 @@
 // Package wlext is what package wl lends the engine's own adapters
 // (internal/host) beyond its public API: the static interceptions that
-// host mode's run frame carries, the refusal of an id that a live job of
-// the runtime holds, and a run's trace in the JSON form that a host
+// host mode's run frame carries, the refusal of the id of a run that a step
+// dispatched, and a run's trace in the JSON form that a host
 // plugin's run-end hooks receive (ADR 0009, the Runner service). Only
 // packages of this module can import it, so a host that imports wl sees
 // none of it, and a run that does not use it runs as before.
@@ -38,9 +38,10 @@ func StaticIntercepts(ctx context.Context) map[string]json.RawMessage {
 type exclusiveKey struct{}
 
 // WithExclusiveID returns ctx marking the run that wl's Runtime.Run starts
-// with it as one whose id no live job of the runtime may hold: Run refuses
-// it with wl.ErrRunInFlight when one does, such as a run that a step
-// dispatched, which Run's own check of the runs it started does not see.
+// with it as one whose id no run that a step dispatched may hold: Run
+// refuses it with wl.ErrRunInFlight while such a run has the id, from
+// before the dispatch returned the id, through a delayed start, until the
+// run ends. A run without the mark keeps Run's own checks only.
 func WithExclusiveID(ctx context.Context) context.Context {
 	return context.WithValue(ctx, exclusiveKey{}, true)
 }

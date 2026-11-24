@@ -722,6 +722,16 @@ func (x *Dispatcher) sweep() {
 	}
 }
 
+// InFlight reports whether a run that the dispatcher dispatched with the id
+// has not ended: from before Dispatch returns its id, through a delayed
+// start, until the run returns.
+func (x *Dispatcher) InFlight(id string) bool {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	rec := x.runs[id]
+	return rec != nil && !rec.done
+}
+
 // Close cancels the runs still going, as a canceled run is (FX-38), and
 // waits until they have ended or ctx ends. A Dispatch after Close fails.
 func (x *Dispatcher) Close(ctx context.Context) {

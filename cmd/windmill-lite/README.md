@@ -418,7 +418,7 @@ whose digest passed.
 | `digest` | A digest | None | The digest that the bundle must have |
 | `bun` | A path | `bun` on the engine's `PATH` | The Bun 1.4.3 executable of the harness processes |
 | `harness_runtime` | A directory | None | The [harness runtime](../../docs/glossary.md#harness-runtime) that the bundle was built for, needed by a bundle with steps |
-| `data_dir` | A directory | A temporary directory, removed when the engine stops | The data directory that the runtime writes into |
+| `data_dir` | A directory | A temporary directory, which the runtime's close removes after go-plugin's shutdown call, and which a signal leaves behind | The data directory that the runtime writes into |
 | `resources` | An object of `{"resource_type", "value"}` by path | None | The host's resources, as in a bundle's `data/resources.json` |
 | `variables` | An object of variables by path | None | The host's variables: each `value` or `value_env`, and `is_secret` and `encrypted` ([Secrets by reference](#secrets-by-reference)) |
 | `resource_store` | `{"kind": "memory"}`, or `{"kind": "redis", "url_env", "prefix", "allow_eviction"}` | `memory` | The store of the resources that steps write, as `run`'s `-resource-store` and its Redis flags |
@@ -454,7 +454,7 @@ manifest names a [host plugin](../../docs/glossary.md#host-plugin).
 | Exit status | When |
 |---|---|
 | 0 | go-plugin's shutdown call stopped the server. |
-| 1 | The start failed: no go-plugin handshake variables, a configuration that does not decode or that a rule above refuses, a variable that is not set, a bundle that does not open, a resource store that does not start, or a go-plugin that did not serve, such as in a socket directory where it cannot listen. |
+| 1 | The start failed. The handshake variables are missing, or the configuration does not decode, or a rule above refuses it. Or a variable is not set, the bundle does not open, or the resource store does not start. Or go-plugin did not serve, such as in a socket directory where it cannot listen. |
 | 2 | A usage error |
 
 ## version
@@ -658,8 +658,8 @@ synthetic folders that the test file holds.
 | `TestPluginDeadlineFromReceipt` | In the test's own process, a server whose clock stamps the receipt 10 s early ends a run with `deadline_ms` 5000 `canceled` with the cause `deadline`, and one stamped now succeeds. |
 | `TestPluginScriptRun` | A root script's run with `deadline_ms` 0 ends `canceled` with `may_have_mutated` false. A script that fails after a write ends `failure` with `may_have_mutated` true. `pre_write_deadline_ms`, `hooks`, `write_capable` and a trace level refuse a script's run, naming the field, and a script reads the run's own identity. |
 | `TestPluginCancelReason` | `Cancel` ends a run in flight `canceled`, with the cause `canceled` and an error that names the reason and the canceler. An id of no run answers `NOT_FOUND`. |
-| `TestPluginErrorCodes` | `ALREADY_EXISTS` for a second run with the id of a run in its step, `NOT_FOUND` for a path that names no flow or root script, and `INVALID_ARGUMENT` for the request's other refusals: unknown fields, at the top or in `identity` or a resource, and selectors that are `null` or followed by more JSON included. |
-| `TestPluginDispatchedID` | The id of a live run that a step dispatched refuses a run with `ALREADY_EXISTS` and the `RUN_NOT_STARTED` detail, and the dispatched run goes on to its end. |
+| `TestPluginErrorCodes` | `ALREADY_EXISTS` for a second run with the id of a run in its step. `NOT_FOUND` for a path that names no flow or root script. `INVALID_ARGUMENT` for the request's other refusals, such as unknown fields at the top or in `identity` or a resource, and selectors that are `null` or followed by more JSON. |
+| `TestPluginDispatchedID` | The id of a run that a step dispatched to start 5 s later refuses a run with `ALREADY_EXISTS` and the `RUN_NOT_STARTED` detail while it waits for its start, and again while it runs. The dispatched run goes on to its end. |
 | `TestPluginNonRootFlow` | A flow that only a root calls by path runs, as `wl`'s `Runtime.Run` runs it. |
 | `TestPluginRefusalDetail` | Each of those refusals carries the `RUN_NOT_STARTED` detail, so `Client.Run` reports `ErrNotStarted`. A run that started and failed, or was canceled, answers its result. |
 | `TestPluginStagedFields` | A request with `pin`, `limits`, `run_data` or `hooks`, and a configuration with each field that the engine does not serve yet, or a bundle with a host plugin, are refused, naming the field. A bundle that a test hook replaces with one with a host plugin after its check does not open. |

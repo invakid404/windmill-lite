@@ -102,9 +102,11 @@ export async function main(dir: string) {
 }
 `,
 	"f/plugin/dispatch.ts": `// Dispatches the flow f/plugin/gate with dir through the job API, as
-// runFlowAsync does, and returns the new job's id.
-export async function main(dir: string) {
-  const r = await fetch(` + "`${process.env.BASE_URL}/api/w/${process.env.WM_WORKSPACE}/jobs/run/f/f/plugin/gate`" + `, {
+// runFlowAsync does, to start delay seconds later when delay is given, and
+// returns the new job's id.
+export async function main(dir: string, delay?: number) {
+  const query = delay ? "?scheduled_in_secs=" + delay : "";
+  const r = await fetch(` + "`${process.env.BASE_URL}/api/w/${process.env.WM_WORKSPACE}/jobs/run/f/f/plugin/gate${query}`" + `, {
     method: "POST",
     headers: { Authorization: ` + "`Bearer ${process.env.WM_TOKEN}`" + `, "Content-Type": "application/json" },
     body: JSON.stringify({ dir }),
@@ -916,24 +918,35 @@ func TestPluginConfigRefusals(t *testing.T) {
 	}
 }
 
-// TestPluginDispatchedID checks that a run whose id a live run that a step
-// dispatched holds is refused (ADR 0009, runs that do not start): a script
-// dispatches the flow f/plugin/gate, whose step signals its entry and waits
-// for the test's release, and returns its id. A request with that id is
-// refused with ALREADY_EXISTS and the RUN_NOT_STARTED detail, and the
-// dispatched run goes on to its end once released.
+// TestPluginDispatchedID checks that the id of a run that a step dispatched
+// refuses a run until that run ends (ADR 0009, runs that do not start): a
+// script dispatches the flow f/plugin/gate to start 5 s later, and returns
+// its id. A request with that id is refused with ALREADY_EXISTS and the
+// RUN_NOT_STARTED detail while the dispatched run waits for its start, and
+// again once its step, which signals its entry and waits for the test's
+// release, runs. The dispatched run then goes on to its end.
 func TestPluginDispatchedID(t *testing.T) {
 	bun, out := pluginBundle(t)
 	e := launchPlugin(t, pluginConfigOf(t, bun, out))
-	dir, args := newGate(t)
+	dir := t.TempDir()
+	args, err := json.Marshal(map[string]any{"dir": dir, "delay": 5})
+	if err != nil {
+		t.Fatal(err)
+	}
 	res := e.mustRun(t, &plugin.RunRequest{Kind: "script", Path: "f/plugin/dispatch", Args: args})
 	var child string
 	if err := json.Unmarshal(res.GetResult(), &child); err != nil || res.GetStatus() != "success" || child == "" {
 		t.Fatalf("the dispatch: %s %s (%v)", res.GetStatus(), res.GetResult(), err)
 	}
+	same := &plugin.RunRequest{Id: child, Path: "f/plugin/echo", Args: []byte(`{"x":1}`)}
+	_, err = e.run(same)
+	if _, statErr := os.Stat(filepath.Join(dir, "entered")); statErr == nil {
+		t.Fatal("the dispatched run started before the request with its id: the wait for its start was not exercised")
+	}
+	checkRefused(t, "a run with the id of a dispatched run that waits for its start", err, codes.AlreadyExists, child)
 	waitFile(t, dir, "entered")
-	_, err := e.run(&plugin.RunRequest{Id: child, Path: "f/plugin/echo", Args: []byte(`{"x":1}`)})
-	checkRefused(t, "a run with the id of a live dispatched run", err, codes.AlreadyExists, child)
+	_, err = e.run(same)
+	checkRefused(t, "a run with the id of a dispatched run in its step", err, codes.AlreadyExists, child)
 	release(t, dir)
 	waitFile(t, dir, "left")
 }
@@ -1015,8 +1028,13 @@ func TestPluginSecretsByReference(t *testing.T) {
 	for _, path := range []string{"f/plugin/secret", "f/plugin/secret2"} {
 		args, _ := json.Marshal(map[string]string{"path": path})
 		res := both.mustRun(t, &plugin.RunRequest{Kind: "script", Path: "f/plugin/variable", Args: args})
-		if err := json.Unmarshal(res.GetResult(), &got); err != nil || got.Value != value {
-			t.Errorf("one environment variable named twice, the read of %s: %s %s (%v); want its value", path, res.GetStatus(), res.GetResult(), err)
+		var read struct {
+			Status *int
+			Value  *string
+		}
+		err := json.Unmarshal(res.GetResult(), &read)
+		if err != nil || res.GetStatus() != "success" || read.Status == nil || *read.Status != 200 || read.Value == nil || *read.Value != value {
+			t.Errorf("one environment variable named twice, the read of %s: %s %s (%v); want success, 200 and its value", path, res.GetStatus(), res.GetResult(), err)
 		}
 	}
 

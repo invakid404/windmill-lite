@@ -18,10 +18,10 @@ host's side is [wl/plugin](../../wl/plugin/README.md), whose types
 
 ## Use
 
-`host.New(host.Config{Runtime, Labels, ConfigDigest})` returns a `*Server`,
-a `plugin.RunnerServer` that `plugin.RunnerPlugin` registers on a gRPC
-server. It never closes the runtime. `Config.Now`, nil by default, is the
-clock that stamps a request's receipt; tests set it.
+`host.New(host.Config{Runtime: rt, Labels: labels, ConfigDigest: digest})`
+returns a `*Server`, a `plugin.RunnerServer` that `plugin.RunnerPlugin`
+registers on a gRPC server. It never closes the runtime. `Config.Now`, nil
+by default, is the clock that stamps a request's receipt; tests set it.
 
 | Call | What it does |
 |---|---|
@@ -54,8 +54,9 @@ clock that stamps a request's receipt; tests set it.
   can hold, refuse the run, naming their field numbers. So do those of
   `identity`, and of each value of `resources` and `variables`, naming the
   field that holds them.
-- **An id that a live job of the runtime has,** such as a run that a step
-  dispatched, refuses the run, through `internal/wlext`'s mark.
+- **The id of a run that a step dispatched** refuses the run until that
+  run ends, from before the dispatch returned the id, through
+  `internal/wlext`'s mark.
 
 ## The result
 
@@ -78,7 +79,7 @@ reason `RUN_NOT_STARTED`, which `wl/plugin`'s `Client.Run` reports as
 
 | Code | When |
 |---|---|
-| `ALREADY_EXISTS` | A run with the id is in flight: one of this server, or a live job of the runtime, such as a run that a step dispatched (`wl.ErrRunInFlight`) |
+| `ALREADY_EXISTS` | A run with the id is in flight: one of this server, or a run that a step dispatched and that has not ended (`wl.ErrRunInFlight`) |
 | `NOT_FOUND` | No flow, or no root script, of the bundle has the path (`engine.ErrNoTarget`) |
 | `UNAVAILABLE` | The runtime is closed (`wl.ErrClosed`) |
 | `INVALID_ARGUMENT` | The request's own checks above, and every other error with which `Runtime.Run` refuses a run, such as arguments that are not a JSON object |
