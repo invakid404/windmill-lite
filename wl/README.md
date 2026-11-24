@@ -155,7 +155,8 @@ The zero value of each field is its default.
 | `Providers` | The named providers of the bundle's [provided sites](../docs/glossary.md#provided-site) | None | When the host contract names providers ([Providers](#providers)) |
 | `Plugin` | The path of a [host plugin](../docs/glossary.md#host-plugin) module, which every `warm` harness process loads | None | To give [hooks](../docs/glossary.md#hook) in TypeScript ([Host plugins](#host-plugins)) |
 | `PluginTimeout` | How long each call to the host plugin waits for its reply | `DefaultPluginTimeout`, 60 s | To change that bound |
-| `Pool` | The pool of `warm` harness processes: its size, cap, lag threshold, recycle timeout, recycle triggers, bound on live processes and warm start ([The harness pool](#the-harness-pool)) | One process, no cap, started on the first step or earlier for a host plugin | To run CPU-bound steps beside others, to replace processes that grow, or to start processes before the first run |
+| `Pool` | The pool of `warm` harness processes: its size, cap, lag threshold, recycle timeout, recycle triggers, bound on live processes, warm start and pinned runs ([The harness pool](#the-harness-pool)) | One process, no cap, started on the first step or earlier for a host plugin | To run CPU-bound steps beside others, to replace processes that grow, to start processes before the first run, or to keep each run on one process |
+| `Limits` | `Bytes`: a total of bytes that every run's reservations share ([Budgets](#budgets)) | None | To bound what all runs' steps reserve together |
 | `ReadCache` | Gives each flow run a read cache: the run reads each of the host's and the bundle's resources and variables once, and answers its later reads from that read. A provider's error is not kept, so the next read asks again, and an update of a variable through the run drops its cached value ([the read cache](../internal/platform/README.md#the-read-cache)). A state that steps wrote to the `ResourceStore` is read again each time, so a run sees its latest value. | Off | When a run reads the same values often and need not see a change during the run |
 | `ForeignWindmillOrigins` | The origins of real [Windmill](../docs/glossary.md#windmill) instances that steps call through their own client, such as `https://windmill.example.com`. A step's dispatch to one of them loses its links to the step's own [job](../docs/glossary.md#job) ids ([Job ids on a real Windmill](#job-ids-on-a-real-windmill)). | None | When steps dispatch jobs on a real Windmill |
 | `Host` | Opens the runtime in [host mode](#host-mode) | Nil | Only for host mode |
@@ -194,6 +195,7 @@ there.
 | `Recycle.Modules` | A process that has run steps of more distinct scripts than this is replaced. The step of the one more still runs there. | Off |
 | `MaxLive` | The processes alive at once, each from its start until its exit. No process starts while `MaxLive` are alive. `Open` refuses a value below `Max`. | No bound |
 | `WarmStart` | `Open` starts `Min` processes, and returns once `Min` serve, their handshakes done. A bundle with no step has no pool, so nothing starts. | Off |
+| `PinRuns` | Pins every run of the runtime, as `RunOptions.Pin` pins one ([Pinned runs](#pinned-runs)) | Off |
 
 - **A replaced process** takes no new steps, and its replacement starts
   beside it, outside `Max`. It leaves once no step is in flight in it. One
@@ -211,6 +213,26 @@ there.
   steps that wait on each other can wait until their timeout under a cap.
   The [trace](../docs/glossary.md#trace) that `Run` returns for each flow
   run of a runtime with a cap lists `D15`.
+
+#### Pinned runs
+
+A [pinned run](../docs/glossary.md#pinned-run) keeps one process, so that a
+host plugin can keep the run's state there. `PinRuns` pins every run, and
+`RunOptions.Pin` one. A `fresh` runtime and host mode refuse both.
+
+- **Where its calls go.** The run's first step or host-plugin call goes to
+  a serving process, never one that is tainted, leaving for a trigger or
+  surplus. Every later one goes there while that process lives, even when
+  it lags, is tainted or leaves for a trigger. The cap still applies: a
+  step of the run waits for a slot there.
+- **What it holds.** The process does not leave while the run is live.
+  After the run's end, its late hook calls, such as `onRunSettled`, still
+  go there while the process lives, but no longer hold it. A run that
+  never ends holds its process until its hard deadline, so give pinned
+  runs one.
+- **When its process ends.** A step in flight there fails as a process
+  that dies fails it. The run's next step or host-plugin call latches the
+  run with `ErrPinnedProcessLost`, and the step does not start.
 
 ### Job ids on a real Windmill
 
@@ -322,9 +344,11 @@ its own reason and canceler.
 | `PreWriteDeadline` | A deadline that applies until the run's first write is approved ([Budgets](#budgets)) | None |
 | `Clock` | The clock of every sleep and retry delay: `wl.RealClock`, or a `*wl.RecordClock` that returns each wait at once | The real clock |
 | `Jitter` | The source of the retry jitter. `SeededJitter(seed)` fixes it. | One seeded with `Seed` |
+| `Pin` | Pins the run to one `warm` process ([Pinned runs](#pinned-runs)) | Off |
+| `Limits` | The run's own limits: `MaxInFlight`, `MaxArgsBytes`, `MaxHeldBytes` and `Bytes` ([Budgets](#budgets)) | None |
 
-A script run uses only `Kind` and `ID`. The other fields apply to flow
-runs.
+A script run uses only `Kind`, `ID`, `Pin` and `Limits`. The other fields
+apply to flow runs.
 
 ### Result
 
@@ -467,6 +491,19 @@ iteration, sleep and retry delay.
 | `Hooks.FatalErrorNames` | The error names that skip retries, `continue_on_error`, `skip_failures` and `skip_failure` | The run latches with a `*FatalError`, and the trace lists `H7`. |
 | `RunOptions.Clock` set to a `*wl.RecordClock` | The time of sleeps and retry delays | Each wait is recorded and returns at once, and the trace lists `H10`. |
 | `Options.PluginTimeout` | Each call to the host plugin | The run latches with `ErrHostCallTimeout`, unless its context ended first. A late `onRunEnd` adds a `plugin_error` warning instead, and a late `onRunSettled` goes to the diagnostics. |
+| `RunOptions.Limits.MaxInFlight` | The flow run's steps in flight at once. Its parallel branches and iterations wait for a slot, as jobs in the queue, before their timeouts start. | Nothing trips. The trace lists `D15`, since steps that wait on each other can wait until their timeout. |
+| `RunOptions.Limits.MaxArgsBytes` | The size of the run's arguments, as given to `Run` | `Run` returns `ErrRunArgsTooLarge`, and nothing runs. |
+| `RunOptions.Limits.MaxHeldBytes` | The bytes of the stored values that the engine holds for the run: its arguments and each job's stored result, counted as they are stored | The run latches with `ErrRunMemoryLimit` and starts nothing more. |
+| `RunOptions.Limits.Bytes` | What the run's steps reserve with `wl.reserve(bytes)`, wherever they run | The reservation rejects in the step with a `RangeError` that says how much is left. |
+| `Options.Limits.Bytes` | What every run's steps reserve together | The same, naming the runtime's total. |
+
+**Reservations.** A step, or a host plugin's `around` wrapper, calls
+`wl.reserve(bytes)` for data that it holds, such as a source it
+downloads. A reservation must fit the run's `Bytes` and the runtime's
+total, when they are set, and returns when the step's invocation
+settles; with neither set, it takes nothing. A shared process has no
+measure of one run's heap, so the limits count only what the engine holds
+and what steps reserve.
 
 The host decides which sites are write-capable, and the first-write gate
 covers only those. An interception, a provided site, a mock or a skipped
@@ -498,6 +535,9 @@ as a missing `HarnessRuntime` or one of another digest.
 | `*FatalError` | `Result.Latched` | A module failed with one of `Hooks.FatalErrorNames`. It holds the site, the error's name and the failure value. | Handle the failure in the host. |
 | `*HostCallError` | `Result.Latched` | A host plugin's hook threw or gave a wrong answer (code `plugin_error`), or the plugin lacks the hook (`unknown_hook`). | Fix the plugin. |
 | `ErrHostCallTimeout` (`host_call_timeout`) | `Result.Latched` | A host plugin's hook did not reply within `Options.PluginTimeout`. | Make the hook faster, or raise the timeout. |
+| `ErrPinnedProcessLost` (`pinned_process_lost`) | `Result.Latched` | The process of a pinned run ended while the run was live, and the run then started a step or called the host plugin. | Run it again: its state in that process is gone. |
+| `ErrRunMemoryLimit` (`run_memory_limit`) | `Result.Latched` | The run's stored values passed `RunOptions.Limits.MaxHeldBytes`. | Raise the limit, or make the steps return less. |
+| `ErrRunArgsTooLarge` | `Run` | The arguments are larger than `RunOptions.Limits.MaxArgsBytes`. Nothing ran. | Pass smaller arguments, or raise the limit. |
 | `ErrPreWriteDeadline` | The cause of the run's context, which hooks see with `context.Cause` | The pre-write deadline passed before a first write was approved, so no write-capable site launched a job. It wraps `context.DeadlineExceeded`. | Retry only if the steps that ran are safe to repeat: steps that the host did not mark write-capable may have had effects. |
 | `*HandshakeError` | `Open`, in host mode | The runtime refused the host, or the host's connection ended first. `Code` is a reject code. | See the codes below. |
 
