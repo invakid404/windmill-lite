@@ -126,7 +126,8 @@ scripts:
   f/plugins/fork.ts: |
     // With child, returns its process id. Without, dispatches its own flow
     // with child set through the job API, waits for it, and returns
-    // whether the child ran in another process than this step.
+    // whether the child ran in another process than this step. A child
+    // that failed, or answered no process id, fails the step.
     export async function main(child?: boolean) {
       if (child) return process.pid;
       const base = `${process.env.BASE_URL}/api/w/${process.env.WM_WORKSPACE}`;
@@ -136,7 +137,10 @@ scripts:
       const id = await r.text();
       for (;;) {
         const j = await (await fetch(`${base}/jobs_u/completed/get_result_maybe/${id}`, { headers })).json();
-        if (j.completed) return { two_processes: j.result !== process.pid };
+        if (j.completed) {
+          if (j.success !== true || !Number.isInteger(j.result) || j.result <= 0) throw new Error(`the child gave no process id: ${JSON.stringify(j)}`);
+          return { two_processes: j.result !== process.pid };
+        }
         await new Promise((res) => setTimeout(res, 5));
       }
     }

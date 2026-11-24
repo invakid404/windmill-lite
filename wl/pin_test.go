@@ -84,7 +84,7 @@ func TestPinnedRunProcessLost(t *testing.T) {
 }
 
 // dispatchScript dispatches the flow at path through the job API and
-// returns its result once it has completed.
+// returns its result once it has completed; a child that failed fails it.
 const dispatchScript = `export async function main(path: string) {
   const base = process.env.BASE_URL + "/api/w/" + process.env.WM_WORKSPACE;
   const headers = { Authorization: "Bearer " + process.env.WM_TOKEN, "Content-Type": "application/json" };
@@ -93,7 +93,10 @@ const dispatchScript = `export async function main(path: string) {
   const id = await r.text();
   for (;;) {
     const j: any = await (await fetch(base + "/jobs_u/completed/get_result_maybe/" + id, { headers })).json();
-    if (j.completed) return j.result;
+    if (j.completed) {
+      if (j.success !== true) throw new Error("the child failed: " + JSON.stringify(j.result));
+      return j.result;
+    }
     await new Promise((res) => setTimeout(res, 5));
   }
 }
@@ -160,7 +163,7 @@ func TestDispatchedRunsTakeRuntimeSettings(t *testing.T) {
 	if err != nil || res.Status != StatusSuccess || json.Unmarshal(res.Result, &pids) != nil {
 		t.Fatalf("%+v, %v", res, err)
 	}
-	if pids.A != pids.B {
+	if pids.A <= 0 || pids.A != pids.B {
 		t.Fatalf("the dispatched pinned flow's steps ran in %d and %d", pids.A, pids.B)
 	}
 }

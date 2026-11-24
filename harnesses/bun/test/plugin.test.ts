@@ -98,9 +98,11 @@ function hostRuntime(plugin?: Plugin) {
   const runtime = new Runtime({ bundleDir: "/nonexistent", bundleDigest: "sha256:b", host: true, plugin, transport: { write: (b) => (written.push(b.slice()), b.length), end: () => {} }, exit: () => {} });
   runtime.start();
   const send = (m: Record<string, unknown>) => runtime.onData(frame(encode(m as { t: string })));
+  // A frame as a peer may write it, not through the canonical encoder.
+  const sendRaw = (text: string) => runtime.onData(frame(new TextEncoder().encode(text)));
   send({ t: "welcome", proto: 1, engine: "test", bundle: "sha256:b", config: { module_state: "warm", heartbeat_ms: 60000, max_message: 1 << 20 } });
   const messages = () => decodeAll(new FrameReader().push(Buffer.concat(written)));
-  return { runtime, send, messages };
+  return { runtime, send, sendRaw, messages };
 }
 
 describe("the runtime", () => {
@@ -129,7 +131,7 @@ describe("the runtime", () => {
 
   test("wl.reserve resolves on a reserve_reply without refused, an empty one included, and rejects with its refusal", async () => {
     const outcomes: string[] = [];
-    const { runtime, send, messages } = hostRuntime({
+    const { runtime, send, sendRaw, messages } = hostRuntime({
       around: [
         {
           selector: { flow: "f/x", module: "a" },
@@ -157,7 +159,9 @@ describe("the runtime", () => {
     invoke("i1", true);
     const r1 = await reserveOf("i1");
     expect(r1).toEqual({ t: "reserve", id: r1.id, inv: "i1", bytes: 10 });
-    send({ t: "reserve_reply", id: r1.id, refused: "" });
+    // An explicit empty refused, which the canonical encoder would leave
+    // out, as a peer may still write it.
+    sendRaw(`{"t":"reserve_reply","id":${JSON.stringify(r1.id)},"refused":""}`);
     await settled(1);
     invoke("i2", true);
     send({ t: "reserve_reply", id: (await reserveOf("i2")).id, refused: "no room" });
