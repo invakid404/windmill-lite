@@ -753,15 +753,6 @@ func (pl *Pool) Unpinned(run string) *Pin {
 	return &Pin{pool: pl, run: run, unpinned: true}
 }
 
-// UnpinRun tells the pool that an unpinned run took the id run: an
-// earlier run's pin no longer routes the calls of that id, only those
-// whose context carries it.
-func (pl *Pool) UnpinRun(run string) {
-	pl.mu.Lock()
-	defer pl.mu.Unlock()
-	delete(pl.pins, run)
-}
-
 // RunEnded tells the pool that p's run has ended: its pin no longer holds
 // its process, which may then leave, and still routes the run's later
 // host calls, such as onRunSettled, there while it can answer.

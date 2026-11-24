@@ -214,12 +214,8 @@ func (rt *Runtime) pin(id string, pin bool, settled func()) (*harness.Pin, func(
 	case rt.pool == nil:
 		return nil, settled, func() {}, nil
 	case !(pin || rt.pinRuns):
-		if rt.pinned.Load() {
-			rt.pool.UnpinRun(id)
-		}
 		return rt.pool.Unpinned(id), settled, func() {}, nil
 	}
-	rt.pinned.Store(true)
 	p, err := rt.pool.PinRun(id)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("%w: %w", ErrRunInFlight, err)

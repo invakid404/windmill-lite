@@ -70,7 +70,7 @@ the code.
 |---|---|---|---|
 | `Spawn`, `ProcessConfig` | func, struct | Starts a harness process and shakes hands with it | `Pool`, `wltest` (`ProcessConfig` also through `PoolConfig.Process` in `wl`) |
 | `Process` | struct | One harness process or one host connection. `Execute` runs an invocation; `HostCall` asks its plugin; `Drain`, `Kill`, `Done`, `Bye`, `ExitStatus`; `Ping`, `Health`, `Hello`, `Lag`, `Load`, `Silence`, `PID`, `Dir` | `Pool`, `wl`, `wltest` |
-| `NewPool`, `PoolConfig`, `Pool` | func, struct, struct | A set of processes for one `Key`: `Execute`, `Start`, `Close`, `Stats`, `HostCall`, `Plugin`, and `PinRun`, `Unpinned`, `UnpinRun`, `RunEnded`, `ForgetRun` for [pinned runs](#pinned-runs), with `Pin`, `WithPin` and `ErrPinLive`. `PoolConfig.CheckSettings` checks its size, cap, bound on live processes and recycle triggers as `NewPool` does | `wl` |
+| `NewPool`, `PoolConfig`, `Pool` | func, struct, struct | A set of processes for one `Key`: `Execute`, `Start`, `Close`, `Stats`, `HostCall`, `Plugin`, and `PinRun`, `Unpinned`, `RunEnded`, `ForgetRun` for [pinned runs](#pinned-runs), with `Pin`, `WithPin` and `ErrPinLive`. `PoolConfig.CheckSettings` checks its size, cap, bound on live processes and recycle triggers as `NewPool` does | `wl` |
 | `RecycleTriggers` | struct | `PoolConfig.Recycle`: the resident set and the count of distinct scripts that replace a warm process ([Warm pools](#warm-pools)) | `wl` |
 | `Key` | struct | What a pool serves: harness class, runtime pin, dependency set, module-state mode | `wl` |
 | `ProcessStats` | struct | One process's figures in `Pool.Stats` | tests |
@@ -921,8 +921,8 @@ run has settled. A fresh pool returns no pin.
   call's run: a pin, or `Unpinned`, the ordinary pick. Otherwise it routes
   by the pin of the latest run admitted with its id.
 - **Their calls.** `PinRun` replaces an ended run's pin for the id and
-  refuses a live one's (`ErrPinLive`). `UnpinRun` drops it for an
-  unpinned run that takes the id, and `ForgetRun` drops only its own pin.
+  refuses a live one's (`ErrPinLive`), and `ForgetRun` drops only its own
+  pin.
 - **A lost process.** Once the process has exited, the run's next
   invocation or host call fails with `engine.ErrPinnedProcessLost`, not
   dispatched, and the engine latches the run. After `RunEnded`, they are
