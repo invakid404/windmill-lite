@@ -823,16 +823,20 @@ func heldElsewhere(id string) error {
 }
 
 // admits refuses a run of host's identity, with its own services p (nil for
-// the engine's), in a workspace other than DefaultHost's when the engine's
-// services keep jobs or flow user state in a host's registry or store
-// (platform.Services.OwnsJobs): only their own keep workspaces apart. An
-// engine with no services registers no job, so it admits every run.
+// the engine's), in a workspace other than the engine's configured one
+// (Config.Host, Config.Workspace) when the engine's services, or the run's,
+// keep jobs or flow user state in a host's registry or store
+// (platform.Services.OwnsJobs): only their own keep workspaces apart, which
+// a run in another workspace than the engine's needs. A run in the engine's
+// own workspace is admitted whatever its services, as it always was, and so
+// is every run of an engine with no services, which registers no job.
 func (e *Engine) admits(host platform.Host, p *platform.Services) error {
-	if host.EffectiveWorkspace() == platform.DefaultHost.Workspace || e.platform == nil {
+	ws := host.EffectiveWorkspace()
+	if ws == e.host.EffectiveWorkspace() || e.platform == nil {
 		return nil
 	}
 	if !e.platform.OwnsJobs() || p != nil && !p.OwnsJobs() {
-		return fmt.Errorf("engine: a run in workspace %q needs the services' own job registry and flow user state store", host.EffectiveWorkspace())
+		return fmt.Errorf("engine: a run in workspace %q, not the engine's %q, needs the services' own job registry and flow user state store", ws, e.host.EffectiveWorkspace())
 	}
 	return nil
 }

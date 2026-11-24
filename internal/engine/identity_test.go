@@ -7,8 +7,10 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/invakid404/windmill-lite/internal/ir"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 	"github.com/invakid404/windmill-lite/internal/platform"
+	"github.com/invakid404/windmill-lite/internal/syncfolder"
 )
 
 // A run whose id a job of another workspace holds in the job registry,
@@ -75,11 +77,12 @@ func (h *hostStates) SetUserState(_ context.Context, job, key string, v json.Raw
 	return nil
 }
 
-// A run in a workspace other than windmill-lite needs the services' own job
-// registry and flow user state store, which alone keep workspaces apart: with
-// a host's registry (here one that forwards to the services' own) or a host's
-// store, a flow run and a root script run of another workspace are refused
-// before any step, while runs of windmill-lite run as they always did.
+// A run in a workspace other than the engine's configured one, which only a
+// run's own identity (RunRequest.Host, ScriptRequest.Host) can ask for,
+// needs the services' own job registry and flow user state store, which
+// alone keep workspaces apart: with a host's registry (here one that forwards
+// to the services' own) or a host's store, such a flow run and root script
+// run are refused before any step, while runs in the engine's workspace run.
 func TestWorkspaceNeedsOwnServices(t *testing.T) {
 	for name, services := range map[string]func() *platform.Services{
 		"a host's registry": func() *platform.Services {
@@ -110,9 +113,165 @@ func TestWorkspaceNeedsOwnServices(t *testing.T) {
 				t.Errorf("%d steps of refused runs ran", ran)
 			}
 			if tr, err := e.Run(context.Background(), RunRequest{Path: "f/t/main", Args: args}); err != nil || tr.Status != "success" {
-				t.Errorf("a run of windmill-lite: %v, %+v", err, tr)
+				t.Errorf("a run in the engine's workspace: %v, %+v", err, tr)
 			}
 		})
+	}
+}
+
+// openInWorkspace is openWithPlatform for an engine configured with the
+// workspace ws (Config.Workspace), as a host sets it without identities.
+func openInWorkspace(t *testing.T, flows map[string]string, exec StepExecutor, p *platform.Services, ws string) *Engine {
+	t.Helper()
+	jsOnce.Do(func() { jsEng, jsErr = newTestJS() })
+	if jsErr != nil {
+		t.Fatal(jsErr)
+	}
+	folder, err := syncfolder.Load(testFolder(flows))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer folder.Close()
+	prog, err := ir.Compile(folder, nil, ir.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := New(Config{Program: prog, Bundle: "sha256:test", Exec: exec, JS: jsEng, Platform: p, Workspace: ws})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e
+}
+
+// A compatibility control: an engine configured with a workspace other than
+// windmill-lite (Config.Workspace) over a host's job registry, or a host's
+// flow user state store, runs its flows and root scripts as it always did.
+// The host's registry registers the run, and the host's store keeps the
+// run's state under the run's id.
+func TestEngineWorkspaceWithHostServices(t *testing.T) {
+	const id, scriptID = "00000000-0000-4000-8000-0000000000e1", "00000000-0000-4000-8000-0000000000e2"
+	for _, tc := range []struct {
+		name  string
+		build func() (*platform.Services, *hostStates)
+	}{
+		{"a host's registry", func() (*platform.Services, *hostStates) {
+			s := &platform.Services{}
+			s.Jobs = forwardingJobs{s.Registry()}
+			return s, nil
+		}},
+		{"a host's store", func() (*platform.Services, *hostStates) {
+			store := &hostStates{vals: map[string]map[string]json.RawMessage{}}
+			return &platform.Services{UserState: store}, store
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			services, store := tc.build()
+			var workspace, state, root string
+			x := execFunc(func(ctx context.Context, inv Invocation) (StepOutcome, error) {
+				workspace = inv.Env["WM_WORKSPACE"]
+				if inv.Env["WM_FLOW_JOB_ID"] == id {
+					if err := services.SetFlowUserState(ctx, id, "k", []byte(`"kept"`)); err != nil {
+						return StepOutcome{}, err
+					}
+					v, _ := services.FlowUserState(ctx, id, "k")
+					state = string(v)
+					root, _ = services.RootJob(id)
+				}
+				return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(`null`))}, nil
+			})
+			e := openInWorkspace(t, map[string]string{"f/t/main": flowOf(mod("a", "echo", "", ""))}, x, services, "ws-x")
+			args := jsonval.FromProducer([]byte(`{}`))
+			if tr, err := e.Run(context.Background(), RunRequest{ID: id, Path: "f/t/main", Args: args}); err != nil || tr.Status != "success" {
+				t.Fatalf("the flow run: %v, %+v", err, tr)
+			}
+			if workspace != "ws-x" || state != `"kept"` || root != id {
+				t.Errorf("the flow's step saw workspace %q, state %s, root %q; want ws-x, \"kept\", %s", workspace, state, root, id)
+			}
+			if store != nil && string(store.vals[id]["k"]) != `"kept"` {
+				t.Errorf("the host's store holds %v, want the run's state under its id", store.vals)
+			}
+			if r, err := e.RunScript(context.Background(), ScriptRequest{ID: scriptID, Path: "f/t/echo", Args: args}); err != nil || r.Failed {
+				t.Fatalf("the root script run: %v, %+v", err, r)
+			}
+			if workspace != "ws-x" {
+				t.Errorf("the root script saw workspace %q, want ws-x", workspace)
+			}
+		})
+	}
+}
+
+// Where the workspace guarantees do not reach, behaviour is the base's: a
+// default-workspace engine whose host's registry forwards to a registry that
+// another engine's run of ws-a uses registers its run as it always did, with
+// no refusal, though ws-a's job holds the id. Workspaces are kept apart only
+// through the services' own registry (see TestSharedOwnRegistryRefusesOverlap).
+func TestHostRegistryKeepsBaseRegistration(t *testing.T) {
+	shared := &platform.Services{}
+	const id = "00000000-0000-4000-8000-0000000000e3"
+	defer shared.JobRegistry().Begin(platform.Job{ID: id, Kind: platform.JobScript, Root: "00000000-0000-4000-8000-0000000000e4", Run: "00000000-0000-4000-8000-0000000000e4", Host: platform.Host{Workspace: "ws-a"}})()
+	host := &platform.Services{Jobs: forwardingJobs{shared.Registry()}}
+	x := execFunc(func(_ context.Context, inv Invocation) (StepOutcome, error) {
+		return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(`null`))}, nil
+	})
+	e := openWithPlatform(t, map[string]string{"f/t/main": flowOf(mod("a", "echo", "", ""))}, x, host)
+	if tr, err := e.Run(context.Background(), RunRequest{ID: id, Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`))}); err != nil || tr.Status != "success" {
+		t.Fatalf("the default run through a host's registry: %v, %+v; want it to run, as at the base", err, tr)
+	}
+}
+
+// The services' own registry, shared between engines (WithProviders gives a
+// copy of the services the same registry and store), never lets runs of two
+// workspaces share an id: a default-workspace engine's flow run and root
+// script run with an id that the other engine's run of ws-a holds, or that
+// a step of ws-a holds as its WM_JOB_ID, or that an ended job of ws-a keeps,
+// are refused before they register anything. No job, tree or state of
+// theirs can so ever sit under that id.
+func TestSharedOwnRegistryRefusesOverlap(t *testing.T) {
+	own := &platform.Services{}
+	copied := own.WithProviders(platform.Providers{})
+	if !copied.OwnsJobs() {
+		t.Fatal("a copy of the services' own does not own its registry and store")
+	}
+	const runA, stepA = "00000000-0000-4000-8000-0000000000e5", "00000000-0000-4000-8000-0000000000e6"
+	var refusals []string
+	args := jsonval.FromProducer([]byte(`{}`))
+	var other *Engine
+	try := func(id string) {
+		if _, err := other.Run(context.Background(), RunRequest{ID: id, Path: "f/t/main", Args: args}); err == nil || !strings.Contains(err.Error(), "held by a job of another workspace") {
+			refusals = append(refusals, "flow "+id+": "+errString(err))
+		}
+		if _, err := other.RunScript(context.Background(), ScriptRequest{ID: id, Path: "f/t/echo", Args: args}); err == nil || !strings.Contains(err.Error(), "held by a job of another workspace") {
+			refusals = append(refusals, "script "+id+": "+errString(err))
+		}
+	}
+	steps := 0
+	xa := execFunc(func(_ context.Context, inv Invocation) (StepOutcome, error) {
+		// While ws-a's run lives, the default engine tries its id.
+		try(runA)
+		return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(`null`))}, nil
+	})
+	xb := execFunc(func(_ context.Context, inv Invocation) (StepOutcome, error) {
+		steps++
+		return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(`null`))}, nil
+	})
+	flows := map[string]string{"f/t/main": flowOf(mod("a", "echo", "", ""))}
+	a := openWithPlatform(t, flows, xa, own)
+	other = openWithPlatform(t, flows, xb, copied)
+	if tr, err := a.Run(context.Background(), RunRequest{ID: runA, Path: "f/t/main", Args: args, Host: platform.Host{Workspace: "ws-a"}}); err != nil || tr.Status != "success" {
+		t.Fatalf("ws-a's run: %v, %+v", err, tr)
+	}
+	// A step of ws-a that holds an id as its WM_JOB_ID, as the facade
+	// registers it, and then the same id ended and kept.
+	end := own.JobRegistry().Begin(platform.Job{ID: stepA, Kind: platform.JobScript, Root: runA, Run: runA, Host: platform.Host{Workspace: "ws-a"}})
+	try(stepA)
+	end()
+	try(stepA)
+	try(runA)
+	if len(refusals) != 0 {
+		t.Errorf("not refused: %v", refusals)
+	}
+	if steps != 0 {
+		t.Errorf("%d steps of the default engine's runs ran", steps)
 	}
 }
 
@@ -200,4 +359,19 @@ func errString(err error) string {
 		return ""
 	}
 	return " " + err.Error()
+}
+
+// An engine with no services registers no job, so it keeps nothing to set
+// apart: a run whose own identity names another workspace than the
+// engine's runs on it.
+func TestWorkspaceWithoutServices(t *testing.T) {
+	var workspace string
+	x := execFunc(func(_ context.Context, inv Invocation) (StepOutcome, error) {
+		workspace = inv.Env["WM_WORKSPACE"]
+		return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(`null`))}, nil
+	})
+	e := openInWorkspace(t, map[string]string{"f/t/main": flowOf(mod("a", "echo", "", ""))}, x, nil, "")
+	if tr, err := e.Run(context.Background(), RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{}`)), Host: platform.Host{Workspace: "ws-b"}}); err != nil || tr.Status != "success" || workspace != "ws-b" {
+		t.Fatalf("a run of ws-b on an engine with no services: %v, %+v, workspace %q", err, tr, workspace)
+	}
 }
