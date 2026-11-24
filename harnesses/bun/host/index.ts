@@ -13,10 +13,11 @@
 // A step's bundle reaches them through a shim that takes each export from
 // the registry.
 
-import { accessSync, constants, lstatSync, readFileSync, realpathSync, statSync, writeSync } from "node:fs";
+import { accessSync, constants, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
 import { createRequire } from "node:module";
 import type { Socket } from "node:net";
-import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { exitProcess, invocations, noteBundledPlugin, realStderr, realTimers } from "../runtime/context.ts";
 import { loadPlugin, type Plugin, type Selector } from "../runtime/plugin.ts";
@@ -385,11 +386,51 @@ function thrownText(e: unknown): string {
   }
 }
 
-/** The digest of each bundle plugin this process has imported, by the URL
- * it imported it from. Bun keeps a module by the URL it was imported from,
- * so the same URL with other bytes, after a release replaced the bundle at
- * the same path, would give back the module first imported. */
-const loadedPlugins = new Map<string, string>();
+/** Each bundle plugin this process has imported, by the URL of its file in
+ * the bundle: its digest, and the URL of the private copy of the verified
+ * bytes that it was imported from. Bun keeps a module by the URL it was
+ * imported from, so a plugin at the same bundle path with other bytes, after
+ * a release replaced its file, would give back the module first imported. */
+const loadedPlugins = new Map<string, { digest: string; copy: string }>();
+// The private directory of those copies, made on first use and removed when
+// the process exits.
+let copies: string | undefined;
+
+/** The URL of a private copy of a plugin's verified bytes, which this
+ * process imports in place of the bundle's file: a file that changes after
+ * the check cannot run in its place. A plugin already imported from the
+ * same bundle path, with the same digest, keeps its copy, so a reconnect
+ * gets the module Bun already holds, as for any module. */
+function pluginCopy(plugin: { url: string; digest: string; bytes: Uint8Array; file: string }): string {
+  const known = loadedPlugins.get(plugin.url);
+  if (known !== undefined) return known.copy;
+  if (copies === undefined) {
+    const dir = mkdtempSync(join(tmpdir(), "windmill-lite-plugins-"));
+    process.once("exit", () => rmSync(dir, { recursive: true, force: true }));
+    copies = dir;
+  }
+  const path = join(copies, String(loadedPlugins.size), plugin.file);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, plugin.bytes, { flag: "wx", mode: 0o400 });
+  const copy = pathToFileURL(path).href;
+  loadedPlugins.set(plugin.url, { digest: plugin.digest, copy });
+  return copy;
+}
+
+/** The digest that the host pins the bundle to with the host command's
+ * -digest flag in engineFlags (the last one, as Go's flag package takes
+ * it), if any. */
+function digestPin(flags: string[] | undefined): string | undefined {
+  let pin: string | undefined;
+  for (let i = 0; i < (flags?.length ?? 0); i++) {
+    const f = flags![i];
+    if (f === "--") break;
+    if (f === "-digest" || f === "--digest") pin = flags![++i];
+    else if (f.startsWith("-digest=")) pin = f.slice("-digest=".length);
+    else if (f.startsWith("--digest=")) pin = f.slice("--digest=".length);
+  }
+  return pin;
+}
 
 /** The bundle's own plugin, once it is known to be one of the bundle's
  * files, by the rules that the engine's verification applies: a key, and
@@ -401,7 +442,7 @@ function verifiedPlugin(
   bundle: string,
   entry: { key?: unknown; file?: unknown },
   files: Record<string, unknown>,
-): { url: string; digest: string } {
+): { url: string; digest: string; bytes: Uint8Array; file: string } {
   const refuse = (why: string) => new HostError("bundle", `cannot load the bundle's host plugin: ${why}`);
   const file = entry.file;
   if (typeof entry.key !== "string" || entry.key === "") throw refuse("the manifest's plugin entry has no key");
@@ -440,16 +481,17 @@ function verifiedPlugin(
   if (digest !== files[file]) throw refuse(`${file} does not have the digest that the manifest records for it`);
   const url = pathToFileURL(path).href;
   const seen = loadedPlugins.get(url);
-  if (seen !== undefined && seen !== digest) {
-    throw refuse(`this process already imported ${file} with other contents, and Bun would give back that module; restart the host to load the new release`);
+  if (seen !== undefined && seen.digest !== digest) {
+    throw refuse(`this process already imported a plugin from ${file} with other contents, and Bun would give back that module; restart the host to load this one`);
   }
-  return { url, digest };
+  return { url, digest, bytes, file };
 }
 
 /** Runs the engine's verify command on the bundle, pinned to the digest of
  * the manifest that this process read: every file of the bundle against
  * the manifest, as the engine checks it at start. Else a HostError
- * bundle, or engine_start when the engine does not start. */
+ * bundle, or engine_start when the engine does not start. The caller has
+ * checked that digest against the host's own pin, if engineFlags has one. */
 async function engineVerifies(spawn: typeof import("node:child_process").spawn, o: ConnectOptions, digest: string): Promise<void> {
   const child = spawn(o.engine, [...(o.engineArgs ?? []), "verify", o.bundle, "-digest", digest], { stdio: ["ignore", "ignore", "pipe"] });
   let stderr = "";
@@ -575,7 +617,15 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   // its ESM bindings for every later importer, so a step's named import of
   // node:child_process would miss the runtime's wrappers (ADR 0004, item 7).
   const { spawn } = createRequire(import.meta.url)("node:child_process") as typeof import("node:child_process");
-  if (plugin !== undefined) await engineVerifies(spawn, o, digest);
+  if (plugin !== undefined) {
+    // The host command refuses a bundle whose digest is not the host's pin,
+    // but only in the handshake, after the plugin has run.
+    const pin = digestPin(o.engineFlags);
+    if (pin !== undefined && pin !== digest) {
+      throw new HostError("bundle", `the bundle's digest is ${digest}, not ${pin}, the -digest that engineFlags pins it to; its plugin was not loaded`);
+    }
+    await engineVerifies(spawn, o, digest);
+  }
   // The second one, the child's fd 4, carries only the child frames that
   // announce the steps' child groups (WR-55), written synchronously: the
   // socket may hold bytes it has not written yet, which such a write would
@@ -860,8 +910,7 @@ export async function connect(o: ConnectOptions): Promise<Host> {
     // the first fetch view, which a wrapper that this plugin installs on
     // globalThis.fetch does not replace.
     noteBundledPlugin();
-    loadedPlugins.set(plugin.url, plugin.digest);
-    const load = loadPlugin(plugin.url).then(
+    const load = loadPlugin(pluginCopy(plugin)).then(
       (p) => ({ plugin: p }),
       (failed: unknown) => ({ failed }),
     );

@@ -2,7 +2,7 @@
 // host-mode gate runs in cmd/windmill-lite against a compiled host.
 
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkWorkdir, type ConnectOptions, connect, DEFAULT_COLLECT_POLICY, DEFAULT_COLLECT_QUIET_MS, type Host, HostError, type RunOptions } from "../host/index.ts";
@@ -183,6 +183,19 @@ test("connect verifies the bundle's plugin before it runs any of it", async () =
   symlinkSync(outside, join(linkedDir, "plugins/f"));
   expect(await connectIn(linkedDir, {})).toBe("bundle");
   expect(existsSync(marker)).toBe(false);
+}, 20_000);
+
+test("connect runs the plugin bytes it verified, though the file changes while the engine verifies", async () => {
+  const marker = join(tempDir("wl-host-marker-"), "ran");
+  const plugin = (what: string) => `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "${what}");\nexport default {};\n`;
+  const dir = pluginBundle(plugin("verified"));
+  const swapped = join(tempDir("wl-host-swap-"), "plugin.mjs");
+  writeFileSync(swapped, plugin("swapped"));
+  // The stand-in engine's verify replaces the plugin, as a release would
+  // during startup, and passes; its host command ends after a second.
+  const engine = { engine: "/bin/sh", engineArgs: ["-c", `case "$1" in verify) cp '${swapped}' "$2/plugins/f/app/plugin.mjs"; exit 0;; esac; sleep 1`, "sh"] };
+  expect(await connectIn(dir, engine)).toBe("rejected");
+  expect(readFileSync(marker, "utf8")).toBe("verified");
 }, 20_000);
 
 test("connect rejects at once when the engine ends while the bundle's plugin loads", async () => {

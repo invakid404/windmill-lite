@@ -515,8 +515,8 @@ How these tests run:
 | `TestHostBundledPluginFetchOrder` | A `fetch` wrapper that the bundle's plugin installs at load reaches an ordinary step and not a native one: the SDK loads it after the runtime's hooks, as a spawned harness does. |
 | `TestHostReconnectKeepsNativeFetch` | A host that connects on a bundle whose plugin wraps `fetch` at load, closes, and connects again on a bundle with no plugin: the native step never gets the wrapper, which the ordinary step still goes through. |
 | `TestHostReconnectKeepsHostFetch` | A host with no bundled plugin that wraps `fetch` itself between two connections: the second connection's native and ordinary steps both go through its wrapper. |
-| `TestHostVerifiesBundleBeforePlugin` | The bundle's plugin runs on the bundle as built. Once another file of the bundle changes, `connect()` rejects with `bundle` and the plugin never runs. |
-| `TestHostRefusesStalePluginRelease` | After a second release replaces the bundle at the same path, a reconnect in the same process rejects with `bundle`, asking for a restart. |
+| `TestHostVerifiesBundleBeforePlugin` | The bundle's plugin runs on the bundle as built, with no `-digest` pin and with a matching one. With a pin that the bundle does not match, or once another file of the bundle changes, `connect()` rejects with `bundle` and the plugin never runs. |
+| `TestHostRefusesStalePluginRelease` | After a second release, with another plugin file, replaces the bundle at the same path, a reconnect in the same process rejects with `bundle`, asking for a restart. |
 | `TestHostSurvivesADetachedRejection` | One detached promise rejection does not end the host. Health counts it. |
 | `TestHostNeverSettlingStep` | After one run's step times out, the other run's next step completes, a new run succeeds, and health reports one abandoned invocation. The host is never restarted. |
 | `TestHostChildUnderBackpressure` | A step fills the host's socket, starts a child process and blocks the event loop. Its timeout still kills the child, which the host announced on the child channel. |

@@ -275,10 +275,12 @@ shape with `bundle` ([Errors and refusals](#errors-and-refusals)):
    [`host` command](../../cmd/windmill-lite/README.md#host) describes
    those flags. For a bundle with a plugin of its own, it first runs
    `<engine> verify <bundle> -digest <digest>`, pinned to the manifest it
-   read, and stops with `bundle` unless that exits 0.
+   read. It stops with `bundle` unless that exits 0 and any `-digest` in
+   `engineFlags` is that digest.
 6. It runs the harness runtime in this process, loads the bundle's own
-   plugin, and greets the engine. A plugin that does not load rejects
-   with `bundle`, and an engine that ends while it loads with `rejected`.
+   plugin from a private copy of the bytes it checked, and greets the
+   engine. A plugin that does not load rejects with `bundle`, and an
+   engine that ends while it loads with `rejected`.
    The engine checks the host's Bun, the bundle, the working directory, the
    SDK's version and the plugin, and welcomes or refuses the host. A
    refusal rejects `connect` with the engine's code.
@@ -576,11 +578,12 @@ the rules of each hook.
   `warm` harness that the engine starts, the default export, or the export
   `plugin`, of the module that `--plugin` names (`wl.Options.Plugin`).
 - **The bundle's own.** A bundle built with a plugin (the host contract's
-  `plugin`) holds it in `plugins/`, with the host-provided modules resolved
-  to their shims. The engine names it with `--plugin` when `wl` names none,
-  and `connect` loads it when its `plugin` option is absent, once the
-  engine has verified the bundle ([What connect() does](#what-connect-does)).
-  A new release at the same path needs a new host process.
+  `plugin`) holds it in `plugins/`, with host-provided modules resolved to
+  their shims. The engine names it with `--plugin` when `wl` names none,
+  and `connect` loads it, checked first, when its `plugin` option is absent
+  ([What connect() does](#what-connect-does)). `connect` refuses a plugin
+  file whose path this process imported other bytes from; an unchanged
+  plugin file keeps its loaded module, so restart the host for a release.
 - **When it loads.** A harness loads its plugin after the runtime has
   installed its process-wide hooks and the native realms have taken the
   web APIs, and `connect` loads a bundle's plugin at the same point. A

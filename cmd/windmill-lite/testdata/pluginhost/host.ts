@@ -8,7 +8,8 @@
 //     globalThis.fetch itself, setting that header. It connects again, in
 //     the same process, on WL_BUNDLE2 and runs both flows again.
 //   - connect: connects on WL_BUNDLE and reports whether connect() resolved,
-//     or the HostError's code and message.
+//     or the HostError's code and message. WL_ENGINE_FLAGS, split at
+//     spaces, are its engineFlags, such as a -digest pin.
 //   - releases: copies the bundle WL_RELEASE_A to WL_DIR, connects, runs
 //     f/app/plain_flow and keeps its warnings, and closes; then replaces
 //     WL_DIR with the bundle WL_RELEASE_B and connects again, in the same
@@ -23,7 +24,8 @@ const env = process.env;
 const args = { url: env.WL_URL ?? "http://127.0.0.1:9" };
 type Host = Awaited<ReturnType<typeof connect>>;
 
-const open = (bundle: string) => connect({ engine: env.WL_ENGINE!, bundle, workdir: process.cwd() });
+const open = (bundle: string) =>
+  connect({ engine: env.WL_ENGINE!, bundle, workdir: process.cwd(), engineFlags: env.WL_ENGINE_FLAGS ? env.WL_ENGINE_FLAGS.split(" ") : undefined });
 
 async function result(host: Host, flow: string) {
   const r = await host.run(flow, args);
