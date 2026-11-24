@@ -1256,6 +1256,11 @@ func shutdown(t *testing.T, e *pluginEngine) {
 	err := e.conn.Invoke(ctx, "/plugin.GRPCController/Shutdown", &emptypb.Empty{}, &emptypb.Empty{})
 	for !e.client.Exited() {
 		if ctx.Err() != nil {
+			// The launch's cleanup ends the engine with go-plugin's Kill,
+			// which first sends the shutdown call again, bounded only by the
+			// engine's life. On the closed connection that call fails at
+			// once, so Kill kills the engine and reaps it.
+			e.conn.Close()
 			t.Fatalf("the engine did not exit within 10 seconds of the shutdown call's start (the call: %v)\nits standard error:\n%s", err, e.stderr)
 		}
 		time.Sleep(10 * time.Millisecond)
