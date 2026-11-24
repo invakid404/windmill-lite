@@ -218,6 +218,19 @@ test("a plugin whose connect fails before it is copied does not hold its path: a
   expect(readFileSync(marker, "utf8")).toBe("second");
 }, 20_000);
 
+test("connect removes its identity file when the engine's check refuses the bundle", async () => {
+  const dir = pluginBundle("export default {};\n");
+  const args = join(tempDir("wl-host-args-"), "args");
+  // The stand-in engine's check records its arguments and refuses the bundle.
+  const refusing = { engine: "/bin/sh", engineArgs: ["-c", `case "$2" in -check-bundle) printf '%s\\n' "$@" > '${args}'; exit 1;; esac; exit 0`, "sh"] };
+  expect(await connectIn(dir, { ...refusing, identity: { workspace: "ws-a" } })).toBe("bundle");
+  const passed = readFileSync(args, "utf8").split("\n");
+  expect(passed).toContain("-identity");
+  const file = passed[passed.indexOf("-identity") + 1];
+  expect(file.endsWith("identity.json")).toBe(true);
+  expect(existsSync(file)).toBe(false);
+}, 20_000);
+
 test("connect stops the engine and rejects with bundle when it cannot copy the plugin, and a later connect copies it", async () => {
   const marker = join(tempDir("wl-host-marker-"), "ran");
   const dir = pluginBundle(`require("node:fs").writeFileSync(${JSON.stringify(marker)}, "ran");\nexport default {};\n`);
