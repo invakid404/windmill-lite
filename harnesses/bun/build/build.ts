@@ -19,7 +19,7 @@ import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { parseAnnotations, targetFor } from "./annotations.ts";
 import { packageName, removePinnedImports, rewriteRelativeImports, workspacePath } from "./imports.ts";
-import type { EntryResult, HostModuleRequest, HostModuleResult, Problem, Request } from "./protocol.ts";
+import type { EntryResult, HostModuleRequest, HostModuleResult, PluginRequest, PluginResult, Problem, Request } from "./protocol.ts";
 import { buildNativeClient, lineMap, nativeHeader, nativeModule, type NativeModule, transpile } from "./native.ts";
 import {
   builtinModule,
@@ -70,6 +70,8 @@ function inside(rel: string): boolean {
 }
 
 const exportScanner = new Bun.Transpiler({ loader: "js" });
+// The export names of a TypeScript source, such as a host plugin's.
+const tsExportScanner = new Bun.Transpiler({ loader: "ts" });
 const sourceScanner = new Bun.Transpiler({ loader: "ts" });
 
 type Bundled = {
@@ -559,6 +561,30 @@ export class Builder {
     const exports = exportScanner.scan(b.text).exports;
     this.writeOut(join("scripts", "bun", "provided", hm.id + ".mjs"), b.text);
     return { exports, host_modules: b.hostModules, packages: directPackages(parse(source)), imports: b.closure };
+  }
+
+  // Build: the host plugin (ADR 0004, host plugins), bundled as a
+  // host-provided module's copy is, with every host-provided module
+  // resolved to its shim: in each process the plugin and the steps then
+  // share those modules' instances. It keeps its default export and its
+  // named plugin export, which the harness loads.
+  async buildPlugin(p: PluginRequest): Promise<PluginResult> {
+    if (!validId(p.id)) throw new BuildProblem("invalid_request", `plugin id ${JSON.stringify(p.id)}`);
+    if (this.hostByPath.has(p.path)) throw new BuildProblem("invalid_request", `plugin ${p.key} is a host-provided module too`);
+    const { dir, entry, source, seeds } = await this.hostEntry({ id: p.id, key: p.key, path: p.path, file: p.file, deps: p.deps });
+    const rel = join("plugins", p.id + ".entry.mjs");
+    const target = JSON.stringify("./" + relative(dirname(join(dir, rel)), entry));
+    const names = tsExportScanner.scan(source).exports;
+    const wrapper = this.materialise(
+      dir,
+      rel,
+      withEnvImport(
+        `export * from ${target};\n` + (names.includes("default") ? `export { default } from ${target};\n` : ""),
+      ),
+    );
+    const b = await this.bundle(dir, wrapper, seeds, "bun", { shims: true }, true);
+    this.writeOut(join("plugins", p.id + ".mjs"), b.text);
+    return { host_modules: b.hostModules, packages: directPackages(parse(source)), imports: b.closure };
   }
 
   async buildEntry(e: EntryRequest): Promise<EntryResult> {

@@ -190,7 +190,8 @@ runs for the engine, which calls them over the harness protocol
 ([harnesses/bun](../harnesses/bun/README.md#host-plugins)). In host mode,
 the plugin is the `plugin` option of the host's `connect()`. Otherwise,
 `wl`'s `Options.Plugin` names its module, which every `warm` harness
-process loads.
+process loads. A bundle may also carry its own, which the host contract's
+`plugin` field names and both load when neither option gives a plugin.
 
 ### host-provided module
 

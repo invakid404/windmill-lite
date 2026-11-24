@@ -142,6 +142,31 @@ jobs:
         if: matrix.checks
         run: go mod tidy -diff
 
+      - name: Check the generated protobuf code
+        # wl/plugin's runner.pb.go and runner_grpc.pb.go are generated from
+        # proto/windmill_lite/v1/runner.proto by protoc 36.2 and the
+        # generators of go.mod (proto/README.md). The step installs that
+        # protoc, checked against the SHA-256 of its release archive,
+        # generates the code again and fails when a file under wl/plugin or
+        # proto differs from the commit. The code is the same on every
+        # platform, so only the Linux part runs it.
+        if: matrix.checks && runner.os == 'Linux'
+        run: |
+          dir="$RUNNER_TEMP/protoc"
+          mkdir -p "$dir"
+          curl -sSfL --retry 3 -o "$dir/protoc.zip" https://github.com/protocolbuffers/protobuf/releases/download/v36.2/protoc-36.2-linux-x86_64.zip
+          echo "121f6c7afe1d4d0e3ea6aab9432038599250134cbf4474cb1167d2c7decd4278  $dir/protoc.zip" | sha256sum -c -
+          unzip -q "$dir/protoc.zip" -d "$dir"
+          export PATH="$dir/bin:$PATH"
+          go generate ./wl/plugin
+          changed=$(git status --porcelain -- wl/plugin proto)
+          if [ -n "$changed" ]; then
+            echo "The generated code differs from the commit; run go generate ./wl/plugin and commit the result:" >&2
+            echo "$changed" >&2
+            git diff -- wl/plugin proto >&2
+            exit 1
+          fi
+
       - name: Vet
         if: matrix.checks
         run: go vet ./...

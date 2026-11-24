@@ -2,7 +2,7 @@
 // host-mode gate runs in cmd/windmill-lite against a compiled host.
 
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkWorkdir, type ConnectOptions, connect, DEFAULT_COLLECT_POLICY, DEFAULT_COLLECT_QUIET_MS, type Host, HostError, type RunOptions } from "../host/index.ts";
@@ -103,6 +103,169 @@ test("an engine that cannot start is engine_start", async () => {
     process.chdir(cwd);
   }
 });
+
+// A bundle directory whose manifest names a plugin of its own, at file, and
+// records digest for it (by default, the digest of source), with source
+// written at file when file is under the directory.
+function pluginBundle(source: string, o: { file?: string; digest?: string; listed?: boolean; key?: string } = {}) {
+  const dir = tempDir("wl-host-plugin-");
+  const file = o.file ?? "plugins/f/app/plugin.mjs";
+  const digest = o.digest ?? "sha256:" + new Bun.CryptoHasher("sha256").update(source).digest("hex");
+  mkdirSync(join(dir, file, ".."), { recursive: true });
+  writeFileSync(join(dir, file), source);
+  const files = o.listed === false ? {} : { [file]: digest };
+  writeFileSync(join(dir, "manifest.json"), JSON.stringify({ host_modules: [], plugin: { key: o.key ?? "f/app/plugin.ts", file }, files }));
+  return dir;
+}
+
+// A stand-in engine, run by /bin/sh: it passes the SDK's check of the
+// bundle (host -check-bundle), and as the host command writes its pid to
+// pidFile and then runs script.
+function standIn(pidFile: string, script: string): Partial<ConnectOptions> {
+  return { engine: "/bin/sh", engineArgs: ["-c", `case "$2" in -check-bundle) exit 0;; esac; echo $$ > '${pidFile}'; ${script}`, "sh"] };
+}
+
+// Whether the stand-in whose pid file is pidFile is gone within a second:
+// one stopped before it wrote its pid never writes it.
+async function exits(pidFile: string): Promise<boolean> {
+  for (let i = 0; i < 30 && !existsSync(pidFile); i++) await Bun.sleep(10);
+  if (!existsSync(pidFile)) return true;
+  const pid = Number((await Bun.file(pidFile).text()).trim());
+  for (let i = 0; i < 100; i++) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return true;
+    }
+    await Bun.sleep(10);
+  }
+  return false;
+}
+
+// connect() in dir, which is also the working directory.
+async function connectIn(dir: string, o: Partial<ConnectOptions>): Promise<string | undefined> {
+  const back = process.cwd();
+  process.chdir(dir);
+  try {
+    return await code(connect({ engine: join(dir, "no-such-engine"), bundle: dir, workdir: dir, diag: () => {}, ...o }));
+  } finally {
+    process.chdir(back);
+  }
+}
+
+test("connect refuses a plugin option for a bundle with a plugin of its own, before it starts the engine", async () => {
+  const dir = pluginBundle("export default {};\n");
+  expect(await connectIn(dir, { plugin: {} })).toBe("options");
+  // Without the option, connect gets as far as starting the engine.
+  expect(await connectIn(dir, {})).toBe("engine_start");
+}, 20_000);
+
+test("connect verifies the bundle's plugin before it runs any of it", async () => {
+  const marker = join(tempDir("wl-host-marker-"), "ran");
+  const changed = `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "ran");\nexport default {};\n`;
+  const built = "sha256:" + new Bun.CryptoHasher("sha256").update("export default {};\n").digest("hex");
+  // Changed since the build: its digest is not the manifest's.
+  expect(await connectIn(pluginBundle(changed, { digest: built }), {})).toBe("bundle");
+  // Not a module of plugins/ that the manifest lists.
+  expect(await connectIn(pluginBundle(changed, { listed: false }), {})).toBe("bundle");
+  expect(await connectIn(pluginBundle(changed, { file: "scripts/plugin.mjs" }), {})).toBe("bundle");
+  expect(await connectIn(pluginBundle(changed, { file: "plugins/../plugin.mjs" }), {})).toBe("bundle");
+  // No key, as the engine's verification requires one.
+  expect(await connectIn(pluginBundle(changed, { key: "" }), {})).toBe("bundle");
+  // Reached through a symbolic link below the bundle directory, its bytes
+  // matching the manifest: the file itself, or a directory above it.
+  const outside = tempDir("wl-host-outside-");
+  writeFileSync(join(outside, "plugin.mjs"), changed);
+  mkdirSync(join(outside, "app"));
+  writeFileSync(join(outside, "app", "plugin.mjs"), changed);
+  const linkedFile = pluginBundle(changed);
+  rmSync(join(linkedFile, "plugins/f/app/plugin.mjs"));
+  symlinkSync(join(outside, "plugin.mjs"), join(linkedFile, "plugins/f/app/plugin.mjs"));
+  expect(await connectIn(linkedFile, {})).toBe("bundle");
+  const linkedDir = pluginBundle(changed);
+  rmSync(join(linkedDir, "plugins/f"), { recursive: true });
+  symlinkSync(outside, join(linkedDir, "plugins/f"));
+  expect(await connectIn(linkedDir, {})).toBe("bundle");
+  expect(existsSync(marker)).toBe(false);
+}, 20_000);
+
+test("connect runs the plugin bytes it verified, though the file changes while the engine verifies", async () => {
+  const marker = join(tempDir("wl-host-marker-"), "ran");
+  const plugin = (what: string) => `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "${what}");\nexport default {};\n`;
+  const dir = pluginBundle(plugin("verified"));
+  const swapped = join(tempDir("wl-host-swap-"), "plugin.mjs");
+  writeFileSync(swapped, plugin("swapped"));
+  // The stand-in engine's check replaces the plugin, as a release would
+  // during startup, and passes; its host command ends after a second.
+  const engine = { engine: "/bin/sh", engineArgs: ["-c", `case "$2" in -check-bundle) cp '${swapped}' "$5/plugins/f/app/plugin.mjs"; exit 0;; esac; sleep 1`, "sh"] };
+  expect(await connectIn(dir, engine)).toBe("rejected");
+  expect(readFileSync(marker, "utf8")).toBe("verified");
+}, 20_000);
+
+test("a plugin whose connect fails before it is copied does not hold its path: a later connect takes other bytes from it", async () => {
+  const marker = join(tempDir("wl-host-marker-"), "ran");
+  const dir = pluginBundle(`require("node:fs").writeFileSync(${JSON.stringify(marker)}, "first");\nexport default {};\n`);
+  // The engine's check refuses the bundle: the first plugin is never copied.
+  const refusing = { engine: "/bin/sh", engineArgs: ["-c", `case "$2" in -check-bundle) exit 1;; esac; exit 0`, "sh"] };
+  expect(await connectIn(dir, refusing)).toBe("bundle");
+  // Another release puts other plugin bytes at the same path.
+  const second = `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "second");\nexport default {};\n`;
+  const file = "plugins/f/app/plugin.mjs";
+  writeFileSync(join(dir, file), second);
+  const digest = "sha256:" + new Bun.CryptoHasher("sha256").update(second).digest("hex");
+  writeFileSync(join(dir, "manifest.json"), JSON.stringify({ host_modules: [], plugin: { key: "f/app/plugin.ts", file }, files: { [file]: digest } }));
+  expect(await connectIn(dir, standIn(join(tempDir("wl-host-pid-"), "pid"), "sleep 1"))).toBe("rejected");
+  expect(readFileSync(marker, "utf8")).toBe("second");
+}, 20_000);
+
+test("connect stops the engine and rejects with bundle when it cannot copy the plugin, and a later connect copies it", async () => {
+  const marker = join(tempDir("wl-host-marker-"), "ran");
+  const dir = pluginBundle(`require("node:fs").writeFileSync(${JSON.stringify(marker)}, "ran");\nexport default {};\n`);
+  const notADirectory = join(tempDir("wl-host-tmp-"), "file");
+  writeFileSync(notADirectory, "");
+  const pidFile = join(tempDir("wl-host-pid-"), "pid");
+  const saved = process.env.TMPDIR;
+  process.env.TMPDIR = notADirectory;
+  let got: string | undefined;
+  try {
+    got = await connectIn(dir, standIn(pidFile, "exec sleep 30"));
+  } finally {
+    if (saved === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = saved;
+  }
+  expect(got).toBe("bundle");
+  expect(await exits(pidFile)).toBe(true);
+  expect(existsSync(marker)).toBe(false);
+  // Nothing of the failed attempt stays in the way: the next one copies the
+  // plugin and runs it, and ends when its stand-in does.
+  expect(await connectIn(dir, standIn(join(tempDir("wl-host-pid-"), "pid"), "sleep 1"))).toBe("rejected");
+  expect(existsSync(marker)).toBe(true);
+}, 20_000);
+
+test("connect rejects at once when the engine ends while the bundle's plugin loads", async () => {
+  // The plugin's evaluation never ends; the engine exits without a hello.
+  const dir = pluginBundle("await new Promise(() => {});\nexport default {};\n");
+  const started = performance.now();
+  const got = await Promise.race([
+    connectIn(dir, standIn(join(tempDir("wl-host-pid-"), "pid"), "exit 0")),
+    Bun.sleep(5_000).then(() => "still pending"),
+  ]);
+  expect(got).toBe("rejected");
+  expect(performance.now() - started).toBeLessThan(5_000);
+}, 20_000);
+
+test("a bundle's plugin that throws a value that is not an Error rejects connect with bundle, and the engine exits", async () => {
+  const revoked = "const r = Proxy.revocable({}, {});\nr.revoke();\nthrow r.proxy;\n";
+  for (const top of ["throw undefined;\n", "throw null;\n", "throw 42;\n", revoked]) {
+    const pidFile = join(tempDir("wl-host-pid-"), "pid");
+    // The plugin throws once the engine has started and written its pid, or
+    // after 2 s.
+    const started = `for (let i = 0; i < 400 && !require("node:fs").existsSync(${JSON.stringify(pidFile)}); i++) await Bun.sleep(5);\n`;
+    const dir = pluginBundle(started + top + "export default {};\n");
+    expect(await connectIn(dir, standIn(pidFile, "exec sleep 30"))).toBe("bundle");
+    expect(await exits(pidFile)).toBe(true);
+  }
+}, 20_000);
 
 test("connect extracts the bundle's codebase assets into the working directory before it starts the engine", async () => {
   const dir = tempDir("wl-host-test-");

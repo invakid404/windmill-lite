@@ -14,8 +14,7 @@ and signals from step code. A host's signals reach a run as a
 [latch](../glossary.md#latch) or a cancellation, never as an error value that
 the flow could turn into data.
 
-**Not built yet:** bundling host plugins into a bundle's `plugins/`
-directory, and run data that a host attaches for plugins to read as
+**Not built yet:** run data that a host attaches for plugins to read as
 `wl.run.data` (H11). Platform calls that a plugin hook makes outside an
 [invocation](../glossary.md#invocation) are refused, not attributed to its
 site. Go callbacks over go-plugin's broker, for a host that runs the engine
@@ -119,6 +118,9 @@ declines.
   run's host scope and can call any code in the bundle. Platform calls it
   makes are attributed to the site it is serving
   ([platform interface](0007-platform-interface.md)).
+  - **A bundle's own plugin.** A bundle may carry a plugin, which both
+    load when the host names none
+    ([harness protocol](0004-harness-protocol.md#host-plugins), item 7).
 - **Go callbacks over the go-plugin broker** (planned), for a Go host that
   runs the engine as a plugin
   ([host adapters](0009-host-adapters.md#hooks-across-the-plugin-boundary)).
@@ -207,7 +209,9 @@ Two further rules complete it:
   to the loader), plus providers for any step that reads the permit's job
   status. No special permit API is needed.
 - **A host-wide limit on outbound requests:** a plugin that wraps
-  `globalThis.fetch` at load, inside the warm harness.
+  `globalThis.fetch` at load, inside the warm harness. Native steps keep
+  the fetch they took before the plugin loaded
+  ([harness protocol](0004-harness-protocol.md#host-plugins), item 8).
 - **Resumed attempts:** run data flags the resume (H11); H2 changes inputs
   that depend on it; H1 replaces a check the host already made; H9 replays
   effects and records warnings.

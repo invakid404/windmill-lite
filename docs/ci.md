@@ -93,12 +93,14 @@ Each part of the Go job takes these first steps:
 
 Then the steps below run in order. Every part runs `Test`;
 `Go (ubuntu-latest)` and `Go (macos-latest, packages)` also run every other
-step, which the workflow marks `if: matrix.checks`.
+step, which the workflow marks `if: matrix.checks`, except
+`Check the generated protobuf code`, which only `Go (ubuntu-latest)` runs.
 
 | Step | What it checks |
 |---|---|
 | `Check formatting` | `gofmt -l .` lists no file |
 | `Check go.mod is tidy` | `go mod tidy -diff` shows no change |
+| `Check the generated protobuf code` | With protoc 36.2, which the step downloads and checks against its SHA-256, `go generate ./wl/plugin` changes no file under `wl/plugin` or `proto` ([proto](../proto/README.md#generate-the-go-code)) |
 | `Vet` | `go vet ./...` |
 | `Check that no retarget ledger remains` | `go run ./cmd/wltest ledger`: no retarget ledger and no marker of one exists ([the ledger guard](../cmd/wltest/README.md#the-ledger-guard)) |
 | `Test` | `go test -race -timeout 45m` on the part's packages, with `WL_REQUIRE_BUN=1` and `WL_REQUIRE_NODE=1`, so a test that needs Bun, the client or Node fails instead of skipping. A part that selects tests with `-run` also passes `-v` |
@@ -356,6 +358,7 @@ Neither check is required.
 |---|---|
 | `Check formatting` | `gofmt -l .`, then `gofmt -w <file>` for each file that it lists |
 | `Check go.mod is tidy` | `go mod tidy` |
+| `Check the generated protobuf code` | `go generate ./wl/plugin` with protoc 36.2 on the `PATH`, then commit the changed files |
 | `Vet` | `go vet ./...` |
 | `Check that no retarget ledger remains` | `go run ./cmd/wltest ledger` |
 | `Test`, or `Report the native realms and the process groups` | The failed test, with the variables of [Run the tests locally](#run-the-tests-locally) set: `go test -race -run '^<test>$' ./<package>` |

@@ -36,6 +36,13 @@ func loadPluginCases(t *testing.T) *conformance.PluginFile {
 // buildPluginBundle builds the cases' folder and contract into a bundle.
 func buildPluginBundle(t *testing.T, bun string, f *conformance.PluginFile) (out, runtimeDir string) {
 	t.Helper()
+	return buildPluginBundleWith(t, bun, f, nil, f.Contract())
+}
+
+// buildPluginBundleWith builds the cases' folder, with the files extra,
+// into a bundle of the host contract contract.
+func buildPluginBundleWith(t *testing.T, bun string, f *conformance.PluginFile, extra map[string]string, contract []byte) (out, runtimeDir string) {
+	t.Helper()
 	repo, err := filepath.Abs("..")
 	if err != nil {
 		t.Fatal(err)
@@ -44,10 +51,19 @@ func buildPluginBundle(t *testing.T, bun string, f *conformance.PluginFile) (out
 	if err := f.WriteFolder(folder); err != nil {
 		t.Fatal(err)
 	}
+	for p, src := range extra {
+		full := filepath.Join(folder, filepath.FromSlash(p))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	runtimeDir = filepath.Join(repo, "harnesses", "bun", "runtime")
 	out = filepath.Join(t.TempDir(), "bundle")
 	if _, err := bundle.Build(context.Background(), bundle.Config{
-		Folder: folder, Contract: f.Contract(), EngineVersion: Version(), Bun: bun,
+		Folder: folder, Contract: contract, EngineVersion: Version(), Bun: bun,
 		Helper:         filepath.Join(repo, "harnesses", "bun", "build", "main.ts"),
 		HarnessRuntime: runtimeDir, Out: out, Work: filepath.Join(t.TempDir(), "work"),
 	}); err != nil {
@@ -77,6 +93,68 @@ func writeCasePlugin(t *testing.T, f *conformance.PluginFile) (plugin, report st
 		t.Fatal(err)
 	}
 	return plugin, report
+}
+
+// bundledCasePlugin returns the case plugin as files of the cases'
+// folder, the host contract that names it, and the file its onRunSettled
+// reports to.
+func bundledCasePlugin(t *testing.T, f *conformance.PluginFile) (files map[string]string, contract []byte, report string) {
+	t.Helper()
+	src, err := os.ReadFile(filepath.Join("..", "harnesses", "bun", "test", "caseplugin.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	report = filepath.Join(t.TempDir(), "settled.jsonl")
+	if files, contract, err = f.BundledPlugin(src, report); err != nil {
+		t.Fatal(err)
+	}
+	return files, contract, report
+}
+
+// runTypeScriptCases runs every case on rt, whose host plugin is the
+// TypeScript case plugin that reports to report.
+// A case with a pool of its own runs on a runtime that open makes with
+// the case's pool settings, closed once every run has settled.
+func runTypeScriptCases(t *testing.T, rt *Runtime, open func(PoolOptions) (*Runtime, error), f *conformance.PluginFile, report string) {
+	var own []*Runtime
+	defer func() {
+		for _, o := range own {
+			o.Close()
+		}
+	}()
+	var runs []string
+	for _, c := range f.Cases {
+		t.Run(c.ID, func(t *testing.T) {
+			run := rt
+			if p := c.Pool; p != nil {
+				o, err := open(PoolOptions{Max: p.Max, LagThreshold: time.Duration(p.LagThresholdMS) * time.Millisecond, PinRuns: p.PinRuns})
+				if err != nil {
+					t.Fatal(err)
+				}
+				own = append(own, o)
+				run = o
+			}
+			for i, r := range caseRuns(c) {
+				ctx, cancel, opts := caseRun(c, r.Run, RunOptions{})
+				res, err := run.Run(ctx, c.FlowPath(), json.RawMessage(`{}`), opts)
+				cancel()
+				if err != nil {
+					t.Fatalf("run %d: %v", i, err)
+				}
+				runs = append(runs, res.ID)
+				if d := r.Expect.Check(pluginOutcome(res)); len(d) > 0 {
+					t.Fatalf("%s, run %d:\n  %s", c.Title, i, strings.Join(d, "\n  "))
+				}
+				// onRunEnd reports every run, a canceled one too.
+				if !slices.ContainsFunc(res.Warnings, func(w Warning) bool { return w.Code == conformance.PluginLog }) {
+					t.Fatalf("run %d: no %s warning: the plugin's onRunEnd did not report the run: %+v", i, conformance.PluginLog, res.Warnings)
+				}
+			}
+		})
+	}
+	// H9's onRunSettled: every case's run settles, and none while one of
+	// its hooks still ran, a hook the engine stopped waiting for included.
+	checkSettlement(t, runs, report)
 }
 
 // casePluginInput is what the TypeScript case plugin takes.
@@ -163,49 +241,24 @@ func TestPluginCases(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer rt.Close()
-		// The runtimes of the cases with a pool of their own, closed once
-		// every run has settled.
-		var own []*Runtime
-		defer func() {
-			for _, o := range own {
-				o.Close()
-			}
-		}()
-		var runs []string
-		for _, c := range f.Cases {
-			t.Run(c.ID, func(t *testing.T) {
-				run := rt
-				if p := c.Pool; p != nil {
-					o, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, PluginTimeout: timeout,
-						Pool: PoolOptions{Max: p.Max, LagThreshold: time.Duration(p.LagThresholdMS) * time.Millisecond, PinRuns: p.PinRuns}})
-					if err != nil {
-						t.Fatal(err)
-					}
-					own = append(own, o)
-					run = o
-				}
-				for i, r := range caseRuns(c) {
-					ctx, cancel, opts := caseRun(c, r.Run, RunOptions{})
-					res, err := run.Run(ctx, c.FlowPath(), json.RawMessage(`{}`), opts)
-					cancel()
-					if err != nil {
-						t.Fatalf("run %d: %v", i, err)
-					}
-					runs = append(runs, res.ID)
-					if d := r.Expect.Check(pluginOutcome(res)); len(d) > 0 {
-						t.Fatalf("%s, run %d:\n  %s", c.Title, i, strings.Join(d, "\n  "))
-					}
-					// onRunEnd reports every run, a canceled one too.
-					if !slices.ContainsFunc(res.Warnings, func(w Warning) bool { return w.Code == conformance.PluginLog }) {
-						t.Fatalf("run %d: no %s warning: the plugin's onRunEnd did not report the run: %+v", i, conformance.PluginLog, res.Warnings)
-					}
-				}
-			})
+		runTypeScriptCases(t, rt, func(pool PoolOptions) (*Runtime, error) {
+			return Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, PluginTimeout: timeout, Pool: pool})
+		}, f, report)
+	})
+
+	// The same plugin built into the bundle (the host contract's plugin
+	// field), which Open loads with no Options.Plugin.
+	t.Run("typescript, bundled", func(t *testing.T) {
+		files, contract, report := bundledCasePlugin(t, f)
+		bundled, _ := buildPluginBundleWith(t, bun, f, files, contract)
+		rt, err := Open(bundled, Options{Bun: bun, HarnessRuntime: runtimeDir, PluginTimeout: timeout})
+		if err != nil {
+			t.Fatal(err)
 		}
-		// H9's onRunSettled: every case's run settles, and none while one
-		// of its hooks still ran, a hook the engine stopped waiting for
-		// included.
-		checkSettlement(t, runs, report)
+		defer rt.Close()
+		runTypeScriptCases(t, rt, func(pool PoolOptions) (*Runtime, error) {
+			return Open(bundled, Options{Bun: bun, HarnessRuntime: runtimeDir, PluginTimeout: timeout, Pool: pool})
+		}, f, report)
 	})
 
 	t.Run("go callbacks", func(t *testing.T) {

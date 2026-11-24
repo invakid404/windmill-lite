@@ -8,10 +8,10 @@ watchdog, pools in [`warm`](../../docs/glossary.md#warm) and
 [`fresh`](../../docs/glossary.md#fresh) mode,
 [host mode](../../docs/glossary.md#host-mode), and
 [host plugins](../../docs/glossary.md#host-plugin). Its host-mode
-run frames use fields of the package's own; the JSON mapping of
-`runner.proto`, which the
-[host adapters](../../docs/design/0009-host-adapters.md) design record
-plans, does not exist yet.
+`run`, `run_done` and `run_cancel` frames carry the fields that they
+share with `runner.proto`'s messages under the same names, with JSON
+values embedded raw where the messages hold `bytes`
+([host adapters](../../docs/design/0009-host-adapters.md#the-runner-service)).
 
 This README covers `internal/harness` and its `testdata/`: `bench.ts`, the
 Bun side of the microbenchmarks, and `children/`, the bundle of the
@@ -283,10 +283,8 @@ the harness protocol design record lists the fields of `run`, `run_done`,
   `run_done` writes last as `cancel_cause`. A `run_cancel` may carry
   `reason` and `canceler`, which the cancellation's error names. An empty
   `cancel_cause`, `reason` or `canceler` counts as absent, in both codecs.
-- **Fields that the message table does not list.** `run` also carries
-  `halt_before` and `halt_after`, which the record describes under its
-  consequences. `run_done` writes `may_have_mutated`
-  only when it is true.
+- **`may_have_mutated`.** Both codecs write it in `run_done` only when it
+  is true.
 - **Ids.** The run's `id` is its id in the engine, so every `invoke` of
   the run carries it as `run`.
 - **The hello.** A host's hello names its working directory as `workdir`,
