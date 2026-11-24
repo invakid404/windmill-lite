@@ -375,3 +375,72 @@ func TestWorkspaceWithoutServices(t *testing.T) {
 		t.Fatalf("a run of ws-b on an engine with no services: %v, %+v, workspace %q", err, tr, workspace)
 	}
 }
+
+// verbatimJobs is a host's job registry that keeps each job as it was
+// submitted, as a host's Jobs may: it does not give a job its run's Host.
+type verbatimJobs struct {
+	mu   sync.Mutex
+	jobs map[string]platform.Job
+	live map[string]int
+}
+
+func (v *verbatimJobs) Begin(j platform.Job) func() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if j.Root == "" {
+		j.Root = j.ID
+	}
+	if old, ok := v.jobs[j.ID]; !ok || old.View == nil {
+		v.jobs[j.ID] = j
+	}
+	v.live[j.ID]++
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			v.mu.Lock()
+			defer v.mu.Unlock()
+			v.live[j.ID]--
+		})
+	}
+}
+
+func (v *verbatimJobs) Job(id string) (platform.Job, bool, bool) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	j, ok := v.jobs[id]
+	return j, v.live[id] > 0, ok
+}
+
+// A compatibility control: an engine configured with a workspace over a
+// host's registry that keeps jobs as submitted (so a child flow job comes
+// back without a Host) still finds a child flow's job through that
+// workspace, as the job reads of the engine's own workspace always did: its
+// arguments, its root, and its flow user state.
+func TestEngineWorkspaceWithAVerbatimRegistry(t *testing.T) {
+	services := &platform.Services{Jobs: &verbatimJobs{jobs: map[string]platform.Job{}, live: map[string]int{}}}
+	var args, root, state string
+	var child string
+	x := execFunc(func(ctx context.Context, inv Invocation) (StepOutcome, error) {
+		child = inv.Env["WM_FLOW_JOB_ID"]
+		b, err := services.GetJobArgsIn(child, "ws-x")
+		args = string(b) + errString(err)
+		root, _ = services.RootJobIn(child, "ws-x")
+		if err := services.SetFlowUserStateIn(ctx, child, "k", []byte(`"child's"`), "ws-x"); err != nil {
+			state = err.Error()
+		} else {
+			v, _ := services.FlowUserStateIn(ctx, child, "k", "ws-x")
+			state = string(v)
+		}
+		return StepOutcome{Kind: OutcomeOK, Body: jsonval.FromProducer([]byte(`null`))}, nil
+	})
+	e := openInWorkspace(t, map[string]string{"f/t/main": flowOf(
+		branchAllOf("b", []string{`{"modules":[` + mod("s", "echo", "", "") + `]}`}, false, ""),
+	)}, x, services, "ws-x")
+	tr, err := e.Run(context.Background(), RunRequest{Path: "f/t/main", Args: jsonval.FromProducer([]byte(`{"n":1}`))})
+	if err != nil || tr.Status != "success" {
+		t.Fatalf("%v, %+v", err, tr)
+	}
+	if child == tr.RunID || !strings.HasPrefix(args, "{") || root != tr.RunID || state != `"child's"` {
+		t.Errorf("the branch child %s through ws-x: args %s, root %q, state %s; want its arguments, the run %s and its state", child, args, root, state, tr.RunID)
+	}
+}

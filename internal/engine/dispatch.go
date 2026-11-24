@@ -496,7 +496,7 @@ type parentLinks struct{ job, root, path string }
 func (x *Dispatcher) links(d platform.Dispatch) parentLinks {
 	l := parentLinks{job: d.ParentJob, root: d.RootJob}
 	if l.job != "" {
-		j, _, ok := x.e.platform.JobRegistry().Job(l.job)
+		j, _, ok := x.e.platform.ScopedJob(l.job)
 		if ok && j.Host.EffectiveWorkspace() == d.Host.EffectiveWorkspace() {
 			l.path = j.Path
 		}

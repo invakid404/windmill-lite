@@ -129,9 +129,9 @@ type Jobs interface {
 // key/value map per flow job, which the stock helpers address by their
 // effective root. The facade and the engine only read or write the map of
 // a live flow job (Services.FlowUserState, Services.SetFlowUserState), so
-// a service need not check that itself. A host's FlowUserState serves the
-// workspace of DefaultHost only: the engine runs another workspace's runs
-// only with the services' own store (Services.OwnsJobs).
+// a service need not check that itself. A host's FlowUserState serves its
+// engine's configured workspace only: the engine runs a run of another
+// workspace only with the services' own store (Services.OwnsJobs).
 type FlowUserState interface {
 	// UserState returns the value stored under key for the flow job, as
 	// the JSON text a read gives back, and false when there is none.
@@ -485,7 +485,7 @@ func (u *UserStates) SetUserState(_ context.Context, job, key string, v json.Raw
 	if !ok || !live {
 		return nil
 	}
-	u.setAt(j, key, v)
+	u.setAt(withRunHost(u.jobs, j), key, v)
 	return nil
 }
 
@@ -517,6 +517,7 @@ func (u *UserStates) setAt(checked Job, key string, v json.RawMessage) bool {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	j, live, ok := u.jobs.Job(checked.ID)
+	j = withRunHost(u.jobs, j)
 	if !ok || !live || j.Gen != checked.Gen || !sameWorkspace(j.Host, checked.Host) {
 		return false
 	}
@@ -551,7 +552,7 @@ func (u *UserStates) statesAt(j Job) map[string]json.RawMessage {
 // held.
 func (u *UserStates) dropDead() {
 	for id, m := range u.maps {
-		if j, live, ok := u.jobs.Job(id); !ok || !live || !m.owns(j) {
+		if j, live, ok := u.jobs.Job(id); !ok || !live || !m.owns(withRunHost(u.jobs, j)) {
 			delete(u.maps, id)
 		}
 	}
@@ -638,8 +639,33 @@ var ErrFlowJobNotFound = &Error{Variant: "NotFound", Message: "Flow job not foun
 // a workspace per run); and false when the registry does not know the
 // job. A job of another scope is as unknown to a caller of this one.
 func (s *Services) JobScope(id string) (string, bool) {
-	j, _, ok := s.jobs().Job(id)
+	j, _, ok := s.ScopedJob(id)
 	return j.Host.EffectiveWorkspace(), ok
+}
+
+// ScopedJob returns the job id names, as the registry holds it, with the
+// Host of the job its Run names when the registry left its own zero, as
+// Registry gives it at registration (Job.Host): a host's Jobs may keep the
+// jobs as they were submitted, and the engine registers a run's child jobs
+// without a Host. The workspace scope of every lookup comes from it.
+func (s *Services) ScopedJob(id string) (Job, bool, bool) {
+	jobs := s.jobs()
+	j, live, ok := jobs.Job(id)
+	if ok {
+		j = withRunHost(jobs, j)
+	}
+	return j, live, ok
+}
+
+// withRunHost returns j with the Host of the job its Run names when its own
+// is zero and jobs knows that job.
+func withRunHost(jobs Jobs, j Job) Job {
+	if j.Host == (Host{}) && j.Run != "" && j.Run != j.ID {
+		if r, _, ok := jobs.Job(j.Run); ok {
+			j.Host = r.Host
+		}
+	}
+	return j
 }
 
 // sameWorkspace reports whether jobs of a and b are in one workspace.
@@ -664,7 +690,7 @@ func (s *Services) RootJob(id string) (string, bool) {
 // the root come from one lookup of the registry, so a job registered
 // again in between cannot answer for another workspace.
 func (s *Services) RootJobIn(id, scope string) (string, bool) {
-	j, _, ok := s.jobs().Job(id)
+	j, _, ok := s.ScopedJob(id)
 	if !ok || !inScope(j, scope) {
 		return "", false
 	}
@@ -724,7 +750,7 @@ func (s *Services) GetJobArgsIn(id, scope string) ([]byte, error) {
 // ErrEndedRun.
 func (s *Services) liveJob(id, scope, format string) (Job, error) {
 	jobs := s.jobs()
-	j, _, ok := jobs.Job(id)
+	j, _, ok := s.ScopedJob(id)
 	if !ok || !inScope(j, scope) {
 		return Job{}, notFound(format, id)
 	}
@@ -792,7 +818,7 @@ func (s *Services) FlowUserStatesOf(ctx context.Context, j Job) (json.RawMessage
 	if !ok {
 		return nil, false, nil
 	}
-	if cur, live, known := s.jobs().Job(j.ID); !known || !live || cur.Kind != JobFlow || cur.Gen != j.Gen || !sameWorkspace(cur.Host, j.Host) {
+	if cur, live, known := s.ScopedJob(j.ID); !known || !live || cur.Kind != JobFlow || cur.Gen != j.Gen || !sameWorkspace(cur.Host, j.Host) {
 		return nil, false, nil
 	}
 	var m map[string]json.RawMessage
@@ -859,7 +885,7 @@ func (s *Services) ReadJobEnv(id, workspace string) (map[string]string, error) {
 // that the path must name is its run's configured one when it has one,
 // and else its WM_WORKSPACE, which a hook may have set.
 func (s *Services) ReadJobEnvIn(id, workspace, scope string) (map[string]string, error) {
-	j, live, ok := s.jobs().Job(id)
+	j, live, ok := s.ScopedJob(id)
 	own := cmp.Or(j.Host.Workspace, j.Env["WM_WORKSPACE"])
 	switch {
 	case !ok || !live || !inScope(j, scope) || workspace != "" && own != "" && own != workspace:
@@ -882,9 +908,9 @@ func (s *Services) FlowUserState(ctx context.Context, id, key string) (json.RawM
 // scope: a flow job of another scope reads null, as an unknown one does.
 // With the services' own store a read gives the map of the registration
 // it checked (Job.Gen, in its workspace) and none other. With a host's
-// store, which serves DefaultHost's workspace only (OwnsJobs), the job is
-// looked up again after the read: a value read while the id stopped naming
-// that registration reads null.
+// store, which serves its engine's configured workspace only (OwnsJobs),
+// the job is looked up again after the read: a value read while the id
+// stopped naming that registration reads null.
 func (s *Services) FlowUserStateIn(ctx context.Context, id, key, scope string) (json.RawMessage, error) {
 	j, ok := s.liveFlowJob(id, scope)
 	if !ok {
@@ -913,7 +939,7 @@ func (s *Services) FlowUserStateIn(ctx context.Context, id, key, scope string) (
 // their own job registry and store (Registry, UserStates), as wl's do, and
 // not in a host's Jobs or FlowUserState. Only these keep workspaces apart
 // (BeginExclusive, a map per registration and workspace), so the engine
-// refuses a run of a workspace other than DefaultHost's without them.
+// refuses a run in a workspace other than its configured one without them.
 func (s *Services) OwnsJobs() bool {
 	_, reg := s.jobs().(*Registry)
 	_, states := s.userState().(*UserStates)
@@ -994,6 +1020,6 @@ func (s *Services) liveFlow(id, scope string) bool {
 // liveFlowJob returns the job id names when it is a live flow job of the
 // workspace scope scope.
 func (s *Services) liveFlowJob(id, scope string) (Job, bool) {
-	j, live, ok := s.jobs().Job(id)
+	j, live, ok := s.ScopedJob(id)
 	return j, ok && live && j.Kind == JobFlow && inScope(j, scope)
 }
