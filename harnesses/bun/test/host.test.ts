@@ -559,8 +559,9 @@ test("a run's deadlines go in its run frame as whole milliseconds of at least 0,
 // A run's data that JSON.stringify encodes as nothing (a symbol, a
 // function, a value whose toJSON gives undefined) refuses the run with
 // HostError "refused", and data that it throws on rejects the run with that
-// error. Neither sends a run frame: test/heartbeatengine.ts counts them,
-// and the first run that goes out is its first.
+// error, as does an accessor of the option that throws, which is read
+// once. None sends a run frame: test/heartbeatengine.ts counts them, and
+// the first run that goes out is its first.
 test("data that JSON.stringify encodes as nothing refuses the run, and data it throws on rejects it with that error, without a run frame", async () => {
   const dir = tempDir("wl-host-data-");
   writeFileSync(join(dir, "manifest.json"), "{}");
@@ -584,6 +585,21 @@ test("data that JSON.stringify encodes as nothing refuses the run, and data it t
     );
     expect(thrown).toBeInstanceOf(TypeError);
     expect(thrown).not.toBeInstanceOf(HostError);
+    // An accessor is read once, and what it throws rejects the run rather
+    // than escaping run().
+    let reads = 0;
+    const failing = {
+      get data(): unknown {
+        reads++;
+        throw new Error("no data today");
+      },
+    };
+    let pending: Promise<unknown> | undefined;
+    expect(() => {
+      pending = host.run("f/x", { echo: true }, failing as RunOptions);
+    }).not.toThrow();
+    expect(String(await pending!.then(() => "resolved", (e: unknown) => e))).toContain("no data today");
+    expect(reads).toBe(1);
     expect((await host.run("f/x", { echo: true }, { data: { k: 1 } })).result).toMatchObject({ runs: 1 });
   } finally {
     await host.close();

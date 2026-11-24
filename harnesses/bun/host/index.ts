@@ -1011,13 +1011,15 @@ async function connectOnce(o: ConnectOptions, held: { release?: () => void }): P
         return Promise.reject(new HostError("refused", (e as Error).message));
       }
       let runData: string | undefined;
-      if (opts.data !== undefined) {
-        try {
-          runData = JSON.stringify(opts.data);
-        } catch (e) {
-          return Promise.reject(e);
+      try {
+        // Read once: an accessor runs one time, and what it throws rejects.
+        const data = opts.data;
+        if (data !== undefined) {
+          runData = JSON.stringify(data);
+          if (runData === undefined) return Promise.reject(new HostError("refused", "data: JSON.stringify encodes it as nothing"));
         }
-        if (runData === undefined) return Promise.reject(new HostError("refused", "data: JSON.stringify encodes it as nothing"));
+      } catch (e) {
+        return Promise.reject(e);
       }
       let submitted;
       try {
