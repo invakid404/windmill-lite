@@ -123,7 +123,38 @@ type RunOptions struct {
 	// ends, the run's next invocation or host-plugin call latches the run
 	// with ErrPinnedProcessLost. A fresh runtime and host mode refuse it.
 	Pin bool
+	// Limits are the run's own limits (ADR 0004 §Pooling); the zero value
+	// sets none.
+	Limits RunLimits
 }
+
+// RunLimits are a run's own limits (ADR 0004 §Pooling). A zero field sets
+// no limit; Run refuses a negative one.
+type RunLimits struct {
+	// MaxInFlight bounds a flow run's invocations in flight at once, so
+	// its parallel branches and iterations wait for a slot, as jobs
+	// waiting in the queue, before their timeouts start. It is deviation
+	// D15 (ADR 0001), which the run's trace then lists. A script run has
+	// one invocation.
+	MaxInFlight int
+	// MaxArgsBytes bounds the size of the run's arguments as given to Run:
+	// larger ones make Run return ErrRunArgsTooLarge, and nothing runs.
+	MaxArgsBytes int
+	// MaxHeldBytes bounds the bytes of the stored values that the engine
+	// holds for the run: its arguments and the stored result of each of
+	// its jobs, counted as they are stored and not returned while the run
+	// lasts. Once they pass it, the run latches ErrRunMemoryLimit, as a
+	// latched hook does (H5): it starts nothing more.
+	MaxHeldBytes int64
+}
+
+// ErrRunArgsTooLarge is Run's error for arguments larger than
+// RunOptions.Limits.MaxArgsBytes. Nothing runs.
+var ErrRunArgsTooLarge = errors.New("wl: the run's arguments are larger than its limit (RunOptions.Limits.MaxArgsBytes)")
+
+// ErrRunMemoryLimit is the latch of a run whose stored values passed
+// RunOptions.Limits.MaxHeldBytes (run_memory_limit).
+var ErrRunMemoryLimit = engine.ErrRunMemoryLimit
 
 // ErrPinnedProcessLost is the latch of a pinned run whose process ended
 // while the run was live (pinned_process_lost): the run cannot move, since
@@ -262,6 +293,12 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	if len(bytes.TrimSpace(args)) == 0 {
 		args = json.RawMessage("{}")
 	}
+	if l := opts.Limits; l.MaxInFlight < 0 || l.MaxArgsBytes < 0 || l.MaxHeldBytes < 0 {
+		return nil, fmt.Errorf("wl: a run's limits are not negative (RunOptions.Limits: %+v)", l)
+	}
+	if l := opts.Limits.MaxArgsBytes; l > 0 && len(args) > l {
+		return nil, fmt.Errorf("%w: %d bytes, the limit is %d", ErrRunArgsTooLarge, len(args), l)
+	}
 	if opts.Pin && (rt.state == engine.ModuleStateFresh || rt.host != nil) {
 		return nil, errors.New("wl: a pinned run needs a warm runtime's pool: a fresh runtime starts a process for each step, and in host mode the host is the one process (RunOptions.Pin)")
 	}
@@ -281,7 +318,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		}
 		defer rt.exec.end(id)
 		ctx = calls.reportStoreFailures(ctx)
-		req := engine.ScriptRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Around: rt.aroundAt()}
+		req := engine.ScriptRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Around: rt.aroundAt(), MaxHeldBytes: opts.Limits.MaxHeldBytes}
 		settled, unpin := rt.pin(id, opts.Pin, settled)
 		defer unpin()
 		var s *engine.RunSettlement
@@ -341,7 +378,8 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		}
 	}
 	req := engine.RunRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Seed: opts.Seed, Platform: services,
-		PreWriteDeadline: opts.PreWriteDeadline, Clock: opts.Clock, Jitter: opts.Jitter, Around: rt.aroundAt(), Started: bind.started}
+		PreWriteDeadline: opts.PreWriteDeadline, Clock: opts.Clock, Jitter: opts.Jitter, Around: rt.aroundAt(), Started: bind.started,
+		Limits: engine.RunLimits{MaxInFlight: opts.Limits.MaxInFlight, MaxHeldBytes: opts.Limits.MaxHeldBytes}}
 	if rt.readCache {
 		req.Deviations = append(req.Deviations, "D21")
 	}

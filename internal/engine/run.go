@@ -105,6 +105,32 @@ type run struct {
 	// run tracked in its parent stays in its root's tree after it ends,
 	// and its record then shows it completed.
 	rootEnd *flowEnd
+	// slots holds a token per invocation in flight when the run bounds
+	// them (RunLimits.MaxInFlight); nil means no bound.
+	slots chan struct{}
+	// held counts the bytes of the stored values held for the run, and
+	// maxHeld bounds them (RunLimits.MaxHeldBytes); zero means no bound.
+	held    atomic.Int64
+	maxHeld int64
+}
+
+// limit applies the run's own limits.
+func (r *run) limit(l RunLimits) {
+	if l.MaxInFlight > 0 {
+		r.slots = make(chan struct{}, l.MaxInFlight)
+	}
+	r.maxHeld = l.MaxHeldBytes
+}
+
+// holdBytes counts n more bytes of stored values held for the run, and
+// latches it with ErrRunMemoryLimit once they pass its bound.
+func (r *run) holdBytes(n int) {
+	if r.maxHeld <= 0 {
+		return
+	}
+	if held := r.held.Add(int64(n)); held > r.maxHeld {
+		r.Latch(fmt.Errorf("engine: run %s holds %d bytes of stored values, past its limit of %d: %w", r.id, held, r.maxHeld, ErrRunMemoryLimit))
+	}
 }
 
 func newRun(e *Engine, f *ir.Flow, id string, hooks Hooks, exec StepExecutor, rng *rand.Rand, clock Clock, jitter Jitter, cancel context.CancelCauseFunc) *run {
@@ -2615,6 +2641,20 @@ func (r *run) invoke(ctx context.Context, fr *frame, i int, site Site, entry str
 	}
 	if r.latch.Err() != nil {
 		return StepOutcome{}, "", jsonval.Value{}, errNotLaunched
+	}
+	if r.slots != nil {
+		// The run's bound on its invocations in flight (D15): the job
+		// waits as if in the queue, until one of the run's invocations in
+		// flight returns.
+		select {
+		case r.slots <- struct{}{}:
+		case <-ctx.Done():
+			return StepOutcome{}, inv.ID, jsonval.Value{}, context.Cause(ctx)
+		}
+		defer func() { <-r.slots }()
+		if r.latch.Err() != nil {
+			return StepOutcome{}, "", jsonval.Value{}, errNotLaunched
+		}
 	}
 	// The worker resolves the arguments once it has picked the job up,
 	// before the script runs (JE-41, JE-42, WR-5).

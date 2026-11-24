@@ -45,6 +45,11 @@ type ScriptRequest struct {
 	// first of RootJob, ParentJob and itself that is set, and its flow path
 	// ParentPath, so its state path is <ParentPath>/nostep_user (WA-5).
 	ParentJob, RootJob, ParentPath string
+	// MaxHeldBytes bounds the bytes of the job's stored arguments and
+	// result, as RunLimits.MaxHeldBytes bounds a flow run's: a job whose
+	// stored arguments and result together pass it latches with
+	// ErrRunMemoryLimit. Zero sets no bound.
+	MaxHeldBytes int64
 	// Around, when set, gives a host plugin's around wrappers at the
 	// script job's site, a site with no path whose Script is the script's
 	// path (RunRequest.Around).
@@ -210,6 +215,9 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 		// FX-51 case 1: the completion insert refuses a value jsonb still
 		// rejects, and the job fails with the storage error.
 		return ScriptResult{ID: id, Failed: true, Result: engineError("InternalErr", databaseError(err).Error())}, nil
+	}
+	if held := int64(len(stored)) + int64(len(st.Value.Producer())); req.MaxHeldBytes > 0 && held > req.MaxHeldBytes {
+		rep.latch.Set(fmt.Errorf("engine: script job %s holds %d bytes of stored values, past its limit of %d: %w", id, held, req.MaxHeldBytes, ErrRunMemoryLimit))
 	}
 	if key != "" && ttl.stores() && !st.Failed && rep.latch.Err() == nil {
 		// A store that fails leaves the job's result as it is: the

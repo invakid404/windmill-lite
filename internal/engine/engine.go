@@ -543,7 +543,30 @@ type RunRequest struct {
 	// the host turns on for the run, such as D21's read cache, which the
 	// trace lists among its own.
 	Deviations []string
+	// Limits are the run's own limits (ADR 0004 §Pooling); zero sets none.
+	Limits RunLimits
 }
+
+// RunLimits are a run's own limits (ADR 0004 §Pooling). A zero field sets
+// no limit.
+type RunLimits struct {
+	// MaxInFlight bounds the run's invocations in flight at once, so its
+	// parallel branches and iterations wait for a slot, as jobs waiting in
+	// the queue, before their arguments resolve and their timeouts start.
+	// It is deviation D15 (ADR 0001), which the run's trace then lists. A
+	// script run has one invocation, so it does not apply there.
+	MaxInFlight int
+	// MaxHeldBytes bounds the bytes of the stored values that the engine
+	// holds for the run: its arguments and the stored result of each of
+	// its jobs, counted as they are stored and not returned while the run
+	// lasts. Once they pass it, the run latches ErrRunMemoryLimit (H5).
+	MaxHeldBytes int64
+}
+
+// ErrRunMemoryLimit is the latch of a run whose stored values passed its
+// RunLimits.MaxHeldBytes (ADR 0004 §Pooling, ADR 0008 H5,
+// run_memory_limit).
+var ErrRunMemoryLimit = errors.New("run_memory_limit")
 
 // ErrPreWriteDeadline is the cause of a run's context when its pre-write
 // deadline passed before its first write (H4). It wraps
@@ -656,6 +679,8 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	r := newRun(e, f, id, hooks, exec, rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)), clock, jitter, cancel)
 	ctx = context.WithValue(ctx, settlementKey{}, r.settle)
 	r.around = req.Around
+	r.limit(req.Limits)
+	r.holdBytes(len(stored))
 	if req.Platform != nil {
 		r.platform, r.own = req.Platform, true
 	}
@@ -664,6 +689,9 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	r.root.input = jsonval.FromProducer(flowInputText(stored, r.root.rng))
 	r.root.envSrc = flowEnv(f)
 	r.trace.Deviations = append(r.trace.Deviations, req.Deviations...)
+	if req.Limits.MaxInFlight > 0 && !slices.Contains(r.trace.Deviations, "D15") {
+		r.trace.Deviations = append(r.trace.Deviations, "D15")
+	}
 	if _, real := clock.(RealClock); !real {
 		r.trace.Deviations = append(r.trace.Deviations, "H10")
 	}
