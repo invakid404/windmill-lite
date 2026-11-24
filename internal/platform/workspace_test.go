@@ -324,3 +324,87 @@ func TestHostStoreKeepsJobIDs(t *testing.T) {
 		t.Errorf("the host's store holds %v, want %v", keys, want)
 	}
 }
+
+// With the services' own registry a job keeps the owner it registered with,
+// windmill-lite's (no Host) included: a step of an unconfigured run that
+// outlives its run stays windmill-lite's after the run's id is forgotten
+// and a run of ws-a registers it, so ws-a never reads the step's job
+// variables or root, and windmill-lite still does.
+func TestStepOwnerAfterItsRunIDIsReused(t *testing.T) {
+	r := NewRegistry()
+	r.keep = 1
+	s := &Services{Jobs: r}
+	const run, step = "run", "step"
+	endRun := r.Begin(Job{ID: run, Kind: JobFlow, Run: run})
+	endStep := r.Begin(Job{ID: step, Kind: JobScript, Root: run, Run: run, Env: map[string]string{"WM_JOB_ID": step, "WM_WORKSPACE": "windmill-lite", "WM_TOKEN": "t"}})
+	defer endStep()
+	endRun()
+	// Two more ended jobs push the run out of the kept ended jobs.
+	r.Begin(Job{ID: "x1", Kind: JobFlow, Run: "x1"})()
+	r.Begin(Job{ID: "x2", Kind: JobFlow, Run: "x2"})()
+	endReused, ok := r.BeginExclusive(Job{ID: run, Kind: JobFlow, Run: run, Host: Host{Workspace: "ws-a"}})
+	if !ok {
+		t.Fatal("ws-a could not register the forgotten run id")
+	}
+	defer endReused()
+	if scope, ok := s.JobScope(step); !ok || scope != DefaultHost.Workspace {
+		t.Errorf("the step's scope: %q, %v; want windmill-lite", scope, ok)
+	}
+	if _, err := s.ReadJobEnvIn(step, "ws-a", "ws-a"); err == nil {
+		t.Error("ws-a read the step's job variables")
+	}
+	if root, ok := s.RootJobIn(step, "ws-a"); ok {
+		t.Errorf("ws-a found the step's root %q", root)
+	}
+	if env, err := s.ReadJobEnvIn(step, "windmill-lite", DefaultHost.Workspace); err != nil || env["WM_JOB_ID"] != step {
+		t.Errorf("windmill-lite's read of its step: %v, %v", env, err)
+	}
+	if root, ok := s.RootJobIn(step, DefaultHost.Workspace); !ok || root != run {
+		t.Errorf("windmill-lite's root lookup of its step: %q, %v", root, ok)
+	}
+}
+
+// compactJobs is a host's registry that keeps of an ended job only its id,
+// kind, root and path, as the services' own registry did before jobs had
+// owners: its jobs come back with no Host and no Run.
+type compactJobs map[string]Job
+
+func (compactJobs) Begin(Job) func() { return func() {} }
+
+func (c compactJobs) Job(id string) (Job, bool, bool) {
+	j, ok := c[id]
+	return j, false, ok
+}
+
+// A compatibility control: with a host's registry the job lookups answer as
+// they always did, without a workspace scope, so an engine configured with a
+// workspace finds through it a job whose record the registry compacted to
+// its id, kind, root and path: the root lookup answers its root, and a job
+// read answers as for a job of a run that has ended.
+func TestHostRegistryCompactedJob(t *testing.T) {
+	s := &Services{Jobs: compactJobs{
+		"job":  {ID: "job", Kind: JobFlow, Root: "root", Path: "f/x"},
+		"root": {ID: "root", Kind: JobFlow, Root: "root", Path: "f/x"},
+	}}
+	if root, ok := s.RootJobIn("job", "ws-x"); !ok || root != "root" {
+		t.Errorf("the root lookup through ws-x: %q, %v; want root", root, ok)
+	}
+	if _, err := s.GetJobIn("job", "ws-x"); !errors.Is(err, ErrEndedRun) {
+		t.Errorf("the job read through ws-x: %v, want ErrEndedRun", err)
+	}
+}
+
+// A compatibility control: with a host's registry, a read's job_id keeps the
+// base's rule, the path's workspace against the job's WM_WORKSPACE (which a
+// hook may have set), whatever Host the job was registered with.
+func TestHostRegistryJobEnvRule(t *testing.T) {
+	jobs := newFakeJobs()
+	s := &Services{Jobs: jobs}
+	defer jobs.Begin(Job{ID: "step", Kind: JobScript, Host: Host{Workspace: "ws-x"}, Env: map[string]string{"WM_JOB_ID": "step", "WM_WORKSPACE": "ws-y"}})()
+	if env, err := s.ReadJobEnvIn("step", "ws-y", "ws-x"); err != nil || env["WM_JOB_ID"] != "step" {
+		t.Errorf("a read through ws-y, the step's WM_WORKSPACE: %v, %v; want its variables", env, err)
+	}
+	if _, err := s.ReadJobEnvIn("step", "ws-x", "ws-x"); err == nil {
+		t.Error("a read through ws-x, not the step's WM_WORKSPACE, found it")
+	}
+}

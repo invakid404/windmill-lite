@@ -252,8 +252,7 @@ func (f *Facade) dispatched(ctx context.Context, c *Call, id string) (platform.J
 // up in the workspace of c's path, for a caller of the job's workspace
 // scope.
 func (f *Facade) known(c *Call, id string) bool {
-	scope, ok := f.platform.JobScope(id)
-	return ok && ownWorkspace(c) && scope == callerScope(c)
+	return ownWorkspace(c) && f.platform.KnownIn(id, callerScope(c))
 }
 
 // callerScope is the workspace scope of c's caller: the effective

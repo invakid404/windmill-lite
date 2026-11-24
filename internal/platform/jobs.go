@@ -485,7 +485,7 @@ func (u *UserStates) SetUserState(_ context.Context, job, key string, v json.Raw
 	if !ok || !live {
 		return nil
 	}
-	u.setAt(withRunHost(u.jobs, j), key, v)
+	u.setAt(j, key, v)
 	return nil
 }
 
@@ -517,7 +517,6 @@ func (u *UserStates) setAt(checked Job, key string, v json.RawMessage) bool {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	j, live, ok := u.jobs.Job(checked.ID)
-	j = withRunHost(u.jobs, j)
 	if !ok || !live || j.Gen != checked.Gen || !sameWorkspace(j.Host, checked.Host) {
 		return false
 	}
@@ -552,7 +551,7 @@ func (u *UserStates) statesAt(j Job) map[string]json.RawMessage {
 // held.
 func (u *UserStates) dropDead() {
 	for id, m := range u.maps {
-		if j, live, ok := u.jobs.Job(id); !ok || !live || !m.owns(withRunHost(u.jobs, j)) {
+		if j, live, ok := u.jobs.Job(id); !ok || !live || !m.owns(j) {
 			delete(u.maps, id)
 		}
 	}
@@ -635,37 +634,13 @@ func (noJobs) Job(string) (Job, bool, bool) { return Job{}, false, false }
 var ErrFlowJobNotFound = &Error{Variant: "NotFound", Message: "Flow job not found"}
 
 // JobScope returns the workspace scope of the job id names, live or ended:
-// the effective workspace of its Host (Host.EffectiveWorkspace; ADR 0007,
-// a workspace per run); and false when the registry does not know the
-// job. A job of another scope is as unknown to a caller of this one.
+// the effective workspace of its Host as the registry holds it
+// (Host.EffectiveWorkspace; ADR 0007, a workspace per run); and false when
+// the registry does not know the job. With the services' own registry a
+// job of another scope is as unknown to a caller of this one (InScope).
 func (s *Services) JobScope(id string) (string, bool) {
-	j, _, ok := s.ScopedJob(id)
+	j, _, ok := s.jobs().Job(id)
 	return j.Host.EffectiveWorkspace(), ok
-}
-
-// ScopedJob returns the job id names, as the registry holds it, with the
-// Host of the job its Run names when the registry left its own zero, as
-// Registry gives it at registration (Job.Host): a host's Jobs may keep the
-// jobs as they were submitted, and the engine registers a run's child jobs
-// without a Host. The workspace scope of every lookup comes from it.
-func (s *Services) ScopedJob(id string) (Job, bool, bool) {
-	jobs := s.jobs()
-	j, live, ok := jobs.Job(id)
-	if ok {
-		j = withRunHost(jobs, j)
-	}
-	return j, live, ok
-}
-
-// withRunHost returns j with the Host of the job its Run names when its own
-// is zero and jobs knows that job.
-func withRunHost(jobs Jobs, j Job) Job {
-	if j.Host == (Host{}) && j.Run != "" && j.Run != j.ID {
-		if r, _, ok := jobs.Job(j.Run); ok {
-			j.Host = r.Host
-		}
-	}
-	return j
 }
 
 // sameWorkspace reports whether jobs of a and b are in one workspace.
@@ -679,6 +654,28 @@ func inScope(j Job, scope string) bool {
 	return scope == "" || j.Host.EffectiveWorkspace() == scope
 }
 
+// InScope reports whether the services find j for a caller of the
+// workspace scope scope. With their own registry, which gives each job its
+// owner when it registers, j must be of that scope (inScope). A host's
+// registry keeps the base's behaviour: its jobs carry no owner the
+// services can trust (it may keep them as submitted, or keep only an ended
+// job's id, kind, root and path), so every job it knows is found, as
+// before, and the engine runs no run of another workspace than its
+// configured one over it (Services.OwnsJobs).
+func (s *Services) InScope(j Job, scope string) bool {
+	if _, own := s.jobs().(*Registry); !own {
+		return true
+	}
+	return inScope(j, scope)
+}
+
+// KnownIn reports whether the registry knows the job id names, for a caller
+// of the workspace scope scope (InScope).
+func (s *Services) KnownIn(id, scope string) bool {
+	j, _, ok := s.jobs().Job(id)
+	return ok && s.InScope(j, scope)
+}
+
 // RootJob answers getRootJobId (WA-14, WA-V1): the effective root of the
 // job id names, and false when the registry does not know it.
 func (s *Services) RootJob(id string) (string, bool) {
@@ -686,12 +683,13 @@ func (s *Services) RootJob(id string) (string, bool) {
 }
 
 // RootJobIn is RootJob for a caller of the workspace scope scope (JobScope;
-// "" for every scope): a job of another scope is unknown. The scope and
-// the root come from one lookup of the registry, so a job registered
-// again in between cannot answer for another workspace.
+// "" for every scope): with the services' own registry a job of another
+// scope is unknown (InScope). The scope and the root come from one lookup
+// of the registry, so a job registered again in between cannot answer for
+// another workspace.
 func (s *Services) RootJobIn(id, scope string) (string, bool) {
-	j, _, ok := s.ScopedJob(id)
-	if !ok || !inScope(j, scope) {
+	j, _, ok := s.jobs().Job(id)
+	if !ok || !s.InScope(j, scope) {
 		return "", false
 	}
 	return j.Root, true
@@ -750,8 +748,8 @@ func (s *Services) GetJobArgsIn(id, scope string) ([]byte, error) {
 // ErrEndedRun.
 func (s *Services) liveJob(id, scope, format string) (Job, error) {
 	jobs := s.jobs()
-	j, _, ok := s.ScopedJob(id)
-	if !ok || !inScope(j, scope) {
+	j, _, ok := s.jobs().Job(id)
+	if !ok || !s.InScope(j, scope) {
 		return Job{}, notFound(format, id)
 	}
 	// A job of a live run is known while its root lives, running or
@@ -818,7 +816,7 @@ func (s *Services) FlowUserStatesOf(ctx context.Context, j Job) (json.RawMessage
 	if !ok {
 		return nil, false, nil
 	}
-	if cur, live, known := s.ScopedJob(j.ID); !known || !live || cur.Kind != JobFlow || cur.Gen != j.Gen || !sameWorkspace(cur.Host, j.Host) {
+	if cur, live, known := s.jobs().Job(j.ID); !known || !live || cur.Kind != JobFlow || cur.Gen != j.Gen || !sameWorkspace(cur.Host, j.Host) {
 		return nil, false, nil
 	}
 	var m map[string]json.RawMessage
@@ -882,13 +880,17 @@ func (s *Services) ReadJobEnv(id, workspace string) (map[string]string, error) {
 // ReadJobEnvIn is ReadJobEnv for a caller of the workspace scope scope: a
 // job of another scope fails as an unknown id, whatever its job variables
 // say, and so does a live flow job of another scope. The job's workspace
-// that the path must name is its run's configured one when it has one,
-// and else its WM_WORKSPACE, which a hook may have set.
+// that the path must name is, with the services' own registry, its run's
+// configured one when it has one, and else, as with a host's registry, its
+// WM_WORKSPACE, which a hook may have set.
 func (s *Services) ReadJobEnvIn(id, workspace, scope string) (map[string]string, error) {
-	j, live, ok := s.ScopedJob(id)
-	own := cmp.Or(j.Host.Workspace, j.Env["WM_WORKSPACE"])
+	j, live, ok := s.jobs().Job(id)
+	own := j.Env["WM_WORKSPACE"]
+	if _, reg := s.jobs().(*Registry); reg {
+		own = cmp.Or(j.Host.Workspace, own)
+	}
 	switch {
-	case !ok || !live || !inScope(j, scope) || workspace != "" && own != "" && own != workspace:
+	case !ok || !live || !s.InScope(j, scope) || workspace != "" && own != "" && own != workspace:
 		return nil, notFound("Job not found at name %s", id)
 	case j.Kind != JobScript || j.Env == nil:
 		return nil, ErrNoJobVariables
@@ -1020,6 +1022,6 @@ func (s *Services) liveFlow(id, scope string) bool {
 // liveFlowJob returns the job id names when it is a live flow job of the
 // workspace scope scope.
 func (s *Services) liveFlowJob(id, scope string) (Job, bool) {
-	j, live, ok := s.ScopedJob(id)
-	return j, ok && live && j.Kind == JobFlow && inScope(j, scope)
+	j, live, ok := s.jobs().Job(id)
+	return j, ok && live && j.Kind == JobFlow && s.InScope(j, scope)
 }
