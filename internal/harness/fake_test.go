@@ -152,6 +152,30 @@ func fakeHarness(mode string) int {
 	if mode == "plugin" {
 		hello.Plugin = jsonval.FromProducer([]byte(`{"on_module_start":true}`))
 	}
+	if mode == "pool" {
+		// The first process that finds fail-start in WL_FAKE_CTL takes it
+		// and exits before its hello. WL_FAKE_PLUGIN gives the declaration:
+		// one for every process (same), one of each process's own (pid), or
+		// none for the first process that takes no-plugin and the same for
+		// the others (first-none).
+		ctl := os.Getenv("WL_FAKE_CTL")
+		take := func(name string) bool {
+			return ctl != "" && os.Rename(filepath.Join(ctl, name), filepath.Join(ctl, name+".taken")) == nil
+		}
+		if take("fail-start") {
+			return 9
+		}
+		switch os.Getenv("WL_FAKE_PLUGIN") {
+		case "same":
+			hello.Plugin = jsonval.FromProducer([]byte(`{"on_module_start":true}`))
+		case "pid":
+			hello.Plugin = jsonval.FromProducer(fmt.Appendf(nil, `{"on_module_start":true,"pid":%d}`, pid))
+		case "first-none":
+			if !take("no-plugin") {
+				hello.Plugin = jsonval.FromProducer([]byte(`{"on_module_start":true}`))
+			}
+		}
+	}
 	send(hello)
 	w := recv().(Welcome)
 	if w.Reject != nil {
@@ -159,6 +183,8 @@ func fakeHarness(mode string) int {
 	}
 	heartbeat := time.Duration(w.Config.HeartbeatMS) * time.Millisecond
 	switch mode {
+	case "pool":
+		return poolFake(send, recv, pid)
 	case "plugin":
 		// Answers every host_call with the hook it was for.
 		for {
@@ -983,6 +1009,11 @@ func TestPoolConfigValidation(t *testing.T) {
 		"key disagrees":       {Process: cfg, Key: Key{Class: "bun"}},
 		"unknown module mode": {Process: cfg, Key: Key{ModuleState: "shared"}},
 		"modes disagree":      {Process: func() ProcessConfig { c := cfg; c.ModuleState = engine.ModuleStateWarm; return c }(), Key: Key{ModuleState: engine.ModuleStateFresh}},
+		"max live below max":  {Process: cfg, Max: 2, MaxLive: 1},
+		"negative max live":   {Process: cfg, MaxLive: -1},
+		"negative rss":        {Process: cfg, Recycle: RecycleTriggers{RSS: -1}},
+		"negative samples":    {Process: cfg, Recycle: RecycleTriggers{RSS: 1, Samples: -1}},
+		"negative modules":    {Process: cfg, Recycle: RecycleTriggers{Modules: -1}},
 	} {
 		if _, err := NewPool(pc); err == nil {
 			t.Errorf("%s: no error", name)
@@ -990,6 +1021,10 @@ func TestPoolConfigValidation(t *testing.T) {
 	}
 	// The key may leave the class and runtime to the process template.
 	if _, err := NewPool(PoolConfig{Process: cfg}); err != nil {
+		t.Fatal(err)
+	}
+	// MaxLive may equal Max, the default of one included.
+	if _, err := NewPool(PoolConfig{Process: cfg, MaxLive: 1}); err != nil {
 		t.Fatal(err)
 	}
 }

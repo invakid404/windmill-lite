@@ -62,7 +62,9 @@ Package `wl` (import path `github.com/invakid404/windmill-lite/wl`) is the
 only engine API. In outline:
 
 1. `wl.Open(bundle, options)` loads a bundle, verifies its manifest
-   ([packaging](0010-packaging.md)), and starts harness pools lazily.
+   ([packaging](0010-packaging.md)), and starts harness pools lazily, or
+   at once with a warm start
+   ([harness protocol](0004-harness-protocol.md#pooling-processes-the-engine-spawns)).
 2. `runtime.Run(ctx, target, args, runOptions)` runs a flow or script by path
    and returns its status, final result, `mayHaveMutated` flag, trace and
    warnings. `runOptions` carries the run's kind, job id, seed, hooks

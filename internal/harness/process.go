@@ -130,8 +130,17 @@ type ProcessConfig struct {
 	// its Reporter hears of either, and once the process has exited, before
 	// the Reporters of the invocations in it hear Settled(process_exited).
 	// So the pool's rules have run by the time a Reporter is told. The pool
-	// sets it.
+	// sets it. With rssLimit set it is also called after each health
+	// report, on the connection's reader, before the next frame is read;
+	// with countScripts set, after an invocation of a script new to the
+	// process is dispatched, before exec waits for its outcome.
 	notify func(*Process)
+	// rssLimit, when positive, makes the process count the health reports
+	// in a row whose rss reaches it (rssStreak), and countScripts the
+	// distinct scripts of the invocations dispatched to it (scriptCount),
+	// for a pool's recycle triggers. The pool sets them.
+	rssLimit     int64
+	countScripts bool
 	// killLines bounds the goroutines that write kill lines; nil means
 	// runtimeKillLines, which every process in the program shares. Tests
 	// set their own.
@@ -275,6 +284,8 @@ type Process struct {
 	pingSeq    uint64
 	pings      map[string]chan *Health
 	health     *Health
+	rssOver    int                 // health reports in a row whose rss reached cfg.rssLimit
+	scripts    map[string]struct{} // the scripts dispatched, with cfg.countScripts
 	bye        bool
 	ending     bool      // the reader stopped or the process exited
 	holding    bool      // a fresh result waits for the process group (WR-55)
@@ -730,6 +741,9 @@ func (p *Process) handleMessage(m Message) error {
 	var calls []func()
 	var drive bool
 	var err error
+	var sampled bool // a health report the pool counts arrived
+	var pongTo chan *Health
+	var pong *Health
 	switch m := m.(type) {
 	case Result:
 		target, calls, drive, err = p.onResult(m)
@@ -743,17 +757,13 @@ func (p *Process) handleMessage(m Message) error {
 		// A pong that cannot be sent means the conn is closing, which the
 		// reader reports on its own.
 		p.conn.send(Pong{ID: m.ID})
-		if m.Health != nil {
-			p.health = m.Health
-		}
+		sampled = p.noteHealthLocked(m.Health)
 	case Pong:
 		if ch, ok := p.pings[m.ID]; ok {
 			delete(p.pings, m.ID)
-			ch <- m.Health
+			pongTo, pong = ch, m.Health
 		}
-		if m.Health != nil {
-			p.health = m.Health
-		}
+		sampled = p.noteHealthLocked(m.Health)
 	case Bye:
 		p.bye = true
 	case PlatformRequest:
@@ -781,6 +791,15 @@ func (p *Process) handleMessage(m Message) error {
 		err = protoErr(CodeUnexpected, "%s from a harness", m.Type())
 	}
 	p.mu.Unlock()
+	if sampled && p.cfg.notify != nil {
+		// The pool applies its recycle trigger to each report in turn.
+		p.cfg.notify(p)
+	}
+	if pongTo != nil {
+		// After the pool has applied it: Ping returns a health that the
+		// pool has seen. The channel has room for it.
+		pongTo <- pong
+	}
 	switch {
 	case target == nil:
 	case drive:
@@ -1821,8 +1840,20 @@ func (p *Process) exec(ctx context.Context, inv engine.Invocation, fixed func())
 	p.invs[inv.ID] = e
 	p.served = p.served || fresh
 	p.inFlight++
+	newScript := false
+	if _, seen := p.scripts[inv.Script]; p.cfg.countScripts && !seen {
+		// Counted in dispatch order, as the invokes are queued.
+		if p.scripts == nil {
+			p.scripts = map[string]struct{}{}
+		}
+		p.scripts[inv.Script] = struct{}{}
+		newScript = true
+	}
 	p.mu.Unlock()
 	p.conn.flush()
+	if newScript && p.cfg.notify != nil {
+		p.cfg.notify(p)
+	}
 
 	select {
 	case r := <-e.outcome:
@@ -2243,6 +2274,40 @@ func (p *Process) Load() (inFlight, abandoned int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.inFlight, p.abandoned
+}
+
+// noteHealthLocked records a health report, if h is one, and reports
+// whether the pool's recycle trigger counts it (ProcessConfig.rssLimit).
+func (p *Process) noteHealthLocked(h *Health) bool {
+	if h == nil {
+		return false
+	}
+	p.health = h
+	if p.cfg.rssLimit <= 0 {
+		return false
+	}
+	if h.RSS >= p.cfg.rssLimit {
+		p.rssOver++
+	} else {
+		p.rssOver = 0
+	}
+	return true
+}
+
+// rssStreak returns how many health reports in a row had an rss of at
+// least ProcessConfig.rssLimit, up to the last one.
+func (p *Process) rssStreak() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.rssOver
+}
+
+// scriptCount returns how many distinct scripts the invocations dispatched
+// to the process ran, when ProcessConfig.countScripts is set.
+func (p *Process) scriptCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.scripts)
 }
 
 // Health returns the last health the harness reported, or nil.
