@@ -261,7 +261,8 @@ shape with `bundle` ([Errors and refusals](#errors-and-refusals)):
    of its own, it refuses the `plugin` option (`options`). It checks the
    bundle's plugin (`bundle`): a key, a module of `plugins/` that the
    manifest lists, reached through no symbolic link, with the manifest's
-   digest, at a path that this process has not imported with other bytes.
+   digest. Another `connect` of this process, in progress or done, must not
+   have taken a plugin with other bytes from that path.
 3. It registers the host's instances of the bundle's
    [host-provided modules](../../docs/glossary.md#host-provided-module)
    (`hostModules`), before any step loads. It writes a diagnostic for a
@@ -276,8 +277,11 @@ shape with `bundle` ([Errors and refusals](#errors-and-refusals)):
    those flags. For a bundle with a plugin of its own, it first runs the
    same command with `-check-bundle` and the digest of the manifest it read.
    The engine reads the flags as at start and checks the bundle against its
-   manifest, any `-digest` pin and that digest; unless that exits 0,
-   `connect` stops with `bundle`.
+   manifest, any `-digest` pin and that digest.
+   - **The check's outcomes.** Exit 0 lets `connect` go on. Exit 1, a
+     failed check, stops it with `bundle`; another exit, such as a usage
+     error in `engineFlags`, with `rejected`; an engine that does not
+     start, with `engine_start`.
 6. It runs the harness runtime in this process, loads the bundle's own
    plugin from a private copy of the bytes it checked, and greets the
    engine. A plugin that cannot be copied or loaded rejects with `bundle`,
@@ -583,8 +587,8 @@ the rules of each hook.
   their shims. The engine names it with `--plugin` when `wl` names none,
   and `connect` loads it, checked first, when its `plugin` option is absent
   ([What connect() does](#what-connect-does)). `connect` refuses a plugin
-  file whose path this process imported other bytes from; an unchanged
-  plugin file keeps its loaded module, so restart the host for a release.
+  file whose path this process took other bytes from; an unchanged plugin
+  file keeps its loaded module, so restart the host for a release.
 - **When it loads.** A harness loads its plugin after the runtime has
   installed its process-wide hooks and the native realms have taken the
   web APIs, and `connect` loads a bundle's plugin at the same point. A
@@ -672,7 +676,7 @@ error that has no `code`:
 | `options` | `connect` | The bundle has a host plugin of its own, and the `plugin` option gives another. | Leave the option out, or build the bundle without the contract's `plugin`. |
 | `bundle` | `connect` | The bundle's `manifest.json` does not read. Or the bundle's own host plugin is not a module of `plugins/` that the manifest lists, does not have the manifest's digest, fails the engine's check, cannot be copied, does not load or has a wrong shape. | Pass the bundle directory, as an absolute path. Rebuild the bundle, or fix the plugin, whose message the error carries. |
 | `assets` | `connect` | The bundle's assets do not extract into `workdir`. | Check the directory's space and permissions. |
-| `engine_start` | `connect` | The engine binary does not start. | Check `engine`'s path and its execute permission. |
+| `engine_start` | `connect` | The engine binary does not start, for the check of a bundle with its own plugin or for the host command. | Check `engine`'s path and its execute permission. |
 | `version_mismatch` | The engine, or the SDK | The SDK's version is not the engine's. An unversioned engine or SDK pairs with any. | Take the SDK and the engine from the same release. |
 | `runtime_mismatch` | The engine | The host does not run on Bun 1.4.3. | Run the host on Bun 1.4.3. |
 | `engine_refused` | The engine | The bundle does not open: another engine version built it, or it does not verify. Or a file that `engineFlags` names does not open. | Build the bundle with this engine. The message gives the reason. |
@@ -680,7 +684,7 @@ error that has no `code`:
 | `bundle_mismatch` | The engine | The bundle that the host loaded is not the engine's. | Pass the same directory as `bundle`. |
 | `pid_mismatch` | The engine | The host that greets the engine is not its parent process. | Start the engine through `connect`. |
 | `proto_mismatch`, `harness_mismatch` | The engine | The SDK speaks another protocol, or is no host. | Take the SDK and the engine from the same release. |
-| `rejected` | `connect` | The connection ended before a welcome, without a code. | Read the engine's stderr. |
+| `rejected` | `connect` | The connection ended before a welcome, without a code. Or, for a bundle with its own plugin, the engine's check exited with a status other than 0 and 1, such as a usage error in `engineFlags`. | Read the engine's stderr. |
 | `refused` | `run` | The engine has no such target, the arguments are not an object, or a selector option is not a list of objects, or the engine finds a selector malformed or ambiguous. The message names the selector, such as `the run's haltAfter[0]`. | Fix the path or the options. |
 | `draining` | `run` | The host is draining. | Submit the run to the next host process. |
 

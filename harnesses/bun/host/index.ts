@@ -386,33 +386,34 @@ function thrownText(e: unknown): string {
   }
 }
 
-/** Each bundle plugin this process has imported, by the URL of its file in
- * the bundle: its digest, and the URL of the private copy of the verified
- * bytes that it was imported from. Bun keeps a module by the URL it was
- * imported from, so a plugin at the same bundle path with other bytes, after
- * a release replaced its file, would give back the module first imported. */
-const loadedPlugins = new Map<string, { digest: string; copy: string }>();
+/** Each bundle plugin this process has taken, by the URL of its file in the
+ * bundle: its digest, the connect() calls that hold it and have not copied
+ * it yet, and the URL of the private copy of the checked bytes once one of
+ * them has made it. connect() takes a plugin when it has checked it, before
+ * it publishes any process-wide state, and holds it until the copy exists
+ * or the attempt fails. A plugin at the same bundle path with other bytes
+ * is refused while one is held or copied: a release that replaced the file
+ * would otherwise run beside the plugin already imported, and an
+ * overlapping connect() would replace the process-wide hooks of the one it
+ * overlaps. */
+const loadedPlugins = new Map<string, { digest: string; holders: number; copy?: string }>();
 // The private directories of those copies, by the temporary directory they
 // are made in: each is made on first use and removed when the process exits.
 const copyBases = new Map<string, string>();
 
 /** The URL of a private copy of a plugin's checked bytes, which this
  * process imports in place of the bundle's file: a file that changes after
- * the check cannot run in its place. A plugin already imported from the
- * same bundle path with the same digest keeps its copy, so a reconnect gets
- * the module Bun already holds, as for any module. One imported from that
- * path with other bytes, by a connect() that overlapped this one, is a
- * HostError bundle. A copy that cannot be written leaves nothing behind,
- * and the error is thrown. */
+ * the check cannot run in its place. A plugin already copied from the same
+ * bundle path with the same digest keeps its copy, so a reconnect gets the
+ * module Bun already holds, as for any module. The caller holds the plugin
+ * (verifiedPlugin), so its entry has this digest. A copy that cannot be
+ * written leaves nothing behind, and the error is thrown. */
 function pluginCopy(plugin: { url: string; digest: string; bytes: Uint8Array; file: string }): string {
-  const known = loadedPlugins.get(plugin.url);
-  if (known !== undefined) {
-    if (known.digest === plugin.digest) return known.copy;
-    throw new HostError(
-      "bundle",
-      `cannot load the bundle's host plugin: another connect() of this process imported other bytes from ${plugin.file}, and Bun would give back that module; restart the host to load this one`,
-    );
+  const held = loadedPlugins.get(plugin.url);
+  if (held === undefined || held.digest !== plugin.digest) {
+    throw new HostError("bundle", `cannot load the bundle's host plugin: this process no longer holds ${plugin.file} with these contents`);
   }
+  if (held.copy !== undefined) return held.copy;
   const tmp = tmpdir();
   let base = copyBases.get(tmp);
   if (base === undefined) {
@@ -426,9 +427,8 @@ function pluginCopy(plugin: { url: string; digest: string; bytes: Uint8Array; fi
     const path = join(dir, plugin.file);
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, plugin.bytes, { flag: "wx", mode: 0o400 });
-    const copy = pathToFileURL(path).href;
-    loadedPlugins.set(plugin.url, { digest: plugin.digest, copy });
-    return copy;
+    held.copy = pathToFileURL(path).href;
+    return held.copy;
   } catch (e) {
     rmSync(dir, { recursive: true, force: true });
     throw e;
@@ -439,13 +439,15 @@ function pluginCopy(plugin: { url: string; digest: string; bytes: Uint8Array; fi
  * files, by the rules that the engine's verification applies: a key, and
  * a module of plugins/ that the manifest lists, reached through no
  * symbolic link below the bundle directory, a regular file whose bytes
- * have the digest that the manifest records for it. The URL must not be
- * one this process imported with other bytes. Else a HostError bundle. */
+ * have the digest that the manifest records for it. It is then taken
+ * (loadedPlugins), unless this process holds or has copied a plugin from
+ * the same path with other bytes. Else a HostError bundle. release() gives
+ * the plugin back when the attempt fails before it is copied. */
 function verifiedPlugin(
   bundle: string,
   entry: { key?: unknown; file?: unknown },
   files: Record<string, unknown>,
-): { url: string; digest: string; bytes: Uint8Array; file: string } {
+): { url: string; digest: string; bytes: Uint8Array; file: string; release: () => void } {
   const refuse = (why: string) => new HostError("bundle", `cannot load the bundle's host plugin: ${why}`);
   const file = entry.file;
   if (typeof entry.key !== "string" || entry.key === "") throw refuse("the manifest's plugin entry has no key");
@@ -485,9 +487,19 @@ function verifiedPlugin(
   const url = pathToFileURL(path).href;
   const seen = loadedPlugins.get(url);
   if (seen !== undefined && seen.digest !== digest) {
-    throw refuse(`this process already imported a plugin from ${file} with other contents, and Bun would give back that module; restart the host to load this one`);
+    throw refuse(`this process already took a plugin from ${file} with other contents, and Bun would give back that module; restart the host to load this one`);
   }
-  return { url, digest, bytes, file };
+  const held = seen ?? { digest, holders: 0 };
+  held.holders++;
+  loadedPlugins.set(url, held);
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    held.holders--;
+    if (held.holders === 0 && held.copy === undefined && loadedPlugins.get(url) === held) loadedPlugins.delete(url);
+  };
+  return { url, digest, bytes, file, release };
 }
 
 /** Runs the host command with -check-bundle and the flags that connect()
@@ -527,6 +539,18 @@ function register(modules: Record<string, object> | undefined, listed: string[],
 }
 
 export async function connect(o: ConnectOptions): Promise<Host> {
+  // A bundle's own plugin, once taken, is given back when the attempt fails
+  // before it is copied.
+  const held: { release?: () => void } = {};
+  try {
+    return await connectOnce(o, held);
+  } catch (e) {
+    held.release?.();
+    throw e;
+  }
+}
+
+async function connectOnce(o: ConnectOptions, held: { release?: () => void }): Promise<Host> {
   const workdir = checkWorkdir(o.workdir);
   const collect = o.collect;
   const cooldown = collect?.cooldown ?? DEFAULT_COLLECT_COOLDOWN_MS;
@@ -601,9 +625,12 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   }
   // This process evaluates the bundle's own plugin before the engine's
   // handshake reports whether the bundle verified, so it checks the
-  // module first, and has the engine verify the whole bundle before it
-  // imports the module (below).
+  // module first and takes it, before it publishes any process-wide state:
+  // a plugin from the same path with other bytes, held or copied by another
+  // connect(), is refused here. The engine checks the whole bundle before
+  // the module is imported (below).
   const plugin = bundled === undefined ? undefined : verifiedPlugin(o.bundle, bundled, files);
+  held.release = plugin?.release;
   // Before any step module loads: a step that imports a host-provided
   // module takes it from the registry when it loads.
   register(o.hostModules, listed, diag);

@@ -113,12 +113,17 @@ func runHost(args []string, stderr io.Writer) int {
 
 // checkHostBundle is `host -check-bundle`: the checks of the bundle that
 // wl.Open makes in host mode before the handshake, with the flags as this
-// command reads them. The bundle must verify against its manifest and the
-// -digest pin, if any; its digest must be want, the digest of the manifest
-// that the host read; and this engine version must have built it. The
-// host SDK runs it before it loads a bundle's own plugin, which runs before
-// the handshake could report a refusal.
+// command reads them. The bundle must be a directory, and verify against
+// its manifest and the -digest pin, if any; its digest must be want, the
+// digest of the manifest that the host read; and this engine version must
+// have built it. The host SDK runs it before it loads a bundle's own
+// plugin, which runs before the handshake could report a refusal.
 func checkHostBundle(dir, pin, want string, fail func(error) int) int {
+	// Host mode opens a bundle directory, which the host loads too, and
+	// never an archive.
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		return fail(fmt.Errorf("host mode opens a bundle directory, and %s is not one", dir))
+	}
 	v, err := bundle.Verify(dir, bundle.VerifyOptions{Digest: pin})
 	if err != nil {
 		return fail(err)

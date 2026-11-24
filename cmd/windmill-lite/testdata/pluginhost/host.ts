@@ -10,6 +10,13 @@
 //   - connect: connects on WL_BUNDLE and reports whether connect() resolved,
 //     or the HostError's code and message. WL_ENGINE_FLAGS, split at
 //     spaces, are its engineFlags, such as a -digest pin.
+//   - overlap: connects on WL_BUNDLE (A) and, while A's check of the bundle
+//     runs, again on the same bundle path, which then holds the manifest
+//     and plugin of WL_RELEASE_B (B). Shell wrappers around WL_ENGINE time
+//     the two: A's check swaps B's files in, waits until B has checked or
+//     been refused, and swaps A's back; B's check waits until A's plugin
+//     has run (WL_SIG holds the signal files). It reports B's outcome and
+//     the result of f/app/facade_flow on A afterwards.
 //   - releases: copies the bundle WL_RELEASE_A to WL_DIR, connects, runs
 //     f/app/plain_flow and keeps its warnings, and closes; then replaces
 //     WL_DIR with the bundle WL_RELEASE_B and connects again, in the same
@@ -17,7 +24,7 @@
 //
 // Environment: WL_ENGINE (the engine binary) and the scenario's variables.
 
-import { cpSync, rmSync } from "node:fs";
+import { cpSync, existsSync, rmSync, writeFileSync } from "node:fs";
 import { connect, HostError } from "../../../../harnesses/bun/host/index.ts";
 
 const env = process.env;
@@ -71,6 +78,43 @@ switch (env.WL_SCENARIO) {
       await got.close();
       report = { connected: true };
     }
+    break;
+  }
+  case "overlap": {
+    const dir = env.WL_BUNDLE!;
+    const sig = env.WL_SIG!;
+    // A bounded wait for a signal file: 5 s at most.
+    const wait = (test: string) => `i=0; while ${test} && [ $i -lt 250 ]; do sleep 0.02; i=$((i+1)); done`;
+    const plugin = "plugins/f/app/plugin.mjs";
+    const swapA = [
+      `mkdir -p "$WL_SIG/a"; cp "$WL_BUNDLE/manifest.json" "$WL_SIG/a/manifest.json"; cp "$WL_BUNDLE/${plugin}" "$WL_SIG/a/plugin.mjs"`,
+      `cp "$WL_RELEASE_B/manifest.json" "$WL_BUNDLE/manifest.json"; cp "$WL_RELEASE_B/${plugin}" "$WL_BUNDLE/${plugin}"; touch "$WL_SIG/swapped"`,
+      wait(`[ ! -e "$WL_SIG/b-checked" ] && [ ! -e "$WL_SIG/b-done" ]`),
+      `cp "$WL_SIG/a/manifest.json" "$WL_BUNDLE/manifest.json"; cp "$WL_SIG/a/plugin.mjs" "$WL_BUNDLE/${plugin}"`,
+    ].join("; ");
+    const checkB = `"$@"; s=$?; touch "$WL_SIG/b-checked"; ${wait(`[ ! -e "$WL_SIG/a-loaded" ]`)}; exit $s`;
+    const wrapped = (check: string) => ({
+      engine: "/bin/sh",
+      engineArgs: ["-c", `if [ "$3" = "-check-bundle" ]; then ${check}; fi; exec "$@"`, "sh", env.WL_ENGINE!],
+      bundle: dir,
+      workdir: process.cwd(),
+    });
+    const a = connect(wrapped(swapA));
+    while (!existsSync(sig + "/swapped")) await Bun.sleep(5);
+    let b: unknown;
+    try {
+      const other = await connect(wrapped(checkB));
+      await other.close();
+      b = { connected: true };
+    } catch (e) {
+      if (!(e instanceof HostError)) throw e;
+      b = { code: e.code, message: e.message };
+    }
+    writeFileSync(sig + "/b-done", "");
+    const host = await a;
+    const r = await host.run("f/app/facade_flow", {});
+    await host.close();
+    report = { b, facade: { status: r.status, result: r.result } };
     break;
   }
   case "releases": {

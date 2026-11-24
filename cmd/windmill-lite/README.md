@@ -333,7 +333,7 @@ The host that starts it passes:
 | `-skip-args-file` | None | Off | The host states that its own code never reads `args.json`. Then, for a bundle none of whose scripts can read it, the engine writes no `args.json` for a step. |
 | `-foreign-windmill` | An origin, such as `https://windmill.example.com`; repeat the flag for each | None | A real [Windmill](../../docs/glossary.md#windmill) that the host's steps call through their own client. A step's dispatch there loses its links to the step's own job ids ([wl](../../wl/README.md#job-ids-on-a-real-windmill)). |
 | `-quickjs-only` | None | Off | As for `run`: the Go evaluator of expressions is off |
-| `-check-bundle` | A digest | None | Checks the bundle as host mode opens it, before the handshake: against its manifest, `-digest`, this digest and this engine's version. Then it exits, 0 or 1, without connecting. The Bun host SDK runs it, with its other flags, before it loads a bundle's own plugin. |
+| `-check-bundle` | A digest | None | Checks the bundle directory as host mode opens it, before the handshake: a directory, not an archive, against its manifest, `-digest`, this digest and this engine's version. Then it exits, 0 or 1, without connecting. The Bun host SDK runs it, with its other flags, before it loads a bundle's own plugin. |
 | `-cpuprofile` | A file | None | Writes a CPU profile of the engine to the file ([Profiling](#profiling)) |
 
 The engine refuses the host in the handshake, with one of these codes:
@@ -517,7 +517,8 @@ How these tests run:
 | `TestHostReconnectKeepsNativeFetch` | A host that connects on a bundle whose plugin wraps `fetch` at load, closes, and connects again on a bundle with no plugin: the native step never gets the wrapper, which the ordinary step still goes through. |
 | `TestHostReconnectKeepsHostFetch` | A host with no bundled plugin that wraps `fetch` itself between two connections: the second connection's native and ordinary steps both go through its wrapper. |
 | `TestHostVerifiesBundleBeforePlugin` | The bundle's plugin runs on the bundle as built, with no `-digest` pin, a matching one, or an empty `-digest=`. With a pin that the bundle does not match, also after `-data --`, or once another file of the bundle changes, `connect()` rejects with `bundle` and the plugin never runs. |
-| `TestHostCheckBundle` | `host -check-bundle` exits 0 or 1 for a matching digest, a pin, an empty pin, a pin after `-data --`, another digest and another engine version. |
+| `TestHostCheckBundle` | `host -check-bundle` exits 0 or 1 for a matching digest, a pin, an empty pin, a pin after `-data --`, another digest, an archive and another engine version. |
+| `TestHostOverlappingPluginStarts` | Of two overlapping connects on one bundle path with different plugin bytes, the later is refused before it changes anything in the process, and the earlier still serves a platform call. |
 | `TestHostRefusesStalePluginRelease` | After a second release, with another plugin file, replaces the bundle at the same path, a reconnect in the same process rejects with `bundle`, asking for a restart. |
 | `TestHostSurvivesADetachedRejection` | One detached promise rejection does not end the host. Health counts it. |
 | `TestHostNeverSettlingStep` | After one run's step times out, the other run's next step completes, a new run succeeds, and health reports one abandoned invocation. The host is never restarted. |

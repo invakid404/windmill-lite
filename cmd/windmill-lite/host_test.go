@@ -1537,9 +1537,10 @@ const fetchWrapPlugin = "const inner = globalThis.fetch;\n" +
 
 // pluginHostBundle builds, with the Bun at bun, a bundle of the flows
 // f/app/plain_flow and f/app/native_flow, whose steps, an ordinary and a
-// native one, fetch their url input and return the response's text. With a
-// plugin source, the host contract names it as f/app/plugin.ts, the
-// bundle's own plugin.
+// native one, fetch their url input and return the response's text, and
+// f/app/facade_flow, whose step reads the variable f/app/greeting through
+// the platform facade. With a plugin source, the host contract names it as
+// f/app/plugin.ts, the bundle's own plugin.
 func pluginHostBundle(t *testing.T, bun, plugin string) string {
 	t.Helper()
 	repo, err := filepath.Abs("../..")
@@ -1551,8 +1552,14 @@ func pluginHostBundle(t *testing.T, bun, plugin string) string {
 		"wmill.yaml":      "defaultTs: bun\n",
 		"f/app/plain.ts":  "export async function main(url: string) { return await (await fetch(url)).text(); }\n",
 		"f/app/native.ts": "//native\nexport async function main(url: string) { return await (await fetch(url)).text(); }\n",
+		"f/app/facade.ts": "export async function main() {\n" +
+			"  const r = await fetch(`${process.env.BASE_URL}/api/w/${process.env.WM_WORKSPACE}/variables/get_value/f/app/greeting`, " +
+			"{ headers: { Authorization: `Bearer ${process.env.WM_TOKEN}` } });\n" +
+			"  return { status: r.status, value: await r.json() };\n}\n",
+		"f/app/greeting.variable.yaml":     "value: hello from the bundle\nis_secret: false\ndescription: A synthetic variable that the facade step reads\n",
+		"f/app/facade_flow.flow/flow.yaml": `{"summary":"f","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/app/facade","input_transforms":{}}}]}}`,
 	}
-	contract := "roots: [{flow: f/app/plain_flow}, {flow: f/app/native_flow}]\n"
+	contract := "roots: [{flow: f/app/plain_flow}, {flow: f/app/native_flow}, {flow: f/app/facade_flow}]\n"
 	if plugin != "" {
 		files["f/app/plugin.ts"] = plugin
 		contract += "plugin: f/app/plugin.ts\n"
@@ -1759,10 +1766,11 @@ func TestHostVerifiesBundleBeforePlugin(t *testing.T) {
 
 // TestHostCheckBundle: host -check-bundle reads the host command's flags,
 // checks the bundle and exits without connecting. It exits 0 when the
-// bundle verifies against its manifest and any -digest pin, has the digest
-// given, and this engine built it; else 1, naming why. An empty -digest=
-// pins nothing, and a -data whose value is "--" leaves a later -digest in
-// force.
+// bundle is a directory, verifies against its manifest and any -digest pin,
+// has the digest given, and this engine built it; else 1, naming why. An
+// empty -digest= pins nothing, and a -data whose value is "--" leaves a
+// later -digest in force. An archive of the same bundle verifies, but host
+// mode never opens one, so it is refused.
 func TestHostCheckBundle(t *testing.T) {
 	bun := bunForTest(t)
 	dir := pluginHostBundle(t, bun, "")
@@ -1788,13 +1796,68 @@ func TestHostCheckBundle(t *testing.T) {
 			t.Errorf("%v: exit %d, stderr %q; want %d, saying %q", c.flags, code, stderr.String(), c.code, c.says)
 		}
 	}
+	// Host mode never opens an archive, though it verifies.
+	archive := filepath.Join(t.TempDir(), "bundle.wlb")
+	if err := bundle.WriteArchiveFile(dir, archive); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"host", "--bundle", archive, "--workdir", t.TempDir(), "-check-bundle", d}, &stdout, &stderr); code != 1 || !strings.Contains(stderr.String(), "host mode opens a bundle directory") {
+		t.Errorf("an archive: exit %d, stderr %q; want 1", code, stderr.String())
+	}
 	// An engine of another version would not open the bundle.
 	saved := version
 	version = "v9.9.9"
 	defer func() { version = saved }()
-	var stdout, stderr bytes.Buffer
+	stdout.Reset()
+	stderr.Reset()
 	if code := run(append(slices.Clone(base), "-check-bundle", d), &stdout, &stderr); code != 1 || !strings.Contains(stderr.String(), "this engine is v9.9.9") {
 		t.Errorf("another engine version: exit %d, stderr %q; want 1", code, stderr.String())
+	}
+}
+
+// TestHostOverlappingPluginStarts: of two connect() calls in one host
+// process that overlap, at one bundle path, with different plugin bytes,
+// the later is refused before it publishes any process-wide state, and the
+// earlier keeps serving: its step completes a platform call afterwards
+// (testdata/pluginhost/host.ts, overlap). Wrappers around the real engine
+// time the overlap. A's check puts release B's manifest and plugin into
+// the bundle, waits until B has run its own check or has been refused, and
+// puts release A back. B's check, if B gets that far, waits until A's
+// plugin has run, so B would make its runtime after A's.
+func TestHostOverlappingPluginStarts(t *testing.T) {
+	bun := bunForTest(t)
+	plugin := func(name string) string {
+		return fmt.Sprintf("require(\"node:fs\").writeFileSync(process.env.WL_SIG + %q, \"ran\");\nexport default {};\n", "/"+name+"-loaded")
+	}
+	a, b := pluginHostBundle(t, bun, plugin("a")), pluginHostBundle(t, bun, plugin("b"))
+	sig := t.TempDir()
+	var r struct {
+		B struct {
+			Connected     bool
+			Code, Message string
+		}
+		Facade struct {
+			Status string
+			Result json.RawMessage
+		}
+	}
+	runPluginHost(t, bun, &r, "WL_SCENARIO=overlap", "WL_BUNDLE="+a, "WL_RELEASE_B="+b, "WL_SIG="+sig)
+	if r.B.Connected || r.B.Code != "bundle" || !strings.Contains(r.B.Message, "with other contents") {
+		t.Errorf("the overlapping connect: %+v; want a HostError bundle", r.B)
+	}
+	var got struct {
+		Status int
+		Value  string
+	}
+	if err := json.Unmarshal(r.Facade.Result, &got); err != nil || r.Facade.Status != "success" || got.Status != 200 || got.Value != "hello from the bundle" {
+		t.Errorf("the earlier connection's platform call after the refusal: %s %s; want success, the variable read through its facade", r.Facade.Status, r.Facade.Result)
+	}
+	if _, err := os.Stat(filepath.Join(sig, "a-loaded")); err != nil {
+		t.Errorf("the earlier connection's plugin did not run: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(sig, "b-loaded")); err == nil {
+		t.Error("the refused connection's plugin ran")
 	}
 }
 
