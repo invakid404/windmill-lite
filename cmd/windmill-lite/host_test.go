@@ -1527,18 +1527,13 @@ func TestHostBundledPluginCases(t *testing.T) {
 	runHostPluginCases(t, f, report, false, "WL_BUNDLE="+buildPluginBundleWith(t, f, files, contract))
 }
 
-// TestHostBundledPluginFetchOrder: the host SDK loads the bundle's own
-// plugin as a spawned harness process loads one, after the runtime has
-// installed its fetch view and the native realms have taken the web APIs.
-// A fetch wrapper that the plugin installs at load reaches the ordinary
-// step, and not the native one; a loopback server reports the header the
-// wrapper sets.
-func TestHostBundledPluginFetchOrder(t *testing.T) {
-	compiledHost(t)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, r.Header.Get("x-plugin-wrap"))
-	}))
-	defer srv.Close()
+// fetchOrderBundle builds a bundle of the flows f/app/plain_flow and
+// f/app/native_flow, whose steps, an ordinary and a native one, fetch their
+// url input and return the response's text. With plugin, the host contract
+// names f/app/plugin.ts, which wraps the global fetch when it loads: every
+// request through the wrapper carries the header x-plugin-wrap.
+func fetchOrderBundle(t *testing.T, plugin bool) string {
+	t.Helper()
 	repo, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
@@ -1566,17 +1561,42 @@ func TestHostBundledPluginFetchOrder(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	contract := "roots: [{flow: f/app/plain_flow}, {flow: f/app/native_flow}]\n"
+	if plugin {
+		contract += "plugin: f/app/plugin.ts\n"
+	}
 	out := filepath.Join(t.TempDir(), "bundle")
 	if _, err := bundle.Build(context.Background(), bundle.Config{
-		Folder: folder, Contract: []byte("roots: [{flow: f/app/plain_flow}, {flow: f/app/native_flow}]\nplugin: f/app/plugin.ts\n"),
-		EngineVersion: resolveVersion(), Bun: os.Getenv("WL_BUN"),
+		Folder: folder, Contract: []byte(contract), EngineVersion: resolveVersion(), Bun: os.Getenv("WL_BUN"),
 		Helper:         filepath.Join(repo, "harnesses", "bun", "build", "main.ts"),
 		HarnessRuntime: filepath.Join(repo, "harnesses", "bun", "runtime"),
 		Out:            out, Work: filepath.Join(t.TempDir(), "work"),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	s := supervise(t, 30000, "WL_BUNDLE="+out)
+	return out
+}
+
+// headerServer is a loopback server that answers with the request's header
+// x-plugin-wrap.
+func headerServer(t *testing.T) *httptest.Server {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, r.Header.Get("x-plugin-wrap"))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// TestHostBundledPluginFetchOrder: the host SDK loads the bundle's own
+// plugin as a spawned harness process loads one, after the runtime has
+// installed its fetch view and the native realms have taken the web APIs.
+// A fetch wrapper that the plugin installs at load reaches the ordinary
+// step, and not the native one; a loopback server reports the header the
+// wrapper sets.
+func TestHostBundledPluginFetchOrder(t *testing.T) {
+	compiledHost(t)
+	srv := headerServer(t)
+	s := supervise(t, 30000, "WL_BUNDLE="+fetchOrderBundle(t, true))
 	for _, c := range []struct{ flow, want string }{
 		{"f/app/plain_flow", `"1"`},
 		{"f/app/native_flow", `""`},
@@ -1588,6 +1608,53 @@ func TestHostBundledPluginFetchOrder(t *testing.T) {
 		if r.Status != "success" || string(r.Result) != c.want {
 			t.Errorf("%s: %s %s, want the header x-plugin-wrap %s", c.flow, r.Status, r.Result, c.want)
 		}
+	}
+}
+
+// TestHostReconnectKeepsNativeFetch: a host process that connects on a
+// bundle whose plugin wraps the global fetch at load, closes, and connects
+// again on a bundle with no plugin still gives its native steps the
+// runtime's fetch view, not the wrapper that the first connection's plugin
+// left on globalThis (testdata/reconnecthost/host.ts).
+func TestHostReconnectKeepsNativeFetch(t *testing.T) {
+	bun := bunForTest(t)
+	srv := headerServer(t)
+	withPlugin, without := fetchOrderBundle(t, true), fetchOrderBundle(t, false)
+	script, err := filepath.Abs("testdata/reconnecthost/host.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	engineBin, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bun, "run", script)
+	cmd.Dir = t.TempDir()
+	cmd.Env = append(os.Environ(), "WL_TEST_ENGINE=1", "WL_ENGINE="+engineBin, "WL_BUNDLE="+withPlugin, "WL_BUNDLE2="+without, "WL_URL="+srv.URL)
+	// A file, not a pipe: the engine inherits it, and a pipe would make the
+	// command wait for the engine's exit too.
+	stderr, err := os.Create(filepath.Join(t.TempDir(), "stderr"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stderr.Close()
+	cmd.Stderr = stderr
+	out, err := cmd.Output()
+	if err != nil {
+		log, _ := os.ReadFile(stderr.Name())
+		t.Fatalf("the host: %v\nstdout:\n%s\nstderr:\n%s", err, out, log)
+	}
+	var r struct{ Plain, Native, NativeAgain json.RawMessage }
+	if err := json.Unmarshal(out, &r); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if string(r.Plain) != `"1"` || string(r.Native) != `""` {
+		t.Errorf("first connection: plain %s, native %s; want the header on the ordinary step only", r.Plain, r.Native)
+	}
+	if string(r.NativeAgain) != `""` {
+		t.Errorf("second connection: native %s; want no header, the runtime's fetch view", r.NativeAgain)
 	}
 }
 

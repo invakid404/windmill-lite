@@ -627,7 +627,10 @@ let fetchRoute:
     }
   | undefined;
 let errorRoute: ((kind: string, e: unknown, promise?: unknown) => void) | undefined;
-let fetchInstalled = false;
+// The fetch view that installFetch installed. It stays the view a later
+// runtime of the process gets, though code may have replaced
+// globalThis.fetch since, such as a host plugin's wrapper.
+let fetchView: typeof fetch | undefined;
 
 /** The reason a request an invocation left in flight is aborted with when
  * it settles: an AbortError, as for any aborted fetch. */
@@ -654,15 +657,16 @@ function settledAbort(): DOMException {
  *   (ADR 0007, async dispatch).
  *
  * origin() and foreign() are read per call, because the welcome names the
- * facade and the foreign origins after this is installed. */
+ * facade and the foreign origins after this is installed. It returns the
+ * view, which a later call returns again: a host that reconnects gets the
+ * view it installed first, whatever globalThis.fetch has become since. */
 export function installFetch(
   origin: () => string | undefined,
   call: (c: PlatformCall, signal: AbortSignal) => Promise<PlatformAnswer>,
   foreign: () => ReadonlySet<string> = () => NO_ORIGINS,
-) {
+): typeof fetch {
   fetchRoute = { origin, call, foreign };
-  if (fetchInstalled) return;
-  fetchInstalled = true;
+  if (fetchView !== undefined) return fetchView;
   const inner = globalThis.fetch;
   const wrapped = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const route = fetchRoute!;
@@ -707,7 +711,9 @@ export function installFetch(
       done?.();
     }
   };
-  globalThis.fetch = Object.assign(wrapped, { preconnect: inner.preconnect }) as typeof fetch;
+  fetchView = Object.assign(wrapped, { preconnect: inner.preconnect }) as typeof fetch;
+  globalThis.fetch = fetchView;
+  return fetchView;
 }
 
 /** The reason phrases Go's net/http writes on a status line

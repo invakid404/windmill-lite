@@ -13,7 +13,7 @@
 // A step's bundle reaches them through a shim that takes each export from
 // the registry.
 
-import { accessSync, constants, realpathSync, statSync, writeSync } from "node:fs";
+import { accessSync, constants, readFileSync, realpathSync, statSync, writeSync } from "node:fs";
 import { createRequire } from "node:module";
 import type { Socket } from "node:net";
 import { join, resolve } from "node:path";
@@ -374,6 +374,44 @@ function runBudget(option: string, ms: unknown): number | undefined {
  * list (they are never read) and which listed ones the host left out (a
  * step that imports one fails at load with "host-provided module not
  * registered", ADR 0010). */
+/** The text of a thrown value, which need not be an Error: a module may
+ * throw undefined, null or anything else. */
+function thrownText(e: unknown): string {
+  try {
+    return e instanceof Error ? e.message : String(e);
+  } catch {
+    return Object.prototype.toString.call(e);
+  }
+}
+
+/** The path of the bundle's own plugin, once it is known to be one of the
+ * bundle's files: a module of plugins/ that the manifest lists, whose
+ * bytes have the digest that the manifest records for it. Else a
+ * HostError bundle. */
+function verifiedPlugin(bundle: string, file: unknown, files: Record<string, unknown>): string {
+  const refuse = (why: string) => new HostError("bundle", `cannot load the bundle's host plugin: ${why}`);
+  if (
+    typeof file !== "string" ||
+    !file.startsWith("plugins/") ||
+    !file.endsWith(".mjs") ||
+    file.split("/").some((seg) => seg === "" || seg === "." || seg === ".." || seg.includes("\\") || seg.includes("\0")) ||
+    typeof files[file] !== "string"
+  ) {
+    throw refuse(`the manifest names ${JSON.stringify(file)}, which is not a module of plugins/ that it lists`);
+  }
+  const path = join(bundle, file);
+  let bytes: Uint8Array;
+  try {
+    bytes = readFileSync(path);
+  } catch (e) {
+    throw refuse(`cannot read ${file}: ${thrownText(e)}`);
+  }
+  if ("sha256:" + new Bun.CryptoHasher("sha256").update(bytes).digest("hex") !== files[file]) {
+    throw refuse(`${file} does not have the digest that the manifest records for it`);
+  }
+  return path;
+}
+
 function register(modules: Record<string, object> | undefined, listed: string[], diag: (line: string) => void) {
   const g = globalThis as Record<symbol, unknown>;
   const registry = (g[HOST_MODULES] ??= new Map<string, object>()) as Map<string, object>;
@@ -442,23 +480,26 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   let manifest: Uint8Array;
   let listed: string[];
   let bundled: { key?: unknown; file?: unknown } | undefined;
+  let files: Record<string, unknown>;
   try {
     manifest = await Bun.file(join(o.bundle, "manifest.json")).bytes();
     const m = JSON.parse(new TextDecoder().decode(manifest)) as {
       host_modules?: { key?: unknown }[] | null;
       plugin?: { key?: unknown; file?: unknown } | null;
+      files?: Record<string, unknown> | null;
     };
     listed = (m.host_modules ?? []).map((h) => String(h?.key));
     bundled = m.plugin ?? undefined;
+    files = m.files ?? {};
   } catch (e) {
     throw new HostError("bundle", `cannot read the bundle manifest: ${(e as Error).message}`);
   }
   if (bundled !== undefined && o.plugin !== undefined) {
     throw new HostError("options", `the bundle has its own host plugin, ${String(bundled.key)}, and the plugin option gives another; give one of them`);
   }
-  if (bundled !== undefined && typeof bundled.file !== "string") {
-    throw new HostError("bundle", "cannot load the bundle's host plugin: the manifest's plugin names no file");
-  }
+  // This process evaluates the bundle's own plugin before the engine has
+  // verified the bundle, so it verifies the module first.
+  const pluginFile = bundled === undefined ? undefined : verifiedPlugin(o.bundle, bundled.file, files);
   // Before any step module loads: a step that imports a host-provided
   // module takes it from the registry when it loads.
   register(o.hostModules, listed, diag);
@@ -746,15 +787,38 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   // carries its declaration. A fetch wrapper it installs at load thus
   // wraps the runtime's fetch view in both modes, and reaches no native
   // realm.
-  if (bundled !== undefined) {
-    try {
-      runtime.usePlugin(await loadPlugin(pathToFileURL(join(o.bundle, bundled.file as string)).href));
-    } catch (e) {
+  // The engine may end while the plugin loads (its own checks fail, or it
+  // stops waiting for the hello): connect() then rejects with the engine's
+  // refusal at once, without waiting for the plugin's evaluation, and
+  // sends no hello.
+  if (pluginFile !== undefined) {
+    let engineError: unknown;
+    const engineEnded = new Promise<undefined>((resolve) =>
+      ready.catch((e: unknown) => {
+        engineError = e;
+        resolve(undefined);
+      }),
+    );
+    const load = loadPlugin(pathToFileURL(pluginFile).href).then(
+      (plugin) => ({ plugin }),
+      (failed: unknown) => ({ failed }),
+    );
+    const outcome = await Promise.race([load, engineEnded]);
+    let failure: HostError | undefined;
+    if (outcome === undefined) failure = engineError instanceof HostError ? engineError : new HostError("rejected", thrownText(engineError));
+    else if ("failed" in outcome) failure = new HostError("bundle", `cannot load the bundle's host plugin: ${thrownText(outcome.failed)}`);
+    else {
+      try {
+        runtime.usePlugin(outcome.plugin);
+      } catch (e) {
+        failure = new HostError("bundle", `cannot load the bundle's host plugin: ${thrownText(e)}`);
+      }
+    }
+    if (failure !== undefined) {
       // The engine, which has had no hello, exits once its socket closes.
-      ready.catch(() => {});
       sock.destroy();
       child.kill();
-      throw new HostError("bundle", `cannot load the bundle's host plugin: ${(e as Error).message}`);
+      throw failure;
     }
   }
   runtime.start();

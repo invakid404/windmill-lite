@@ -351,16 +351,17 @@ export class Runtime {
     installTimers();
     installLogs();
     installChildProcesses();
-    installFetch(
+    const fetchView = installFetch(
       () => this.facade,
       (c, signal) => this.platformCall(c, signal),
       () => this.foreign,
     );
     installProcessHandlers((kind, e, promise) => this.onProcessError(kind, e, promise));
     installExit((c, status) => this.onExit(c, status));
-    // Native realms get the web APIs as they are now, the wrapped fetch
-    // included, before any step module can change them.
-    this.native.capture();
+    // Native realms get the web APIs as they are now, before any step
+    // module can change them, and the fetch view itself: on a reconnect,
+    // globalThis.fetch may be a wrapper that an earlier plugin installed.
+    this.native.capture(fetchView);
   }
 
   /** Sets the host plugin before start, for a harness that loads it once

@@ -973,7 +973,8 @@ answered by a `host_reply`.
      process-wide hooks and the [native realms](0001-equivalence-contract.md#5-named-deviations)
      have taken the web APIs. A `fetch` wrapper that the plugin installs at
      load thus wraps the fetch view for ordinary steps, which read
-     `globalThis.fetch` on each call, and reaches no native step.
+     `globalThis.fetch` on each call, and reaches no native step, which
+     takes the view itself, after a host reconnects too.
 9. **Run data** (planned). A run's data ([H11](0008-host-hooks.md#the-hooks)) reaches a process with
    the first `invoke` or `host_call` of the run that the process gets, so
    the plugin's hooks and its `around` wrappers read it as `wl.run.data`.

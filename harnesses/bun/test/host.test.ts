@@ -2,7 +2,7 @@
 // host-mode gate runs in cmd/windmill-lite against a compiled host.
 
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkWorkdir, type ConnectOptions, connect, DEFAULT_COLLECT_POLICY, DEFAULT_COLLECT_QUIET_MS, type Host, HostError, type RunOptions } from "../host/index.ts";
@@ -104,17 +104,67 @@ test("an engine that cannot start is engine_start", async () => {
   }
 });
 
-test("connect refuses a plugin option for a bundle with a plugin of its own, before it starts the engine", async () => {
+// A bundle directory whose manifest names a plugin of its own, at file, and
+// records digest for it (by default, the digest of source), with source
+// written at file when file is under the directory.
+function pluginBundle(source: string, o: { file?: string; digest?: string; listed?: boolean } = {}) {
   const dir = tempDir("wl-host-plugin-");
-  writeFileSync(join(dir, "manifest.json"), JSON.stringify({ host_modules: [], plugin: { key: "f/app/plugin.ts", file: "plugins/f/app/plugin.mjs" } }));
+  const file = o.file ?? "plugins/f/app/plugin.mjs";
+  const digest = o.digest ?? "sha256:" + new Bun.CryptoHasher("sha256").update(source).digest("hex");
+  mkdirSync(join(dir, file, ".."), { recursive: true });
+  writeFileSync(join(dir, file), source);
+  const files = o.listed === false ? {} : { [file]: digest };
+  writeFileSync(join(dir, "manifest.json"), JSON.stringify({ host_modules: [], plugin: { key: "f/app/plugin.ts", file }, files }));
+  return dir;
+}
+
+// connect() in dir, which is also the working directory.
+async function connectIn(dir: string, o: Partial<ConnectOptions>): Promise<string | undefined> {
   const back = process.cwd();
   process.chdir(dir);
   try {
-    expect(await code(connect({ engine: join(dir, "no-such-engine"), bundle: dir, workdir: dir, plugin: {} }))).toBe("options");
-    // Without the option, connect gets as far as starting the engine.
-    expect(await code(connect({ engine: join(dir, "no-such-engine"), bundle: dir, workdir: dir }))).toBe("engine_start");
+    return await code(connect({ engine: join(dir, "no-such-engine"), bundle: dir, workdir: dir, diag: () => {}, ...o }));
   } finally {
     process.chdir(back);
+  }
+}
+
+test("connect refuses a plugin option for a bundle with a plugin of its own, before it starts the engine", async () => {
+  const dir = pluginBundle("export default {};\n");
+  expect(await connectIn(dir, { plugin: {} })).toBe("options");
+  // Without the option, connect gets as far as starting the engine.
+  expect(await connectIn(dir, {})).toBe("engine_start");
+}, 20_000);
+
+test("connect verifies the bundle's plugin before it runs any of it", async () => {
+  const marker = join(tempDir("wl-host-marker-"), "ran");
+  const changed = `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "ran");\nexport default {};\n`;
+  const built = "sha256:" + new Bun.CryptoHasher("sha256").update("export default {};\n").digest("hex");
+  // Changed since the build: its digest is not the manifest's.
+  expect(await connectIn(pluginBundle(changed, { digest: built }), {})).toBe("bundle");
+  // Not a module of plugins/ that the manifest lists.
+  expect(await connectIn(pluginBundle(changed, { listed: false }), {})).toBe("bundle");
+  expect(await connectIn(pluginBundle(changed, { file: "scripts/plugin.mjs" }), {})).toBe("bundle");
+  expect(await connectIn(pluginBundle(changed, { file: "plugins/../plugin.mjs" }), {})).toBe("bundle");
+  expect(existsSync(marker)).toBe(false);
+}, 20_000);
+
+test("connect rejects at once when the engine ends while the bundle's plugin loads, and sends no hello", async () => {
+  // The plugin's evaluation never ends; the engine exits without a hello.
+  const dir = pluginBundle("await new Promise(() => {});\nexport default {};\n");
+  const started = performance.now();
+  const got = await Promise.race([
+    connectIn(dir, { engine: "/bin/sh", engineArgs: ["-c", "exit 0"] }),
+    Bun.sleep(5_000).then(() => "still pending"),
+  ]);
+  expect(got).toBe("rejected");
+  expect(performance.now() - started).toBeLessThan(5_000);
+}, 20_000);
+
+test("a bundle's plugin that throws a value that is not an Error rejects connect with bundle", async () => {
+  for (const thrown of ["undefined", "null", "42"]) {
+    const dir = pluginBundle(`throw ${thrown};\nexport default {};\n`);
+    expect(await connectIn(dir, { engine: "/bin/sh", engineArgs: ["-c", "exec sleep 30"] })).toBe("bundle");
   }
 }, 20_000);
 

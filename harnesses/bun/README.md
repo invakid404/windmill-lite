@@ -569,12 +569,17 @@ the rules of each hook.
 - **The bundle's own.** A bundle built with a plugin (the host contract's
   `plugin`) holds it in `plugins/`, with the host-provided modules resolved
   to their shims. The engine names it with `--plugin` when `wl` names none,
-  and `connect` loads it when its `plugin` option is absent.
+  and `connect` loads it when its `plugin` option is absent. `connect`
+  first checks the module against the manifest's digest, since it runs
+  before the engine has verified the bundle, and rejects at once when the
+  engine ends while the plugin loads.
 - **When it loads.** A harness loads its plugin after the runtime has
   installed its process-wide hooks and the native realms have taken the
   web APIs, and `connect` loads a bundle's plugin at the same point. A
   `fetch` wrapper that such a plugin installs at load reaches ordinary
-  steps, and no native step.
+  steps, and no native step: native realms take the runtime's fetch view
+  itself, so a wrapper left by an earlier connection's plugin does not
+  reach them either.
 - **The declaration.** The harness sends the plugin's hooks and selectors
   to the engine in its hello. The engine refuses a host whose declaration
   it cannot use with `plugin_mismatch`: a malformed or ambiguous selector,
@@ -652,7 +657,7 @@ error that has no `code`:
 | `workdir_mismatch` | `connect`, or the engine | `workdir` is not the process's working directory. | `process.chdir(workdir)` before `connect`, or pass `process.cwd()`. |
 | `options` | `connect` | The `collect` option has an `rss` that is not above 0 (missing, 0, negative or `NaN`), a `cooldown` or a `quiet` that is negative, `NaN` or infinite, or a `policy` other than `"idle"` and `"heartbeat"`. The `rss` check compares values and does not test the type, so a numeric string such as `"1"` passes it; pass a number, as the type says. `cooldown` and `quiet` must be finite numbers, so a string is refused. | Fix the option. The message names the rule that failed. |
 | `options` | `connect` | The bundle has a host plugin of its own, and the `plugin` option gives another. | Leave the option out, or build the bundle without the contract's `plugin`. |
-| `bundle` | `connect` | The bundle's `manifest.json` does not read, or the bundle's own host plugin does not load or has a wrong shape. | Pass the bundle directory, as an absolute path. Fix the plugin, whose message the error carries. |
+| `bundle` | `connect` | The bundle's `manifest.json` does not read, or the bundle's own host plugin is not a module of `plugins/` that the manifest lists, does not have the manifest's digest, does not load or has a wrong shape. | Pass the bundle directory, as an absolute path. Rebuild the bundle, or fix the plugin, whose message the error carries. |
 | `assets` | `connect` | The bundle's assets do not extract into `workdir`. | Check the directory's space and permissions. |
 | `engine_start` | `connect` | The engine binary does not start. | Check `engine`'s path and its execute permission. |
 | `version_mismatch` | The engine, or the SDK | The SDK's version is not the engine's. An unversioned engine or SDK pairs with any. | Take the SDK and the engine from the same release. |
