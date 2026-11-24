@@ -13,12 +13,14 @@
 // A step's bundle reaches them through a shim that takes each export from
 // the registry.
 
-import { accessSync, constants, realpathSync, statSync, writeSync } from "node:fs";
+import { accessSync, constants, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
 import { createRequire } from "node:module";
 import type { Socket } from "node:net";
-import { join, resolve } from "node:path";
-import { exitProcess, invocations, realStderr, realTimers } from "../runtime/context.ts";
-import type { Plugin, Selector } from "../runtime/plugin.ts";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { exitProcess, invocations, noteBundledPlugin, realStderr, realTimers } from "../runtime/context.ts";
+import { loadPlugin, type Plugin, type Selector } from "../runtime/plugin.ts";
 import { extractAssets, type HostHealth, RunError, Runtime } from "../runtime/runtime.ts";
 
 export type { AroundCall, Call, Outcome, PlatformCall, Plugin, Selector, Site, StepOutcome, StepRecord, Trace, TraceDetail, TraceNone, TraceSummary, Warning } from "../runtime/plugin.ts";
@@ -68,7 +70,11 @@ export type ConnectOptions = {
    * wrappers around a step. Each callback runs in the scope of the run it
    * serves (H11). The engine checks the declaration in the handshake and
    * refuses the host (plugin_mismatch) when a selector is malformed or
-   * ambiguous, or a provider the host contract names is missing. */
+   * ambiguous, or a provider the host contract names is missing. A bundle
+   * built with a plugin of its own (its host contract's plugin field)
+   * gives the host that plugin when this option is absent: connect()
+   * loads it once the host's modules are registered, and refuses with a
+   * HostError options when the option is given too. */
   plugin?: Plugin;
   /** The engine's watchdog: it kills this process when no frame has come
    * from it for killAfter milliseconds (default 30000; 0 disables it). */
@@ -378,6 +384,158 @@ function runBudget(option: string, ms: unknown): number | undefined {
  * list (they are never read) and which listed ones the host left out (a
  * step that imports one fails at load with "host-provided module not
  * registered", ADR 0010). */
+/** The text of a thrown value, which need not be an Error: a module may
+ * throw undefined, null, or a value whose inspection itself throws, such
+ * as a revoked proxy. It never throws. */
+function thrownText(e: unknown): string {
+  try {
+    return e instanceof Error ? String(e.message) : String(e);
+  } catch {
+    return "a thrown value that cannot be shown";
+  }
+}
+
+/** Each bundle plugin this process has taken, by the URL of its file in the
+ * bundle: its digest, the connect() calls in progress that hold it, and the
+ * URL of the private copy of the checked bytes once one of them has made
+ * it. connect() takes a plugin when it has checked it, before it publishes
+ * any process-wide state, and gives it back when the attempt ends. A plugin
+ * at the same bundle path with other bytes is refused while an attempt in
+ * progress holds the entry, or once a copy exists: a release that replaced
+ * the file would otherwise run beside the plugin already imported, and an
+ * overlapping connect() would replace the process-wide hooks of the one it
+ * overlaps. An entry without a copy goes when its last holder gives it
+ * back, so a later connect() may take other bytes from that path. */
+const loadedPlugins = new Map<string, { digest: string; holders: number; copy?: string }>();
+// The private directories of those copies, by the temporary directory they
+// are made in: each is made on first use and removed when the process exits.
+const copyBases = new Map<string, string>();
+
+/** The URL of a private copy of a plugin's checked bytes, which this
+ * process imports in place of the bundle's file: a file that changes after
+ * the check cannot run in its place. A plugin already copied from the same
+ * bundle path with the same digest keeps its copy, so a reconnect gets the
+ * module Bun already holds, as for any module. The caller holds the plugin
+ * (verifiedPlugin), so its entry has this digest. A copy that cannot be
+ * written leaves nothing behind, and the error is thrown. */
+function pluginCopy(plugin: { url: string; digest: string; bytes: Uint8Array; file: string }): string {
+  const held = loadedPlugins.get(plugin.url);
+  if (held === undefined || held.digest !== plugin.digest) {
+    throw new HostError("bundle", `cannot load the bundle's host plugin: this process no longer holds ${plugin.file} with these contents`);
+  }
+  if (held.copy !== undefined) return held.copy;
+  const tmp = tmpdir();
+  let base = copyBases.get(tmp);
+  if (base === undefined) {
+    const made = mkdtempSync(join(tmp, "windmill-lite-plugins-"));
+    process.once("exit", () => rmSync(made, { recursive: true, force: true }));
+    copyBases.set(tmp, made);
+    base = made;
+  }
+  const dir = mkdtempSync(join(base, "plugin-"));
+  try {
+    const path = join(dir, plugin.file);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, plugin.bytes, { flag: "wx", mode: 0o400 });
+    held.copy = pathToFileURL(path).href;
+    return held.copy;
+  } catch (e) {
+    rmSync(dir, { recursive: true, force: true });
+    throw e;
+  }
+}
+
+/** The bundle's own plugin, once it is known to be one of the bundle's
+ * files, by the rules that the engine's verification applies: a key, and
+ * a module of plugins/ that the manifest lists, reached through no
+ * symbolic link below the bundle directory, a regular file whose bytes
+ * have the digest that the manifest records for it. It is then taken
+ * (loadedPlugins), unless this process holds or has copied a plugin from
+ * the same path with other bytes. Else a HostError bundle. release() gives
+ * the plugin back when the attempt fails before it is copied. */
+function verifiedPlugin(
+  bundle: string,
+  entry: { key?: unknown; file?: unknown },
+  files: Record<string, unknown>,
+): { url: string; digest: string; bytes: Uint8Array; file: string; release: () => void } {
+  const refuse = (why: string) => new HostError("bundle", `cannot load the bundle's host plugin: ${why}`);
+  const file = entry.file;
+  if (typeof entry.key !== "string" || entry.key === "") throw refuse("the manifest's plugin entry has no key");
+  if (
+    typeof file !== "string" ||
+    !file.startsWith("plugins/") ||
+    !file.endsWith(".mjs") ||
+    file.split("/").some((seg) => seg === "" || seg === "." || seg === ".." || seg.includes("\\") || seg.includes("\0")) ||
+    typeof files[file] !== "string"
+  ) {
+    throw refuse(`the manifest names ${JSON.stringify(file)}, which is not a module of plugins/ that it lists`);
+  }
+  // The bundle directory itself may be a link, as for the engine.
+  const segs = file.split("/");
+  let path = bundle;
+  for (const [i, seg] of segs.entries()) {
+    path = join(path, seg);
+    let kind: string;
+    try {
+      const st = lstatSync(path);
+      kind = st.isSymbolicLink() ? "a symbolic link" : st.isDirectory() ? "dir" : st.isFile() ? "file" : "not a regular file";
+    } catch (e) {
+      throw refuse(`cannot read ${file}: ${thrownText(e)}`);
+    }
+    if (kind !== (i === segs.length - 1 ? "file" : "dir")) {
+      throw refuse(`${segs.slice(0, i + 1).join("/")} is ${kind === "dir" ? "a directory" : kind === "file" ? "a file" : kind}; the plugin is a regular file of the bundle`);
+    }
+  }
+  let bytes: Uint8Array;
+  try {
+    bytes = readFileSync(path);
+  } catch (e) {
+    throw refuse(`cannot read ${file}: ${thrownText(e)}`);
+  }
+  const digest = "sha256:" + new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
+  if (digest !== files[file]) throw refuse(`${file} does not have the digest that the manifest records for it`);
+  const url = pathToFileURL(path).href;
+  const seen = loadedPlugins.get(url);
+  if (seen !== undefined && seen.digest !== digest) {
+    throw refuse(`this process already took a plugin from ${file} with other contents, and Bun would give back that module; restart the host to load this one`);
+  }
+  const held = seen ?? { digest, holders: 0 };
+  held.holders++;
+  loadedPlugins.set(url, held);
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    held.holders--;
+    if (held.holders === 0 && held.copy === undefined && loadedPlugins.get(url) === held) loadedPlugins.delete(url);
+  };
+  return { url, digest, bytes, file, release };
+}
+
+/** Runs the host command with -check-bundle and the flags that connect()
+ * starts it with, engineFlags included: the engine reads them as it reads
+ * them at start, a -digest pin among them, checks the bundle as Open does
+ * before the handshake, against its manifest, that pin and the digest of
+ * the manifest this process read, and exits. Else a HostError bundle
+ * (exit 1), rejected (another failure, such as a usage error), or
+ * engine_start when the engine does not start. */
+async function engineChecks(spawn: typeof import("node:child_process").spawn, o: ConnectOptions, hostFlags: string[], digest: string): Promise<void> {
+  const child = spawn(o.engine, [...(o.engineArgs ?? []), "host", "-check-bundle", digest, ...hostFlags], { stdio: ["ignore", "ignore", "pipe"] });
+  let stderr = "";
+  child.stderr?.on("data", (d: Buffer) => {
+    if (stderr.length < 4096) stderr += d.toString();
+  });
+  const end = await new Promise<{ code: number | null; error?: Error }>((resolve) => {
+    child.once("error", (error) => resolve({ code: null, error }));
+    child.once("close", (code) => resolve({ code }));
+  });
+  if (end.error !== undefined) throw new HostError("engine_start", `${o.engine}: ${end.error.message}`);
+  if (end.code === 1) throw new HostError("bundle", `the engine's check refused the bundle, so its plugin was not loaded: ${stderr.trim()}`);
+  if (end.code !== 0) {
+    throw new HostError("rejected", `the engine's check of the bundle failed (exit ${end.code}), so its plugin was not loaded: ${stderr.trim()}`);
+  }
+}
+
 function register(modules: Record<string, object> | undefined, listed: string[], diag: (line: string) => void) {
   const g = globalThis as Record<symbol, unknown>;
   const registry = (g[HOST_MODULES] ??= new Map<string, object>()) as Map<string, object>;
@@ -391,6 +549,17 @@ function register(modules: Record<string, object> | undefined, listed: string[],
 }
 
 export async function connect(o: ConnectOptions): Promise<Host> {
+  // A bundle's own plugin, once taken, is given back when the attempt ends;
+  // its entry stays once the plugin is copied.
+  const held: { release?: () => void } = {};
+  try {
+    return await connectOnce(o, held);
+  } finally {
+    held.release?.();
+  }
+}
+
+async function connectOnce(o: ConnectOptions, held: { release?: () => void }): Promise<Host> {
   const workdir = checkWorkdir(o.workdir);
   const collect = o.collect;
   const cooldown = collect?.cooldown ?? DEFAULT_COLLECT_COOLDOWN_MS;
@@ -445,13 +614,32 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   const diag = o.diag ?? ((line: string) => realStderr(line + "\n"));
   let manifest: Uint8Array;
   let listed: string[];
+  let bundled: { key?: unknown; file?: unknown } | undefined;
+  let files: Record<string, unknown>;
   try {
     manifest = await Bun.file(join(o.bundle, "manifest.json")).bytes();
-    const hm = (JSON.parse(new TextDecoder().decode(manifest)) as { host_modules?: { key?: unknown }[] | null }).host_modules ?? [];
-    listed = hm.map((h) => String(h?.key));
+    const m = JSON.parse(new TextDecoder().decode(manifest)) as {
+      host_modules?: { key?: unknown }[] | null;
+      plugin?: { key?: unknown; file?: unknown } | null;
+      files?: Record<string, unknown> | null;
+    };
+    listed = (m.host_modules ?? []).map((h) => String(h?.key));
+    bundled = m.plugin ?? undefined;
+    files = m.files ?? {};
   } catch (e) {
     throw new HostError("bundle", `cannot read the bundle manifest: ${(e as Error).message}`);
   }
+  if (bundled !== undefined && o.plugin !== undefined) {
+    throw new HostError("options", `the bundle has its own host plugin, ${String(bundled.key)}, and the plugin option gives another; give one of them`);
+  }
+  // This process evaluates the bundle's own plugin before the engine's
+  // handshake reports whether the bundle verified, so it checks the
+  // module first and takes it, before it publishes any process-wide state:
+  // a plugin from the same path with other bytes, held or copied by another
+  // connect(), is refused here. The engine checks the whole bundle before
+  // the module is imported (below).
+  const plugin = bundled === undefined ? undefined : verifiedPlugin(o.bundle, bundled, files);
+  held.release = plugin?.release;
   // Before any step module loads: a step that imports a host-provided
   // module takes it from the registry when it loads.
   register(o.hostModules, listed, diag);
@@ -471,24 +659,30 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   // its ESM bindings for every later importer, so a step's named import of
   // node:child_process would miss the runtime's wrappers (ADR 0004, item 7).
   const { spawn } = createRequire(import.meta.url)("node:child_process") as typeof import("node:child_process");
+  // The host command's flags. A -digest pin among engineFlags means what
+  // the host command makes of it, so the check before a bundle's own plugin
+  // runs gets the same flags.
+  const hostFlags = [
+    ...["--bundle", o.bundle, "--workdir", workdir, "--kill-after", `${killAfter}ms`],
+    ...(o.readCache ? ["-read-cache"] : []),
+    ...(o.skipArgsFile ? ["-skip-args-file"] : []),
+    ...(o.resultPollsForAllJobs ? ["-result-polls-for-all-jobs"] : []),
+    ...foreignFlags,
+    ...(store ? ["-resource-store", store.kind] : []),
+    ...(store?.kind === "redis" && store.prefix !== undefined ? ["-redis-prefix", store.prefix] : []),
+    ...(store?.kind === "redis" && store.allowEviction ? ["-redis-allow-eviction"] : []),
+    ...(o.engineFlags ?? []),
+  ];
+  // The handshake reports the engine's checks of the bundle only after the
+  // plugin has run, so the engine checks it first.
+  if (plugin !== undefined) await engineChecks(spawn, o, hostFlags, digest);
   // The second one, the child's fd 4, carries only the child frames that
   // announce the steps' child groups (WR-55), written synchronously: the
   // socket may hold bytes it has not written yet, which such a write would
   // overtake, and the step may block the event loop right after.
   const child = spawn(
     o.engine,
-    [
-      ...(o.engineArgs ?? []),
-      ...["host", "--bundle", o.bundle, "--workdir", workdir, "--kill-after", `${killAfter}ms`],
-      ...(o.readCache ? ["-read-cache"] : []),
-      ...(o.skipArgsFile ? ["-skip-args-file"] : []),
-      ...(o.resultPollsForAllJobs ? ["-result-polls-for-all-jobs"] : []),
-      ...foreignFlags,
-      ...(store ? ["-resource-store", store.kind] : []),
-      ...(store?.kind === "redis" && store.prefix !== undefined ? ["-redis-prefix", store.prefix] : []),
-      ...(store?.kind === "redis" && store.allowEviction ? ["-redis-allow-eviction"] : []),
-      ...(o.engineFlags ?? []),
-    ],
+    [...(o.engineArgs ?? []), "host", ...hostFlags],
     {
       stdio: ["ignore", "inherit", "inherit", "pipe", "pipe"],
       // The Redis URL reaches the engine only in its environment: a
@@ -733,6 +927,69 @@ export async function connect(o: ConnectOptions): Promise<Host> {
   sock.on("drain", () => runtime.onDrain());
   sock.on("close", () => runtime.onClose());
   sock.on("error", (e) => diag(`windmill-lite: engine socket: ${e.message}`));
+  // The bundle's own plugin loads as a spawned harness loads one (main.ts):
+  // after the registry, from which its bundle takes the host-provided
+  // modules, and after the runtime has installed its process-wide hooks
+  // and the native realms have taken the web APIs, before the hello that
+  // carries its declaration. A fetch wrapper it installs at load thus
+  // wraps the runtime's fetch view in both modes, and reaches no native
+  // realm.
+  // The engine may end while the plugin loads (its own checks fail, or it
+  // stops waiting for the hello): connect() then rejects with the engine's
+  // refusal at once, without waiting for the plugin's evaluation, and
+  // sends no hello.
+  if (plugin !== undefined) {
+    let engineError: unknown;
+    const engineEnded = new Promise<undefined>((resolve) =>
+      ready.catch((e: unknown) => {
+        engineError = e;
+        resolve(undefined);
+      }),
+    );
+    // From here on this process's later runtimes give their native realms
+    // the first fetch view, which a wrapper that this plugin installs on
+    // globalThis.fetch does not replace.
+    // The copy is part of the guarded start: a copy that cannot be made, or
+    // a conflict with an overlapping connect(), stops the engine as a load
+    // failure does.
+    let load: Promise<{ plugin: Plugin } | { failed: unknown } | { copyFailed: unknown }>;
+    try {
+      const copy = pluginCopy(plugin);
+      noteBundledPlugin();
+      load = loadPlugin(copy).then(
+        (p) => ({ plugin: p }),
+        (failed: unknown) => ({ failed }),
+      );
+    } catch (e) {
+      load = Promise.resolve({ copyFailed: e });
+    }
+    const outcome = await Promise.race([load, engineEnded]);
+    let failed: { error: unknown; kind: "engine" | "load" | "copy" } | undefined;
+    if (outcome === undefined) failed = { error: engineError, kind: "engine" };
+    else if ("copyFailed" in outcome) failed = { error: outcome.copyFailed, kind: "copy" };
+    else if ("failed" in outcome) failed = { error: outcome.failed, kind: "load" };
+    else {
+      try {
+        runtime.usePlugin(outcome.plugin);
+      } catch (e) {
+        failed = { error: e, kind: "load" };
+      }
+    }
+    if (failed !== undefined) {
+      // The engine stops first, whatever the error: it has had no hello,
+      // and exits once its socket closes.
+      try {
+        sock.destroy();
+      } finally {
+        child.kill();
+      }
+      // Only the engine's and the copy's errors, which this module makes,
+      // may be HostErrors; a plugin's thrown value is never inspected.
+      if (failed.kind !== "load" && failed.error instanceof HostError) throw failed.error;
+      if (failed.kind === "engine") throw new HostError("rejected", thrownText(failed.error));
+      throw new HostError("bundle", `cannot ${failed.kind === "copy" ? "copy" : "load"} the bundle's host plugin: ${thrownText(failed.error)}`);
+    }
+  }
   runtime.start();
   await ready;
 

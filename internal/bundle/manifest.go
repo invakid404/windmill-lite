@@ -64,6 +64,10 @@ type Manifest struct {
 	// HostModules are the host-provided modules (D12) in registration
 	// order: a module after the modules it imports.
 	HostModules []HostModuleEntry `json:"host_modules"`
+	// Plugin is the host plugin that the host contract names, bundled into
+	// its File, plugins/<id>.mjs, which Files covers, so the bundle digest
+	// covers it; nil when the contract names none.
+	Plugin *PluginEntry `json:"plugin,omitempty"`
 	// HarnessRuntimes holds, by harness class, the digest of the harness
 	// runtime the bundle was built for (TreeDigest of its directory).
 	HarnessRuntimes map[string]string `json:"harness_runtimes"`
@@ -106,6 +110,13 @@ type Bundlers struct {
 type HostModuleEntry struct {
 	Key string `json:"key"`
 	ID  string `json:"id"`
+}
+
+// PluginEntry is the bundle's host plugin: its module path in the host
+// contract, and its bundle's path in the bundle.
+type PluginEntry struct {
+	Key  string `json:"key"`
+	File string `json:"file"`
 }
 
 // Canonical returns the manifest's canonical encoding, the bytes of
@@ -181,6 +192,14 @@ func ParseManifest(data []byte) (*Manifest, string, error) {
 	for _, h := range m.HostModules {
 		if _, ok := m.Files["scripts/bun/provided/"+h.ID+".mjs"]; !ok || !validID(h.ID) {
 			return nil, "", fmt.Errorf("bundle: %s lists the host-provided module %q (%s) without its bundled copy", ManifestFile, h.Key, h.ID)
+		}
+	}
+	// The host plugin is a module that runs in every warm process, so it
+	// must be one of the bundle's own files, whose digests Verify checks:
+	// a module of plugins/ that Files lists.
+	if p := m.Plugin; p != nil {
+		if _, ok := m.Files[p.File]; !ok || p.Key == "" || !strings.HasPrefix(p.File, "plugins/") || !strings.HasSuffix(p.File, ".mjs") {
+			return nil, "", fmt.Errorf("bundle: %s lists the host plugin %q at %q, which is not a module of plugins/ that it lists", ManifestFile, p.Key, p.File)
 		}
 	}
 	if len(m.Closures) > 0 && !m.SharedCode {

@@ -12,8 +12,8 @@ import (
 )
 
 // Contract is the host contract, the build's second input beside the sync
-// folder (0002): the bundle's roots, its mandatory host-provided call sites
-// and its host-provided modules.
+// folder (0002): the bundle's roots, its mandatory host-provided call sites,
+// its host-provided modules and its host plugin.
 type Contract struct {
 	// Roots are the flows and scripts the host runs, and every by-path
 	// target that steps dispatch locally with runScript* or runFlow*.
@@ -26,6 +26,12 @@ type Contract struct {
 	// every script share (0010, deviation D12). The build resolves them;
 	// the compiler only records them.
 	HostModules []string `json:"host_modules,omitempty"`
+	// Plugin, when set, is the module path of the host plugin (0008) that
+	// the build bundles into the bundle's plugins/ directory, as a module
+	// of the folder is named in HostModules. A warm runtime loads it as it
+	// loads the plugin that wl.Options.Plugin names (0004, host plugins).
+	// The compiler only records it.
+	Plugin string `json:"plugin,omitempty"`
 }
 
 // Root is one root of the bundle: exactly one of Flow and Script is set.
@@ -98,7 +104,7 @@ func ParseContract(src []byte) (*Contract, error) {
 		return nil, contractError("%v", err)
 	}
 	var c Contract
-	top, err := object(text, "contract", "roots", "provided", "host_modules")
+	top, err := object(text, "contract", "roots", "provided", "host_modules", "plugin")
 	if err != nil {
 		return nil, err
 	}
@@ -139,6 +145,16 @@ func ParseContract(src []byte) (*Contract, error) {
 			c.HostModules = append(c.HostModules, s)
 		}
 	}
+	if raw, ok := top["plugin"]; ok {
+		s, err := str(raw, "plugin")
+		if err != nil {
+			return nil, err
+		}
+		if s == "" {
+			return nil, contractError("plugin: empty path")
+		}
+		c.Plugin = s
+	}
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
@@ -148,7 +164,8 @@ func ParseContract(src []byte) (*Contract, error) {
 // Validate checks a contract built in Go as ParseContract checks a file:
 // at least one root, each root naming exactly one flow or script, once;
 // each provided site with a valid selector, exactly one provider form and
-// `mandatory: true`; host modules non-empty and listed once.
+// `mandatory: true`; host modules non-empty and listed once; the plugin,
+// when set, none of them.
 func (c *Contract) Validate() error {
 	if len(c.Roots) == 0 {
 		return contractError("roots: at least one root is required")
@@ -191,6 +208,9 @@ func (c *Contract) Validate() error {
 			return contractError("host_modules[%d]: %s is listed twice", i, m)
 		}
 		mods[m] = true
+	}
+	if mods[c.Plugin] {
+		return contractError("plugin: %s is a host-provided module too; a plugin shares host-provided modules with the steps, and is not one", c.Plugin)
 	}
 	return nil
 }

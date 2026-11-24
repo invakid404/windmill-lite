@@ -130,6 +130,7 @@ fields are in `go doc`.
 | `PluginSpec`, `PluginFailure` | structs | A case's declarative plugin; how one of its providers fails for a path | `wl`, `cmd/windmill-lite` tests |
 | `PluginRun`, `PluginThen`, `PluginExpect` | structs | A run's own hooks and budgets; one later run of the case; what a run expects | `wl`, `cmd/windmill-lite` tests |
 | `LoadPluginFile` | function | Read and check the plugin file | `wl`, `cmd/windmill-lite` tests |
+| `PluginFile.BundledPlugin`, `BundledPluginPath` | method, constant | The TypeScript case plugin as files of the cases' folder, over an unchanged copy of `caseplugin.ts`, and the host contract that names it, for a bundle built with it | the same |
 | `PluginOutcome` | struct | What a run of a case showed, which `PluginCase.Check` compares | the same |
 | `PluginLog`, `PluginTrace`, `ReadSettlement` | constants, function | `plugin_log`, the warning that carries a plugin's log; `plugin_trace`, the one that carries what the run's trace showed the TypeScript plugin; the report of settled runs | the same |
 

@@ -334,6 +334,7 @@ The host that starts it passes:
 | `-foreign-windmill` | An origin, such as `https://windmill.example.com`; repeat the flag for each | None | A real [Windmill](../../docs/glossary.md#windmill) that the host's steps call through their own client. A step's dispatch there loses its links to the step's own job ids ([wl](../../wl/README.md#job-ids-on-a-real-windmill)). |
 | `-result-polls-for-all-jobs` | None | Off | The host's steps' result polls answer for every job of a live run that its job read answers for, as Windmill answers them, and not only for the runs that steps dispatched (`ResultPollsForAllJobs` in [wl](../../wl/README.md#options)). |
 | `-quickjs-only` | None | Off | As for `run`: the Go evaluator of expressions is off |
+| `-check-bundle` | A digest | None | Checks the bundle directory as host mode opens it, before the handshake: a directory, not an archive, against its manifest, `-digest`, this digest and this engine's version. Then it exits, 0 or 1, without connecting. The Bun host SDK runs it, with its other flags, before it loads a bundle's own plugin. |
 | `-cpuprofile` | A file | None | Writes a CPU profile of the engine to the file ([Profiling](#profiling)) |
 
 The engine refuses the host in the handshake, with one of these codes:
@@ -468,6 +469,7 @@ gives the setup.
 | `testdata/hostlib/` | `tenant.ts`, a host-provided module outside the sync folder. It is the `relative_path` of a codebases entry, whose script `f/hostout/read.ts` imports it. |
 | `testdata/host/` | `host.ts`, a Bun host that embeds the SDK and registers its instances of the folder's host-provided modules. It serves its callers over HTTP on a Unix socket, and submits each run inside the caller's tenant scope. With `WL_SKIP_ARGS_FILE=1`, it connects with `skipArgsFile`, and with origins in `WL_FOREIGN_WINDMILL`, with `foreignWindmillOrigins`. |
 | `testdata/haltfolder/`, `testdata/halthost/` | A two-step flow `f/repro/prefix`, and a Bun host that `bun run` starts, for `TestHostRunHalts` |
+| `testdata/pluginhost/` | A Bun host that `bun run` starts, for the bundled-plugin host tests: a reconnect, one connect, and two releases at one path |
 | `testdata/memhost/` | A Bun host for the memory tests: it answers its resident set and peak (`/rss`) and the outcome of runs that it submits (`/run`) |
 | `testdata/memory/` | `closure.package.json` and `closure.bun.lock`, which pin the packages of `TestModuleMemoryClosure`'s closure |
 | `testdata/benchhost/` | `host.ts`, the benchmarks' warm host; `inproc.ts`, the in-process side of `BenchmarkEmbedder`; `threadcpu_darwin.c`, which reads CPU time by thread on macOS |
@@ -511,6 +513,14 @@ How these tests run:
 | `TestHostRecycleModules` | The modules recycle trigger trips once a second module loads, in `health()` and `onRecycle`. |
 | `TestHostRecycleRetired` | The retired-entry recycle trigger trips once the host's count of pooled entries that retired and were not released passes its maximum, in `health()` and `onRecycle`. The host lives on. |
 | `TestHostPluginCases` | The cases of `conformance/plugins/hooks.yaml` in host mode, answered over `host_call` by the host's case plugin (`WL_PLUGIN_CASES`). Each run carries its own hooks and budgets in its run frame, and every hook runs in the run's tenant scope. The sites that ran come from the trace that the plugin's `onRunEnd` got. The plugin's report file (`WL_PLUGIN_REPORT`) shows every run settling after its hooks. |
+| `TestHostBundledPluginCases` | The same cases with the case plugin built into the bundle and no `plugin` option: the SDK loads the bundle's plugin, and every case and every run's settlement hold. |
+| `TestHostBundledPluginFetchOrder` | A `fetch` wrapper that the bundle's plugin installs at load reaches an ordinary step and not a native one: the SDK loads it after the runtime's hooks, as a spawned harness does. |
+| `TestHostReconnectKeepsNativeFetch` | A host that connects on a bundle whose plugin wraps `fetch` at load, closes, and connects again on a bundle with no plugin: the native step never gets the wrapper, which the ordinary step still goes through. |
+| `TestHostReconnectKeepsHostFetch` | A host with no bundled plugin that wraps `fetch` itself between two connections: the second connection's native and ordinary steps both go through its wrapper. |
+| `TestHostVerifiesBundleBeforePlugin` | The bundle's plugin runs on the bundle as built, with no `-digest` pin, a matching one, or an empty `-digest=`. With a pin that the bundle does not match, also after `-data --`, or once another file of the bundle changes, `connect()` rejects with `bundle` and the plugin never runs. |
+| `TestHostCheckBundle` | `host -check-bundle` exits 0 or 1 for a matching digest, a pin, an empty pin, a pin after `-data --`, another digest, an archive and another engine version. |
+| `TestHostOverlappingPluginStarts` | Of two overlapping connects on one bundle path with different plugin bytes, the later is refused before it changes anything in the process, and the earlier still serves a platform call. |
+| `TestHostRefusesStalePluginRelease` | After a second release, with another plugin file, replaces the bundle at the same path, a reconnect in the same process rejects with `bundle`, asking for a restart. |
 | `TestHostSurvivesADetachedRejection` | One detached promise rejection does not end the host. Health counts it. |
 | `TestHostNeverSettlingStep` | After one run's step times out, the other run's next step completes, a new run succeeds, and health reports one abandoned invocation. The host is never restarted. |
 | `TestHostChildUnderBackpressure` | A step fills the host's socket, starts a child process and blocks the event loop. Its timeout still kills the child, which the host announced on the child channel. |
