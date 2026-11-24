@@ -185,7 +185,7 @@ type RuntimeLimits struct {
 	// Bytes is a total of bytes that every run's reservations share: a
 	// step's wl.reserve(bytes) must fit both its run's byte budget
 	// (RunLimits.Bytes), when it has one, and this total, wherever the
-	// step runs.
+	// step runs. Runs that steps dispatch share it too.
 	Bytes int64
 }
 
@@ -221,7 +221,8 @@ type PoolOptions struct {
 	// serve, their handshakes done, instead of starting them on the first
 	// step. A bundle with no step has no pool, so nothing starts.
 	WarmStart bool
-	// PinRuns pins every run of the runtime, as RunOptions.Pin pins one.
+	// PinRuns pins every run of the runtime, those that steps dispatch
+	// included, as RunOptions.Pin pins one.
 	PinRuns bool
 }
 
@@ -598,6 +599,12 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	// through the facade, so their calls are attributed; it is in the
 	// services before any run starts.
 	rt.dispatch = engine.NewDispatcher(rt.eng, rt.fac.Executor(inner))
+	// A run that a step dispatches is a run of the runtime too: it takes
+	// the runtime's pinning and its byte total, with no limits of its own.
+	rt.dispatch.SetRuns(func(ctx context.Context, id string) (context.Context, engine.RunLimits, func(), func()) {
+		p, settled, ended := rt.pin(id, false, nil)
+		return harness.WithPin(ctx, p), engine.RunLimits{ByteTotal: rt.byteTotal}, ended, settled
+	})
 	rt.services.Dispatcher = rt.dispatch
 	if opts.Plugin != "" {
 		if err := rt.loadPlugin(opts); err != nil {

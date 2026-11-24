@@ -711,7 +711,9 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
   take nothing.
 - **A total for the runtime** (`Bytes` in `wl.Options.Limits`). A runtime
   may also set a total of bytes that every run's reservations share, so a
-  reservation must fit both its run's budget and the runtime's total.
+  reservation must fit both its run's budget and the runtime's total. A
+  run that a step dispatches shares it too, and a runtime's pinning pins
+  such a run as well.
 - A shared process has no measure of one run's JavaScript heap, so a
   run's limits count only what the engine holds and what its steps
   reserve.

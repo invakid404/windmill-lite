@@ -217,8 +217,9 @@ there.
 #### Pinned runs
 
 A [pinned run](../docs/glossary.md#pinned-run) keeps one process, so that a
-host plugin can keep the run's state there. `PinRuns` pins every run, and
-`RunOptions.Pin` one. A `fresh` runtime and host mode refuse both.
+host plugin can keep the run's state there. `PinRuns` pins every run,
+those that steps dispatch included, and `RunOptions.Pin` one. A `fresh`
+runtime and host mode refuse both.
 
 - **Where its calls go.** The run's first step or host-plugin call goes to
   a serving process, never one that is tainted, leaving for a trigger or
@@ -497,7 +498,7 @@ iteration, sleep and retry delay.
 | `RunOptions.Limits.MaxArgsBytes` | The size of the run's arguments, as given to `Run` | `Run` returns `ErrRunArgsTooLarge`, and nothing runs. |
 | `RunOptions.Limits.MaxHeldBytes` | The bytes of the stored values that the engine holds for the run: its arguments and each job's stored result, a cached one included, at their stored size | The run latches with `ErrRunMemoryLimit` and starts nothing more. A script job whose arguments alone pass it latches before it runs. |
 | `RunOptions.Limits.Bytes` | What the run's steps reserve with `wl.reserve(bytes)`, wherever they run | The reservation rejects in the step with a `RangeError` that says how much is left. |
-| `Options.Limits.Bytes` | What every run's steps reserve together | The same, naming the runtime's total. |
+| `Options.Limits.Bytes` | What every run's steps reserve together, the steps of runs that steps dispatch included | The same, naming the runtime's total. |
 
 **Reservations.** A step, or a host plugin's `around` wrapper, calls
 `wl.reserve(bytes)` for data that it holds, such as a source it

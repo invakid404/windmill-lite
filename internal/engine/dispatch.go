@@ -276,6 +276,51 @@ type Dispatcher struct {
 	mu     sync.Mutex
 	closed bool
 	runs   map[string]*dispatched
+
+	// prepare takes part in each run the dispatcher starts (SetRuns); nil
+	// for none.
+	prepare DispatchRun
+}
+
+// DispatchRun takes part in each run that a Dispatcher starts: it is
+// called with the run's id before the run starts, and returns the context
+// the run runs in, the run's limits, and two functions, either of which
+// may be nil: ended, called once the run has ended, and settled, called
+// once it has settled, or at once for a run that did not start. A host
+// gives the runs it starts itself the same, such as their pin and the
+// runtime's byte total (ADR 0004 §Pooling).
+type DispatchRun func(ctx context.Context, id string) (_ context.Context, limits RunLimits, ended, settled func())
+
+// SetRuns makes f take part in each run that the dispatcher starts. Call
+// it before the dispatcher's first run.
+func (x *Dispatcher) SetRuns(f DispatchRun) { x.prepare = f }
+
+// prepared returns what x.prepare gives the run id, or what a run with no
+// host part has.
+func (x *Dispatcher) prepared(id string) (context.Context, RunLimits, func(), func()) {
+	if x.prepare == nil {
+		return x.ctx, RunLimits{}, nil, nil
+	}
+	return x.prepare(x.ctx, id)
+}
+
+// onSettled is hooks that only learn of their run's settlement.
+type onSettled struct {
+	NoHooks
+	f func()
+}
+
+func (h onSettled) OnRunSettled(*Trace) { h.f() }
+
+// trackingExec counts each invocation of a script job in its settlement.
+type trackingExec struct {
+	inner  StepExecutor
+	settle *RunSettlement
+}
+
+func (x trackingExec) Execute(ctx context.Context, inv Invocation) (StepOutcome, error) {
+	inv.Report = x.settle.Track(inv.Report)
+	return x.inner.Execute(ctx, inv)
 }
 
 // dispatched is the record of one dispatched run.
@@ -467,8 +512,19 @@ func (x *Dispatcher) run(id string, d platform.Dispatch, args jsonval.Value, lin
 
 // runFlow runs a dispatched flow, with the links its dispatch sent.
 func (x *Dispatcher) runFlow(id, path string, args jsonval.Value, l parentLinks) platform.JobResult {
-	t, err := x.e.Run(x.ctx, RunRequest{ID: id, Path: path, Args: args, Exec: x.exec, ParentJob: l.job, RootJob: l.root, ParentPath: l.path})
+	ctx, limits, ended, settled := x.prepared(id)
+	req := RunRequest{ID: id, Path: path, Args: args, Exec: x.exec, ParentJob: l.job, RootJob: l.root, ParentPath: l.path, Limits: limits}
+	if settled != nil {
+		req.Hooks = onSettled{f: settled}
+	}
+	t, err := x.e.Run(ctx, req)
+	if ended != nil {
+		ended()
+	}
 	if err != nil {
+		if settled != nil {
+			settled()
+		}
 		return platform.JobResult{Result: storedText(engineError("InternalErr", err.Error()))}
 	}
 	return platform.JobResult{Success: t.Status == conformance.RunSuccess, Result: storedText(t.Result)}
@@ -476,7 +532,26 @@ func (x *Dispatcher) runFlow(id, path string, args jsonval.Value, l parentLinks)
 
 // runScript runs a dispatched script, with the links its dispatch sent.
 func (x *Dispatcher) runScript(id, path string, args jsonval.Value, l parentLinks) platform.JobResult {
-	r, err := x.e.RunScript(x.ctx, ScriptRequest{ID: id, Path: path, Args: args, Exec: x.exec, ParentJob: l.job, RootJob: l.root, ParentPath: l.path})
+	ctx, limits, ended, settled := x.prepared(id)
+	req := ScriptRequest{ID: id, Path: path, Args: args, Exec: x.exec, ParentJob: l.job, RootJob: l.root, ParentPath: l.path,
+		MaxHeldBytes: limits.MaxHeldBytes, Bytes: limits.Bytes, ByteTotal: limits.ByteTotal}
+	var s *RunSettlement
+	if settled != nil {
+		// A script job has its own one invocation, which settles it.
+		s = NewRunSettlement(settled)
+		exec := req.Exec
+		if exec == nil {
+			exec = x.e.exec
+		}
+		req.Exec = trackingExec{inner: exec, settle: s}
+	}
+	r, err := x.e.RunScript(ctx, req)
+	if ended != nil {
+		ended()
+	}
+	if s != nil {
+		s.End()
+	}
 	if err != nil {
 		return platform.JobResult{Result: storedText(engineError("InternalErr", err.Error()))}
 	}
