@@ -2,8 +2,8 @@
 
 **Current state:** thirteen design records, each `Accepted`: the code
 implements their decisions. Eleven of them name the parts that have no code
-yet in a **Not built yet:** line, such as the go-plugin adapter's health and
-drain, the gRPC and HTTP adapters, the single executable and the OCI image. One request to the
+yet in a **Not built yet:** line, such as the go-plugin engine's `Runner`
+health and drain, the gRPC and HTTP adapters, the single executable and the OCI image. One request to the
 semantics team is open, and the
 [recording requests](#recording-requests) list the observations of Windmill
 that are still to record.
@@ -57,8 +57,8 @@ flowchart LR
 ```
 
 The Bun host mode and the CLI are built, and so is the go-plugin adapter,
-but for the engine's health, drain and hooks on the broker; the gRPC and
-HTTP adapters are planned ([host adapters](0009-host-adapters.md)).
+but for the engine's `Runner` health, readiness, drain and hooks on the
+broker; the gRPC and HTTP adapters are planned ([host adapters](0009-host-adapters.md)).
 
 ## Decision records
 
@@ -72,7 +72,7 @@ HTTP adapters are planned ([host adapters](0009-host-adapters.md)).
 | [Module state](0006-module-state.md) | Two modes: `fresh` (a process per invocation, Windmill-equivalent) and `warm` (default: one module instance per script for the process lifetime, `globalThis` shared), plus host-provided modules as the one shared exception; `shared` left out of the first edition, and shared code added by [shared module code](0013-shared-module-code.md). |
 | [Platform interface](0007-platform-interface.md) | Go service interfaces with local defaults and host replacements, and one interpolation walker with three modes and a host secret layer. Steps reach a facade by intercepted `fetch` (warm) or per-invocation tokens (`fresh`); unsupported routes fail with `UnsupportedPlatformCall`. An option makes the result polls answer for the jobs that the job read answers for. Planned: hybrid dispatch to a real Windmill behind interfaces (its remote adapter held for a licence decision); suspending flows take a declared stand-in. |
 | [Host hooks](0008-host-hooks.md) | Thirteen hooks with typed selectors, as Go callbacks or TypeScript host plugins, which are declared up front, called over `host_call` and may wrap a step with `around`; a hook's error or timeout before the run's outcome latches the run. Step code has `wl.latch`, `wl.signal` and `wl.reserve`, mandatory host-provided call sites fail closed, and scopes reach steps through host-provided modules. Planned: Go callbacks over go-plugin's broker, beside the settings that a run carries. |
-| [Host adapters](0009-host-adapters.md) | The `wl` Go library is the only engine API; the adapters are go-plugin, a Bun host SDK, plain gRPC, HTTP and a CLI. The CLI and the Bun host SDK, from npm or vendored, are built. `windmill-lite plugin` serves `runner.proto`'s `Runner`, and `wl/plugin` launches, pins and calls it. Planned: the engine's health and drain, `wl/plugin`'s supervisor, a bundle's host plugin and Go hooks under the plugin command, and typed clients from Windmill schemas. |
+| [Host adapters](0009-host-adapters.md) | The `wl` Go library is the only engine API; the adapters are go-plugin, a Bun host SDK, plain gRPC, HTTP and a CLI. The CLI and the Bun host SDK, from npm or vendored, are built. `windmill-lite plugin` serves `runner.proto`'s `Runner`, and `wl/plugin` launches, pins and calls it. Planned: the engine's `Runner` health and drain, `wl/plugin`'s supervisor, a bundle's host plugin and Go hooks under the plugin command, and typed clients from Windmill schemas. |
 | [Packaging](0010-packaging.md) | A bundle with a manifest of digests, tied to one exact engine version; a Bun build helper on the pinned Bun `1.4.3`; host-provided modules through a registry (D12), registered in the order of their load-time imports, with one shim generator and one define table and support module for both bundlers; a bundle digest in every handshake, trace and build-info call; a single executable; an OCI image written without Docker; a `verify` command. |
 | [Differential testing](0011-differential-testing.md) | The oracle harness as the reference designs it, in public CI only; a typed, injective site-path encoding that also separates repeated module ids; `record`, `check` and `diff` in three configurations; only context-free cases lifted into one-step flows; a stub mode on the oracle and then on windmill-lite; benchmarks, a bounded-pool benchmark and run spans. |
 | [Layout and milestones](0012-layout-and-milestones.md) | `wl/` and its packages `wl/plugin`, `wl/storetest` and `wl/redisstore` as the only public Go packages, components under `internal/`, and the npm package `windmill-lite` rooted at `harnesses/`. 56 milestones, each one pull request, whose "needs merged" covers everything their exit gates need. A contracts milestone comes first, then a walking skeleton on the pinned Bun, and oracle recordings in batches, each before the milestone it gates, with a manifest that can name each run's gate. |

@@ -4,7 +4,7 @@
 [bundles](../../docs/glossary.md#bundle), checks that its expression engine
 starts, serves [host mode](../../docs/glossary.md#host-mode) for a host,
 and prints its version. It serves a bundle to a Go host as a go-plugin
-plugin, without health, readiness or a drain yet. The planned subcommands
+plugin, without `Runner` health, readiness or a drain yet. The planned subcommands
 that serve a bundle over the network (`serve`), pack it (`pack`, `image`)
 or generate clients (`gen`) do not exist yet.
 

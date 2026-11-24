@@ -94,8 +94,8 @@ Every adapter below is a transport over these calls.
 
 ### Adapters, in order of delivery
 
-1. **go-plugin** (the engine's health, drain and broker hooks are
-   planned). The engine binary,
+1. **go-plugin** (the engine's `Runner` health and readiness, its drain and
+   broker hooks are planned). The engine binary,
    started as `windmill-lite plugin`, serves the `windmill_lite.v1.Runner`
    gRPC service to a Go host that launches it with hashicorp/go-plugin,
    and `wl/plugin` gives the host the client side and, planned, an

@@ -4,8 +4,8 @@
 [wl](../../wl/README.md) runtime: `Run`, `Cancel` and `GetBuildInfo`.
 `GetRun` answers `UNIMPLEMENTED`, and a request's `hooks`, `pin`, `limits`
 and `run_data` are refused, until the engine serves the host's hooks on
-go-plugin's broker and those run options. Health and readiness, and the
-plain gRPC and HTTP adapters, are planned
+go-plugin's broker and those run options. The service's health and
+readiness, and the plain gRPC and HTTP adapters, are planned
 ([host adapters](../../docs/design/0009-host-adapters.md)). This README
 covers `internal/host`, the Go package
 `github.com/invakid404/windmill-lite/internal/host`.

@@ -14,8 +14,8 @@ timeouts, failure handling, [expressions](docs/glossary.md#expression),
 resources and variables. It does not run steps in other languages yet, and
 it has no network server. Its go-plugin adapter
 ([wl/plugin](wl/plugin/README.md) and `windmill-lite plugin`) runs flows
-and scripts for a Go host, without the engine's health, drain and hooks on
-the broker yet; the gRPC and HTTP adapters are planned.
+and scripts for a Go host, without the engine's `Runner` health, readiness,
+drain and broker hooks yet; the gRPC and HTTP adapters are planned.
 
 ## Who it is for
 
