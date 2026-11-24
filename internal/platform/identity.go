@@ -53,6 +53,33 @@ var DefaultHost = Host{
 	WorkerGroup: "default",
 }
 
+// Override returns h with each field that o sets in place of h's: a run's
+// own identity (o) over its runtime's (h). Zero fields of the result still
+// take DefaultHost's where the job environment is built.
+func (h Host) Override(o Host) Host {
+	for _, f := range []struct {
+		dst *string
+		v   string
+	}{
+		{&h.Workspace, o.Workspace}, {&h.Username, o.Username}, {&h.Email, o.Email},
+		{&h.PermissionedAs, o.PermissionedAs}, {&h.BaseURL, o.BaseURL}, {&h.WorkerGroup, o.WorkerGroup},
+	} {
+		if f.v != "" {
+			*f.dst = f.v
+		}
+	}
+	return h
+}
+
+// EffectiveWorkspace is the workspace that h's jobs run in, WM_WORKSPACE
+// as their environment is built: h's, or DefaultHost's when h sets none.
+// It is the workspace scope of h's jobs (ADR 0007, a workspace per run),
+// so a run that names DefaultHost's workspace and one that names none
+// share a scope, as they share an environment and a resource store key.
+func (h Host) EffectiveWorkspace() string {
+	return h.withDefaults().Workspace
+}
+
 // withDefaults returns h with its zero fields taken from DefaultHost.
 func (h Host) withDefaults() Host {
 	if h.Workspace == "" {

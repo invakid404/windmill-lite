@@ -232,6 +232,8 @@ export type RunFields = {
   deadline_ms?: number;
   pre_write_deadline_ms?: number;
   clock?: "real" | "record";
+  /** The run's own job identity (ADR 0007), as JSON text of an object. */
+  identity?: string;
   run_data?: string;
 };
 
@@ -1261,7 +1263,7 @@ export class Runtime {
       // connection ends.
       if (onSettled) this.settledHandlers.set(id, () => scope(() => invocations.exit(onSettled)));
       try {
-        const { intercept, write_capable, halt_before, halt_after, run_data, ...budgets } = fields;
+        const { intercept, write_capable, halt_before, halt_after, identity, run_data, ...budgets } = fields;
         const selectors = (s: Selector[] | undefined) => (s === undefined ? undefined : new Raw(JSON.stringify(s)));
         this.send({
           t: "run",
@@ -1274,6 +1276,7 @@ export class Runtime {
           halt_before: selectors(halt_before),
           halt_after: selectors(halt_after),
           ...budgets,
+          identity: identity === undefined ? undefined : new Raw(identity),
           run_data: run_data === undefined ? undefined : new Raw(run_data),
         });
       } catch (e) {

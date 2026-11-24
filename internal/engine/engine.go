@@ -532,6 +532,11 @@ type RunRequest struct {
 	// inside them. It is called once per invocation, from the goroutine
 	// that launches it.
 	Around func(Site) []int
+	// Host is the run's own identity: each field it sets replaces
+	// Config.Host's, for the environment of the run's jobs and their
+	// registration (platform.Job.Host); zero means Config.Host. A run of
+	// one runtime can so be in a workspace of its own (ADR 0007).
+	Host platform.Host
 	// Started, when not nil, is called once the run exists, before it
 	// starts anything, with the run's context and handle:
 	// what serves the run outside its hooks, such as its own platform
@@ -686,6 +691,7 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	r := newRun(e, f, id, hooks, exec, rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)), clock, jitter, cancel)
+	r.host = e.host.Override(req.Host)
 	ctx = context.WithValue(ctx, settlementKey{}, r.settle)
 	r.around = req.Around
 	r.limit(req.Limits)
@@ -720,16 +726,25 @@ func (e *Engine) Run(ctx context.Context, req RunRequest) (*Trace, error) {
 	// (JE-38), a subflow's included: a top-level flow, with no parent, its
 	// own effective root, at the flow's path; or a dispatched one's, with
 	// the links its dispatch sent.
-	r.flowJobEnv = platform.Identity{JobID: id, FlowJobID: req.ParentJob, RootFlowJobID: req.RootJob, RootJobID: r.rootID, FlowPath: req.ParentPath, JobPath: f.Path, Token: platform.NewToken(), Start: clock.Now()}.Env(e.host)
+	r.flowJobEnv = platform.Identity{JobID: id, FlowJobID: req.ParentJob, RootFlowJobID: req.RootJob, RootJobID: r.rootID, FlowPath: req.ParentPath, JobPath: f.Path, Token: platform.NewToken(), Start: clock.Now()}.Env(r.host)
 	// The run is a flow job of the job registry while it runs, in its
 	// effective root's tree, so that its steps' root lookups, reads with
 	// a job id, job reads and flow user state find it (ADR 0007, D3,
 	// WA-14, WA-19); its user state is discarded when its tree is, and the
 	// registry's reference to the run with it.
+	// An id that a job of another workspace holds refuses the run, before
+	// it starts (ADR 0007, a workspace per run), and so do services that
+	// cannot keep workspaces apart.
+	if err := e.admits(r.host, req.Platform); err != nil {
+		return nil, err
+	}
+	endJob, ok := platform.BeginExclusive(e.platform.JobRegistry(), platform.Job{ID: id, Kind: platform.JobFlow, Root: r.rootID, Path: f.Path, Run: id, View: runView{r}, Host: r.host})
+	if !ok {
+		return nil, heldElsewhere(id)
+	}
 	if req.Started != nil {
 		req.Started(ctx, r)
 	}
-	endJob := e.platform.JobRegistry().Begin(platform.Job{ID: id, Kind: platform.JobFlow, Root: r.rootID, Path: f.Path, Run: id, View: runView{r}})
 	r.run(ctx)
 	r.mu.Lock()
 	r.rootEnd = &flowEnd{status: r.trace.Status, result: r.trace.Result}
@@ -844,4 +859,29 @@ func newUUID() string {
 	b[8] = b[8]&0x3f | 0x80
 	h := hex.EncodeToString(b[:])
 	return h[:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:]
+}
+
+// heldElsewhere is the error of a run whose id a job of another workspace
+// holds in the job registry, live or ended (platform.BeginExclusive).
+func heldElsewhere(id string) error {
+	return fmt.Errorf("engine: the job id %s is held by a job of another workspace", id)
+}
+
+// admits refuses a run of host's identity, with its own services p (nil for
+// the engine's), in a workspace other than the engine's configured one
+// (Config.Host, Config.Workspace) when the engine's services, or the run's,
+// keep jobs or flow user state in a host's registry or store
+// (platform.Services.OwnsJobs): only their own keep workspaces apart, which
+// a run in another workspace than the engine's needs. A run in the engine's
+// own workspace is admitted whatever its services, as it always was, and so
+// is every run of an engine with no services, which registers no job.
+func (e *Engine) admits(host platform.Host, p *platform.Services) error {
+	ws := host.EffectiveWorkspace()
+	if ws == e.host.EffectiveWorkspace() || e.platform == nil {
+		return nil
+	}
+	if !e.platform.OwnsJobs() || p != nil && !p.OwnsJobs() {
+		return fmt.Errorf("engine: a run in workspace %q, not the engine's %q, needs the services' own job registry and flow user state store", ws, e.host.EffectiveWorkspace())
+	}
+	return nil
 }

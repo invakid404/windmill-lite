@@ -217,7 +217,7 @@ func TestJobPollWholeResults(t *testing.T) {
 				return StepOutcome{}, err
 			}
 			for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
-				if r, ok, _ := d.Result(context.Background(), id); ok && r.Completed {
+				if r, ok, _ := d.Result(context.Background(), id, ""); ok && r.Completed {
 					break
 				}
 			}

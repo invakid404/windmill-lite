@@ -79,8 +79,9 @@ const (
 	KindScript = "script"
 )
 
-// RunOptions configure one run. A script run reads only Kind, ID, Data,
-// Pin and Limits; the other fields, among them the hooks, the run's own
+// RunOptions configure one run. A script run reads only Kind, ID,
+// Identity, Data, Pin and Limits, whose MaxInFlight has no effect on its one
+// invocation; the other fields, among them the hooks, the run's own
 // providers and the pre-write deadline, configure a flow run. The zero
 // value of every field is a default.
 type RunOptions struct {
@@ -90,6 +91,12 @@ type RunOptions struct {
 	// ID is the run's job id, which steps see as WM_FLOW_JOB_ID (a
 	// script's as WM_JOB_ID); empty means a new UUID.
 	ID string
+	// Identity is the run's own job identity (Options.Identity): each
+	// field it sets replaces the runtime's for this run's jobs, and the
+	// runs they dispatch. A run with its own Workspace is in that
+	// workspace: its steps find only its workspace's jobs, and its
+	// resource store entries are keyed under it. Zero means the runtime's.
+	Identity Identity
 	// Seed fixes the run's shuffles of the orders Windmill leaves
 	// unspecified (ADR 0001 §2) and its retry jitter; zero draws one.
 	Seed uint64
@@ -249,7 +256,9 @@ func (rt *Runtime) forgetPin(p *harness.Pin) {
 // ErrRunInFlight is Run's error for an id (RunOptions.ID) that a run of the
 // runtime in flight already has, or, for a pinned run, that a live pinned
 // run that a step dispatched has. Nothing runs; the id can be used again
-// once that run has returned.
+// once that run has returned, by a run of the same workspace. A run of
+// another workspace is refused with an error of its own while the runtime
+// keeps that run's jobs, running or ended (ADR 0007, a workspace per run).
 var ErrRunInFlight = errors.New("wl: a run with this id is in flight")
 
 // RunPlatform is a run's own platform providers (H13, ADR 0008). The run's
@@ -355,8 +364,8 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		}
 		defer rt.exec.end(id)
 		ctx = calls.reportStoreFailures(ctx)
-		req := engine.ScriptRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Around: rt.aroundAt(), MaxHeldBytes: opts.Limits.MaxHeldBytes,
-			Bytes: opts.Limits.Bytes, ByteTotal: rt.byteTotal}
+		req := engine.ScriptRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Around: rt.aroundAt(), Host: opts.Identity.host(), Platform: rt.workspaceServices(nil, opts.Identity),
+			MaxHeldBytes: opts.Limits.MaxHeldBytes, Bytes: opts.Limits.Bytes, ByteTotal: rt.byteTotal}
 		p, settled, unpin, err := rt.pin(id, opts.Pin, settled)
 		if err != nil {
 			return nil, err
@@ -429,7 +438,8 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 			return nil, err
 		}
 	}
-	req := engine.RunRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Seed: opts.Seed, Platform: services,
+	services = rt.workspaceServices(services, opts.Identity)
+	req := engine.RunRequest{ID: id, Path: path, Args: jsonval.FromProducer(args), Seed: opts.Seed, Platform: services, Host: opts.Identity.host(),
 		PreWriteDeadline: opts.PreWriteDeadline, Clock: opts.Clock, Jitter: opts.Jitter, Around: rt.aroundAt(), Started: bind.started,
 		Limits: engine.RunLimits{MaxInFlight: opts.Limits.MaxInFlight, MaxHeldBytes: opts.Limits.MaxHeldBytes, Bytes: opts.Limits.Bytes, ByteTotal: rt.byteTotal}}
 	if rt.readCache {
@@ -504,6 +514,21 @@ func (rt *Runtime) runServices(p *RunPlatform, run *runBinding) (*platform.Servi
 		}
 	}
 	return rt.pluginServices(run, store, resolvers), nil
+}
+
+// workspaceServices returns the services of a run whose identity sets a
+// workspace other than the runtime's: services, or the runtime's when nil,
+// with the resource store keyed under the run's workspace. It returns
+// services unchanged for any other run.
+func (rt *Runtime) workspaceServices(services *platform.Services, id Identity) *platform.Services {
+	if id.Workspace == "" || id.Workspace == rt.identity.Workspace {
+		return services
+	}
+	if services == nil {
+		services = rt.services.WithProviders(platform.Providers{})
+	}
+	services.Workspace = id.Workspace
+	return services
 }
 
 // resolver is a RunPlatform's Resolve as a value resolver.

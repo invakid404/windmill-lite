@@ -112,8 +112,10 @@ How a request finds its route:
 that the API does not have panics. A handler runs on a goroutine of its own
 and receives the `Call`:
 
-- its `Caller`: the invocation's id, run and job environment, and the
-  services of a run that chose its own providers (`Caller.Platform`);
+- its `Caller`: the invocation's id, run and job environment, the
+  services of a run that chose its own providers (`Caller.Platform`), and
+  its run's host configuration (`Caller.Host`), whose workspace scopes the
+  job lookups;
 - the matched `Route` and its unescaped parameters;
 - the method, path, query, headers and body as sent.
 
@@ -166,10 +168,11 @@ The root lookup answers:
   flow scope one of its jobs runs in; and the run itself.
 - **A job of a run that has ended**, among the latest 4096 ended jobs that
   the registry keeps.
-- **No job in the path's workspace:** an unknown or forgotten id, and any id
-  looked up in a workspace other than the caller's. It answers as Windmill
-  answers an id with no job row: `400` `text/plain` `SqlErr: no rows
-  returned by a query that expected to return at least one row`.
+- **No job in the path's workspace:** an unknown or forgotten id, any id
+  looked up in a workspace other than the caller's, and a job of a run of
+  another workspace ([A job's workspace](#a-jobs-workspace)). It answers as
+  Windmill answers an id with no job row: `400` `text/plain` `SqlErr: no
+  rows returned by a query that expected to return at least one row`.
 - **An id that is not a UUID:** the web framework's `400`.
 
 The job reads answer:
@@ -212,7 +215,7 @@ A read's `job_id` query parameter:
   [interpolated read](../README.md#contract-b-the-interpolated-read) says.
 - **A job that the walker cannot use** answers `404` `Not found: Job not
   found at name <id>`: an unknown id, an ended job, or a job of another
-  workspace.
+  workspace ([A job's workspace](#a-jobs-workspace)).
 - **A live flow job**, whose job variables the registry does not keep,
   answers 501.
 
@@ -293,6 +296,9 @@ answers from the services
 
 - Both routes take the id as a UUID, which Windmill's route names `job_id`.
   The web framework's rejections answer first, the id before the body.
+- A flow job of a run of another workspace is not a live flow job of the
+  caller's ([A job's workspace](#a-jobs-workspace)): it reads `null` and
+  its update answers `404`.
 - A value comes back in jsonb's key order with its numbers as Windmill's
   backend JSON library writes them, as the oracle recorded
   (`conformance/flows/client-api/user-state`, run `order`).
@@ -334,7 +340,7 @@ is `engine.Dispatcher`.
   by default: windmill-lite answers them only for dispatched runs.
 - **With `Config.ResultPollsForAllJobs`**, a job of a live run that the job
   read answers for, and that the dispatcher did not start, answers the
-  polls from the run that holds it (`platform.Services.ResultPoll`), as
+  polls from the run that holds it (`platform.Services.ResultPollIn`), as
   the oracle recorded them (fixture
   `conformance/flows/client-api/result-polls`). One lookup of the id
   classifies the job, and the answer follows that lookup:
@@ -454,10 +460,10 @@ carry, or an unregistered invocation id.
 
 A token is valid for its job's workspace only
 ([WA-4](../../../docs/semantics/client-api.md#wa-4)). An authenticated route
-whose path names a workspace other than the caller's `WM_WORKSPACE` answers
-`401` `Not authorized: Unauthorized` (`Unauthorized`) before its handler
-runs: before the 501 of an operation without a handler, and before any
-rejection of its path or body.
+whose path names a workspace other than the caller's answers `401` `Not
+authorized: Unauthorized` (`Unauthorized`) before its handler runs: before
+the 501 of an operation without a handler, and before any rejection of its
+path or body.
 
 - The call is recorded against its invocation with that status, and is not
   an unsupported call.
@@ -468,7 +474,52 @@ rejection of its path or body.
   and look their job up in the path's workspace, where windmill-lite has none
   unless it is the caller's. `apps_u` and `ai_u` have no handler, so their
   calls keep their 501 whatever the workspace.
-- A caller without `WM_WORKSPACE` belongs to every workspace.
+- **The caller's workspace** is its run's configured one (`Caller.Host`),
+  and without one its `WM_WORKSPACE`, which a hook may change. A caller
+  with neither belongs to every workspace.
+- **A token of another workspace's run** gets `401` on an authenticated
+  route, and finds no job on a `jobs_u` route. Windmill reads such a caller
+  as anonymous, and answers a job of the path's workspace that a user ran
+  `400` ([WA-V2/d](../../../docs/semantics/conformance.md#wa-v2)'s first
+  request); windmill-lite answers it as an unknown id, since it has no
+  anonymous callers
+  ([out of scope](../../../docs/design/0001-equivalence-contract.md#3-out-of-scope)).
+
+### A job's workspace
+
+A job is in its run's workspace: the effective workspace of its run's
+configured identity (`platform.Job.Host`), `windmill-lite` when none is
+set, not the caller's `WM_WORKSPACE`. With the services' own job
+registry, which `wl` always uses, only a call from a run of the same
+workspace finds it
+([WA-V2](../../../docs/semantics/client-api.md#wa-v2)).
+
+- **The caller's identity** comes with its invocation (`register`, from
+  `engine.Invocation.Host`), never from a lookup by its `WM_JOB_ID`, which
+  a hook may change and another live invocation may share.
+- **The lookups that check it:** the root lookup, the job reads, flow user
+  state, a resource read's `job_id` and the result polls of the jobs that
+  the dispatcher started, or with `Config.ResultPollsForAllJobs` of every
+  job of a live run. With the services' own registry, each checks
+  the job's workspace on the registry entry that it answers from
+  (`platform.Services.RootJobIn`, `GetJobIn`, `FlowUserStateIn` and the
+  others).
+- **A job of another workspace's run** answers as an unknown id on each
+  of them, in the same order of checks: a flow user state write still
+  refuses a value that the store refuses first. An id that the registry
+  does not know at all answers as it always did.
+- **Without a configured workspace** every job and every caller are in
+  `windmill-lite`, so the lookups answer as for one workspace.
+- **A host's job registry** (`platform.Services.Jobs`) keeps the answers
+  it always had. The lookups find every job that it knows, without a
+  workspace check (`platform.Services.InScope`), while the call's path
+  must still name the caller's own workspace. Engines that share such a
+  registry are not kept apart.
+- **A read's `job_id` with a host's registry** compares the path's
+  workspace with the job's `WM_WORKSPACE`, which a hook may have set, and
+  not with its run's configured workspace. With the services' own
+  registry it compares it with the configured workspace when the run has
+  one, and with the job's `WM_WORKSPACE` otherwise.
 
 ### One reply for both transports
 
@@ -610,6 +661,7 @@ CI sets all three in its Go jobs
 | `executor_test.go` | — | `TestSessionReporterLetsGo`: the Reporter lets go of its session once the invocation has settled, and a repeated `Settled` does nothing else |
 | `services_test.go` | — | On both transports: the root lookup and its `400`s, the workspace of a token (`TestTokenWorkspace`), and flow user state with its rejections. On the intercepted path: dispatch with a fake dispatcher, the result polls and their refusals, and the object routes |
 | `resultpolls_test.go` | — | `TestResultPollsFlowJobs`: the result polls of a live flow run's jobs that no step dispatched, without `ResultPollsForAllJobs` (each `501`) and with it (the recorded answers, the run's result as it is). Also the `501` of a refused job and of an ended run's job, another workspace and an unknown id. `TestResultPollsOneLookup`: a registry that forgets or registers the id right after its lookup. `TestResultPollsReusedRoot`: a root id that a new run takes right after the lookup that found its run ended |
+| `workspace_test.go` | — | A job of another workspace: the job lookups when the registry's entry for an id changes between two lookups (`TestJobLookupsAgainstARegistrationChange`), and a job record listing the checked registration's state. A run that ends during a read; a step whose hook gives it another workspace's job id; a flow user state write's order of checks; a read's `job_id`; with `ResultPollsForAllJobs`, the result polls of another workspace's jobs (`TestResultPollsWorkspace`) |
 | `jobreads_test.go` | — | `TestJobReadRoutes`: the job reads of a live run's jobs, a UUID in upper case, the 404 texts, the framework's `400`, and the 501 of an ended run's job while the root lookup still answers. `TestUnservedJobRoutes`: the `jobs_u` routes that stay unserved |
 | `providers_test.go` | — | The resource and variable reads on both transports; a facade with no services; a read's `job_id` (`TestReadWithAJobID`); the variable update and its refusals (`TestVariableUpdate`); a run's own providers next to the facade's (`TestCallerPlatform`) |
 | `resources_test.go` | — | The writes of state against the oracle's recording of `client-api/state` (`TestStateRoutes`, `TestStateValuesAndPaths`); the writes that answer 501 and the 422s (`TestStateWriteRefusals`); no store (`TestStateWritesWithoutAStore`); a failing store's 500 and warning (`TestStoreFailureAnswers`) |

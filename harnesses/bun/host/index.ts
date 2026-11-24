@@ -184,6 +184,32 @@ export type ConnectOptions = {
   onEngineExit?: (status: { code: number | null; signal: string | null }) => void;
   /** Writes a diagnostic line; the default is stderr. */
   diag?: (line: string) => void;
+  /** The job identity of the runtime's jobs (ADR 0007): the workspace
+   * they run in, the user they run as and the instance's public URL,
+   * which every job's environment carries. Omitted fields take
+   * windmill-lite's placeholders, such as the workspace windmill-lite. A
+   * run may set its own (RunOptions.identity). */
+  identity?: Identity;
+};
+
+/** A job identity (ADR 0007): what a job's environment carries of its
+ * instance and user rather than of its run. Each field sets the job
+ * variables it names. */
+export type Identity = {
+  /** WM_WORKSPACE and WM_ROOT_WORKSPACE. A job is in its run's workspace:
+   * its steps find the jobs of another workspace's runs as unknown ids. */
+  workspace?: string;
+  /** WM_USERNAME. */
+  username?: string;
+  /** WM_EMAIL and WM_END_USER_EMAIL. */
+  email?: string;
+  /** WM_PERMISSIONED_AS, u/<user> or g/<group>; omitted means
+   * u/<username>. */
+  permissionedAs?: string;
+  /** WM_BASE_URL, the instance's public URL. */
+  baseUrl?: string;
+  /** WM_WORKER_GROUP. */
+  workerGroup?: string;
 };
 
 export type RunOptions = {
@@ -224,6 +250,10 @@ export type RunOptions = {
   /** The flow run's clock (H10): "record" returns every sleep and retry
    * delay at once, and the run's deviations then list H10. */
   clock?: "real" | "record";
+  /** The run's own job identity: each field it sets replaces the one
+   * that connect's identity gives, for this run's jobs and the runs they
+   * dispatch. A run with its own workspace is in that workspace. */
+  identity?: Identity;
   /** The run's data (H11), any JSON value: the host plugin reads it as
    * wl.run.data in its hooks and around wrappers, in this run's calls
    * only, until the run has settled. Absent or null means none, and
@@ -385,6 +415,33 @@ function runBudget(option: string, ms: unknown): number | undefined {
     throw new Error(`the run's ${option} is not a finite number of milliseconds up to ${Number.MAX_SAFE_INTEGER}: ${String(ms)}`);
   }
   return Math.max(0, Math.ceil(ms));
+}
+
+/** The JSON field of each Identity field, as the engine reads it
+ * (wl.DecodeIdentity). */
+const IDENTITY_FIELDS: Record<string, string> = {
+  workspace: "workspace",
+  username: "username",
+  email: "email",
+  permissionedAs: "permissioned_as",
+  baseUrl: "base_url",
+  workerGroup: "worker_group",
+};
+
+/** An identity as the engine reads it, JSON text of an object of its set
+ * fields, or undefined when it is not given. A value that is not an
+ * object, an unknown field and a field that is not a string throw. */
+function identityJSON(option: string, id: unknown): string | undefined {
+  if (id === undefined) return undefined;
+  if (id === null || typeof id !== "object" || Array.isArray(id)) throw new Error(`${option} is not an object`);
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(id)) {
+    if (!Object.hasOwn(IDENTITY_FIELDS, k)) throw new Error(`${option} has no field ${k}`);
+    if (v === undefined) continue;
+    if (typeof v !== "string") throw new Error(`${option}.${k} is not a string`);
+    out[IDENTITY_FIELDS[k]] = v;
+  }
+  return JSON.stringify(out);
 }
 
 /** Registers the host's instances of host-provided modules, by the keys
@@ -558,16 +615,23 @@ function register(modules: Record<string, object> | undefined, listed: string[],
 
 export async function connect(o: ConnectOptions): Promise<Host> {
   // A bundle's own plugin, once taken, is given back when the attempt ends;
-  // its entry stays once the plugin is copied.
-  const held: { release?: () => void } = {};
+  // its entry stays once the plugin is copied. The identity file goes then
+  // too, whatever ended the attempt.
+  const held: Held = {};
   try {
     return await connectOnce(o, held);
   } finally {
-    held.release?.();
+    try {
+      held.dropIdentityFile?.();
+    } finally {
+      held.release?.();
+    }
   }
 }
 
-async function connectOnce(o: ConnectOptions, held: { release?: () => void }): Promise<Host> {
+type Held = { release?: () => void; dropIdentityFile?: () => void };
+
+async function connectOnce(o: ConnectOptions, held: Held): Promise<Host> {
   const workdir = checkWorkdir(o.workdir);
   const collect = o.collect;
   const cooldown = collect?.cooldown ?? DEFAULT_COLLECT_COOLDOWN_MS;
@@ -599,6 +663,12 @@ async function connectOnce(o: ConnectOptions, held: { release?: () => void }): P
     if (store.allowEviction !== undefined && typeof store.allowEviction !== "boolean") {
       throw new HostError("options", `resourceStore's allowEviction is a boolean; got ${typeof store.allowEviction}`);
     }
+  }
+  let identity: string | undefined;
+  try {
+    identity = identityJSON("identity", o.identity);
+  } catch (e) {
+    throw new HostError("options", (e as Error).message);
   }
   if (o.foreignWindmillOrigins !== undefined && !Array.isArray(o.foreignWindmillOrigins)) {
     const got = o.foreignWindmillOrigins;
@@ -667,6 +737,26 @@ async function connectOnce(o: ConnectOptions, held: { release?: () => void }): P
   // its ESM bindings for every later importer, so a step's named import of
   // node:child_process would miss the runtime's wrappers (ADR 0004, item 7).
   const { spawn } = createRequire(import.meta.url)("node:child_process") as typeof import("node:child_process");
+  // The identity reaches the engine as a file it reads before its welcome
+  // (-identity), in a directory of its own, removed once the engine has
+  // answered, or as soon as writing it or starting the engine fails, and
+  // in any case when the attempt ends (connect).
+  let identityDir: string | undefined;
+  let identityFile: string | undefined;
+  const dropIdentityFile = () => {
+    if (identityDir) rmSync(identityDir, { recursive: true, force: true });
+  };
+  held.dropIdentityFile = dropIdentityFile;
+  if (identity !== undefined) {
+    identityDir = mkdtempSync(join(tmpdir(), "wl-identity-"));
+    identityFile = join(identityDir, "identity.json");
+    try {
+      writeFileSync(identityFile, identity);
+    } catch (e) {
+      dropIdentityFile();
+      throw e;
+    }
+  }
   // The host command's flags. A -digest pin among engineFlags means what
   // the host command makes of it, so the check before a bundle's own plugin
   // runs gets the same flags.
@@ -679,6 +769,7 @@ async function connectOnce(o: ConnectOptions, held: { release?: () => void }): P
     ...(store ? ["-resource-store", store.kind] : []),
     ...(store?.kind === "redis" && store.prefix !== undefined ? ["-redis-prefix", store.prefix] : []),
     ...(store?.kind === "redis" && store.allowEviction ? ["-redis-allow-eviction"] : []),
+    ...(identityFile ? ["-identity", identityFile] : []),
     ...(o.engineFlags ?? []),
   ];
   // The handshake reports the engine's checks of the bundle only after the
@@ -688,16 +779,22 @@ async function connectOnce(o: ConnectOptions, held: { release?: () => void }): P
   // announce the steps' child groups (WR-55), written synchronously: the
   // socket may hold bytes it has not written yet, which such a write would
   // overtake, and the step may block the event loop right after.
-  const child = spawn(
-    o.engine,
-    [...(o.engineArgs ?? []), "host", ...hostFlags],
-    {
-      stdio: ["ignore", "inherit", "inherit", "pipe", "pipe"],
-      // The Redis URL reaches the engine only in its environment: a
-      // command line shows in ps.
-      ...(store?.kind === "redis" ? { env: { ...process.env, WL_REDIS_URL: store.url } } : {}),
-    },
-  );
+  let child: ReturnType<typeof spawn>;
+  try {
+    child = spawn(
+      o.engine,
+      [...(o.engineArgs ?? []), "host", ...hostFlags],
+      {
+        stdio: ["ignore", "inherit", "inherit", "pipe", "pipe"],
+        // The Redis URL reaches the engine only in its environment: a
+        // command line shows in ps.
+        ...(store?.kind === "redis" ? { env: { ...process.env, WL_REDIS_URL: store.url } } : {}),
+      },
+    );
+  } catch (e) {
+    dropIdentityFile();
+    throw e;
+  }
   let settle: { resolve: () => void; reject: (e: Error) => void };
   const ready = new Promise<void>((resolve, reject) => (settle = { resolve, reject }));
   const started = new Promise<Error | undefined>((resolve) => {
@@ -707,6 +804,7 @@ async function connectOnce(o: ConnectOptions, held: { release?: () => void }): P
   const failed = await started;
   const sock = child.stdio[3] as Socket | null;
   if (failed || !sock) {
+    dropIdentityFile();
     throw new HostError("engine_start", `${o.engine}: ${failed?.message ?? "no socket for file descriptor 3"}`);
   }
   child.on("error", (e) => diag(`windmill-lite: engine process: ${e.message}`));
@@ -999,7 +1097,11 @@ async function connectOnce(o: ConnectOptions, held: { release?: () => void }): P
     }
   }
   runtime.start();
-  await ready;
+  try {
+    await ready;
+  } finally {
+    dropIdentityFile();
+  }
 
   return {
     enginePid: child.pid ?? -1,
@@ -1016,6 +1118,7 @@ async function connectOnce(o: ConnectOptions, held: { release?: () => void }): P
         budgets = {
           deadline_ms: runBudget("deadlineMs", opts.deadlineMs),
           pre_write_deadline_ms: runBudget("preWriteDeadlineMs", opts.preWriteDeadlineMs),
+          identity: identityJSON("the run's identity", opts.identity),
         };
       } catch (e) {
         return Promise.reject(new HostError("refused", (e as Error).message));

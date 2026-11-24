@@ -304,7 +304,7 @@ func TestDispatchedRunKeepsItsPin(t *testing.T) {
 	var r platform.JobResult
 	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(10 * time.Millisecond) {
 		var ok bool
-		if r, ok, err = rt.dispatch.Result(ctx, id); err != nil || (ok && r.Completed) {
+		if r, ok, err = rt.dispatch.Result(ctx, id, ""); err != nil || (ok && r.Completed) {
 			break
 		}
 		if time.Now().After(deadline) {

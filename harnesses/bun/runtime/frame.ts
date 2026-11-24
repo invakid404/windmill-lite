@@ -57,7 +57,7 @@ const FIELDS: Record<string, readonly string[]> = {
   child: ["id", "pid", "token"],
   platform: ["id", "inv", "method", "url", "headers", "body"],
   platform_reply: ["id", "status", "headers", "body"],
-  run: ["id", "kind", "path", "args", "intercept", "write_capable", "halt_before", "halt_after", "fatal_error_names", "deadline_ms", "pre_write_deadline_ms", "clock", "run_data"],
+  run: ["id", "kind", "path", "args", "intercept", "write_capable", "halt_before", "halt_after", "fatal_error_names", "deadline_ms", "pre_write_deadline_ms", "clock", "identity", "run_data"],
   run_done: ["id", "status", "result", "may_have_mutated", "warnings", "latched", "deviations", "error", "cancel_cause"],
   run_cancel: ["id", "reason", "canceler"],
   run_settled: ["id"],
@@ -376,6 +376,7 @@ export function decode(payload: Uint8Array): Message {
         checkField(m.t, m, "clock", "string");
         if (m.clock !== "real" && m.clock !== "record") throw new ProtocolError("bad_field", `run clock ${JSON.stringify(m.clock)}`);
       }
+      if (m.identity != null && (typeof m.identity !== "object" || Array.isArray(m.identity))) throw new ProtocolError("bad_field", "run identity is not an object");
       break;
     case "run_done":
       // A run the engine did not start has an error and no status.
@@ -422,7 +423,7 @@ export const RAW_FIELDS: Record<string, readonly string[]> = {
   invoke: ["args", "run_data"],
   result: ["body"],
   late: ["body"],
-  run: ["args", "intercept", "write_capable", "halt_before", "halt_after", "run_data"],
+  run: ["args", "intercept", "write_capable", "halt_before", "halt_after", "identity", "run_data"],
   run_done: ["result", "warnings"],
   hello: ["plugin"],
   host_call: ["payload", "run_data"],

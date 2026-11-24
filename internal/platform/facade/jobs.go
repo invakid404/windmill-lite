@@ -70,7 +70,7 @@ func (f *Facade) rootJobID(_ context.Context, c *Call) Reply {
 		return *refused
 	}
 	if ownWorkspace(c) {
-		if root, ok := f.platform.RootJob(id); ok {
+		if root, ok := f.platform.RootJobIn(id, callerScope(c)); ok {
 			return jsonReply(200, jsonString(root))
 		}
 	}
@@ -92,7 +92,7 @@ func (f *Facade) rootJobID(_ context.Context, c *Call) Reply {
 // [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
 // [WA-4]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-4
 func (f *Facade) getJob(_ context.Context, c *Call) Reply {
-	return f.jobRead(c, "Job not found at name ", f.platform.GetJob)
+	return f.jobRead(c, "Job not found at name ", f.platform.GetJobIn)
 }
 
 // getJobArgs answers getJobArgs, GET /w/{ws}/jobs_u/get_args/{id}
@@ -105,14 +105,15 @@ func (f *Facade) getJob(_ context.Context, c *Call) Reply {
 //
 // [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
 func (f *Facade) getJobArgs(_ context.Context, c *Call) Reply {
-	return f.jobRead(c, "Job Args not found at name ", f.platform.GetJobArgs)
+	return f.jobRead(c, "Job Args not found at name ", f.platform.GetJobArgsIn)
 }
 
 // jobRead answers a job read of a live run: the id checked as the web
 // framework checks it, the 404 whose text starts with notFound for a job
 // of no run or of another workspace, the 501 of a job windmill-lite does
-// not answer for, or read's answer.
-func (f *Facade) jobRead(c *Call, notFound string, read func(id string) ([]byte, error)) Reply {
+// not answer for, or read's answer, which checks the job's workspace
+// scope on the registry entry that it answers from.
+func (f *Facade) jobRead(c *Call, notFound string, read func(id, scope string) ([]byte, error)) Reply {
 	id, refused := pathUUID(c, "id", "id")
 	if refused != nil {
 		return *refused
@@ -120,7 +121,7 @@ func (f *Facade) jobRead(c *Call, notFound string, read func(id string) ([]byte,
 	if !ownWorkspace(c) {
 		return Error{Variant: "NotFound", Message: notFound + id}.Reply()
 	}
-	body, err := read(id)
+	body, err := read(id, callerScope(c))
 	var ns *platform.NotServed
 	switch {
 	case errors.As(err, &ns):
@@ -139,7 +140,7 @@ func (f *Facade) getFlowUserState(ctx context.Context, c *Call) Reply {
 	if refused != nil {
 		return *refused
 	}
-	v, err := f.platform.FlowUserState(ctx, id, c.Params["key"])
+	v, err := f.platform.FlowUserStateIn(ctx, id, c.Params["key"], callerScope(c))
 	return answer(v, err)
 }
 
@@ -159,7 +160,7 @@ func (f *Facade) setFlowUserState(ctx context.Context, c *Call) Reply {
 	if refused != nil {
 		return *refused
 	}
-	if err := f.platform.SetFlowUserState(ctx, id, c.Params["key"], c.Body); err != nil {
+	if err := f.platform.SetFlowUserStateIn(ctx, id, c.Params["key"], c.Body, callerScope(c)); err != nil {
 		return answer(nil, err)
 	}
 	return plainText(200, "Flow job state updated")
@@ -266,20 +267,21 @@ func (f *Facade) result(ctx context.Context, c *Call) Reply {
 
 // dispatched returns the state of a run the dispatcher started, looked up
 // in the workspace of c's path: a run in no other workspace than the
-// caller's.
+// caller's, dispatched by a run of the caller's workspace scope.
 func (f *Facade) dispatched(ctx context.Context, c *Call, id string) (platform.JobResult, bool, error) {
 	d := f.platform.Dispatcher
 	if d == nil || !ownWorkspace(c) {
 		return platform.JobResult{}, false, nil
 	}
-	return d.Result(ctx, id)
+	return d.Result(ctx, id, callerScope(c))
 }
 
 // polled returns the state of a job of a live run for the result polls,
-// with Config.ResultPollsForAllJobs set (platform.Services.ResultPoll):
+// with Config.ResultPollsForAllJobs set (platform.Services.ResultPollIn):
 // classified is false when the option is off or the path's workspace is
 // not the caller's, and ok is false when the registry does not know the
-// job. A poll that classified the id answers from that one lookup alone,
+// job, or, with the services' own registry, knows it in another workspace
+// than the caller's. A poll that classified the id answers from that one lookup alone,
 // so the registry is not asked again. A job that the job read does not
 // serve refuses the poll with that read's 501, the reason after the
 // route's name: a job of a run that has ended (platform.ErrEndedRun), or
@@ -289,7 +291,7 @@ func (f *Facade) polled(c *Call, id string) (r platform.JobResult, ok, classifie
 	if !f.allPolls || !ownWorkspace(c) {
 		return platform.JobResult{}, false, false, nil
 	}
-	r, ok, err := f.platform.ResultPoll(id)
+	r, ok, err := f.platform.ResultPollIn(id, callerScope(c))
 	var ns *platform.NotServed
 	switch {
 	case errors.As(err, &ns):
@@ -303,10 +305,22 @@ func (f *Facade) polled(c *Call, id string) (r platform.JobResult, ok, classifie
 }
 
 // known reports whether the job registry knows the job id names, looked
-// up in the workspace of c's path.
+// up in the workspace of c's path, for a caller of the job's workspace
+// scope.
 func (f *Facade) known(c *Call, id string) bool {
-	_, _, ok := f.platform.JobRegistry().Job(id)
-	return ok && ownWorkspace(c)
+	return ownWorkspace(c) && f.platform.KnownIn(id, callerScope(c))
+}
+
+// callerScope is the workspace scope of c's caller: the effective
+// workspace of its run (Caller.Host). The job routes find only the jobs of
+// runs of that scope, and answer for a job of another as for an unknown
+// id, as Windmill answers for a job of another workspace ([WA-V2]).
+// Without a configured workspace every job and caller has DefaultHost's,
+// and the routes answer as for one workspace.
+//
+// [WA-V2]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-v2
+func callerScope(c *Call) string {
+	return c.Caller.Host.EffectiveWorkspace()
 }
 
 func jsonString(s string) []byte {

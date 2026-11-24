@@ -603,7 +603,7 @@ func TestCacheZeroTTL(t *testing.T) {
 		}
 	}
 	ctx := context.Background()
-	key, ok := e.cacheKey(ctx, cacheKindFlowScript, id, jsonval.FromProducer([]byte(`{"v":1}`)), false)
+	key, ok := e.cacheKey(ctx, platform.DefaultHost.Workspace, cacheKindFlowScript, id, jsonval.FromProducer([]byte(`{"v":1}`)), false)
 	if !ok {
 		t.Fatal("no key")
 	}
@@ -739,7 +739,7 @@ func TestCacheArgumentEquality(t *testing.T) {
 	ctx := context.Background()
 	key := func(args string) string {
 		t.Helper()
-		k, ok := e.cacheKey(ctx, cacheKindFlow, "f/t/main", jsonval.FromProducer([]byte(args)), false)
+		k, ok := e.cacheKey(ctx, platform.DefaultHost.Workspace, cacheKindFlow, "f/t/main", jsonval.FromProducer([]byte(args)), false)
 		if !ok {
 			t.Fatalf("no key for %s", args)
 		}
@@ -759,7 +759,7 @@ func TestCacheArgumentEquality(t *testing.T) {
 			t.Errorf("%s and %s: same key %v, want %v", c.a, c.b, got, c.same)
 		}
 	}
-	if _, ok := e.cacheKey(ctx, cacheKindFlow, "f/t/main", jsonval.FromProducer([]byte(`[1]`)), false); ok {
+	if _, ok := e.cacheKey(ctx, platform.DefaultHost.Workspace, cacheKindFlow, "f/t/main", jsonval.FromProducer([]byte(`[1]`)), false); ok {
 		t.Error("arguments that are not an object have a key")
 	}
 }

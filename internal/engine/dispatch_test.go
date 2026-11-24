@@ -23,7 +23,7 @@ func waitResult(t *testing.T, d *Dispatcher, id string) platform.JobResult {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		r, ok, err := d.Result(context.Background(), id)
+		r, ok, err := d.Result(context.Background(), id, "")
 		if err != nil || !ok {
 			t.Fatalf("result of %s: %v %v", id, ok, err)
 		}
@@ -103,7 +103,7 @@ func TestDispatcherRunsRoots(t *testing.T) {
 			t.Errorf("arguments %s: %v", args, err)
 		}
 	}
-	if _, ok, _ := d.Result(context.Background(), "00000000-0000-4000-8000-000000000000"); ok {
+	if _, ok, _ := d.Result(context.Background(), "00000000-0000-4000-8000-000000000000", ""); ok {
 		t.Error("an id the dispatcher did not start")
 	}
 }
@@ -241,14 +241,14 @@ func TestDispatcherDetachedAndClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-g.started
-	if r, ok, _ := d.Result(context.Background(), id); !ok || !r.Started || r.Completed {
+	if r, ok, _ := d.Result(context.Background(), id, ""); !ok || !r.Started || r.Completed {
 		t.Errorf("running: %+v %v", r, ok)
 	}
 	late, err := d.Dispatch(context.Background(), platform.Dispatch{Kind: platform.DispatchScript, Target: "f/t/echo", Args: []byte(`{}`), ScheduledInSecs: 3600})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r, _, _ := d.Result(context.Background(), late); r.Started {
+	if r, _, _ := d.Result(context.Background(), late, ""); r.Started {
 		t.Errorf("a scheduled run started at once: %+v", r)
 	}
 	d.Close(context.Background())
@@ -526,14 +526,14 @@ func TestDispatcherRecordsFollowTheirRoot(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	if _, ok, _ := d.Result(context.Background(), id); !ok {
+	if _, ok, _ := d.Result(context.Background(), id, ""); !ok {
 		t.Error("a record swept while its root lives")
 	}
 	end()
 	if _, err := d.Dispatch(context.Background(), platform.Dispatch{Kind: platform.DispatchScript, Target: "f/t/echo", Args: []byte(`{}`)}); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok, _ := d.Result(context.Background(), id); ok {
+	if _, ok, _ := d.Result(context.Background(), id, ""); ok {
 		t.Error("a record kept after its root ended")
 	}
 }
