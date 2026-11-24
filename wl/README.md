@@ -1,9 +1,13 @@
 # wl
 
 **Current state:** `wl` opens a bundle and runs its flows and root
-scripts, with host hooks, providers, budgets, host mode and host plugins.
-Only Bun steps run, and the go-plugin, gRPC and HTTP adapters of the
-[host adapters ADR](../docs/design/0009-host-adapters.md) do not exist yet.
+scripts, with host hooks, providers, budgets, pool settings, host mode and
+host plugins.
+Only Bun steps run. Of the adapters of the
+[host adapters ADR](../docs/design/0009-host-adapters.md), the go-plugin
+adapter has only its host's side, [wl/plugin](plugin/README.md), and the
+gRPC and HTTP adapters do not exist yet.
+
 This README covers `wl/`, the Go package
 `github.com/invakid404/windmill-lite/wl`, and its `testdata/`: the
 synthetic fixture of the tests of `ForeignWindmillOrigins`, which the
@@ -120,8 +124,13 @@ checks fails:
 5. The engine runs every feature that the bundle's flows use
    (`ErrUnsupported`).
 
-Harness processes start on the first step. Only a host plugin makes
-`Open` start one earlier, to read the plugin's declaration.
+Harness processes start on the first step, and a bundle with no step
+starts none. In `warm` mode, `Open` starts them earlier in two cases:
+
+- A host plugin makes `Open` start the pool's minimum, and wait for the
+  first process, to read the plugin's declaration.
+- A warm start ([The harness pool](#the-harness-pool)) makes `Open` wait
+  until the pool's minimum serve.
 
 The engine version is `opts.EngineVersion`, or else `Version()`.
 `Version()` takes the first of these: the version linked in with
@@ -143,12 +152,13 @@ The zero value of each field is its default.
 | `Resources`, `Variables` | The host's resources and variables. They replace the bundle's at the same paths. | The bundle's `data/` | To give secrets, which a bundle never holds, and values that differ by deployment |
 | `Results` | The store of the results of steps that have a `cache_ttl` (a `ResultCache`) | One in memory for each runtime | To share cached results between runtimes |
 | `ResourceStore` | The store of the resources that steps write, such as the state of the stock client's `setState` ([The resource store](#the-resource-store)) | A new memory store for each runtime | To share them between runtimes, or to keep them in a store of the host's |
-| `Diagnostics` | Where the harness output that no step owns, and the engine's diagnostics about it, go | `os.Stderr` | To capture them |
+| `Diagnostics` | Where the harness output that no step owns, and the engine's diagnostics about it, go. With a `Pool` that is not zero, the runtime serializes its writes, so the writer need not be safe for concurrent use, and still calls its `WriteString`. | `os.Stderr` | To capture them |
 | `ExpressionSlots` | The number of evaluation slots of the expression engine | `min(GOMAXPROCS, 8)` | To change how many expressions can evaluate at once |
 | `QuickJSOnly` | Turns off the engine's Go evaluator of templates, arithmetic, comparisons and predicates over JSON values. Every expression that the shortcuts and the member paths do not answer then runs in QuickJS-ng. Nothing observable changes. | Off | To compare the two evaluators, or to rule the Go evaluator out when a result looks wrong |
 | `Providers` | The named providers of the bundle's [provided sites](../docs/glossary.md#provided-site) | None | When the host contract names providers ([Providers](#providers)) |
 | `Plugin` | The path of a [host plugin](../docs/glossary.md#host-plugin) module, which every `warm` harness process loads | None, or the bundle's own plugin | To give [hooks](../docs/glossary.md#hook) in TypeScript ([Host plugins](#host-plugins)) |
 | `PluginTimeout` | How long each call to the host plugin waits for its reply | `DefaultPluginTimeout`, 60 s | To change that bound |
+| `Pool` | The pool of `warm` harness processes: its size, cap, lag threshold, recycle timeout, recycle triggers, bound on live processes and warm start ([The harness pool](#the-harness-pool)) | One process, no cap, started on the first step or earlier for a host plugin | To run CPU-bound steps beside others, to replace processes that grow, or to start processes before the first run |
 | `ReadCache` | Gives each flow run a read cache: the run reads each of the host's and the bundle's resources and variables once, and answers its later reads from that read. A provider's error is not kept, so the next read asks again, and an update of a variable through the run drops its cached value ([the read cache](../internal/platform/README.md#the-read-cache)). A state that steps wrote to the `ResourceStore` is read again each time, so a run sees its latest value. | Off | When a run reads the same values often and need not see a change during the run |
 | `ForeignWindmillOrigins` | The origins of real [Windmill](../docs/glossary.md#windmill) instances that steps call through their own client, such as `https://windmill.example.com`. A step's dispatch to one of them loses its links to the step's own [job](../docs/glossary.md#job) ids ([Job ids on a real Windmill](#job-ids-on-a-real-windmill)). | None | When steps dispatch jobs on a real Windmill |
 | `Host` | Opens the runtime in [host mode](#host-mode) | Nil | Only for host mode |
@@ -166,6 +176,44 @@ a resource or variable again for each step and each call. The
 [equivalence contract](../docs/design/0001-equivalence-contract.md#5-named-deviations)
 names it, and the [trace](../docs/glossary.md#trace) of a run with it
 lists `D21`.
+
+### The harness pool
+
+`Options.Pool`, a `PoolOptions`, sets the pool of a `warm` runtime's
+harness processes, by the rules of the
+[harness protocol ADR](../docs/design/0004-harness-protocol.md#pooling-processes-the-engine-spawns).
+Its zero value keeps one process in service, with no cap, started on the
+first step or earlier for a host plugin ([Open](#open)). A `fresh` runtime
+and host mode have no pool, so `Open` refuses a `Pool` that is not zero
+there.
+
+| Field | What it sets | Default |
+|---|---|---|
+| `Min`, `Max` | How many processes the pool keeps serving, and how many may serve. A process that is tainted, because an abandoned step of its own still runs, or that leaves for a recycle trigger, does not count toward `Max`. | 1 and 1 |
+| `Cap` | The steps in flight in each process. A step's calls to the host plugin do not count. | No cap |
+| `LagThreshold` | The event-loop lag past which a process is busy with a CPU-bound step: the next step goes to another process, which starts if the pool is below `Max`. A negative value turns this off. | 250 ms |
+| `RecycleTimeout` | How long a leaving process may drain, after its last step in flight, before it is killed | 5 s |
+| `Recycle.RSS`, `Recycle.Samples` | A process whose heartbeats report a resident set of `RSS` bytes or more `Samples` times in a row is replaced | Off; 2 heartbeats |
+| `Recycle.Modules` | A process that has run steps of more distinct scripts than this is replaced. The step of the one more still runs there. | Off |
+| `MaxLive` | The processes alive at once, each from its start until its exit. No process starts while `MaxLive` are alive. `Open` refuses a value below `Max`. | No bound |
+| `WarmStart` | `Open` starts `Min` processes, and returns once `Min` serve, their handshakes done. A bundle with no step has no pool, so nothing starts. | Off |
+
+- **A replaced process** takes no new steps, and its replacement starts
+  beside it, outside `Max`. It leaves once no step is in flight in it. One
+  process leaves for a trigger at a time: another that trips meanwhile
+  keeps serving until the first has exited.
+- **A threshold is not a cap.** The pool samples the resident set at each
+  heartbeat, every second, and a process can grow past it between two of
+  them, or while it waits to leave. Size the container from `MaxLive`
+  times the measured peak of one process, plus the engine's own.
+- **`MaxLive` does not change routing.** A step goes at once to a serving
+  process that can take it, and waits only when none can and the process
+  that it needs cannot start.
+- **The cap is a [deviation](../docs/glossary.md#deviation),**
+  [D15](../docs/design/0001-equivalence-contract.md#5-named-deviations):
+  steps that wait on each other can wait until their timeout under a cap.
+  The [trace](../docs/glossary.md#trace) that `Run` returns for each flow
+  run of a runtime with a cap lists `D15`.
 
 ### Job ids on a real Windmill
 
@@ -594,7 +642,7 @@ This section is for contributors who change `wl`.
 | File | Contents |
 |---|---|
 | `foreign.go` | The check of `Options.ForeignWindmillOrigins`, and the one form of each origin that the welcome carries |
-| `wl.go` | `Options`, `Resource`, `Variable`, `ResultCache`, `ResourceStore`, `MemoryResourceStore`, `NewMemoryResourceStore`, `Runtime`, `Open`, `BuildInfo`, `PlatformOrigin`, `Close`, `Version`, and `ErrUnsupported`, `ErrEngineVersion`, `ErrClosed` |
+| `wl.go` | `Options`, `PoolOptions`, `RecycleTriggers`, `Resource`, `Variable`, `ResultCache`, `ResourceStore`, `MemoryResourceStore`, `NewMemoryResourceStore`, `Runtime`, `Open`, `BuildInfo`, `PlatformOrigin`, `Close`, `Version`, and `ErrUnsupported`, `ErrEngineVersion`, `ErrClosed` |
 | `run.go` | `RunOptions`, `RunPlatform`, `Result`, `Run`; the causes of a canceled run; the clock and jitter types; `ErrPreWriteDeadline`, `ErrRunInFlight`; the trace types, which alias the engine's; the executor that collects each run's platform calls |
 | `hooks.go` | `Hooks` and the types of their callbacks, `Selector`, `Site`, `FatalError` and the selector and provider errors; selector matching, and the adapter to the engine's hook interface |
 | `host.go` | `Host`, `Runtime.Done`, `Host.Refuse`, `HandshakeError` and the reject codes: host mode, its handshake, and the runs that it serves |
@@ -603,6 +651,7 @@ This section is for contributors who change `wl`.
 | `example_test.go` | The README's example, compiled by `go test` |
 | `storetest/` | The contract suite of `ResourceStore` ([its README](storetest/README.md)) |
 | `redisstore/` | The resource store on Redis ([its README](redisstore/README.md)) |
+| `plugin/` | The host's side of the go-plugin adapter ([its README](plugin/README.md)) |
 
 ### How Open works
 
@@ -618,8 +667,9 @@ This section is for contributors who change `wl`.
   an object store in `<data>/objects`, the job registry and flow user
   state, the result cache, the facade, and the default dispatcher. The
   dispatcher runs a root that a step dispatches as a run of its own.
-- Harness processes start on the first step: a pool of `warm` processes,
-  or one process for each step in `fresh` mode, with working directories
+- Harness processes start on the first step, or at `Open` with a warm
+  start: a pool of `warm` processes, or one process for each step in
+  `fresh` mode, with working directories
   in `<data>/work`. Their handshake checks the harness's kind, Bun 1.4.3
   and the bundle's digest.
 - A `warm` process reaches the facade through its intercepted `fetch`, and
@@ -737,5 +787,6 @@ build helper's dependencies, and skip without them unless
 | `plugincases_test.go` | The cases of `conformance/plugins/hooks.yaml`, through the TypeScript case plugin, named by `Options.Plugin` and built into the bundle, and through Go callbacks built from the same plugins | Yes |
 | `bundledplugin_test.go` | A bundle's own plugin. Its `around` wrapper and the step share a host-provided module in 16 concurrent runs (`TestBundledPluginSharesHostModule`), and a bundle with no step starts processes for it (`TestBundledPluginWithoutSteps`). `Open` refuses it with `Options.Plugin` and in `fresh` (`TestOpenRefusesTwoPlugins`), and refuses a manifest that names a module outside the bundle (`TestOpenRefusesUnverifiedPlugin`). A `fetch` wrapper it installs at load reaches an ordinary step and not a native one (`TestPluginFetchWrapperOrder`) | Yes |
 | `store_test.go` | `Options.ResourceStore` on real steps (`TestResourceStoreOnBun`): two runtimes that share a memory store, one with its own, a failing store's warning, and `D24` in the trace; a run id in flight refused (`TestRunIDInFlight`). Without Bun: `Close` releasing its own store while readers use it (`TestCloseReleasesItsOwnStore`), and a late answer kept from a later run of the same id (`TestLateAnswerAcrossIDReuse`) | Yes, but for the last two |
+| `pool_test.go` | `Options.Pool`. Without Bun: `Open`'s refusals in `fresh` and host mode (`TestPoolOptionsRefusedFresh`) and of `MaxLive` below `Max` (`TestPoolMaxLiveBelowMax`), and the cap's entry in the trace. On real steps: a second process for a step beside a CPU-bound one and under `Cap`, the module and RSS triggers (`TestWlPoolOptions`), and the warm start (`TestWarmStart`). A step reads a plugin's resource under `Cap: 1` (`TestPoolCapLeavesPluginCalls`) and while its process leaves (`TestPoolRecyclingProcessServesPluginCalls`); zero settings call the diagnostics writer as before (`TestDiagnosticsZeroSettings`) | Yes, but for the refusals and the trace |
 | `foreign_test.go` | `ForeignWindmillOrigins` in the welcome, and its refusals (`TestForeignWindmillOrigins`). The stock client's and a native step's dispatch to two loopback servers that stand in for real Windmill instances, in `warm` and `fresh`, with and without the option (`TestForeignWindmillLinks`, on the cases of `testdata/foreign/cases.json`). That test also needs `WL_WINDMILL_CLIENT`. | Yes, but for the first |
 | `example_test.go` | Compiles the README's example | No |
