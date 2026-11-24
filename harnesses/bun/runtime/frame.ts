@@ -113,11 +113,11 @@ function present(k: string, v: unknown): boolean {
 }
 
 /** Boolean fields written only when true, as Go writes them. */
-const WRITTEN_WHEN_TRUE = new Set(["run_done.may_have_mutated"]);
+const WRITTEN_WHEN_TRUE = new Set(["run_done.may_have_mutated", "invoke.budget"]);
 
 /** String fields written only when not empty, as Go writes them: an empty
  * one counts as absent, on decoding too. */
-const WRITTEN_WHEN_NOT_EMPTY = new Set(["run_done.cancel_cause", "run_cancel.reason", "run_cancel.canceler"]);
+const WRITTEN_WHEN_NOT_EMPTY = new Set(["run_done.cancel_cause", "run_cancel.reason", "run_cancel.canceler", "reserve_reply.refused"]);
 
 /** The canonical payload text of a message. */
 export function encodeText(m: Outgoing): string {

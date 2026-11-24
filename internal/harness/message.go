@@ -184,7 +184,7 @@ func VersionsPair(sdk, engine string) bool {
 // Invoke asks the harness to run one step. Around, when not empty, lists
 // the host plugin's around wrappers whose selectors match the step's
 // site, by their index in its declaration, outermost first (ADR 0008 H1):
-// the harness runs the step inside them. Budget, sent only when set, says
+// the harness runs the step inside them. Budget, written only when true, says
 // that the step's run has a byte budget or the runtime a total: the
 // step's wl.reserve then sends reserve frames, and takes nothing without
 // it.
@@ -475,7 +475,8 @@ type ReserveRequest struct {
 
 // ReserveReply answers a ReserveRequest with the same id: Refused is empty
 // when the bytes are reserved, and otherwise says why not, which the
-// step's wl.reserve throws.
+// step's wl.reserve throws. An empty refused field counts as absent, so
+// it reserves, and is not written.
 type ReserveReply struct {
 	ID      string
 	Refused string

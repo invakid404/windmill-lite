@@ -184,6 +184,23 @@
       "payload": "{\"t\":\"invoke\",\"id\":\"i1\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{},\"boundary\":\"bun\",\"budget\":true}"
     },
     {
+      "case": "invoke-budget-false",
+      "title": "budget false counts as absent, and is not written: the run has no byte budget",
+      "message": {
+        "t": "invoke",
+        "id": "i1",
+        "run": "r1",
+        "site": "m:a",
+        "script": "echo",
+        "entry": "main",
+        "args": {},
+        "env": {},
+        "boundary": "bun",
+        "budget": false
+      },
+      "payload": "{\"t\":\"invoke\",\"id\":\"i1\",\"run\":\"r1\",\"site\":\"m:a\",\"script\":\"echo\",\"entry\":\"main\",\"args\":{},\"env\":{},\"boundary\":\"bun\"}"
+    },
+    {
       "case": "invoke-env-escaping",
       "title": "env values with every escape class",
       "message": {
@@ -992,6 +1009,16 @@
         "refused": "windmill-lite: wl.reserve(524288): the run's byte budget of 1048576 has 262144 left"
       },
       "payload": "{\"t\":\"reserve_reply\",\"id\":\"r2\",\"refused\":\"windmill-lite: wl.reserve(524288): the run's byte budget of 1048576 has 262144 left\"}"
+    },
+    {
+      "case": "reserve-reply-refused-empty",
+      "title": "an empty refused counts as absent, and is not written: the bytes are reserved",
+      "message": {
+        "t": "reserve_reply",
+        "id": "r3",
+        "refused": ""
+      },
+      "payload": "{\"t\":\"reserve_reply\",\"id\":\"r3\"}"
     },
     {
       "case": "run-cancel",
