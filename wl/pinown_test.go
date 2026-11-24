@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/invakid404/windmill-lite/internal/bundle"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,16 +33,63 @@ func gateStep(id, started, gate, envelope string) string {
 		`","input_transforms":{"dir":{"type":"javascript","expr":"flow_input.dir"}}}` + envelope + `}`
 }
 
+// waitFile returns the content of the file at path once it exists and is
+// not empty.
 func waitFile(t *testing.T, path string) []byte {
 	t.Helper()
 	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(5 * time.Millisecond) {
-		if b, err := os.ReadFile(path); err == nil {
+		if b, err := os.ReadFile(path); err == nil && len(b) > 0 {
 			return b
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("no file %s", path)
 		}
 	}
+}
+
+// waitPID returns the process id that a step writes to the file at path,
+// once the file holds a whole positive number.
+func waitPID(t *testing.T, path string) int {
+	t.Helper()
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		if b, err := os.ReadFile(path); err == nil {
+			if pid, err := strconv.Atoi(string(b)); err == nil && pid > 0 {
+				return pid
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no process id in %s", path)
+		}
+	}
+}
+
+// buildBunBundleWith is buildBunBundle with a host contract.
+func buildBunBundleWith(t *testing.T, bun string, files map[string]string, contract string) (out, runtimeDir string) {
+	t.Helper()
+	repo, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	folder := t.TempDir()
+	for p, s := range files {
+		f := filepath.Join(folder, filepath.FromSlash(p))
+		if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(f, []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runtimeDir = filepath.Join(repo, "harnesses", "bun", "runtime")
+	out = filepath.Join(t.TempDir(), "bundle")
+	if _, err := bundle.Build(context.Background(), bundle.Config{
+		Folder: folder, Contract: []byte(contract), EngineVersion: Version(), Bun: bun,
+		Helper:         filepath.Join(repo, "harnesses", "bun", "build", "main.ts"),
+		HarnessRuntime: runtimeDir, Out: out, Work: filepath.Join(t.TempDir(), "work"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return out, runtimeDir
 }
 
 func touch(t *testing.T, dir string, names ...string) {
@@ -97,13 +146,12 @@ export default {
 	dirArgs := json.RawMessage(`{"dir":` + jsonString(dir) + `}`)
 	busy := make(chan error, 1)
 	go func() { _, err := rt.Run(context.Background(), "f/t/busy", dirArgs, RunOptions{}); busy <- err }()
-	p1, _ := strconv.Atoi(string(waitFile(t, filepath.Join(dir, "busy"))))
-	succ := make(chan *Result, 1)
 	defer func() {
-		touch(t, dir, "end", "b-go", "release-a", "release")
-		<-succ
+		// The gates of every step that may still wait, then the join.
+		touch(t, dir, "go", "end", "release")
 		<-busy
 	}()
+	p1 := waitPID(t, filepath.Join(dir, "busy"))
 	const id = "6c1d4b8a-2f3e-4a5b-9c7d-0e1f2a3b4c5d"
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	res, err := rt.Run(ctx, "f/t/held", dirArgs, RunOptions{ID: id})
@@ -111,6 +159,7 @@ export default {
 	if err != nil || res.Status != StatusCanceled {
 		t.Fatalf("the unpinned run: %+v, %v; want canceled at its deadline", res, err)
 	}
+	succ := make(chan *Result, 1)
 	go func() {
 		res, err := rt.Run(context.Background(), "f/t/succ", dirArgs, RunOptions{ID: id, Pin: true})
 		if err != nil {
@@ -118,7 +167,11 @@ export default {
 		}
 		succ <- res
 	}()
-	p2, _ := strconv.Atoi(string(waitFile(t, filepath.Join(dir, "succ-b"))))
+	defer func() {
+		touch(t, dir, "b-go", "release-a")
+		<-succ
+	}()
+	p2 := waitPID(t, filepath.Join(dir, "succ-b"))
 	if p2 == p1 {
 		t.Fatalf("the pinned run went to the tainted %d", p1)
 	}
@@ -178,39 +231,76 @@ func TestPinOfAnotherRuntime(t *testing.T) {
 	}
 }
 
-// A run that a step dispatched is in flight for Run's id check while it
-// lives under PinRuns: a Run with its id is refused, so the child keeps
-// the pin that holds its process when that process trips a recycle
-// trigger between the child's steps (an RSS threshold of one byte, which
-// the heartbeats during the child's 4 s sleep report), and its next step
-// runs there.
+// A run that a step dispatched owns its id under PinRuns from its
+// dispatch: a Run with its id is refused, before the child has started (a
+// delayed start) and while it lives, so the child keeps the pin that holds
+// its process. The child waits between its two Bun steps at a provided
+// site that the test answers, with nothing in flight in its process.
+// Meanwhile that process trips the RSS trigger (a threshold of one byte,
+// which its heartbeats report), and the test sees its replacement start
+// beside it. Released, the child's second step runs in the first step's
+// process.
 func TestDispatchedRunKeepsItsPin(t *testing.T) {
 	bun := bunOrSkip(t)
 	dir := t.TempDir()
-	out, runtimeDir := buildBunBundle(t, bun, map[string]string{
+	out, runtimeDir := buildBunBundleWith(t, bun, map[string]string{
 		"wmill.yaml": "defaultTs: bun\n",
 		"f/t/child.flow/flow.yaml": `{"summary":"t","value":{"modules":[` +
 			`{"id":"a","value":{"type":"rawscript","language":"bun","content":"import { writeFileSync } from \"node:fs\";\nexport async function main(dir: string) { writeFileSync(dir + \"/child-a\", String(process.pid)); return process.pid }",` +
 			`"input_transforms":{"dir":{"type":"javascript","expr":"flow_input.dir"}}}},` +
-			`{"id":"b","sleep":{"type":"static","value":4},"value":{"type":"rawscript","language":"bun","content":"export async function main(prev: number) { return { a: prev, b: process.pid } }",` +
-			`"input_transforms":{"prev":{"type":"javascript","expr":"previous_result"}}}}]}}`,
+			`{"id":"m","value":{"type":"rawscript","language":"bun","content":"export async function main() { return 0 }","input_transforms":{}}},` +
+			`{"id":"b","value":{"type":"rawscript","language":"bun","content":"export async function main(prev: number) { return { a: prev, b: process.pid } }",` +
+			`"input_transforms":{"prev":{"type":"javascript","expr":"results.a"}}}}]}}`,
 		"f/t/quick.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"q","value":{"type":"rawscript","language":"bun",` +
 			`"content":"export async function main() { return 1 }","input_transforms":{}}}]}}`,
-	})
-	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Pool: PoolOptions{Max: 2, PinRuns: true, Recycle: RecycleTriggers{RSS: 1}}})
+	}, `{"roots":[{"flow":"f/t/child"},{"flow":"f/t/quick"}],"provided":[{"selector":{"flow":"f/t/child","module":"m"},"provider":"hold","mandatory":true}]}`)
+	entered := make(chan struct{}, 4)
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Pool: PoolOptions{Max: 2, PinRuns: true, Recycle: RecycleTriggers{RSS: 1}},
+		Providers: map[string]Provider{"hold": func(ctx context.Context, _ Call) (Outcome, bool, error) {
+			entered <- struct{}{}
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return Outcome{}, false, context.Cause(ctx)
+			}
+			return Outcome{Result: json.RawMessage(`0`)}, true, nil
+		}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rt.Close()
+	defer releaseOnce.Do(func() { close(release) })
 	ctx := context.Background()
-	id, err := rt.dispatch.Dispatch(ctx, platform.Dispatch{Kind: platform.DispatchFlow, Target: "f/t/child", Args: []byte(`{"dir":` + jsonString(dir) + `}`)})
-	if err != nil {
-		t.Fatal(err)
+	dispatch := func(delay int64) string {
+		t.Helper()
+		id, err := rt.dispatch.Dispatch(ctx, platform.Dispatch{Kind: platform.DispatchFlow, Target: "f/t/child", Args: []byte(`{"dir":` + jsonString(dir) + `}`), ScheduledInSecs: delay})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
 	}
-	p, _ := strconv.Atoi(string(waitFile(t, filepath.Join(dir, "child-a"))))
+	// A child that starts in a minute owns its id already.
+	if _, err := rt.Run(ctx, "f/t/quick", nil, RunOptions{ID: dispatch(60)}); !errors.Is(err, ErrRunInFlight) {
+		t.Fatalf("a Run with a delayed dispatched run's id: %v; want ErrRunInFlight", err)
+	}
+	id := dispatch(0)
+	select {
+	case <-entered:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the child did not reach its provided site")
+	}
+	p := waitPID(t, filepath.Join(dir, "child-a"))
 	if _, err := rt.Run(ctx, "f/t/quick", nil, RunOptions{ID: id}); !errors.Is(err, ErrRunInFlight) {
 		t.Fatalf("a Run with a live dispatched run's id: %v; want ErrRunInFlight", err)
 	}
+	for deadline := time.Now().Add(30 * time.Second); !slices.ContainsFunc(rt.pool.Stats(), func(s harness.ProcessStats) bool { return s.PID != p }); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the child's process %d did not trip its trigger: %+v", p, rt.pool.Stats())
+		}
+	}
+	releaseOnce.Do(func() { close(release) })
 	var r platform.JobResult
 	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(10 * time.Millisecond) {
 		var ok bool
