@@ -189,6 +189,9 @@ that it sets for that run
   one.
 - **The resource store and the result cache** key a run's entries under
   its workspace.
+- **A run's ID of another workspace.** `Run` refuses a run whose
+  `RunOptions.ID` a job of another workspace holds, running or ended and
+  still kept, so runs of two workspaces never share a job id.
 - **A run that a step dispatches** takes the identity of the step's run. A
   `parent_job` or `root_job` of another workspace's run is unknown to it.
 - **The JSON form**, which host mode uses, names the fields `workspace`,

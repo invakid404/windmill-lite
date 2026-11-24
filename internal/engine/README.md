@@ -1560,6 +1560,9 @@ root through `Run` for `jobs/run/f`.
   job's runnable path, from the job registry) are taken when the dispatch
   is accepted. So a run that starts after its parent has ended, after
   `scheduled_in_secs` or at once, keeps them.
+- **An id of another workspace.** `Run` and `RunScript` refuse a run
+  whose id a job of another workspace holds in the job registry, live or
+  ended and kept (`platform.BeginExclusive`), before it starts.
 - **Links to another workspace.** A parent of another workspace than the
   dispatching run's is as unknown: its path is not taken. The ids stay as
   sent, as an unknown id's do, and `flow_user_state()` reads null through

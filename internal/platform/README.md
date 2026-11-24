@@ -534,17 +534,14 @@ scope: `windmill-lite` when neither the runtime nor the run set one.
   `Host` of the run that its `Run` names. The jobs that a script job brings
   into the registry take the script job's.
 - **Registrations of an id.** `Registry` numbers each new registration
-  (`Job.Gen`). A second registration of a live id in another workspace
-  leaves the entry the first one's, its view included, and keeps its own
-  view for the jobs of its run. Each registration's end retires the tree
-  that it rooted.
+  (`Job.Gen`). `BeginExclusive` refuses one whose id a job of another
+  workspace holds, live or ended and kept; the engine registers a run
+  through it, and the facade a step, which falls back to its invocation
+  id. `Begin` never refuses, and a second registration of another
+  workspace never brings its view to the first one's entry.
 - **Another workspace's ended job.** A script job does not make a flow job
   of an id that the registry keeps as another workspace's ended job, such
   as the `root_job` of a dispatch.
-- **The workspace a job registers with.** The engine and the facade
-  register every job with its run's identity. A job that names none takes
-  the host of its run's own registration, never that of another job that
-  holds the run's id.
 - **How long.** A job is live until it ends, and stays known while its root
   lives, so a step's job can be looked up after it ended. Once the root has
   ended, the registry keeps only what the next items say, and the tree's
@@ -626,16 +623,19 @@ address by their effective root
 - **One registration's map.** With `UserStates`, each map belongs to the
   registration of its job that it was written under (`Job.Gen`), in its
   workspace. A read and a write go to the registration that they checked,
-  and a write lands only while the registry still holds it. An id that
-  ends and is registered again starts with no state, and a root's cleanup
-  drops only its own registration's maps.
-- **Job records.** A job read that finds the id registered again after
-  rendering its record, whose listing of the state could then be the new
-  registration's, answers as for an unknown id.
+  and a write lands only while the registry still holds it. A root's
+  cleanup drops only its own registration's maps.
+- **Job records.** A `JobViewFor` renders a job read's record for the
+  registration that the read checked, and lists that registration's state
+  (`FlowUserStatesOf`).
+- **What each configuration keeps apart.** Two workspaces never share a
+  map. With the services' own `Registry`, an id that ends and is
+  registered again starts with no state. A host's `Jobs` that numbers
+  nothing (`Gen` 0) cannot tell two such registrations of one workspace
+  apart, and neither can a host's store.
 - **A host's store** keys a job of another workspace than `windmill-lite`
-  by its workspace, a slash and its id, so two workspaces never share its
-  map. Sequential runs of one workspace that reuse an id share it, as
-  before.
+  by its workspace, a slash and its id, and keeps no state for an id with
+  a slash, so no two jobs share a key.
 - **Faithful where a step can look.** This lifetime matches every access the
   stock helpers make during the run. A read or a write by id after the run
   gets `null` or the 404, as Windmill answers once the root's completion is
@@ -940,7 +940,7 @@ CI runs every package's tests with `-race` in its Go jobs
 | | `TestFlowUserState`, `TestFlowUserStateWithAHostsJobs`, `TestFlowUserStateSweepsDeadJobs`, `TestFlowUserStateWithAHostsStates` | Flow user state during and after the run, its stored form, the 404 and the 400; with a host's `Jobs`, with the sweep, and with a host's `FlowUserState` |
 | | `TestReadJobEnv`, `TestServicesRegistry` | The job that a read's `job_id` names; the services' one registry, shared by callers that first ask at once |
 | `workspace_test.go` | `TestUserStateBoundToItsRegistration`, `TestRegistrationNumbers`, `TestUserStateWithoutRegistrationNumbers`, `TestStateCleanupKeepsALaterRegistration` | A flow job's user state against a registry whose entry for an id changes between lookups, the next registration of an id, a registry that numbers none (the services' store and a host's), and the cleanup of an ended registration |
-| | `TestDuplicateRegistrationAcrossWorkspaces`, `TestJobsOfACollidingRun`, `TestTrackedRootOfAnotherWorkspace` | One id registered by two workspaces at once, the jobs of the run that registered it second, their release; a script job whose root is another workspace's ended job |
+| | `TestExclusiveRegistration`, `TestDuplicateRegistrationAcrossWorkspaces`, `TestTrackedRootOfAnotherWorkspace`, `TestHostStateKeys` | One id held by another workspace, refused; one id registered by two workspaces through `Begin`; a script job whose root is another workspace's ended job; a host store's keys |
 | `jobreads_test.go` | `TestJobReadsDuringARun` | Each job of a run answered by its run's view, the 404 texts, and every job once the run has ended, which the root lookup still answers |
 | | `TestEndedRunIsReleased`, `TestJobReadsOfADispatchedRun` | An ended run keeps no view and no variables; a dispatched run in another run's tree answers by its own view until the root ends |
 | | `TestJobReadsOfConcurrentRuns`, `TestFlowUserStatesList` | Eight runs at once, each reading its own jobs and the others' runs; a flow job's user state listed in jsonb's key order |

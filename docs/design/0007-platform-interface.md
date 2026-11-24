@@ -331,17 +331,22 @@ its run's workspace.
   another as for an unknown id, as Windmill does
   ([WA-V2](../semantics/client-api.md#wa-v2)). Each checks the workspace
   on the registry entry that it answers from.
-- **Registrations.** With the services' own store, a flow job's user
-  state is that of the registration it was written under
-  (`platform.Job.Gen`), in its workspace: a run whose id is registered
-  again never shares its state. A host's store keys a job of another
-  workspace by its workspace, so two workspaces never share a map there.
-  A job read that finds the id registered again after rendering answers
-  as unknown.
-- **Colliding ids.** An id that runs of two workspaces register at once,
-  through a hook's `WM_JOB_ID` or a reused run id, stays the first one's;
-  the second run's jobs keep its view and its workspace. A `root_job` that
-  names another workspace's ended job leaves that job its workspace's.
+- **One workspace per id.** A run whose id a job of another workspace
+  holds, live or among the ended jobs kept, is refused before it starts.
+  A step whose hook sets a `WM_JOB_ID` held so registers under its own
+  invocation id, and a `root_job` that names another workspace's ended
+  job leaves that job its workspace's. Runs of two workspaces so never
+  share a registry entry.
+- **Flow user state.** Two workspaces never share a flow job's state. The
+  services' own store keeps each map with the registration (`Job.Gen`)
+  and workspace that wrote it, and a job record lists the state of the
+  registration that the read checked.
+- **Reuse within a workspace.** With the services' own registry, a run
+  whose id is registered again starts with no state. A host's registry
+  that numbers nothing, or a host's store, cannot tell two runs of one
+  workspace that reuse an id apart, as before. A host's store gets a job
+  of another workspace keyed by the workspace, a slash and the id, and
+  keeps no state for an id with a slash.
 - **A hook's `WM_WORKSPACE`** ([H12](0008-host-hooks.md#the-hooks)) is the
   workspace of a run without a configured one, as it always was. A run
   with a configured workspace stays in it: its token is valid there only,
