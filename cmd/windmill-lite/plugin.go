@@ -273,10 +273,6 @@ func decodePluginConfig(data []byte) (*pluginConfig, error) {
 	}{
 		{"engine_recycle_rss", c.EngineRecycleRSS != nil},
 		{"drain_timeout_ms", c.DrainTimeoutMS != nil},
-		{"bytes_total", c.BytesTotal != nil},
-		{"foreign_windmill_origins", c.ForeignWindmillOrigins != nil},
-		{"pool.max_live", c.Pool != nil && c.Pool.MaxLive != nil},
-		{"pool.pin_runs", c.Pool != nil && c.Pool.PinRuns != nil},
 	} {
 		if f.set {
 			return nil, fmt.Errorf("%s: this engine does not serve it yet", f.name)
@@ -345,17 +341,14 @@ const maxInt = int(^uint(0) >> 1)
 // it, either way, would change sign as a duration.
 const maxMS = math.MaxInt64 / int64(time.Millisecond)
 
-// checkBundle refuses a bundle whose manifest names a host plugin, which
-// this engine does not serve over the plugin command yet. It verifies the
-// bundle against its manifest and the digest pin, and returns the digest
-// that passed, which the runtime's open then pins.
+// checkBundle verifies the bundle against its manifest and the digest pin,
+// and returns the digest that passed, which the runtime's open then pins.
+// A host plugin that the manifest names loads with the bundle, as wl.Open
+// loads it.
 func (c *pluginConfig) checkBundle() (string, error) {
 	v, err := bundle.Verify(c.Bundle, bundle.VerifyOptions{Digest: c.Digest})
 	if err != nil {
 		return "", err
-	}
-	if p := v.Manifest.Plugin; p != nil {
-		return "", fmt.Errorf("bundle: its manifest names the host plugin %s, which this engine does not serve over the plugin command yet", p.Key)
 	}
 	return v.Digest, nil
 }
@@ -374,14 +367,18 @@ func (c *pluginConfig) maxMessageBytes() int {
 // starts inherits it; one that is not set fails the start, naming it.
 func (c *pluginConfig) options(stderr io.Writer) (wl.Options, func(), error) {
 	opts := wl.Options{
-		Bun:                   c.Bun,
-		HarnessRuntime:        c.HarnessRuntime,
-		DataDir:               c.DataDir,
-		Digest:                c.Digest,
-		EngineVersion:         resolveVersion(),
-		Diagnostics:           stderr,
-		ReadCache:             c.ReadCache,
-		ResultPollsForAllJobs: c.ResultPollsForAllJobs,
+		Bun:                    c.Bun,
+		HarnessRuntime:         c.HarnessRuntime,
+		DataDir:                c.DataDir,
+		Digest:                 c.Digest,
+		EngineVersion:          resolveVersion(),
+		Diagnostics:            stderr,
+		ReadCache:              c.ReadCache,
+		ResultPollsForAllJobs:  c.ResultPollsForAllJobs,
+		ForeignWindmillOrigins: c.ForeignWindmillOrigins,
+	}
+	if c.BytesTotal != nil {
+		opts.Limits.Bytes = *c.BytesTotal
 	}
 	if c.PluginTimeoutMS != nil {
 		opts.PluginTimeout = time.Duration(*c.PluginTimeoutMS) * time.Millisecond
@@ -434,6 +431,12 @@ func (c *pluginConfig) options(stderr io.Writer) (wl.Options, func(), error) {
 		}
 		if r := p.Recycle; r != nil {
 			opts.Pool.Recycle = wl.RecycleTriggers{RSS: r.RSS, Samples: r.Samples, Modules: r.Modules}
+		}
+		if p.MaxLive != nil {
+			opts.Pool.MaxLive = *p.MaxLive
+		}
+		if p.PinRuns != nil {
+			opts.Pool.PinRuns = *p.PinRuns
 		}
 	}
 	closeStore := func() {}

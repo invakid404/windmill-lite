@@ -410,8 +410,8 @@ handles a request to a real Windmill:
 - A runtime setting names such a Windmill's origins: `wl`'s
   `ForeignWindmillOrigins`, the Bun host SDK's `foreignWindmillOrigins` and
   `windmill-lite host -foreign-windmill`. The engine sends them to each
-  harness process in its welcome. The go-plugin adapter's configuration is
-  planned to carry them (`foreign_windmill_origins`).
+  harness process in its welcome. The go-plugin adapter's configuration
+  carries them as `foreign_windmill_origins`.
 - On a request from a step, a native step's included, to one of them under
   `/api/w/{workspace}/jobs/run/`, the harness's `fetch` view removes each
   `parent_job` and `root_job` query parameter whose value is one of the

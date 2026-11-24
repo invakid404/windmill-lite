@@ -620,6 +620,7 @@ func TestPluginScriptRun(t *testing.T) {
 		{"hooks", &plugin.RunRequest{Kind: "script", Path: "f/plugin/sleep", Args: []byte(`{"ms":1}`), Hooks: &plugin.Hooks{Token: "t"}}},
 		{"write_capable", &plugin.RunRequest{Kind: "script", Path: "f/plugin/sleep", Args: []byte(`{"ms":1}`), WriteCapable: []byte(`[]`)}},
 		{"trace", &plugin.RunRequest{Kind: "script", Path: "f/plugin/sleep", Args: []byte(`{"ms":1}`), Trace: "summary"}},
+		{"limits", &plugin.RunRequest{Kind: "script", Path: "f/plugin/sleep", Args: []byte(`{"ms":1}`), Limits: &plugin.Limits{MaxArgsBytes: 100}}},
 	} {
 		_, err := e.run(c.req)
 		checkRefused(t, "a script with "+c.field, err, codes.InvalidArgument, c.field)
@@ -704,10 +705,13 @@ func refusalCases() []refusalCase {
 	identity.ProtoReflect().SetUnknown(field99)
 	resource := &plugin.Resource{Type: "t", Value: []byte(`{}`)}
 	resource.ProtoReflect().SetUnknown(field99)
+	limits := &plugin.Limits{MaxInFlight: 1}
+	limits.ProtoReflect().SetUnknown(field99)
 	return []refusalCase{
 		{"a field that this engine does not know", unknown, codes.InvalidArgument, "field 99"},
 		{"an identity field that this engine does not know", &plugin.RunRequest{Path: "f/plugin/echo", Identity: identity}, codes.InvalidArgument, "identity"},
 		{"a resource field that this engine does not know", &plugin.RunRequest{Path: "f/plugin/echo", Resources: map[string]*plugin.Resource{"f/plugin/r": resource}}, codes.InvalidArgument, `resources["f/plugin/r"]`},
+		{"a limits field that this engine does not know", &plugin.RunRequest{Path: "f/plugin/echo", Limits: limits}, codes.InvalidArgument, "limits: it sets fields"},
 		{"selectors that are JSON null", &plugin.RunRequest{Path: "f/plugin/echo", WriteCapable: []byte(`null`)}, codes.InvalidArgument, "write_capable"},
 		{"selectors followed by a closing bracket", &plugin.RunRequest{Path: "f/plugin/echo", HaltBefore: []byte(`[]]`)}, codes.InvalidArgument, "halt_before"},
 		{"no flow at the path", &plugin.RunRequest{Path: "f/plugin/missing"}, codes.NotFound, ""},
@@ -802,9 +806,6 @@ func TestPluginStagedFields(t *testing.T) {
 		field string
 		req   *plugin.RunRequest
 	}{
-		{"pin", &plugin.RunRequest{Path: "f/plugin/echo", Pin: true}},
-		{"limits", &plugin.RunRequest{Path: "f/plugin/echo", Limits: &plugin.Limits{MaxInFlight: 1}}},
-		{"run_data", &plugin.RunRequest{Path: "f/plugin/echo", RunData: []byte(`{"tenant":"a"}`)}},
 		{"hooks", &plugin.RunRequest{Path: "f/plugin/echo", Hooks: &plugin.Hooks{BrokerId: 1, Token: "t"}}},
 	} {
 		_, err := e.run(c.req)
@@ -817,10 +818,6 @@ func TestPluginStagedFields(t *testing.T) {
 	}{
 		{"engine_recycle_rss", func(m map[string]any) { m["engine_recycle_rss"] = 1 << 30 }},
 		{"drain_timeout_ms", func(m map[string]any) { m["drain_timeout_ms"] = 1000 }},
-		{"bytes_total", func(m map[string]any) { m["bytes_total"] = 1 << 20 }},
-		{"foreign_windmill_origins", func(m map[string]any) { m["foreign_windmill_origins"] = []string{"https://windmill.example.com"} }},
-		{"pool.max_live", func(m map[string]any) { m["pool"] = map[string]any{"max_live": 2} }},
-		{"pool.pin_runs", func(m map[string]any) { m["pool"] = map[string]any{"pin_runs": true} }},
 		{`providers["tenants"]`, func(m map[string]any) { m["providers"] = map[string]any{"tenants": "broker"} }},
 	} {
 		cfg := pluginConfigOf(t, bun, out)
@@ -829,32 +826,6 @@ func TestPluginStagedFields(t *testing.T) {
 		if code != 1 || !strings.Contains(stderr, c.field) {
 			t.Errorf("a configuration with %s: exit %d, stderr %q; want 1, naming the field", c.field, code, stderr)
 		}
-	}
-
-	// A bundle whose manifest names a host plugin.
-	files := map[string]string{"f/plugin/hostplugin.ts": "export default {};\n"}
-	for p, s := range pluginFiles {
-		files[p] = s
-	}
-	withPlugin := filepath.Join(t.TempDir(), "bundle")
-	if err := buildFolder(bun, files, "roots: [{flow: f/plugin/echo}]\nplugin: f/plugin/hostplugin.ts\n", withPlugin); err != nil {
-		t.Fatal(err)
-	}
-	code, stderr := startRefused(t, pluginConfigOf(t, bun, withPlugin))
-	if code != 1 || !strings.Contains(stderr, "host plugin") {
-		t.Errorf("a bundle whose manifest names a host plugin: exit %d, stderr %q; want 1, naming the plugin", code, stderr)
-	}
-
-	// A bundle that passes the check and is then replaced by one with a host
-	// plugin, before the runtime opens it: the engine's test hook replaces
-	// it between the two (swapBundleEnv).
-	replaced := filepath.Join(t.TempDir(), "bundle")
-	if err := os.CopyFS(replaced, os.DirFS(out)); err != nil {
-		t.Fatal(err)
-	}
-	code, stderr = startRefused(t, pluginConfigOf(t, bun, replaced), swapBundleEnv+"="+withPlugin)
-	if code != 1 || !strings.Contains(stderr, "digest") {
-		t.Errorf("a bundle replaced after its check: exit %d, stderr %q; want 1, naming the digest", code, stderr)
 	}
 }
 
@@ -878,17 +849,23 @@ func installPluginTestHooks() {
 	}
 }
 
-// cleanupPluginTests removes the plugin tests' shared bundle.
+// cleanupPluginTests removes the plugin tests' shared bundles.
 func cleanupPluginTests() {
 	if pluginBuild.dir != "" {
 		os.RemoveAll(pluginBuild.dir)
+	}
+	if runOptionBuild.dir != "" {
+		os.RemoveAll(runOptionBuild.dir)
 	}
 }
 
 // TestPluginConfigRefusals checks starts that fail without serving: a
 // setting in milliseconds that a duration cannot hold, either way, refuses
-// the start, naming the field; and a socket directory in which go-plugin
-// cannot listen ends the engine with status 1 and no handshake line.
+// the start, naming the field; a socket directory in which go-plugin
+// cannot listen ends the engine with status 1 and no handshake line; and
+// a bundle that passes the engine's check and is then replaced by another
+// before the runtime opens it does not open, since the runtime pins the
+// digest that passed.
 func TestPluginConfigRefusals(t *testing.T) {
 	bun, out := pluginBundle(t)
 	for _, c := range []struct {
@@ -915,6 +892,18 @@ func TestPluginConfigRefusals(t *testing.T) {
 	code, stderr := startRefused(t, pluginConfigOf(t, bun, out), "PLUGIN_UNIX_SOCKET_DIR="+notADir)
 	if code != 1 || !strings.Contains(stderr, "did not start serving") {
 		t.Errorf("a socket directory that is a file: exit %d, stderr %q; want 1, saying that it did not serve", code, stderr)
+	}
+
+	// The engine's test hook replaces the bundle between its check and the
+	// runtime's open (swapBundleEnv), with another bundle.
+	_, other := runOptionBundle(t)
+	replaced := filepath.Join(t.TempDir(), "bundle")
+	if err := os.CopyFS(replaced, os.DirFS(out)); err != nil {
+		t.Fatal(err)
+	}
+	code, stderr = startRefused(t, pluginConfigOf(t, bun, replaced), swapBundleEnv+"="+other)
+	if code != 1 || !strings.Contains(stderr, "digest") {
+		t.Errorf("a bundle replaced after its check: exit %d, stderr %q; want 1, naming the digest", code, stderr)
 	}
 }
 
