@@ -988,13 +988,15 @@ answered by a `host_reply`.
    read it as `wl.run.data`, frozen.
    - **Plugin code only.** Step code reads `undefined`, and so does what
      runs inside a wrapper's `next()`; an inner wrapper reads the data
-     itself. A run without data reads `undefined` too, and so does a run
-     that a plugin hook submits through its host.
+     itself. A run without data reads `undefined` too. A run that a plugin
+     hook submits through its host reads the data given with it, or
+     `undefined` without any, never the hook's.
    - **One run's own.** The engine gives each run's data an id, unique in
-     the engine, and each `invoke` and `host_call` of the run carries it as
-     `run_data_id`. The process keeps the data by that id. So a run that
+     the engine, which each `invoke` and `host_call` of the run carries as
+     `run_data_id`, and the process keeps the data by it. So a run that
      reuses the id of one that has not settled never reads or releases the
-     other's data, and a run without data reads none.
+     other's data. A run without data reads none, also one that a Go hook
+     starts with the context of a run that has data.
    - **Order.** A small frame may leave before a large one that is still
      being sent in parts. So each `invoke` and `host_call` of the run to a
      process carries the data until one that carries it holds its place

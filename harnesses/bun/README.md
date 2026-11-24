@@ -613,7 +613,8 @@ the rules of each hook.
   `around` wrapper serves: the host's `data` run option, or
   `wl.RunOptions.Data`. It is frozen, and `undefined` for a run without
   data, at load, in step code and inside `next()`, where an inner wrapper
-  reads its own. A run that a hook submits through the host has none.
+  reads its own. A run that a hook submits through the host reads its own
+  `data`, or `undefined` without it, never the hook's.
   - The process holds the data until the run has settled. Plugin code
     that runs on past that, or past the end of the connection, reads
     `undefined`.
