@@ -25,11 +25,8 @@ and a Go host launches, pins, checks and supervises it with the package
 - its drain, and the engine's memory trigger;
 - its calls of the host-hooks service on the broker: a request's `hooks`,
   a provider set to `broker`, and `GetRun`;
-- its serving of a request's `pin`, `limits` and `run_data`, and of the
-  configuration's `pool.pin_runs`, `pool.max_live`, `bytes_total`,
-  `foreign_windmill_origins`, `engine_recycle_rss` and `drain_timeout_ms`,
-  and of a bundle whose manifest names a host plugin. Until then each of
-  them refuses the run or the start, naming the field;
+- its serving of the configuration's `engine_recycle_rss` and
+  `drain_timeout_ms`: until then each refuses the start, naming the field;
 - `wl/plugin`'s supervisor, and its serving of a run's Go hooks on the
   broker;
 - the plain gRPC and HTTP adapters;
@@ -181,7 +178,8 @@ flowchart LR
 stops it. Its one flag names its configuration, a JSON file that the host
 writes. It opens the bundle with `wl.Open`, in the module state that the
 bundle's manifest records, and never in host mode, since its host is no Bun
-process.
+process. A host plugin that the manifest names loads with the bundle, and
+the configuration names no plugin of its own.
 
 | Field | What it sets | Default |
 |---|---|---|
@@ -553,9 +551,9 @@ that ends first cancels its run, whose outcome then has no receiver, so
 
 The configuration's `pool` sets a `warm` pool's minimum and maximum, the
 cap per process ([D15](0001-equivalence-contract.md#5-named-deviations)),
-the lag threshold, pinned runs for every run, the recycle triggers and a
-warm start. A `fresh` runtime starts a process for each step and has none
-of them.
+the lag threshold, the bound on live processes, pinned runs for every run,
+the recycle triggers and a warm start. A `fresh` runtime starts a process
+for each step and has none of them.
 
 A request's `pin` and `limits` set one run's affinity and limits.
 Their rules are the pool's
