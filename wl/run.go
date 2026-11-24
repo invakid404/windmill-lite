@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/engine"
@@ -548,9 +549,10 @@ func (x *recorder) released(inv string, _ []facade.Record) {
 
 // runData returns a copy of a run's data (RunOptions.Data) as the frames
 // carry it: zero for none (nil, JSON whitespace alone, or JSON null), or
-// an error for data that is not JSON. The copy is the run's own, so a
-// caller may reuse its buffer once Run returns, while the run's late
-// frames still carry the data.
+// an error for data that is not JSON or not UTF-8, which a harness would
+// refuse as a broken frame. The copy is the run's own, so a caller may
+// reuse its buffer once Run returns, while the run's late frames still
+// carry the data.
 func runData(data json.RawMessage) (jsonval.Value, error) {
 	// Only JSON's own whitespace: anything else around the value, such as
 	// a no-break space, is not JSON.
@@ -561,17 +563,23 @@ func runData(data json.RawMessage) (jsonval.Value, error) {
 	if !json.Valid(trimmed) {
 		return jsonval.Value{}, errors.New("wl: the run's data is not JSON")
 	}
+	if !utf8.Valid(trimmed) {
+		return jsonval.Value{}, errors.New("wl: the run's data is not UTF-8")
+	}
 	return jsonval.FromProducer(bytes.Clone(trimmed)), nil
 }
 
 // withRunData returns ctx carrying run's data, if it has any, so that the
 // run's invocations and hook calls take it to the processes they reach,
 // the data, and the run's settled callback, which then also releases the
-// data. A run without data keeps ctx and settled as they are.
+// data. A run without data keeps settled as it is, and ctx too, unless ctx
+// carries another run's data, which it then hides.
 func withRunData(ctx context.Context, run string, data jsonval.Value, settled func()) (context.Context, *harness.RunData, func()) {
 	rd := harness.NewRunData(run, data)
 	if rd == nil {
-		return ctx, nil, settled
+		// A run without data: none that ctx carries from another run, as
+		// one that a Go hook starts with its context does, reaches it.
+		return harness.WithRunData(ctx, nil), nil, settled
 	}
 	return harness.WithRunData(ctx, rd), rd, func() {
 		rd.Release()

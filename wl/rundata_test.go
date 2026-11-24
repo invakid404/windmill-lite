@@ -215,6 +215,101 @@ func TestRunDataNeedsPlugin(t *testing.T) {
 	}
 }
 
+// TestRunDataNotInherited: a Go hook of a run with data starts another
+// run, without data, with the context that the hook was given. The other
+// run's around wrapper reads undefined, not the first run's data, which the
+// first run's own wrapper reads.
+func TestRunDataNotInherited(t *testing.T) {
+	bun := bunOrSkip(t)
+	out, runtimeDir := buildContractBundle(t, bun, runDataFiles, runDataContract)
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Pool: PoolOptions{Max: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	type result struct {
+		Around json.RawMessage
+		Step   json.RawMessage
+	}
+	var inner result
+	var innerErr error
+	var once sync.Once
+	hooks := &Hooks{OnModuleStart: func(ctx context.Context, _ RunHandle, _ Site) error {
+		once.Do(func() {
+			res, err := rt.Run(ctx, "f/rd/flow", nil, RunOptions{})
+			if err == nil && res.Status != StatusSuccess {
+				err = fmt.Errorf("status %s: %s", res.Status, res.Result)
+			}
+			if err == nil {
+				err = json.Unmarshal(res.Result, &inner)
+			}
+			innerErr = err
+		})
+		return nil
+	}}
+	res, err := rt.Run(context.Background(), "f/rd/flow", nil, RunOptions{Data: json.RawMessage(`{"tag":"outer"}`), Hooks: hooks})
+	if err != nil || res.Status != StatusSuccess {
+		t.Fatalf("the first run: %v, %+v", err, res)
+	}
+	var outer result
+	if err := json.Unmarshal(res.Result, &outer); err != nil {
+		t.Fatal(err)
+	}
+	if innerErr != nil {
+		t.Fatalf("the run the hook started: %v", innerErr)
+	}
+	if !sameJSON(outer.Around, json.RawMessage(`{"tag":"outer"}`)) {
+		t.Errorf("the first run's wrapper read %s, want its data", outer.Around)
+	}
+	if string(inner.Around) != `"undefined"` {
+		t.Errorf("the run that the hook started read %s, want undefined: it has no data", inner.Around)
+	}
+}
+
+// TestRunDataRefusesInvalidUTF8: data with bytes that are not UTF-8 in a
+// JSON string refuses the run before it starts, while another run's step
+// waits at a gate in the runtime's one harness process. That run then
+// succeeds: no broken frame reached the process.
+func TestRunDataRefusesInvalidUTF8(t *testing.T) {
+	bun := bunOrSkip(t)
+	out, runtimeDir := buildContractBundle(t, bun, runDataFiles, runDataContract)
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Pool: PoolOptions{Max: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	entered, open := make(chan struct{}, 1), make(chan struct{})
+	var opened sync.Once
+	openGate := func() { opened.Do(func() { close(open) }) }
+	gate := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		entered <- struct{}{}
+		<-open
+	}))
+	defer gate.Close()
+	defer openGate()
+	args, _ := json.Marshal(map[string]string{"gate": gate.URL})
+	done := make(chan error, 1)
+	go func() {
+		res, err := rt.Run(context.Background(), "f/rd/gated", args, RunOptions{Data: json.RawMessage(`{"k":"ok"}`)})
+		if err == nil && res.Status != StatusSuccess {
+			err = fmt.Errorf("status %s: %s", res.Status, res.Result)
+		}
+		done <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the gated step never reached its gate")
+	}
+	if _, err := rt.Run(context.Background(), "f/rd/flow", nil, RunOptions{Data: json.RawMessage("{\"k\":\"\xff\"}")}); err == nil {
+		t.Error("a run whose data is not UTF-8 started")
+	}
+	openGate()
+	if err := <-done; err != nil {
+		t.Errorf("the run that waited at the gate: %v", err)
+	}
+}
+
 // runDataHookFiles is a folder whose host plugin answers the flow
 // f/rh/flow's step a with an intercept hook, which returns what it reads
 // as wl.run.data, whether the data can be changed, and what the plugin

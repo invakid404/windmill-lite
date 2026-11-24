@@ -253,3 +253,22 @@ func TestRunDataSameRunID(t *testing.T) {
 	b.Release()
 	waitFor(t, "the second run's release", func() bool { return runsHeld(t, p) == 0 })
 }
+
+// TestRunDataAfterRelease: once a run's data is released, a frame of the
+// run to a process that the data never reached carries none: that
+// process's hook reads undefined, and it holds no run's data.
+func TestRunDataAfterRelease(t *testing.T) {
+	first, second := runDataProcess(t), runDataProcess(t)
+	rd := testRunData("run-late", "t-4")
+	if got := mustHookRead(t, first, rd, rd.run); got != `{"tenant":"t-4"}` {
+		t.Fatalf("before the release, the hook read %s, want the run's data", got)
+	}
+	rd.Release()
+	waitFor(t, "the release", func() bool { return runsHeld(t, first) == 0 })
+	if got := mustHookRead(t, second, rd, rd.run); got != `"undefined"` {
+		t.Errorf("after the release, the first frame to another process carried the data: its hook read %s", got)
+	}
+	if n := runsHeld(t, second); n != 0 {
+		t.Errorf("after the release, the other process holds %d runs' data", n)
+	}
+}

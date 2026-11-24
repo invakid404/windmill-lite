@@ -31,7 +31,7 @@ type RunData struct {
 
 	mu sync.Mutex
 	// placed holds the processes to which a frame that carries the data
-	// holds its place on the wire.
+	// holds its place on the wire. Release clears it, and data.
 	placed   map[*Process]bool
 	released bool
 }
@@ -49,9 +49,12 @@ func NewRunData(run string, data jsonval.Value) *RunData {
 
 type runDataKey struct{}
 
-// WithRunData returns ctx with d as its run's data; a nil d returns ctx.
+// WithRunData returns ctx with d as its run's data. A nil d is a run
+// without data: it hides the data that ctx carries, as when a hook of one
+// run starts another with the hook's context, and returns ctx itself when
+// ctx carries none.
 func WithRunData(ctx context.Context, d *RunData) context.Context {
-	if d == nil {
+	if d == nil && RunDataOf(ctx) == nil {
 		return ctx
 	}
 	return context.WithValue(ctx, runDataKey{}, d)
@@ -73,13 +76,18 @@ type runDataSend struct {
 	data jsonval.Value
 }
 
-// take returns what a frame of d's run to p carries; zero for a nil d.
+// take returns what a frame of d's run to p carries; zero for a nil d, and
+// for a released one: the run has settled, and no process gets its data
+// any more.
 func (d *RunData) take(p *Process) runDataSend {
 	if d == nil {
 		return runDataSend{}
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.released {
+		return runDataSend{}
+	}
 	if d.placed[p] {
 		return runDataSend{id: d.id}
 	}
@@ -104,8 +112,10 @@ func (t runDataSend) placedFunc() func() {
 func (t runDataSend) placed() {
 	d := t.d
 	d.mu.Lock()
-	d.placed[t.p] = true
 	released := d.released
+	if !released {
+		d.placed[t.p] = true
+	}
 	d.mu.Unlock()
 	if released {
 		// The run settled while the frame was queued: the process gets
@@ -117,8 +127,9 @@ func (t runDataSend) placed() {
 // Release records that the run has settled, and sends a run_released to
 // every process that a frame carrying the data has reached. A frame that
 // still waits for its place sends one once placed; a process that has
-// ended meanwhile is skipped. Releasing a nil RunData, or a released one,
-// does nothing.
+// ended meanwhile is skipped. It then lets go of the data and of those
+// processes, so a context that outlives the run keeps neither. Releasing a
+// nil RunData, or a released one, does nothing.
 func (d *RunData) Release() {
 	if d == nil {
 		return
@@ -133,6 +144,7 @@ func (d *RunData) Release() {
 	for p := range d.placed {
 		to = append(to, p)
 	}
+	d.data, d.placed = jsonval.Value{}, nil
 	d.mu.Unlock()
 	for _, p := range to {
 		// A process that cannot take the frame has ended, and the data
