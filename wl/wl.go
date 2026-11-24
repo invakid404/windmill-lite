@@ -407,6 +407,12 @@ type Runtime struct {
 	js        *quickjs.Engine
 	fac       *facade.Facade
 	pool      *harness.Pool
+
+	// poolFailure is the function that each failed start of a pool
+	// process is reported to (wlext.OnPoolStartFailure); nil while none is
+	// set.
+	poolFailure atomic.Pointer[func(error)]
+
 	host      *harness.Process // host mode's connection (Options.Host)
 	hostProc  atomic.Pointer[harness.Process]
 	exec      *recorder
@@ -768,6 +774,11 @@ func (rt *Runtime) harness(opts Options) (*harness.Pool, error) {
 		args = append(args, extra...)
 	}
 	cfg := opts.Pool.harnessConfig()
+	cfg.OnStartFailure = func(err error) {
+		if f := rt.poolFailure.Load(); f != nil {
+			(*f)(err)
+		}
+	}
 	cfg.Key = harness.Key{Class: string(ir.ClassBun), Runtime: harness.PinnedBun, Deps: rt.digest, ModuleState: rt.state}
 	cfg.Process = harness.ProcessConfig{
 		Path: path, Args: args, WorkRoot: work, Kind: string(ir.ClassBun), Runtime: harness.PinnedBun,
@@ -916,6 +927,10 @@ func (rt *Runtime) Close() error {
 		rt.mu.Lock()
 		rt.closed = true
 		rt.mu.Unlock()
+		// From here on, a failed start of a pool process finds no function
+		// to report to; one that had already taken it may still call it
+		// (wlext.OnPoolStartFailure).
+		rt.poolFailure.Store(nil)
 		rt.cancelStop(closing)
 		var errs []error
 		if rt.dispatch != nil {

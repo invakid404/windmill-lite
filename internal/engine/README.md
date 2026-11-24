@@ -1586,6 +1586,9 @@ root through `Run` for `jobs/run/f`.
   runtime that starts at once: no default cap delays it. It is detached
   from the call and from the dispatching run. It ends on its own, or when
   the dispatcher closes (`Close`), which cancels what still runs.
+- **Idle.** `Idle` returns a channel that is closed once none of the
+  dispatcher's runs is in flight, through a delayed start too. A run that
+  one in flight dispatches before it ends keeps it open.
 - **Links.** A run's links (its `parent_job`, `root_job` and the parent
   job's runnable path, from the job registry) are taken when the dispatch
   is accepted. So a run that starts after its parent has ended, after

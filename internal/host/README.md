@@ -4,8 +4,9 @@
 [wl](../../wl/README.md) runtime: `Run`, `Cancel` and `GetBuildInfo`.
 `GetRun` answers `UNIMPLEMENTED`, and a request with `hooks` is refused,
 until the engine serves the host's hooks on go-plugin's broker. A `Gate`
-answers gRPC health from the engine's state, Starting or Serving, and
-refuses the calls while the engine starts. The plain gRPC and HTTP adapters
+answers gRPC health from the engine's state, Starting, Serving or
+Draining, and refuses the calls while the engine starts, and new runs
+while it drains. The plain gRPC and HTTP adapters
 are planned ([host adapters](../../docs/design/0009-host-adapters.md)).
 
 This README covers `internal/host`, the Go package
@@ -91,16 +92,21 @@ reason `RUN_NOT_STARTED`, which `wl/plugin`'s `Client.Run` reports as
 ## Health and readiness
 
 `windmill-lite plugin` completes go-plugin's handshake before its runtime
-opens, so the engine serves in two states, which a `Gate` holds
+opens, and can drain, so the engine serves in three states, which a `Gate` holds
 ([health, readiness and drain](../../docs/design/0009-host-adapters.md#health-readiness-and-drain)).
 
 | State | Health | `Run` | `GetBuildInfo`, `Cancel`, `GetRun` |
 |---|---|---|---|
 | `Starting`: the runtime opens, with its warm start | `NOT_SERVING` | `UNAVAILABLE` with the `RUN_NOT_STARTED` detail | `UNAVAILABLE` |
 | `Serving`: after `Gate.Serve` | `SERVING` | the `Server` | the `Server` |
+| `Draining`, for good: after `Gate.Drain` | `NOT_SERVING` | `UNAVAILABLE` (`draining`) with the `RUN_NOT_STARTED` detail; the runs in flight go on | the `Server`, or `UNAVAILABLE` if the drain began while the engine started |
 
 - **`NewGate()`** returns a `Gate` in `Starting`. `Gate.Serve(srv)` moves it
   to `Serving` once, with the `Server` of the opened runtime.
+  `Gate.Drain()` moves it to `Draining` from either, for good.
+- **`Gate.Idle()`** is a channel that closes once no `Run` call that went to
+  the `Server` is in flight. **`Gate.Close()`** ends every `Watch`, each
+  after it has sent the current status.
 - **`Gate.Runner()`** is the `plugin.RunnerServer` that the command
   registers. It sends every call to the `Server` once the engine serves.
 - **`Gate.ServerOptions()`** are the gRPC server options with the
@@ -125,5 +131,13 @@ The tests of this package run the real engine:
 launches its test binary as the engine through `wl/plugin` and calls this
 service over go-plugin's connection. `TestPluginDeadlineFromReceipt` there
 runs a `Server` in its own process, over a runtime of the test bundle, with
-a `Config.Now` that stamps the receipt earlier. The package has no tests of
-its own.
+a `Config.Now` that stamps the receipt earlier.
+
+The package's own tests, in `health_test.go`, run the `Gate`'s health
+interceptor on a fake stream:
+`TestGateWatchSendsEachChange` holds a `Watch`'s first send while the
+`Gate` serves and then drains, and still gets `NOT_SERVING`, `SERVING`,
+`NOT_SERVING`. `TestGateCloseEndsUnknownWatch` ends a `Watch` of another
+name with the `Gate`'s `Close`. `TestGateDrainBeforeServe` checks that a
+`Gate` that drained while the engine started keeps every call from the
+`Runner` that `Serve` then offers.

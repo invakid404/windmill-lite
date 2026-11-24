@@ -880,8 +880,9 @@ directory of its own, and exits once it has reported the outcome.
   Reporter hears `Settled(completed)`.
 - **Replacement.** A process that dies leaves the pool. The pool starts its
   replacements up to `Min` before the Reporters of its invocations hear
-  `Settled(process_exited)`. A failed start is logged, and retried by the
-  next `Execute`.
+  `Settled(process_exited)`. A failed start is logged, retried by the
+  next `Execute`, and passed to `PoolConfig.OnStartFailure` when it is set,
+  which `windmill-lite plugin` uses to drain.
 - **An early exit.** In a pool with settings, a process that exits before
   the pool admits it is a failed start, so it holds no place in the pool.
   A pool without settings admits it, as it always has, and `Start` removes
@@ -1134,6 +1135,7 @@ unattributed warning, and a signature that did not parse. Others hold:
 | `TestPoolDiagnosticsZeroSettings` | Without settings: the writer's `WriteString` called as before, and one process's line not held behind another's |
 | `TestPoolModulesTripBeforeTheNextPick` | No pick after the dispatch that crossed the module threshold goes to that process |
 | `TestPoolOwedReplacementSurvivesAFailedStart` | A replacement whose first start fails is tried again |
+| `TestPoolReportsAFailedStart` | A failed start reaches `OnStartFailure` with the error that `Start` returns |
 | `TestPoolRecyclingProcessServesItsRunsHostCalls` | A host call of a run with an invocation in flight in a process leaving for a trigger, after the pool forgot the run's last process; a run with nothing in flight there waits |
 | `TestPinnedRunStaysOnTaintedProcess`, `TestNoNewPinOnTaintedProcess` (`pin_test.go`) | A pinned run's later invocations on its tainted process, an unpinned run's on the replacement; no new pin on a tainted process, and new pins again once it returns to service |
 | `TestPinHoldsUntilRunEnd`, `TestPinAfterTaintClears` | A tainted or surplus process that a live pin holds does not drain, and drains after `RunEnded` |

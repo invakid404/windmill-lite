@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -349,13 +350,14 @@ func launchPlugin(t *testing.T, cfg map[string]any, env ...string) *pluginEngine
 	}
 }
 
-// launchHeld launches the engine with the configuration cfg and connects to
-// it, with its runtime's open held by the engine's test hook (holdOpenEnv),
-// so it stays in the state Starting until the test calls release.
-func launchHeld(t *testing.T, cfg map[string]any) (e *pluginEngine, release func()) {
+// launchHeld launches the engine with the configuration cfg, and env added
+// to its environment, and connects to it, with its runtime's open held by
+// the engine's test hook (holdOpenEnv), so it stays in the state Starting
+// until the test calls release.
+func launchHeld(t *testing.T, cfg map[string]any, env ...string) (e *pluginEngine, release func()) {
 	t.Helper()
 	file := filepath.Join(t.TempDir(), "release-open")
-	e = connectPlugin(t, cfg, holdOpenEnv+"="+file)
+	e = connectPlugin(t, cfg, append([]string{holdOpenEnv + "=" + file}, env...)...)
 	return e, func() {
 		t.Helper()
 		if err := os.WriteFile(file, nil, 0o600); err != nil {
@@ -877,8 +879,6 @@ func TestPluginStagedFields(t *testing.T) {
 		field string
 		set   func(map[string]any)
 	}{
-		{"engine_recycle_rss", func(m map[string]any) { m["engine_recycle_rss"] = 1 << 30 }},
-		{"drain_timeout_ms", func(m map[string]any) { m["drain_timeout_ms"] = 1000 }},
 		{`providers["tenants"]`, func(m map[string]any) { m["providers"] = map[string]any{"tenants": "broker"} }},
 	} {
 		cfg := pluginConfigOf(t, bun, out)
@@ -929,6 +929,63 @@ var handshakeLine = regexp.MustCompile(`^1\|1\|unix\|[^|]+\|grpc\|\n$`)
 // most 2 minutes (beforeOpen).
 const holdOpenEnv = "WL_TEST_PLUGIN_HOLD_OPEN"
 
+// pidEnv names a file into which the engine's test hook writes its process
+// id, for a test that signals an engine that go-plugin started.
+const pidEnv = "WL_TEST_PLUGIN_PID"
+
+// drainTimerEnv names a directory through which the engine's test hook
+// drives a drain's timer (drainTimer): it writes the duration that the
+// drain asked for into duration, and fires once the test creates expire.
+const drainTimerEnv = "WL_TEST_PLUGIN_DRAIN_TIMER"
+
+// rssTicksEnv names a directory through which the engine's test hook
+// drives the memory trigger's samples (rssTicker): the n-th sample is
+// taken once the test creates tick-n.
+const rssTicksEnv = "WL_TEST_PLUGIN_RSS_TICKS"
+
+// holdAnswerEnv is the id of a run whose Run call the engine's test hook
+// never lets answer (wrapRunner).
+const holdAnswerEnv = "WL_TEST_PLUGIN_HOLD_ANSWER"
+
+// closeMarkEnv names a file that the engine's test hook writes when a
+// drain closes the runtime (beforeClose).
+const closeMarkEnv = "WL_TEST_PLUGIN_CLOSE_MARK"
+
+// holdServeEnv names a directory in which the engine's test hook writes
+// at-serve just before the engine serves, and which holds it there until
+// the test creates release (beforeServe).
+const holdServeEnv = "WL_TEST_PLUGIN_HOLD_SERVE"
+
+// whenFile returns a channel that is closed once path exists, polled every
+// 10 ms.
+func whenFile(path string) <-chan struct{} {
+	ch := make(chan struct{})
+	go func() {
+		for {
+			if _, err := os.Stat(path); err == nil {
+				close(ch)
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+	return ch
+}
+
+// heldAnswer is the Runner server of holdAnswerEnv's hook.
+type heldAnswer struct {
+	plugin.RunnerServer
+	id string
+}
+
+func (h heldAnswer) Run(ctx context.Context, req *plugin.RunRequest) (*plugin.RunResult, error) {
+	res, err := h.RunnerServer.Run(ctx, req)
+	if req.GetId() == h.id {
+		select {}
+	}
+	return res, err
+}
+
 // holdPublishEnv names a file that the engine's test hook writes once its
 // runtime has opened, before it serves; the hook then holds the engine
 // there until its shutdown, at most 2 minutes (beforePublish).
@@ -952,6 +1009,59 @@ func installPluginTestHooks() {
 				if _, err := os.Stat(file); err == nil {
 					return
 				}
+			}
+		}
+	}
+	if file := os.Getenv(pidEnv); file != "" {
+		if err := os.WriteFile(file, []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+			panic(err)
+		}
+	}
+	if dir := os.Getenv(drainTimerEnv); dir != "" {
+		drainTimer = func(d time.Duration) (<-chan time.Time, func()) {
+			// Written whole, then renamed, so the test never reads it half
+			// written.
+			if err := os.WriteFile(filepath.Join(dir, "duration.tmp"), []byte(d.String()), 0o600); err != nil {
+				panic(err)
+			}
+			if err := os.Rename(filepath.Join(dir, "duration.tmp"), filepath.Join(dir, "duration")); err != nil {
+				panic(err)
+			}
+			fired := make(chan time.Time, 1)
+			go func() {
+				<-whenFile(filepath.Join(dir, "expire"))
+				fired <- time.Now()
+			}()
+			return fired, func() {}
+		}
+	}
+	if dir := os.Getenv(rssTicksEnv); dir != "" {
+		rssTicker = func() (<-chan time.Time, func()) {
+			ticks := make(chan time.Time)
+			go func() {
+				for n := 1; ; n++ {
+					<-whenFile(filepath.Join(dir, "tick-"+strconv.Itoa(n)))
+					ticks <- time.Now()
+				}
+			}()
+			return ticks, func() {}
+		}
+	}
+	if id := os.Getenv(holdAnswerEnv); id != "" {
+		wrapRunner = func(r plugin.RunnerServer) plugin.RunnerServer { return heldAnswer{r, id} }
+	}
+	if dir := os.Getenv(holdServeEnv); dir != "" {
+		beforeServe = func() {
+			if err := os.WriteFile(filepath.Join(dir, "at-serve"), nil, 0o600); err != nil {
+				panic(err)
+			}
+			<-whenFile(filepath.Join(dir, "release"))
+		}
+	}
+	if file := os.Getenv(closeMarkEnv); file != "" {
+		beforeClose = func() {
+			if err := os.WriteFile(file, nil, 0o600); err != nil {
+				panic(err)
 			}
 		}
 	}
@@ -996,8 +1106,9 @@ func cleanupPluginTests() {
 }
 
 // TestPluginConfigRefusals checks starts that fail without serving: a
-// setting in milliseconds that a duration cannot hold, either way, refuses
-// the start, naming the field; a socket directory in which go-plugin
+// setting in milliseconds that a duration cannot hold, either way, a
+// negative drain_timeout_ms and a negative engine_recycle_rss refuse the
+// start, naming the field; a socket directory in which go-plugin
 // cannot listen ends the engine with status 1 and no handshake line; and
 // a bundle that passes the engine's check and is then replaced by another
 // before the runtime opens it does not open, since the runtime pins the
@@ -1013,6 +1124,9 @@ func TestPluginConfigRefusals(t *testing.T) {
 		{"pool.lag_threshold_ms", func(m map[string]any) { m["pool"] = map[string]any{"lag_threshold_ms": int64(9223372036855)} }},
 		{"pool.lag_threshold_ms", func(m map[string]any) { m["pool"] = map[string]any{"lag_threshold_ms": int64(-9223372036855)} }},
 		{"pool.recycle_timeout_ms", func(m map[string]any) { m["pool"] = map[string]any{"recycle_timeout_ms": int64(9223372036855)} }},
+		{"drain_timeout_ms", func(m map[string]any) { m["drain_timeout_ms"] = int64(9223372036855) }},
+		{"drain_timeout_ms", func(m map[string]any) { m["drain_timeout_ms"] = -1 }},
+		{"engine_recycle_rss", func(m map[string]any) { m["engine_recycle_rss"] = -1 }},
 	} {
 		cfg := pluginConfigOf(t, bun, out)
 		c.set(cfg)
@@ -1262,10 +1376,12 @@ func shutdown(t *testing.T, e *pluginEngine) {
 // and windmill_lite.v1.Runner, NOT_SERVING while it starts and SERVING once
 // it serves, and List answers the same three; Check of another name answers
 // NOT_FOUND, and Watch of it SERVICE_UNKNOWN; a Watch opened while the
-// engine starts receives NOT_SERVING, then SERVING once the engine serves.
+// engine starts receives NOT_SERVING, then SERVING once the engine serves,
+// then NOT_SERVING once SIGTERM makes it drain.
 func TestPluginHealthMethods(t *testing.T) {
 	bun, out := pluginBundle(t)
-	e, release := launchHeld(t, pluginConfigOf(t, bun, out))
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	e, release := launchHeld(t, pluginConfigOf(t, bun, out), pidEnv+"="+pidFile)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	names := []string{"", "plugin", plugin.Runner_ServiceDesc.ServiceName}
@@ -1311,6 +1427,21 @@ func TestPluginHealthMethods(t *testing.T) {
 		t.Errorf("the Watch opened while the engine starts: next %v, %v; want SERVING", r.GetStatus(), err)
 	}
 	checkAll("once the engine serves", healthpb.HealthCheckResponse_SERVING)
+
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(string(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	if r, err := watch.Recv(); err != nil || r.GetStatus() != healthpb.HealthCheckResponse_NOT_SERVING {
+		t.Errorf("the Watch opened while the engine starts: after SIGTERM %v, %v; want NOT_SERVING", r.GetStatus(), err)
+	}
 }
 
 // TestPluginNonRootFlow checks the path of a flow that the bundle compiled

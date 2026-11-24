@@ -13,9 +13,12 @@ import (
 	"maps"
 	"math"
 	"os"
+	"os/signal"
 	"slices"
 	"strconv"
+	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/hashicorp/go-hclog"
@@ -25,6 +28,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/bundle"
 	"github.com/invakid404/windmill-lite/internal/harness"
 	"github.com/invakid404/windmill-lite/internal/host"
+	"github.com/invakid404/windmill-lite/internal/wlext"
 	"github.com/invakid404/windmill-lite/wl"
 	"github.com/invakid404/windmill-lite/wl/plugin"
 	"github.com/invakid404/windmill-lite/wl/redisstore"
@@ -39,9 +43,10 @@ const pluginUsage = "usage: windmill-lite plugin -config <file>"
 // with the pool's warm start when the configuration asks for it: health
 // answers NOT_SERVING and the Runner calls UNAVAILABLE until the open
 // completes, then SERVING, and windmill_lite.v1.Runner serves until the
-// host stops it. A start that fails, before the handshake or after it,
-// writes its reason to standard error, which go-plugin passes to the
-// host's logger, and exits with status 1.
+// host stops it or the engine drains, which ends with exit status 0. A
+// start that fails, before the handshake or after it, writes its reason to
+// standard error, which go-plugin passes to the host's logger, and exits
+// with status 1.
 func runPlugin(args []string, stderr io.Writer) int {
 	fs := newFlagSet("plugin", stderr)
 	configPath := fs.String("config", "", "the configuration `file`, JSON, which the host writes")
@@ -97,6 +102,11 @@ func runPlugin(args []string, stderr io.Writer) int {
 		return fail(err)
 	}
 	harness.SetLaunchUmask(launch)
+	if cfg.recycleRSS() > 0 {
+		if _, err := currentRSS(); err != nil {
+			return fail(fmt.Errorf("engine_recycle_rss: %w", err))
+		}
+	}
 	// The engine serves in the state Starting while the runtime opens. The
 	// open starts once go-plugin has written its handshake line, so an
 	// open that fails cannot end the engine before the host has its
@@ -110,6 +120,31 @@ func runPlugin(args []string, stderr io.Writer) int {
 	gate := host.NewGate()
 	limit := cfg.maxMessageBytes()
 	srv := &servedRunner{RunnerPlugin: plugin.RunnerPlugin{Runner: gate.Runner()}}
+	var grpcServer atomic.Pointer[grpc.Server]
+	// A drain (ADR 0009, health, readiness and drain) starts on SIGTERM,
+	// on the engine's memory trigger, or when the warm pool fails to start
+	// a process once the engine serves. The first reason starts it. SIGTERM
+	// is caught before go-plugin writes the handshake line, so a host that
+	// has the engine's address can only drain it.
+	// The first reason is reported and makes the Gate drain at once, under
+	// its lock, so a Serve that comes after it never publishes SERVING.
+	drains := make(chan string, 1)
+	var drainOnce sync.Once
+	drain := func(why string) {
+		drainOnce.Do(func() {
+			gate.Drain()
+			fmt.Fprintf(stderr, "windmill-lite plugin: draining: %s\n", why)
+			drains <- why
+		})
+	}
+	sigterm := make(chan os.Signal, 1)
+	signal.Notify(sigterm, syscall.SIGTERM)
+	defer signal.Stop(sigterm)
+	go func() {
+		for range sigterm {
+			drain("SIGTERM")
+		}
+	}()
 	served := make(chan struct{})
 	go func() {
 		defer close(served)
@@ -121,7 +156,9 @@ func runPlugin(args []string, stderr io.Writer) int {
 					beforeHandshake()
 				}
 				o = append(o, grpc.MaxRecvMsgSize(limit), grpc.MaxSendMsgSize(limit))
-				return grpc.NewServer(append(o, gate.ServerOptions()...)...)
+				s := grpc.NewServer(append(o, gate.ServerOptions()...)...)
+				grpcServer.Store(s)
+				return s
 			},
 			Logger: hclog.New(&hclog.LoggerOptions{Name: "windmill-lite", Output: stderr, Level: hclog.Error}),
 		})
@@ -151,17 +188,76 @@ func runPlugin(args []string, stderr io.Writer) int {
 		}
 		opened <- openResult{rt, err}
 	}()
+	// drainStarting drains an engine that has not served: the open gets
+	// the drain's timeout to complete, and its runtime is closed then; past
+	// it, the runtime ends with the process.
+	drainStarting := func(r *openResult) int {
+		if r == nil {
+			timer, stop := drainTimer(cfg.drainTimeout())
+			defer stop()
+			select {
+			case o := <-opened:
+				r = &o
+			case <-served:
+				return 0
+			case <-timer:
+			}
+		}
+		if r != nil {
+			if r.err != nil {
+				return fail(r.err)
+			}
+			if r.rt != nil {
+				if err := r.rt.Close(); err != nil {
+					fmt.Fprintf(stderr, "windmill-lite plugin: %v\n", err)
+				}
+			}
+		}
+		gate.Close()
+		stopServer(grpcServer.Load())
+		return 0
+	}
 	select {
 	case r := <-opened:
 		if r.err != nil {
 			// The process exits, and go-plugin's server with it.
 			return fail(r.err)
 		}
-		if r.rt != nil {
-			defer r.rt.Close()
-			gate.Serve(host.New(host.Config{Runtime: r.rt, Labels: cfg.Labels, ConfigDigest: digest}))
+		if r.rt == nil {
+			<-served
+			break
 		}
-		<-served
+		// A drain that came with the open's result: the engine never
+		// serves.
+		select {
+		case <-drains:
+			return drainStarting(&r)
+		default:
+		}
+		defer r.rt.Close()
+		wlext.OnPoolStartFailure(r.rt, func(err error) {
+			drain("the warm pool failed to start a harness process: " + err.Error())
+		})
+		var runner plugin.RunnerServer = host.New(host.Config{Runtime: r.rt, Labels: cfg.Labels, ConfigDigest: digest})
+		if wrapRunner != nil {
+			runner = wrapRunner(runner)
+		}
+		if beforeServe != nil {
+			beforeServe()
+		}
+		// A drain that has begun keeps the Gate draining: it does not serve,
+		// and the drain below then ends it.
+		gate.Serve(runner)
+		stopRSS := make(chan struct{})
+		defer close(stopRSS)
+		if n := cfg.recycleRSS(); n > 0 {
+			go watchRSS(n, stopRSS, drain, stderr)
+		}
+		select {
+		case <-served:
+		case <-drains:
+			return drainEngine(gate, r.rt, cfg.drainTimeout(), served, grpcServer.Load(), stderr)
+		}
 	case <-served:
 		// Shutdown while the runtime opens, or go-plugin did not serve. An
 		// open that completes within openGrace is closed; past it, the
@@ -176,6 +272,8 @@ func runPlugin(args []string, stderr io.Writer) int {
 			}
 		case <-time.After(openGrace):
 		}
+	case <-drains:
+		return drainStarting(nil)
 	}
 	if !srv.served.Load() {
 		// go-plugin returns without serving when it cannot listen or set
@@ -187,6 +285,160 @@ func runPlugin(args []string, stderr io.Writer) int {
 	// started. The deferred Close then cancels any run left (cause
 	// closing).
 	return 0
+}
+
+// drainEngine ends the drain of an engine whose runtime opened, the Gate
+// draining already, and returns its exit status, 0. The Run calls in
+// flight, then the runs that steps dispatched, go on for up to timeout in
+// all. The runtime then closes, which cancels the runs left: those of Run
+// calls with the cause closing, the dispatched ones as wl's close cancels
+// them. Its calls get answerGrace to answer before the server stops.
+// go-plugin's shutdown call (served) ends the drain at once, the deferred
+// Close of the runtime then closing it.
+func drainEngine(gate *host.Gate, rt *wl.Runtime, timeout time.Duration, served <-chan struct{}, s *grpc.Server, stderr io.Writer) int {
+	timer, stop := drainTimer(timeout)
+	defer stop()
+	ended := true
+	for _, w := range []struct {
+		what string
+		idle func() <-chan struct{}
+	}{
+		{"the Run calls in flight", gate.Idle},
+		{"the runs that steps dispatched", func() <-chan struct{} { return wlext.DispatchIdle(rt) }},
+	} {
+		if !ended {
+			break
+		}
+		idle := w.idle()
+		select {
+		case <-idle:
+			continue
+		default:
+		}
+		fmt.Fprintf(stderr, "windmill-lite plugin: the drain waits for %s\n", w.what)
+		select {
+		case <-idle:
+		case <-timer:
+			ended = false
+		case <-served:
+			return 0
+		}
+	}
+	if ended {
+		fmt.Fprintln(stderr, "windmill-lite plugin: the runs in flight have ended: closing the runtime")
+	} else {
+		fmt.Fprintln(stderr, "windmill-lite plugin: the drain's time is up: closing the runtime, which cancels the runs left")
+	}
+	if beforeClose != nil {
+		beforeClose()
+	}
+	if err := rt.Close(); err != nil {
+		fmt.Fprintf(stderr, "windmill-lite plugin: %v\n", err)
+	}
+	grace := time.NewTimer(answerGrace)
+	defer grace.Stop()
+	select {
+	case <-gate.Idle():
+	case <-grace.C:
+		fmt.Fprintf(stderr, "windmill-lite plugin: a Run call did not answer within %s of the runtime's close\n", answerGrace)
+	case <-served:
+		return 0
+	}
+	gate.Close()
+	stopServer(s)
+	return 0
+}
+
+// answerGrace bounds how long a drained engine waits, after its runtime's
+// close, for the Run calls in flight to answer.
+const answerGrace = 2 * time.Second
+
+// drainTimer returns the channel that fires when a drain's time d is up,
+// and the function that stops it. Tests replace it.
+var drainTimer = func(d time.Duration) (<-chan time.Time, func()) {
+	t := time.NewTimer(d)
+	return t.C, func() { t.Stop() }
+}
+
+// stopServer stops s, the gRPC server that go-plugin serves on, gracefully
+// for at most stopGrace, so that the answers of the calls that returned
+// reach the host, then at once: go-plugin's own streams with the host do
+// not end on their own.
+func stopServer(s *grpc.Server) {
+	if s == nil {
+		return
+	}
+	done := make(chan struct{})
+	go func() {
+		s.GracefulStop()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(stopGrace):
+		s.Stop()
+	}
+}
+
+// stopGrace bounds a drained engine's graceful stop of its server.
+const stopGrace = time.Second
+
+// rssSamples is how many consecutive samples of the engine's resident set
+// at or over engine_recycle_rss start a drain; rssInterval is the time
+// between two samples.
+const (
+	rssSamples  = 2
+	rssInterval = time.Second
+)
+
+// rssTicker returns the channel of the memory trigger's samples, one every
+// rssInterval, and the function that stops it. Tests replace it.
+var rssTicker = func() (<-chan time.Time, func()) {
+	t := time.NewTicker(rssInterval)
+	return t.C, t.Stop
+}
+
+// rssTrigger is the engine's memory trigger: it trips once rssSamples
+// consecutive samples of its resident set reach threshold.
+type rssTrigger struct {
+	threshold int64
+	over      int
+}
+
+// sample takes one sample of the resident set and reports whether the
+// trigger trips.
+func (t *rssTrigger) sample(rss int64) bool {
+	if rss >= t.threshold {
+		t.over++
+	} else {
+		t.over = 0
+	}
+	return t.over >= rssSamples
+}
+
+// watchRSS samples the engine's resident set every rssInterval until stop
+// closes, and starts a drain once the trigger of threshold trips. A sample
+// that cannot be read is reported and ends the sampling.
+func watchRSS(threshold int64, stop <-chan struct{}, drain func(string), stderr io.Writer) {
+	t := rssTrigger{threshold: threshold}
+	tick, stopTick := rssTicker()
+	defer stopTick()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-tick:
+		}
+		rss, err := currentRSS()
+		if err != nil {
+			fmt.Fprintf(stderr, "windmill-lite plugin: engine_recycle_rss: %v\n", err)
+			return
+		}
+		if t.sample(rss) {
+			drain(fmt.Sprintf("the engine's resident set, %d bytes, reached engine_recycle_rss, %d bytes, on %d consecutive samples", rss, threshold, rssSamples))
+			return
+		}
+	}
 }
 
 // openGrace is how long an engine whose shutdown comes while its runtime
@@ -240,6 +492,18 @@ var beforeOpen func()
 // between the runtime's open and its serving. Tests use it to stop the
 // engine there; it is nil otherwise.
 var beforePublish func(stopped <-chan struct{})
+
+// wrapRunner, when set, wraps the Runner server that the engine serves.
+// Tests use it to hold a Run call's answer; it is nil otherwise.
+var wrapRunner func(plugin.RunnerServer) plugin.RunnerServer
+
+// beforeServe, when set, is called just before the engine serves. Tests
+// use it to hold the engine there; it is nil otherwise.
+var beforeServe func()
+
+// beforeClose, when set, is called when a drain closes the runtime. Tests
+// use it to mark that moment; it is nil otherwise.
+var beforeClose func()
 
 // beforeHandshake, when set, is called as go-plugin sets its server up,
 // before it writes its handshake line. Tests use it to delay the handshake;
@@ -395,17 +659,6 @@ func decodePluginConfig(data []byte) (*pluginConfig, error) {
 	if c.Bundle == "" {
 		return nil, errors.New("bundle: required")
 	}
-	for _, f := range []struct {
-		name string
-		set  bool
-	}{
-		{"engine_recycle_rss", c.EngineRecycleRSS != nil},
-		{"drain_timeout_ms", c.DrainTimeoutMS != nil},
-	} {
-		if f.set {
-			return nil, fmt.Errorf("%s: this engine does not serve it yet", f.name)
-		}
-	}
 	for _, name := range slices.Sorted(maps.Keys(c.Providers)) {
 		if c.Providers[name].Broker {
 			return nil, fmt.Errorf("providers[%q]: this engine does not serve broker providers yet", name)
@@ -444,6 +697,12 @@ func decodePluginConfig(data []byte) (*pluginConfig, error) {
 			return nil, err
 		}
 	}
+	if c.EngineRecycleRSS != nil && *c.EngineRecycleRSS < 0 {
+		return nil, errors.New("engine_recycle_rss: not 0 or more")
+	}
+	if c.DrainTimeoutMS != nil && (*c.DrainTimeoutMS < 0 || *c.DrainTimeoutMS > maxMS) {
+		return nil, fmt.Errorf("drain_timeout_ms: not between 0 and %d", maxMS)
+	}
 	if c.PluginTimeoutMS != nil && (*c.PluginTimeoutMS <= 0 || *c.PluginTimeoutMS > maxMS) {
 		return nil, fmt.Errorf("plugin_timeout_ms: not between 1 and %d", maxMS)
 	}
@@ -463,6 +722,27 @@ func decodePluginConfig(data []byte) (*pluginConfig, error) {
 
 // maxInt is the largest int.
 const maxInt = int(^uint(0) >> 1)
+
+// defaultDrainTimeout is how long a drain lets the runs in flight go on
+// when the configuration sets no drain_timeout_ms.
+const defaultDrainTimeout = time.Minute
+
+// drainTimeout is how long a drain lets the runs in flight go on.
+func (c *pluginConfig) drainTimeout() time.Duration {
+	if c.DrainTimeoutMS == nil {
+		return defaultDrainTimeout
+	}
+	return time.Duration(*c.DrainTimeoutMS) * time.Millisecond
+}
+
+// recycleRSS is the engine's resident set, in bytes, at which it drains;
+// zero for none.
+func (c *pluginConfig) recycleRSS() int64 {
+	if c.EngineRecycleRSS == nil {
+		return 0
+	}
+	return *c.EngineRecycleRSS
+}
 
 // maxMS is the largest number of milliseconds that a time.Duration holds:
 // 9,223,372,036,854 ms, about 292 years. A setting in milliseconds beyond

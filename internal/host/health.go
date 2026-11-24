@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"sync"
 
@@ -25,6 +26,10 @@ const (
 	// Serving: the runtime has opened, with its warm start. Health answers
 	// SERVING, and the Runner calls run.
 	Serving
+	// Draining, for good: health answers NOT_SERVING, and a new Run
+	// answers UNAVAILABLE (draining); the runs in flight go on, and the
+	// other Runner calls still go to the Server.
+	Draining
 )
 
 // healthServices are the service names whose health the engine answers
@@ -38,29 +43,114 @@ var healthServices = []string{"", "plugin", plugin.Runner_ServiceDesc.ServiceNam
 type Gate struct {
 	mu    sync.Mutex
 	state State
-	srv   *Server
+	srv   plugin.RunnerServer
+	// history holds every state that the Gate has been in, in order, so
+	// that each Watch sends each change, however close together they come.
+	history []State
 	// changed closes when the state changes, and is then replaced.
 	changed chan struct{}
+	// runs counts the Run calls that went to the Server and have not
+	// returned; idle, when not nil, closes when it reaches zero.
+	runs int
+	idle chan struct{}
+	// closed closes when Close is called, which ends every Watch.
+	closed    chan struct{}
+	closeOnce sync.Once
 }
 
 // NewGate returns a Gate in the state Starting.
 func NewGate() *Gate {
-	return &Gate{changed: make(chan struct{})}
+	return &Gate{history: []State{Starting}, changed: make(chan struct{}), closed: make(chan struct{})}
 }
 
-// Serve makes the engine serve: the Runner calls go to srv, and health
-// answers SERVING, to every open Watch too.
-func (g *Gate) Serve(srv *Server) {
+// Serve makes the engine serve: the Runner calls go to srv, a *Server, and
+// health answers SERVING, to every open Watch too. A Gate that drains
+// already keeps draining, and does not take srv: a drain that began while
+// the engine started answers every call UNAVAILABLE.
+func (g *Gate) Serve(srv plugin.RunnerServer) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.srv, g.state = srv, Serving
+	if g.state == Starting {
+		g.srv, g.state = srv, Serving
+		g.notifyLocked()
+	}
+}
+
+// Drain makes the engine drain, for good: health answers NOT_SERVING, to
+// every open Watch too, and a new Run answers UNAVAILABLE (draining). The
+// Run calls in flight go on.
+func (g *Gate) Drain() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.state != Draining {
+		g.state = Draining
+		g.notifyLocked()
+	}
+}
+
+// Idle returns a channel that is closed once no Run call that went to the
+// Server is in flight: at once if none is.
+func (g *Gate) Idle() <-chan struct{} {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.runs == 0 {
+		ch := make(chan struct{})
+		close(ch)
+		return ch
+	}
+	if g.idle == nil {
+		g.idle = make(chan struct{})
+	}
+	return g.idle
+}
+
+// Close ends every Watch, each after it has sent the current status, so
+// that a server's graceful stop need not wait for them.
+func (g *Gate) Close() {
+	g.closeOnce.Do(func() { close(g.closed) })
+}
+
+// notifyLocked records the new state and tells every open Watch.
+func (g *Gate) notifyLocked() {
+	g.history = append(g.history, g.state)
 	close(g.changed)
 	g.changed = make(chan struct{})
 }
 
+// since returns the states from the i-th of the history on, and the
+// channel that closes at the next change.
+func (g *Gate) since(i int) ([]State, <-chan struct{}) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return slices.Clone(g.history[i:]), g.changed
+}
+
+// beginRun returns the state, and the Server once the engine serves or
+// drains. While it serves, it counts a Run call in flight, which endRun
+// ends.
+func (g *Gate) beginRun() (State, plugin.RunnerServer) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.state == Serving {
+		g.runs++
+	}
+	return g.state, g.srv
+}
+
+// endRun ends a Run call that beginRun counted.
+func (g *Gate) endRun() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.runs--
+	if g.runs == 0 && g.idle != nil {
+		close(g.idle)
+		g.idle = nil
+	}
+}
+
 // current returns the state, the Server once serving, and the channel that
 // closes at the next change.
-func (g *Gate) current() (State, *Server, <-chan struct{}) {
+func (g *Gate) current() (State, plugin.RunnerServer, <-chan struct{}) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.state, g.srv, g.changed
@@ -137,25 +227,45 @@ func (g *Gate) stream(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo
 	ctx := ss.Context()
 	if !known(req.GetService()) {
 		// As gRPC's own health server: the status SERVICE_UNKNOWN, and the
-		// stream stays open.
+		// stream stays open, until Close.
 		if err := ss.SendMsg(&healthpb.HealthCheckResponse{Status: healthpb.HealthCheckResponse_SERVICE_UNKNOWN}); err != nil {
 			return err
 		}
-		<-ctx.Done()
-		return status.FromContextError(ctx.Err()).Err()
+		select {
+		case <-g.closed:
+			return nil
+		case <-ctx.Done():
+			return status.FromContextError(ctx.Err()).Err()
+		}
 	}
-	// Each change of status, from the current one on.
+	// The current status, then each change, in order, from the Gate's
+	// history: a change that comes before this stream has sent the last is
+	// still sent. After Close, the changes recorded so far are the last.
 	sent := healthpb.HealthCheckResponse_UNKNOWN
+	states, _ := g.since(0)
+	next := len(states) - 1
 	for {
-		state, _, changed := g.current()
-		if st := healthOf(state); st != sent {
-			if err := ss.SendMsg(&healthpb.HealthCheckResponse{Status: st}); err != nil {
-				return err
+		states, changed := g.since(next)
+		for _, st := range states {
+			if h := healthOf(st); h != sent {
+				if err := ss.SendMsg(&healthpb.HealthCheckResponse{Status: h}); err != nil {
+					return err
+				}
+				sent = h
 			}
-			sent = st
+		}
+		next += len(states)
+		select {
+		case <-g.closed:
+			if rest, _ := g.since(next); len(rest) > 0 {
+				continue
+			}
+			return nil
+		default:
 		}
 		select {
 		case <-changed:
+		case <-g.closed:
 		case <-ctx.Done():
 			return status.FromContextError(ctx.Err()).Err()
 		}
@@ -165,7 +275,8 @@ func (g *Gate) stream(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo
 // Runner returns the Runner service of the engine: while it starts, Run
 // answers UNAVAILABLE with the RUN_NOT_STARTED detail, and GetBuildInfo
 // and Cancel answer UNAVAILABLE; once it serves, every call goes to the
-// Server.
+// Server. While it drains, Run answers UNAVAILABLE (draining) with the
+// RUN_NOT_STARTED detail, and the other calls go to the Server.
 func (g *Gate) Runner() plugin.RunnerServer {
 	return gatedRunner{g: g}
 }
@@ -180,6 +291,10 @@ type gatedRunner struct {
 // it starts.
 const errStarting = "the engine is starting: its runtime has not opened yet"
 
+// errDraining is the message of a Run that the engine refuses while it
+// drains; draining is host mode's code for that refusal.
+const errDraining = "draining: the engine drains and takes no new runs"
+
 func (r gatedRunner) GetBuildInfo(ctx context.Context, req *plugin.GetBuildInfoRequest) (*plugin.BuildInfo, error) {
 	if _, srv, _ := r.g.current(); srv != nil {
 		return srv.GetBuildInfo(ctx, req)
@@ -188,8 +303,12 @@ func (r gatedRunner) GetBuildInfo(ctx context.Context, req *plugin.GetBuildInfoR
 }
 
 func (r gatedRunner) Run(ctx context.Context, req *plugin.RunRequest) (*plugin.RunResult, error) {
-	if _, srv, _ := r.g.current(); srv != nil {
+	switch state, srv := r.g.beginRun(); state {
+	case Serving:
+		defer r.g.endRun()
 		return srv.Run(ctx, req)
+	case Draining:
+		return nil, refusal(codes.Unavailable, errDraining)
 	}
 	return nil, refusal(codes.Unavailable, errStarting)
 }
