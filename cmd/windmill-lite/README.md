@@ -384,19 +384,22 @@ handshake and serve the `windmill_lite.v1.Runner` gRPC service
 ([internal/host](../../internal/host/README.md)), until the host stops it.
 
 - **Health.** The engine has no health service of its own yet.
-  go-plugin's own answers `SERVING` for the service `plugin` once the
-  engine serves, and knows no other service name.
+  go-plugin's own, which serves once the engine does, answers `SERVING`
+  for the empty service name and for `plugin`, and `NOT_FOUND` for
+  `windmill_lite.v1.Runner`, so `wl/plugin`'s `Health` returns an error.
 - **The handshake.** Started without go-plugin's handshake variables, the
   engine exits with status 1 before it opens anything. go-plugin's
   handshake line is the first line of its standard output.
 - **Sockets.** It sets its umask to `0077` before it opens the bundle, so
-  its socket and the files that it makes have no group or other
-  permission. Each harness process sets the umask that the engine was
-  started with, so steps create files as they do under `wl`.
+  its socket has no group or other permission. Each harness process sets
+  the umask that the engine was started with, so steps create files as
+  they do under `wl`.
+- **Shutdown.** go-plugin's shutdown call, which the host's `Kill` sends,
+  stops the server, which ends the calls in flight and so cancels their
+  runs. The engine then closes the runtime, which cancels any run left
+  with the cause `closing` and removes a temporary data directory.
 - **Signals.** go-plugin ignores SIGINT. SIGTERM ends the engine at once,
-  without a drain. go-plugin's shutdown call, which the host's `Kill`
-  sends, stops the server, and the engine then closes the runtime, which
-  cancels the runs left with the cause `closing`.
+  without a drain, and leaves a temporary data directory behind.
 - **Diagnostics.** The harness processes' output that no step owns, and
   the reason of a start that fails, go to the engine's standard error,
   which go-plugin passes to the host's logger.
@@ -405,7 +408,9 @@ handshake and serve the `windmill_lite.v1.Runner` gRPC service
 
 The configuration is one JSON object, which the host writes. A field that
 the engine does not know refuses the start. Its digest, the SHA-256 of the
-file's bytes, is `config_digest` in `GetBuildInfo`.
+file's bytes, is `config_digest` in `GetBuildInfo`. The engine verifies the
+bundle against its manifest before it opens it, and opens only the bundle
+whose digest passed.
 
 | Field | Value | Default | Meaning |
 |---|---|---|---|
@@ -419,9 +424,9 @@ file's bytes, is `config_digest` in `GetBuildInfo`.
 | `resource_store` | `{"kind": "memory"}`, or `{"kind": "redis", "url_env", "prefix", "allow_eviction"}` | `memory` | The store of the resources that steps write, as `run`'s `-resource-store` and its Redis flags |
 | `identity` | An object of optional strings | windmill-lite's placeholders | The job identity, as `host -identity` takes it |
 | `providers` | An object of `{"value": <JSON>}` by provider name | None | A static answer for each named [provider](../../docs/glossary.md#provider) of the host contract |
-| `plugin_timeout_ms` | A positive number | 60000 | How long a call to the bundle's host plugin waits for its reply |
+| `plugin_timeout_ms` | A number from 1 to 9,223,372,036,854 | 60000 | How long a call to the bundle's host plugin waits for its reply |
 | `read_cache` | `true` or `false` | `false` | As `host -read-cache` |
-| `pool` | An object of `min`, `max`, `cap`, `lag_threshold_ms`, `recycle_timeout_ms`, `recycle` (`rss`, `samples`, `modules`) and `warm_start` | One process, no cap | A warm runtime's pool (`Pool` in [wl](../../wl/README.md#options)) |
+| `pool` | An object of `min`, `max`, `cap`, `lag_threshold_ms`, `recycle_timeout_ms`, `recycle` (`rss`, `samples`, `modules`) and `warm_start` | One process, no cap | A warm runtime's pool (`Pool` in [wl](../../wl/README.md#options)). Its two settings in milliseconds lie between −9,223,372,036,854 and 9,223,372,036,854, which a duration holds |
 | `result_polls_for_all_jobs` | `true` or `false` | `false` | As `host -result-polls-for-all-jobs` |
 | `max_message_bytes` | A positive number | 536870912 | The largest gRPC message that the engine sends or receives |
 | `labels` | An object of strings | None | Names and values that `GetBuildInfo` echoes |
@@ -438,8 +443,9 @@ manifest names a [host plugin](../../docs/glossary.md#host-plugin).
   the name of a variable of the engine's environment. A secret `value`
   refuses the start, naming the field and not the value, and so does a
   store's `url`, which may hold a password: a Redis store gives `url_env`.
-- **Read once.** The engine reads each named variable once, at start, and
-  unsets it. A variable that is not set fails the start, naming it.
+- **Read once.** The engine reads each named variable once, at start,
+  however many references name it, and then unsets it. A variable that is
+  not set fails the start, naming it.
 - **Not repeated.** The value is in no build information and in no line
   of the engine's standard error.
 - **The launch environment.** `wl/plugin` starts the engine with a
@@ -448,7 +454,7 @@ manifest names a [host plugin](../../docs/glossary.md#host-plugin).
 | Exit status | When |
 |---|---|
 | 0 | go-plugin's shutdown call stopped the server. |
-| 1 | The start failed: no go-plugin handshake variables, a configuration that does not decode or that a rule above refuses, a variable that is not set, a bundle that does not open, or a resource store that does not start. |
+| 1 | The start failed: no go-plugin handshake variables, a configuration that does not decode or that a rule above refuses, a variable that is not set, a bundle that does not open, a resource store that does not start, or a go-plugin that did not serve, such as in a socket directory where it cannot listen. |
 | 2 | A usage error |
 
 ## version
@@ -648,13 +654,17 @@ synthetic folders that the test file holds.
 
 | Test | What it shows |
 |---|---|
-| `TestPluginDeadlineOnlyItsRun` | While a run with a later deadline is in flight, one with `deadline_ms` 0 ends `canceled` with the cause `deadline`, and the first succeeds. A run without `deadline_ms`, whose call has no deadline either, runs to its end. |
+| `TestPluginDeadlineOnlyItsRun` | While a run is in its step, which signals its entry and waits for the test's release, one with `deadline_ms` 0 ends `canceled` with the cause `deadline`, and the first, released, succeeds. A run without `deadline_ms`, whose call has no deadline either, runs to its end. |
+| `TestPluginDeadlineFromReceipt` | In the test's own process, a server whose clock stamps the receipt 10 s early ends a run with `deadline_ms` 5000 `canceled` with the cause `deadline`, and one stamped now succeeds. |
 | `TestPluginScriptRun` | A root script's run with `deadline_ms` 0 ends `canceled` with `may_have_mutated` false. A script that fails after a write ends `failure` with `may_have_mutated` true. `pre_write_deadline_ms`, `hooks`, `write_capable` and a trace level refuse a script's run, naming the field, and a script reads the run's own identity. |
 | `TestPluginCancelReason` | `Cancel` ends a run in flight `canceled`, with the cause `canceled` and an error that names the reason and the canceler. An id of no run answers `NOT_FOUND`. |
-| `TestPluginErrorCodes` | `ALREADY_EXISTS` for a second run with the id of a run in flight, `NOT_FOUND` for a path that names no flow or root script, and `INVALID_ARGUMENT` for the request's other refusals, a field that the engine does not know included. |
+| `TestPluginErrorCodes` | `ALREADY_EXISTS` for a second run with the id of a run in its step, `NOT_FOUND` for a path that names no flow or root script, and `INVALID_ARGUMENT` for the request's other refusals: unknown fields, at the top or in `identity` or a resource, and selectors that are `null` or followed by more JSON included. |
+| `TestPluginDispatchedID` | The id of a live run that a step dispatched refuses a run with `ALREADY_EXISTS` and the `RUN_NOT_STARTED` detail, and the dispatched run goes on to its end. |
+| `TestPluginNonRootFlow` | A flow that only a root calls by path runs, as `wl`'s `Runtime.Run` runs it. |
 | `TestPluginRefusalDetail` | Each of those refusals carries the `RUN_NOT_STARTED` detail, so `Client.Run` reports `ErrNotStarted`. A run that started and failed, or was canceled, answers its result. |
-| `TestPluginStagedFields` | A request with `pin`, `limits`, `run_data` or `hooks`, and a configuration with each field that the engine does not serve yet, or a bundle with a host plugin, are refused, naming the field. |
-| `TestPluginSecretsByReference` | A secret's value comes from `value_env` and reaches the step that reads it, but no stderr line or build information. The configuration's digest changes with the reference's name, not with the value. An unset variable, a secret `value` and a store's `url` refuse the start without the value. |
+| `TestPluginStagedFields` | A request with `pin`, `limits`, `run_data` or `hooks`, and a configuration with each field that the engine does not serve yet, or a bundle with a host plugin, are refused, naming the field. A bundle that a test hook replaces with one with a host plugin after its check does not open. |
+| `TestPluginConfigRefusals` | Settings in milliseconds beyond what a duration holds refuse the start, naming the field, and a socket directory that is a file ends the engine with status 1 and no handshake. |
+| `TestPluginSecretsByReference` | A secret's value comes from `value_env` and reaches the step that reads it, but no stderr line or build information. Two variables may name one environment variable. The configuration's digest changes with the reference's name, not with the value. An unset variable, a secret `value` and a store's `url` refuse the start without the value. |
 | `TestPluginSocketPrivate` | Started under the umask `0027`, the engine serves on a socket of mode `0700`, and a step creates a file of mode `0640`. |
 | `TestRunnerResultPolls` | `result_polls_for_all_jobs`, through `Client.Run` on the result-polls fixture: on, the run gets the recorded answers; off, the default, the polls answer 501, which fails the step. |
 | `TestPluginHandshakeFirstLine` | With a warm start, which starts a harness process before the engine serves, go-plugin's handshake line is the first line of the engine's standard output. |

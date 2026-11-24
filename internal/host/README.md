@@ -20,7 +20,8 @@ host's side is [wl/plugin](../../wl/plugin/README.md), whose types
 
 `host.New(host.Config{Runtime, Labels, ConfigDigest})` returns a `*Server`,
 a `plugin.RunnerServer` that `plugin.RunnerPlugin` registers on a gRPC
-server. It never closes the runtime.
+server. It never closes the runtime. `Config.Now`, nil by default, is the
+clock that stamps a request's receipt; tests set it.
 
 | Call | What it does |
 |---|---|
@@ -33,10 +34,10 @@ server. It never closes the runtime.
 | Field | What the run gets |
 |---|---|
 | `id` | The run's job id; empty means a new UUID, which the server makes so that `Cancel` finds the run |
-| `kind`, `path`, `args` | `RunOptions.Kind` (`flow` when empty, or `script`) and `Runtime.Run`'s path and arguments |
-| `deadline_ms` | A deadline of the run's context, counted from the receipt of the request. 0 or less has passed; above 9,223,372,036,854 ms it is the longest duration. Absent means none, and the call's own deadline still ends the call |
+| `kind`, `path`, `args` | `RunOptions.Kind` (`flow` when empty, or `script`) and `Runtime.Run`'s path and arguments. The path of a flow is that of any flow of the bundle, a root or one that a flow calls by path, as `Runtime.Run` takes it |
+| `deadline_ms` | The deadline of the run's context: the receipt of the request plus the budget. 0 or less has passed; above 9,223,372,036,854 ms it is the longest duration. Absent means none, and the call's own deadline still ends the call |
 | `pre_write_deadline_ms` | `RunOptions.PreWriteDeadline`, counted from the receipt |
-| `write_capable`, `halt_before`, `halt_after` | `Hooks.WriteCapable`, `HaltBefore` and `HaltAfter`: each a JSON array of selector objects, whose unknown keys refuse the run |
+| `write_capable`, `halt_before`, `halt_after` | `Hooks.WriteCapable`, `HaltBefore` and `HaltAfter`: each exactly one JSON array of selector objects. JSON `null`, anything after the array, and a selector key that `wl.Selector` does not have refuse the run |
 | `fatal_error_names` | `Hooks.FatalErrorNames` |
 | `intercept` | Host mode's static interceptions: by module id, the result that stands in for every module with that id ([internal/wlext](../wlext/README.md)) |
 | `clock` | `real` or empty: the real clock; `record`: a `wl.RecordClock` |
@@ -50,7 +51,11 @@ server. It never closes the runtime.
 - **Fields that the engine does not serve yet:** `hooks`, `pin`, `limits`
   and `run_data` refuse every run, naming the field.
 - **Fields that the engine does not know,** which a newer host's request
-  can hold, refuse the run, naming their field numbers.
+  can hold, refuse the run, naming their field numbers. So do those of
+  `identity`, and of each value of `resources` and `variables`, naming the
+  field that holds them.
+- **An id that a live job of the runtime has,** such as a run that a step
+  dispatched, refuses the run, through `internal/wlext`'s mark.
 
 ## The result
 
@@ -73,7 +78,7 @@ reason `RUN_NOT_STARTED`, which `wl/plugin`'s `Client.Run` reports as
 
 | Code | When |
 |---|---|
-| `ALREADY_EXISTS` | A run with the id is in flight: one of this server, or a run of the runtime that a step dispatched (`wl.ErrRunInFlight`) |
+| `ALREADY_EXISTS` | A run with the id is in flight: one of this server, or a live job of the runtime, such as a run that a step dispatched (`wl.ErrRunInFlight`) |
 | `NOT_FOUND` | No flow, or no root script, of the bundle has the path (`engine.ErrNoTarget`) |
 | `UNAVAILABLE` | The runtime is closed (`wl.ErrClosed`) |
 | `INVALID_ARGUMENT` | The request's own checks above, and every other error with which `Runtime.Run` refuses a run, such as arguments that are not a JSON object |
@@ -89,4 +94,7 @@ reason `RUN_NOT_STARTED`, which `wl/plugin`'s `Client.Run` reports as
 The tests of this package run the real engine:
 [cmd/windmill-lite](../../cmd/windmill-lite/README.md#plugin-tests)
 launches its test binary as the engine through `wl/plugin` and calls this
-service over go-plugin's connection. The package has no tests of its own.
+service over go-plugin's connection. `TestPluginDeadlineFromReceipt` there
+runs a `Server` in its own process, over a runtime of the test bundle, with
+a `Config.Now` that stamps the receipt earlier. The package has no tests of
+its own.

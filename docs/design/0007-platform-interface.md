@@ -23,9 +23,7 @@ default `fail` policy a step that called an unsupported route fails with
   deletion, generated object keys and presigning, which answer 501;
 - the job routes other than the root lookup, the job reads, flow user
   state, dispatch, the result polls and the flow restart, which answer 501
-  too;
-- the settings of the job identity in the go-plugin adapter (§Job
-  identity).
+  too.
 
 ## Context
 
@@ -117,12 +115,12 @@ as a subflow's flow job whose id it took from its flow's status:
 first answer of these sources, in this order:
 
 1. the run's own values: a Go host's `RunPlatform` ([H13](0008-host-hooks.md#the-hooks)), or the
-   `resources` and `variables` of a go-plugin `RunRequest` (planned);
+   `resources` and `variables` of a go-plugin `RunRequest`;
 2. the run's own providers on a go-plugin host's broker (planned), which
    are the run's hooks and so come before the plugin's;
 3. the host plugin's `resource` and `variable` providers;
 4. the runtime's host values, `wl`'s `Options.Resources` and `Variables`,
-   which the go-plugin adapter's configuration is to fill;
+   which the go-plugin adapter's configuration fills;
 5. the bundle's `data/`;
 6. for a resource, the resource store's entries.
 
@@ -314,7 +312,8 @@ leaves empty takes windmill-lite's placeholder, such as `WM_WORKSPACE`
 
 Host mode takes it as the host SDK's connect option `identity`, which
 reaches the engine as `windmill-lite host -identity`. The go-plugin
-adapter's configuration is to carry the option (planned).
+adapter's configuration carries it as `identity`, and a `RunRequest` its
+run's own as `identity`.
 
 **A workspace per run.** A run may set the identity for itself
 (`RunOptions.Identity`, or a host-mode `run` frame's `identity`): each field

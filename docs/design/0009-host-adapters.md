@@ -305,8 +305,8 @@ A `RunResult` holds:
 | gRPC code | When |
 |---|---|
 | `UNAVAILABLE` | The engine is not serving yet, or it drains (`draining`, as in host mode) |
-| `ALREADY_EXISTS` | A run with that id is in flight |
-| `NOT_FOUND` | No root of the bundle has that path |
+| `ALREADY_EXISTS` | A run with that id is in flight, a run that a step dispatched included |
+| `NOT_FOUND` | No flow, and no root script, of the bundle has that path. A flow that only another flow calls by path runs, as `Runtime.Run` runs it |
 | `INVALID_ARGUMENT` | The engine refuses the request, such as a malformed selector or arguments that are not a JSON object (`refused`, as in host mode) |
 
 `Cancel` is in version 1 because gRPC's own cancellation of a `Run` call

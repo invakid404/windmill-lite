@@ -10,9 +10,11 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"os"
 	"slices"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/go-hclog"
@@ -65,18 +67,26 @@ func runPlugin(args []string, stderr io.Writer) int {
 	}
 	sum := sha256.Sum256(data)
 	digest := hex.EncodeToString(sum[:])
-	if err := cfg.checkBundle(); err != nil {
+	verified, err := cfg.checkBundle()
+	if err != nil {
 		return fail(err)
+	}
+	if afterBundleCheck != nil {
+		afterBundleCheck(cfg.Bundle)
 	}
 	opts, closeStore, err := cfg.options(stderr)
 	if err != nil {
 		return fail(err)
 	}
+	// The runtime opens only the bundle that the check verified: one that
+	// another replaced since does not open.
+	opts.Digest = verified
 	// Deferred first, so it runs after the runtime's Close.
 	defer closeStore()
-	// The engine's sockets, and every file it makes, get no group or other
-	// permission. Each harness process sets the umask that the engine was
-	// started with, so steps create files as they do under wl.
+	// The engine's socket, and the files it creates without a mode of their
+	// own, get no group or other permission. Each harness process sets the
+	// umask that the engine was started with, so steps create files as they
+	// do under wl.
 	launch, err := privateUmask()
 	if err != nil {
 		return fail(err)
@@ -88,19 +98,46 @@ func runPlugin(args []string, stderr io.Writer) int {
 	}
 	defer rt.Close()
 	limit := cfg.maxMessageBytes()
-	srv := host.New(host.Config{Runtime: rt, Labels: cfg.Labels, ConfigDigest: digest})
+	srv := &servedRunner{RunnerPlugin: plugin.RunnerPlugin{Runner: host.New(host.Config{Runtime: rt, Labels: cfg.Labels, ConfigDigest: digest})}}
 	goplugin.Serve(&goplugin.ServeConfig{
 		HandshakeConfig:  plugin.Handshake,
-		VersionedPlugins: plugin.VersionedPlugins(&plugin.RunnerPlugin{Runner: srv}),
+		VersionedPlugins: map[int]goplugin.PluginSet{plugin.ProtocolVersion: {plugin.PluginName: srv}},
 		GRPCServer: func(o []grpc.ServerOption) *grpc.Server {
 			return grpc.NewServer(append(o, grpc.MaxRecvMsgSize(limit), grpc.MaxSendMsgSize(limit))...)
 		},
 		Logger: hclog.New(&hclog.LoggerOptions{Name: "windmill-lite", Output: stderr, Level: hclog.Error}),
 	})
-	// go-plugin's shutdown call, which the host's Kill sends, ended the
-	// server; the deferred Close cancels the runs left (cause closing).
+	if !srv.served.Load() {
+		// go-plugin returns without serving when it cannot listen or set
+		// its server up, having logged why.
+		return fail(errors.New("go-plugin did not start serving"))
+	}
+	// go-plugin's shutdown call, which the host's Kill sends, stopped the
+	// server, which ends the calls in flight and so the runs that they
+	// started. The deferred Close then cancels any run left (cause closing).
 	return 0
 }
+
+// servedRunner is the Runner plugin, which notes that go-plugin set its
+// server up: go-plugin prints its handshake line and serves only after
+// that, and returns from Serve without either when it fails before.
+type servedRunner struct {
+	plugin.RunnerPlugin
+	served atomic.Bool
+}
+
+func (p *servedRunner) GRPCServer(b *goplugin.GRPCBroker, s *grpc.Server) error {
+	if err := p.RunnerPlugin.GRPCServer(b, s); err != nil {
+		return err
+	}
+	p.served.Store(true)
+	return nil
+}
+
+// afterBundleCheck, when set, is called with the bundle's path between its
+// check and the runtime's open. Tests use it to replace the bundle there;
+// it is nil otherwise.
+var afterBundleCheck func(bundle string)
 
 // pluginConfig is the configuration of `windmill-lite plugin` (ADR 0009,
 // the plugin command).
@@ -283,8 +320,16 @@ func decodePluginConfig(data []byte) (*pluginConfig, error) {
 			return nil, err
 		}
 	}
-	if c.PluginTimeoutMS != nil && *c.PluginTimeoutMS <= 0 {
-		return nil, errors.New("plugin_timeout_ms: not positive")
+	if c.PluginTimeoutMS != nil && (*c.PluginTimeoutMS <= 0 || *c.PluginTimeoutMS > maxMS) {
+		return nil, fmt.Errorf("plugin_timeout_ms: not between 1 and %d", maxMS)
+	}
+	if p := c.Pool; p != nil {
+		if p.LagThresholdMS < -maxMS || p.LagThresholdMS > maxMS {
+			return nil, fmt.Errorf("pool.lag_threshold_ms: not between %d and %d", -maxMS, maxMS)
+		}
+		if p.RecycleTimeoutMS < -maxMS || p.RecycleTimeoutMS > maxMS {
+			return nil, fmt.Errorf("pool.recycle_timeout_ms: not between %d and %d", -maxMS, maxMS)
+		}
 	}
 	if c.MaxMessageBytes != nil && (*c.MaxMessageBytes <= 0 || *c.MaxMessageBytes > int64(maxInt)) {
 		return nil, errors.New("max_message_bytes: not a positive int")
@@ -295,18 +340,24 @@ func decodePluginConfig(data []byte) (*pluginConfig, error) {
 // maxInt is the largest int.
 const maxInt = int(^uint(0) >> 1)
 
+// maxMS is the largest number of milliseconds that a time.Duration holds:
+// 9,223,372,036,854 ms, about 292 years. A setting in milliseconds beyond
+// it, either way, would change sign as a duration.
+const maxMS = math.MaxInt64 / int64(time.Millisecond)
+
 // checkBundle refuses a bundle whose manifest names a host plugin, which
 // this engine does not serve over the plugin command yet. It verifies the
-// bundle against its manifest and the digest pin, as wl.Open does again.
-func (c *pluginConfig) checkBundle() error {
+// bundle against its manifest and the digest pin, and returns the digest
+// that passed, which the runtime's open then pins.
+func (c *pluginConfig) checkBundle() (string, error) {
 	v, err := bundle.Verify(c.Bundle, bundle.VerifyOptions{Digest: c.Digest})
 	if err != nil {
-		return err
+		return "", err
 	}
 	if p := v.Manifest.Plugin; p != nil {
-		return fmt.Errorf("bundle: its manifest names the host plugin %s, which this engine does not serve over the plugin command yet", p.Key)
+		return "", fmt.Errorf("bundle: its manifest names the host plugin %s, which this engine does not serve over the plugin command yet", p.Key)
 	}
-	return nil
+	return v.Digest, nil
 }
 
 // maxMessageBytes is the largest gRPC message in either direction.
@@ -348,6 +399,8 @@ func (c *pluginConfig) options(stderr io.Writer) (wl.Options, func(), error) {
 			opts.Resources[path] = wl.Resource{Type: r.ResourceType, Value: r.Value}
 		}
 	}
+	env := envReader{}
+	defer env.unset()
 	if len(c.Variables) > 0 {
 		opts.Variables = make(map[string]wl.Variable, len(c.Variables))
 		for _, path := range slices.Sorted(maps.Keys(c.Variables)) {
@@ -357,7 +410,7 @@ func (c *pluginConfig) options(stderr io.Writer) (wl.Options, func(), error) {
 				value = *v.Value
 			} else {
 				var err error
-				if value, err = fromEnv(v.ValueEnv); err != nil {
+				if value, err = env.read(v.ValueEnv); err != nil {
 					return wl.Options{}, nil, fmt.Errorf("variables[%q].value_env: %w", path, err)
 				}
 			}
@@ -385,7 +438,7 @@ func (c *pluginConfig) options(stderr io.Writer) (wl.Options, func(), error) {
 	}
 	closeStore := func() {}
 	if s := c.ResourceStore; s != nil && s.Kind == "redis" {
-		url, err := fromEnv(s.URLEnv)
+		url, err := env.read(s.URLEnv)
 		if err != nil {
 			return wl.Options{}, nil, fmt.Errorf("resource_store.url_env: %w", err)
 		}
@@ -406,13 +459,29 @@ func (c *pluginConfig) options(stderr io.Writer) (wl.Options, func(), error) {
 	return opts, closeStore, nil
 }
 
-// fromEnv reads the variable name of the engine's environment and unsets
-// it. The error names the variable, never a value.
-func fromEnv(name string) (string, error) {
+// envReader reads the variables of the engine's environment that the
+// configuration names, each once, however many references name it, and
+// unsets each that it read, so no process that the engine starts inherits
+// it.
+type envReader map[string]string
+
+// read returns the value of the variable name. The error names the
+// variable, never a value.
+func (e envReader) read(name string) (string, error) {
+	if v, ok := e[name]; ok {
+		return v, nil
+	}
 	v, ok := os.LookupEnv(name)
 	if !ok {
 		return "", fmt.Errorf("the environment variable %s is not set", strconv.Quote(name))
 	}
-	os.Unsetenv(name)
+	e[name] = v
 	return v, nil
+}
+
+// unset unsets every variable that read read.
+func (e envReader) unset() {
+	for name := range e {
+		os.Unsetenv(name)
+	}
 }

@@ -16,8 +16,7 @@
 //     compares with the release record that it ships.
 //  4. The Client's calls run flows and scripts, and Kill stops the engine.
 //
-// The engine's command that serves this plugin, `windmill-lite plugin`, is
-// planned.
+// The engine's command `windmill-lite plugin` serves this plugin.
 //
 // [hashicorp/go-plugin]: https://github.com/hashicorp/go-plugin
 // [ADR 0009]: https://github.com/invakid404/windmill-lite/blob/main/docs/design/0009-host-adapters.md#the-go-plugin-adapter

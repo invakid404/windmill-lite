@@ -1,7 +1,8 @@
 // Package wlext is what package wl lends the engine's own adapters
 // (internal/host) beyond its public API: the static interceptions that
-// host mode's run frame carries, and a run's trace in the JSON form that a
-// host plugin's run-end hooks receive (ADR 0009, the Runner service). Only
+// host mode's run frame carries, the refusal of an id that a live job of
+// the runtime holds, and a run's trace in the JSON form that a host
+// plugin's run-end hooks receive (ADR 0009, the Runner service). Only
 // packages of this module can import it, so a host that imports wl sees
 // none of it, and a run that does not use it runs as before.
 package wlext
@@ -16,7 +17,7 @@ import (
 type interceptsKey struct{}
 
 // WithStaticIntercepts returns ctx carrying a flow run's static
-// interceptions (ADR 0008 H1, the no-code form): by module id, the result
+// interceptions (ADR 0008, the no-code form): by module id, the result
 // that stands in for every module with that id, as host mode's run frame
 // gives them in its intercept. wl's Runtime.Run reads them for the flow run
 // that it starts with the returned context. An empty map carries none.
@@ -32,6 +33,22 @@ func WithStaticIntercepts(ctx context.Context, results map[string]json.RawMessag
 func StaticIntercepts(ctx context.Context) map[string]json.RawMessage {
 	m, _ := ctx.Value(interceptsKey{}).(map[string]json.RawMessage)
 	return m
+}
+
+type exclusiveKey struct{}
+
+// WithExclusiveID returns ctx marking the run that wl's Runtime.Run starts
+// with it as one whose id no live job of the runtime may hold: Run refuses
+// it with wl.ErrRunInFlight when one does, such as a run that a step
+// dispatched, which Run's own check of the runs it started does not see.
+func WithExclusiveID(ctx context.Context) context.Context {
+	return context.WithValue(ctx, exclusiveKey{}, true)
+}
+
+// ExclusiveID reports whether ctx carries WithExclusiveID's mark.
+func ExclusiveID(ctx context.Context) bool {
+	v, _ := ctx.Value(exclusiveKey{}).(bool)
+	return v
 }
 
 // TraceJSON returns a flow run's trace as JSON, at one of the levels of a

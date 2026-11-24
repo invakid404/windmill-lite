@@ -30,6 +30,8 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 
 	"github.com/invakid404/windmill-lite/internal/bundle"
+	"github.com/invakid404/windmill-lite/internal/host"
+	"github.com/invakid404/windmill-lite/wl"
 	"github.com/invakid404/windmill-lite/wl/plugin"
 )
 
@@ -76,13 +78,39 @@ export async function main(path: string) {
   return statSync(path).mode & 0o777;
 }
 `,
-	"f/plugin/variable.ts": `// Reads the variable f/plugin/secret through the job API, at the
-// platform facade's origin.
-export async function main() {
-  const r = await fetch(` + "`${process.env.BASE_URL}/api/w/${process.env.WM_WORKSPACE}/variables/get_value/f/plugin/secret`" + `, {
+	"f/plugin/variable.ts": `// Reads the variable at path through the job API, at the platform
+// facade's origin.
+export async function main(path: string) {
+  const r = await fetch(` + "`${process.env.BASE_URL}/api/w/${process.env.WM_WORKSPACE}/variables/get_value/${path}`" + `, {
     headers: { Authorization: ` + "`Bearer ${process.env.WM_TOKEN}`" + ` },
   });
   return { status: r.status, value: await r.json() };
+}
+`,
+	"f/plugin/gate.ts": `// Writes entered in dir, then waits until the test writes release there,
+// at most 60 s, and writes left.
+import { existsSync, writeFileSync } from "node:fs";
+export async function main(dir: string) {
+  writeFileSync(dir + "/entered", "");
+  const until = Date.now() + 60_000;
+  while (!existsSync(dir + "/release")) {
+    if (Date.now() > until) throw new Error("not released");
+    await Bun.sleep(10);
+  }
+  writeFileSync(dir + "/left", "");
+  return "released";
+}
+`,
+	"f/plugin/dispatch.ts": `// Dispatches the flow f/plugin/gate with dir through the job API, as
+// runFlowAsync does, and returns the new job's id.
+export async function main(dir: string) {
+  const r = await fetch(` + "`${process.env.BASE_URL}/api/w/${process.env.WM_WORKSPACE}/jobs/run/f/f/plugin/gate`" + `, {
+    method: "POST",
+    headers: { Authorization: ` + "`Bearer ${process.env.WM_TOKEN}`" + `, "Content-Type": "application/json" },
+    body: JSON.stringify({ dir }),
+  });
+  if (r.status !== 201) throw new Error("dispatch answered " + r.status + ": " + (await r.text()));
+  return await r.text();
 }
 `,
 	"f/plugin/sleep.flow/flow.yaml": `{"summary":"one step that sleeps","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/plugin/sleep",` +
@@ -90,14 +118,26 @@ export async function main() {
 	"f/plugin/echo.flow/flow.yaml": `{"summary":"one step that echoes","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/plugin/echo",` +
 		`"input_transforms":{"x":{"type":"javascript","expr":"flow_input.x"}}}}]}}`,
 	"f/plugin/variable.flow/flow.yaml": `{"summary":"one step that reads a variable","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/plugin/variable",` +
-		`"input_transforms":{}}}]}}`,
+		`"input_transforms":{"path":{"type":"static","value":"f/plugin/secret"}}}}]}}`,
+	"f/plugin/gate.flow/flow.yaml": `{"summary":"one step that waits for its release","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/plugin/gate",` +
+		`"input_transforms":{"dir":{"type":"javascript","expr":"flow_input.dir"}}}}]}}`,
+	"f/plugin/parent.flow/flow.yaml": `{"summary":"calls the flow f/plugin/sub by path","value":{"modules":[{"id":"c","value":{"type":"flow","path":"f/plugin/sub",` +
+		`"input_transforms":{"x":{"type":"javascript","expr":"flow_input.x"}}}}]}}`,
+	"f/plugin/sub.flow/flow.yaml": `{"summary":"one step that echoes, called by path","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/plugin/echo",` +
+		`"input_transforms":{"x":{"type":"javascript","expr":"flow_input.x"}}}}]}}`,
 }
 
+// pluginContract's roots leave out f/plugin/sub, a flow that only
+// f/plugin/parent calls.
 const pluginContract = `roots:
   - flow: f/plugin/sleep
   - flow: f/plugin/echo
   - flow: f/plugin/variable
+  - flow: f/plugin/gate
+  - flow: f/plugin/parent
   - script: f/plugin/sleep
+  - script: f/plugin/variable
+  - script: f/plugin/dispatch
   - script: f/plugin/fail_after_write
   - script: f/plugin/identity
   - script: f/plugin/file_mode
@@ -340,6 +380,37 @@ func (e *pluginEngine) mustRun(t *testing.T, req *plugin.RunRequest) *plugin.Run
 
 func ms(v int64) *int64 { return &v }
 
+// newGate returns a directory for the step f/plugin/gate, and the
+// arguments that point the gate flow at it.
+func newGate(t *testing.T) (dir string, args []byte) {
+	t.Helper()
+	dir = t.TempDir()
+	args, err := json.Marshal(map[string]string{"dir": dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir, args
+}
+
+// waitFile waits up to a minute for the file name in dir.
+func waitFile(t *testing.T, dir, name string) {
+	t.Helper()
+	for until := time.Now().Add(time.Minute); time.Now().Before(until); time.Sleep(10 * time.Millisecond) {
+		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+			return
+		}
+	}
+	t.Fatalf("no %s in %s within a minute", name, dir)
+}
+
+// release lets the gate step of dir end.
+func release(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "release"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // checkRefused checks that err is the engine's refusal of a run that did
 // not start: the gRPC code code, a message that names field when it is not
 // empty, and the RUN_NOT_STARTED detail, which makes Client.Run's error
@@ -432,10 +503,11 @@ func startRefused(t *testing.T, cfg map[string]any, env ...string) (int, string)
 }
 
 // TestPluginDeadlineOnlyItsRun checks that a run's deadline ends that run
-// alone (ADR 0009, deadlines and outcomes): while a run with a later
-// deadline is in flight, one with deadline_ms 0 ends canceled with the
-// cause deadline, before any write; the first then succeeds; and a run
-// without deadline_ms, whose call has no deadline either, runs unbounded.
+// alone (ADR 0009, deadlines and outcomes): while a run is in its step,
+// which signals its entry and waits for the test's release, one with
+// deadline_ms 0 ends canceled with the cause deadline, before any write;
+// released, the first then succeeds. A run without deadline_ms, whose call
+// has no deadline either, runs unbounded.
 func TestPluginDeadlineOnlyItsRun(t *testing.T) {
 	bun, out := pluginBundle(t)
 	e := launchPlugin(t, pluginConfigOf(t, bun, out))
@@ -444,23 +516,25 @@ func TestPluginDeadlineOnlyItsRun(t *testing.T) {
 		res *plugin.RunResult
 		err error
 	}
+	dir, args := newGate(t)
 	long := make(chan outcome, 1)
 	go func() {
-		res, err := e.run(&plugin.RunRequest{Id: "long", Path: "f/plugin/sleep", Args: []byte(`{"ms":1500}`), DeadlineMs: ms(60000)})
+		res, err := e.run(&plugin.RunRequest{Id: "long", Path: "f/plugin/gate", Args: args, DeadlineMs: ms(60000)})
 		long <- outcome{res, err}
 	}()
-	time.Sleep(200 * time.Millisecond)
+	waitFile(t, dir, "entered")
 	expired := e.mustRun(t, &plugin.RunRequest{Id: "expired", Path: "f/plugin/sleep", Args: []byte(`{"ms":1}`), DeadlineMs: ms(0)})
 	if expired.GetStatus() != "canceled" || expired.GetCancelCause() != "deadline" || expired.GetMayHaveMutated() {
 		t.Errorf("the run with deadline_ms 0: status %q, cause %q, may_have_mutated %t; want canceled, deadline, false",
 			expired.GetStatus(), expired.GetCancelCause(), expired.GetMayHaveMutated())
 	}
+	release(t, dir)
 	o := <-long
 	if o.err != nil {
 		t.Fatalf("the run in flight: %v", o.err)
 	}
-	if o.res.GetStatus() != "success" || string(o.res.GetResult()) != "1500" {
-		t.Errorf("the run in flight: status %q, result %s; want success, 1500", o.res.GetStatus(), o.res.GetResult())
+	if o.res.GetStatus() != "success" || string(o.res.GetResult()) != `"released"` {
+		t.Errorf("the run in flight: status %q, cause %q, result %s; want success, \"released\"", o.res.GetStatus(), o.res.GetCancelCause(), o.res.GetResult())
 	}
 
 	res, err := e.runner.Run(context.Background(), &plugin.RunRequest{Id: "unbounded", Path: "f/plugin/sleep", Args: []byte(`{"ms":1200}`)})
@@ -469,6 +543,43 @@ func TestPluginDeadlineOnlyItsRun(t *testing.T) {
 	}
 	if res.GetStatus() != "success" || res.GetCancelCause() != "" {
 		t.Errorf("the run without a deadline: status %q, cause %q; want success", res.GetStatus(), res.GetCancelCause())
+	}
+}
+
+// TestPluginDeadlineFromReceipt checks that a hard deadline counts from the
+// engine's receipt of the request, as the pre-write deadline does: with a
+// clock that stamps the receipt 10 s before the server runs the request,
+// a deadline_ms of 5000 has passed when the run starts, so the run ends
+// canceled with the cause deadline, and a run stamped now succeeds. The
+// server runs in this process over a runtime of the test bundle.
+func TestPluginDeadlineFromReceipt(t *testing.T) {
+	bun, out := pluginBundle(t)
+	repo, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt, err := wl.Open(out, wl.Options{Bun: bun, HarnessRuntime: filepath.Join(repo, "harnesses", "bun", "runtime"), EngineVersion: resolveVersion()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	for _, c := range []struct {
+		name   string
+		before time.Duration
+		status string
+		cause  string
+	}{
+		{"stamped 10 s before", 10 * time.Second, "canceled", "deadline"},
+		{"stamped now", 0, "success", ""},
+	} {
+		srv := host.New(host.Config{Runtime: rt, Now: func() time.Time { return time.Now().Add(-c.before) }})
+		res, err := srv.Run(context.Background(), &plugin.RunRequest{Path: "f/plugin/sleep", Args: []byte(`{"ms":300}`), DeadlineMs: ms(5000)})
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if res.GetStatus() != c.status || res.GetCancelCause() != c.cause {
+			t.Errorf("%s: status %q, cause %q; want %q, %q", c.name, res.GetStatus(), res.GetCancelCause(), c.status, c.cause)
+		}
 	}
 }
 
@@ -529,7 +640,7 @@ func TestPluginScriptRun(t *testing.T) {
 // TestPluginCancelReason checks Cancel (ADR 0009, the Runner service): it
 // cancels a run in flight by its id, and the run ends canceled with the
 // cause canceled and a Canceled error that names the reason and the
-// canceler (FX-38); an id of no run in flight answers NOT_FOUND.
+// canceler; an id of no run in flight answers NOT_FOUND.
 func TestPluginCancelReason(t *testing.T) {
 	bun, out := pluginBundle(t)
 	e := launchPlugin(t, pluginConfigOf(t, bun, out))
@@ -584,10 +695,19 @@ type refusalCase struct {
 func refusalCases() []refusalCase {
 	// A request from a newer host, with a field that this engine does not
 	// know.
+	field99 := protowire.AppendVarint(protowire.AppendTag(nil, 99, protowire.VarintType), 1)
 	unknown := &plugin.RunRequest{Path: "f/plugin/echo"}
-	unknown.ProtoReflect().SetUnknown(protowire.AppendVarint(protowire.AppendTag(nil, 99, protowire.VarintType), 1))
+	unknown.ProtoReflect().SetUnknown(field99)
+	identity := &plugin.Identity{Workspace: "ws-plugin"}
+	identity.ProtoReflect().SetUnknown(field99)
+	resource := &plugin.Resource{Type: "t", Value: []byte(`{}`)}
+	resource.ProtoReflect().SetUnknown(field99)
 	return []refusalCase{
 		{"a field that this engine does not know", unknown, codes.InvalidArgument, "field 99"},
+		{"an identity field that this engine does not know", &plugin.RunRequest{Path: "f/plugin/echo", Identity: identity}, codes.InvalidArgument, "identity"},
+		{"a resource field that this engine does not know", &plugin.RunRequest{Path: "f/plugin/echo", Resources: map[string]*plugin.Resource{"f/plugin/r": resource}}, codes.InvalidArgument, `resources["f/plugin/r"]`},
+		{"selectors that are JSON null", &plugin.RunRequest{Path: "f/plugin/echo", WriteCapable: []byte(`null`)}, codes.InvalidArgument, "write_capable"},
+		{"selectors followed by a closing bracket", &plugin.RunRequest{Path: "f/plugin/echo", HaltBefore: []byte(`[]]`)}, codes.InvalidArgument, "halt_before"},
 		{"no flow at the path", &plugin.RunRequest{Path: "f/plugin/missing"}, codes.NotFound, ""},
 		{"no root script at the path", &plugin.RunRequest{Kind: "script", Path: "f/plugin/missing"}, codes.NotFound, ""},
 		{"arguments that are not an object", &plugin.RunRequest{Path: "f/plugin/echo", Args: []byte(`[1]`)}, codes.InvalidArgument, ""},
@@ -599,31 +719,28 @@ func refusalCases() []refusalCase {
 	}
 }
 
-// alreadyExists runs two requests with one id while the first is in
-// flight, and returns the error of the one that was refused. Whichever
-// reaches the engine second is refused; the other succeeds.
+// alreadyExists runs a second request with the id of a run that is in its
+// step, which waits for the test's release, and returns the second's
+// error. The first then succeeds.
 func alreadyExists(t *testing.T, e *pluginEngine) error {
 	t.Helper()
 	type outcome struct {
 		res *plugin.RunResult
 		err error
 	}
+	dir, args := newGate(t)
 	first := make(chan outcome, 1)
 	go func() {
-		res, err := e.run(&plugin.RunRequest{Id: "dup", Path: "f/plugin/sleep", Args: []byte(`{"ms":2000}`)})
+		res, err := e.run(&plugin.RunRequest{Id: "dup", Path: "f/plugin/gate", Args: args})
 		first <- outcome{res, err}
 	}()
-	time.Sleep(200 * time.Millisecond)
-	res, err := e.run(&plugin.RunRequest{Id: "dup", Path: "f/plugin/sleep", Args: []byte(`{"ms":1}`)})
-	o := <-first
-	switch {
-	case err != nil && o.err == nil && o.res.GetStatus() == "success":
-		return err
-	case o.err != nil && err == nil && res.GetStatus() == "success":
-		return o.err
+	waitFile(t, dir, "entered")
+	_, err := e.run(&plugin.RunRequest{Id: "dup", Path: "f/plugin/sleep", Args: []byte(`{"ms":1}`)})
+	release(t, dir)
+	if o := <-first; o.err != nil || o.res.GetStatus() != "success" {
+		t.Errorf("the first run with the id: (%v, %v), want success", o.res, o.err)
 	}
-	t.Fatalf("two runs with one id: (%v, %v) and (%v, %v), want one success and one refusal", o.res, o.err, res, err)
-	return nil
+	return err
 }
 
 // TestPluginErrorCodes checks the gRPC code of each refusal of a serving
@@ -725,6 +842,113 @@ func TestPluginStagedFields(t *testing.T) {
 	if code != 1 || !strings.Contains(stderr, "host plugin") {
 		t.Errorf("a bundle whose manifest names a host plugin: exit %d, stderr %q; want 1, naming the plugin", code, stderr)
 	}
+
+	// A bundle that passes the check and is then replaced by one with a host
+	// plugin, before the runtime opens it: the engine's test hook replaces
+	// it between the two (swapBundleEnv).
+	replaced := filepath.Join(t.TempDir(), "bundle")
+	if err := os.CopyFS(replaced, os.DirFS(out)); err != nil {
+		t.Fatal(err)
+	}
+	code, stderr = startRefused(t, pluginConfigOf(t, bun, replaced), swapBundleEnv+"="+withPlugin)
+	if code != 1 || !strings.Contains(stderr, "digest") {
+		t.Errorf("a bundle replaced after its check: exit %d, stderr %q; want 1, naming the digest", code, stderr)
+	}
+}
+
+// swapBundleEnv names a bundle that the engine's test hook copies over the
+// configured bundle between its check and the runtime's open
+// (afterBundleCheck).
+const swapBundleEnv = "WL_TEST_PLUGIN_SWAP_BUNDLE"
+
+// installPluginTestHooks installs, in the engine that TestMain starts, the
+// hooks that the plugin tests set through the environment.
+func installPluginTestHooks() {
+	if from := os.Getenv(swapBundleEnv); from != "" {
+		afterBundleCheck = func(bundle string) {
+			if err := os.RemoveAll(bundle); err != nil {
+				panic(err)
+			}
+			if err := os.CopyFS(bundle, os.DirFS(from)); err != nil {
+				panic(err)
+			}
+		}
+	}
+}
+
+// cleanupPluginTests removes the plugin tests' shared bundle.
+func cleanupPluginTests() {
+	if pluginBuild.dir != "" {
+		os.RemoveAll(pluginBuild.dir)
+	}
+}
+
+// TestPluginConfigRefusals checks starts that fail without serving: a
+// setting in milliseconds that a duration cannot hold, either way, refuses
+// the start, naming the field; and a socket directory in which go-plugin
+// cannot listen ends the engine with status 1 and no handshake line.
+func TestPluginConfigRefusals(t *testing.T) {
+	bun, out := pluginBundle(t)
+	for _, c := range []struct {
+		field string
+		set   func(map[string]any)
+	}{
+		{"plugin_timeout_ms", func(m map[string]any) { m["plugin_timeout_ms"] = int64(9223372036855) }},
+		{"pool.lag_threshold_ms", func(m map[string]any) { m["pool"] = map[string]any{"lag_threshold_ms": int64(9223372036855)} }},
+		{"pool.lag_threshold_ms", func(m map[string]any) { m["pool"] = map[string]any{"lag_threshold_ms": int64(-9223372036855)} }},
+		{"pool.recycle_timeout_ms", func(m map[string]any) { m["pool"] = map[string]any{"recycle_timeout_ms": int64(9223372036855)} }},
+	} {
+		cfg := pluginConfigOf(t, bun, out)
+		c.set(cfg)
+		code, stderr := startRefused(t, cfg)
+		if code != 1 || !strings.Contains(stderr, c.field+":") {
+			t.Errorf("a configuration with %s out of range: exit %d, stderr %q; want 1, naming the field", c.field, code, stderr)
+		}
+	}
+
+	notADir := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(notADir, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, stderr := startRefused(t, pluginConfigOf(t, bun, out), "PLUGIN_UNIX_SOCKET_DIR="+notADir)
+	if code != 1 || !strings.Contains(stderr, "did not start serving") {
+		t.Errorf("a socket directory that is a file: exit %d, stderr %q; want 1, saying that it did not serve", code, stderr)
+	}
+}
+
+// TestPluginDispatchedID checks that a run whose id a live run that a step
+// dispatched holds is refused (ADR 0009, runs that do not start): a script
+// dispatches the flow f/plugin/gate, whose step signals its entry and waits
+// for the test's release, and returns its id. A request with that id is
+// refused with ALREADY_EXISTS and the RUN_NOT_STARTED detail, and the
+// dispatched run goes on to its end once released.
+func TestPluginDispatchedID(t *testing.T) {
+	bun, out := pluginBundle(t)
+	e := launchPlugin(t, pluginConfigOf(t, bun, out))
+	dir, args := newGate(t)
+	res := e.mustRun(t, &plugin.RunRequest{Kind: "script", Path: "f/plugin/dispatch", Args: args})
+	var child string
+	if err := json.Unmarshal(res.GetResult(), &child); err != nil || res.GetStatus() != "success" || child == "" {
+		t.Fatalf("the dispatch: %s %s (%v)", res.GetStatus(), res.GetResult(), err)
+	}
+	waitFile(t, dir, "entered")
+	_, err := e.run(&plugin.RunRequest{Id: child, Path: "f/plugin/echo", Args: []byte(`{"x":1}`)})
+	checkRefused(t, "a run with the id of a live dispatched run", err, codes.AlreadyExists, child)
+	release(t, dir)
+	waitFile(t, dir, "left")
+}
+
+// TestPluginNonRootFlow checks the path of a flow that the bundle compiled
+// only because a root calls it: Runner runs it as wl's Runtime.Run does,
+// which runs any flow of the bundle, while a path that names no flow
+// answers NOT_FOUND (TestPluginErrorCodes).
+func TestPluginNonRootFlow(t *testing.T) {
+	bun, out := pluginBundle(t)
+	e := launchPlugin(t, pluginConfigOf(t, bun, out))
+	res := e.mustRun(t, &plugin.RunRequest{Path: "f/plugin/sub", Args: []byte(`{"x":7}`)})
+	if res.GetStatus() != "success" || string(res.GetResult()) != "7" {
+		t.Errorf("the flow f/plugin/sub, which only f/plugin/parent calls: %s %s; want success, 7", res.GetStatus(), res.GetResult())
+	}
 }
 
 // TestPluginSecretsByReference checks secrets by reference (ADR 0009, the
@@ -779,6 +1003,21 @@ func TestPluginSecretsByReference(t *testing.T) {
 	third := launchPlugin(t, renamed, env+"_B="+value)
 	if info3, err := third.runner.BuildInfo(context.Background()); err != nil || info3.GetConfigDigest() == info.GetConfigDigest() {
 		t.Errorf("another reference name: config_digest %s (%v), want one other than %s", info3.GetConfigDigest(), err, info.GetConfigDigest())
+	}
+
+	// Two variables may name one environment variable.
+	twice := pluginConfigOf(t, bun, out)
+	twice["variables"] = map[string]any{
+		"f/plugin/secret":  map[string]any{"value_env": env, "is_secret": true},
+		"f/plugin/secret2": map[string]any{"value_env": env, "is_secret": true},
+	}
+	both := launchPlugin(t, twice, env+"="+value)
+	for _, path := range []string{"f/plugin/secret", "f/plugin/secret2"} {
+		args, _ := json.Marshal(map[string]string{"path": path})
+		res := both.mustRun(t, &plugin.RunRequest{Kind: "script", Path: "f/plugin/variable", Args: args})
+		if err := json.Unmarshal(res.GetResult(), &got); err != nil || got.Value != value {
+			t.Errorf("one environment variable named twice, the read of %s: %s %s (%v); want its value", path, res.GetStatus(), res.GetResult(), err)
+		}
 	}
 
 	code, stderr := startRefused(t, cfg)

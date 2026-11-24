@@ -10,7 +10,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"maps"
 	"math"
+	"slices"
 	"sync"
 	"time"
 
@@ -35,6 +38,9 @@ type Config struct {
 	// ConfigDigest is the SHA-256 of the configuration file, in lowercase
 	// hexadecimal, which GetBuildInfo returns.
 	ConfigDigest string
+	// Now is the clock that stamps the receipt of a request, from which
+	// its deadlines count; nil means time.Now. Tests set it.
+	Now func() time.Time
 }
 
 // Server serves windmill_lite.v1.Runner over a wl runtime. Its methods are
@@ -44,6 +50,7 @@ type Server struct {
 
 	rt   *wl.Runtime
 	info *plugin.BuildInfo
+	now  func() time.Time
 
 	// mu guards runs: the cancellation of each run in flight, by its id,
 	// which Cancel finds.
@@ -58,8 +65,13 @@ func New(cfg Config) *Server {
 	for k, v := range cfg.Labels {
 		labels[k] = v
 	}
+	now := cfg.Now
+	if now == nil {
+		now = time.Now
+	}
 	return &Server{
-		rt: cfg.Runtime,
+		rt:  cfg.Runtime,
+		now: now,
 		info: &plugin.BuildInfo{
 			BundleDigest:         bi.BundleDigest,
 			EngineVersion:        bi.EngineVersion,
@@ -90,8 +102,8 @@ func (s *Server) GetBuildInfo(context.Context, *plugin.GetBuildInfoRequest) (*pl
 // gRPC error with the RUN_NOT_STARTED detail (ADR 0009, the Runner
 // service).
 func (s *Server) Run(ctx context.Context, req *plugin.RunRequest) (*plugin.RunResult, error) {
-	// The deadlines count from the receipt of the request.
-	receipt := time.Now()
+	// Both deadlines count from the receipt of the request.
+	receipt := s.now()
 	r, err := mapRequest(req, receipt)
 	if err != nil {
 		return nil, err
@@ -109,12 +121,15 @@ func (s *Server) Run(ctx context.Context, req *plugin.RunRequest) (*plugin.RunRe
 	defer s.unregister(id)
 	if r.deadline != nil {
 		var stop context.CancelFunc
-		ctx, stop = context.WithTimeout(ctx, *r.deadline)
+		ctx, stop = context.WithDeadline(ctx, *r.deadline)
 		defer stop()
 	}
 	if r.intercept != nil {
 		ctx = wlext.WithStaticIntercepts(ctx, r.intercept)
 	}
+	// The id of a live job of the runtime, such as a run that a step
+	// dispatched, refuses the run too.
+	ctx = wlext.WithExclusiveID(ctx)
 	res, err := s.rt.Run(ctx, req.GetPath(), req.GetArgs(), r.opts)
 	if err != nil {
 		return nil, runRefusal(err)
@@ -123,8 +138,8 @@ func (s *Server) Run(ctx context.Context, req *plugin.RunRequest) (*plugin.RunRe
 }
 
 // Cancel cancels a run in flight by its id, with the reason and the
-// canceler that the run's Canceled error names (FX-38). An id of no run in
-// flight answers NOT_FOUND.
+// canceler that the run's Canceled error names. An id of no run in flight
+// answers NOT_FOUND.
 func (s *Server) Cancel(_ context.Context, req *plugin.CancelRequest) (*plugin.CancelResponse, error) {
 	s.mu.Lock()
 	cancel := s.runs[req.GetId()]
@@ -157,8 +172,9 @@ func (s *Server) unregister(id string) {
 // request is a RunRequest as wl takes it.
 type request struct {
 	opts wl.RunOptions
-	// deadline is the run's hard deadline from the receipt, nil for none.
-	deadline *time.Duration
+	// deadline is the run's hard deadline, counted from the receipt; nil
+	// for none.
+	deadline *time.Time
 	// intercept is the flow run's static interceptions, nil for none.
 	intercept map[string]json.RawMessage
 	// trace is the trace level of the result: traceNone, traceSummary or
@@ -240,8 +256,11 @@ func mapRequest(req *plugin.RunRequest, receipt time.Time) (*request, error) {
 		return nil, invalid("kind", fmt.Sprintf("%q is neither %s nor %s", req.GetKind(), wl.KindFlow, wl.KindScript))
 	}
 	if req.DeadlineMs != nil {
-		d := budget(req.GetDeadlineMs())
+		d := receipt.Add(budget(req.GetDeadlineMs()))
 		r.deadline = &d
+	}
+	if err := nestedUnknown(req); err != nil {
+		return nil, err
 	}
 	if id := req.GetIdentity(); id != nil {
 		r.opts.Identity = wl.Identity{
@@ -268,13 +287,8 @@ func mapRequest(req *plugin.RunRequest, receipt time.Time) (*request, error) {
 		if len(f.raw) == 0 {
 			continue
 		}
-		dec := json.NewDecoder(bytes.NewReader(f.raw))
-		dec.DisallowUnknownFields()
-		if err := dec.Decode(f.sels); err != nil {
-			return nil, invalid(f.name, fmt.Sprintf("not a JSON array of selectors: %v", err))
-		}
-		if dec.More() {
-			return nil, invalid(f.name, "more than one JSON value")
+		if err := decodeSelectors(f.raw, f.sels); err != nil {
+			return nil, invalid(f.name, err.Error())
 		}
 	}
 	h.FatalErrorNames = req.GetFatalErrorNames()
@@ -322,6 +336,48 @@ func mapRequest(req *plugin.RunRequest, receipt time.Time) (*request, error) {
 		return nil, invalid("trace", fmt.Sprintf("%q is not none, summary or full", req.GetTrace()))
 	}
 	return r, nil
+}
+
+// decodeSelectors decodes raw, which must be exactly one JSON array of
+// selector objects and nothing after it, into sels. A selector key that
+// wl.Selector does not have refuses it.
+func decodeSelectors(raw []byte, sels *[]wl.Selector) error {
+	if t := bytes.TrimLeft(raw, " \t\r\n"); len(t) == 0 || t[0] != '[' {
+		return errors.New("not a JSON array of selectors")
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(sels); err != nil {
+		return fmt.Errorf("not a JSON array of selectors: %v", err)
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return errors.New("more than one JSON array of selectors")
+	}
+	return nil
+}
+
+// nestedUnknown refuses a request whose identity, resources or variables
+// hold fields that this engine does not know, naming the field that holds
+// them and their field numbers. The staged messages, hooks and limits,
+// refuse whole.
+func nestedUnknown(req *plugin.RunRequest) error {
+	if id := req.GetIdentity(); id != nil && len(id.ProtoReflect().GetUnknown()) > 0 {
+		u := id.ProtoReflect().GetUnknown()
+		return invalid("identity", fmt.Sprintf("it sets fields that this engine does not know (%s)", unknownFields(u)))
+	}
+	for _, path := range slices.Sorted(maps.Keys(req.GetResources())) {
+		if r := req.GetResources()[path]; r != nil && len(r.ProtoReflect().GetUnknown()) > 0 {
+			u := r.ProtoReflect().GetUnknown()
+			return invalid(fmt.Sprintf("resources[%q]", path), fmt.Sprintf("it sets fields that this engine does not know (%s)", unknownFields(u)))
+		}
+	}
+	for _, path := range slices.Sorted(maps.Keys(req.GetVariables())) {
+		if v := req.GetVariables()[path]; v != nil && len(v.ProtoReflect().GetUnknown()) > 0 {
+			u := v.ProtoReflect().GetUnknown()
+			return invalid(fmt.Sprintf("variables[%q]", path), fmt.Sprintf("it sets fields that this engine does not know (%s)", unknownFields(u)))
+		}
+	}
+	return nil
 }
 
 // unknownFields names the field numbers of a message's unknown fields.
