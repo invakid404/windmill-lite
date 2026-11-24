@@ -383,11 +383,12 @@ service ([internal/host](../../internal/host/README.md)) and gRPC health
 while it opens the bundle with [wl](../../wl/README.md), with the pool's
 warm start when the configuration asks for it, until the host stops it.
 
-- **Starting and serving.** Until the open completes, health answers
-  `NOT_SERVING`, `Run` answers `UNAVAILABLE` with the `RUN_NOT_STARTED`
-  detail, and `GetBuildInfo` and `Cancel` answer `UNAVAILABLE`. Then
-  health answers `SERVING` and the calls run. An open that fails writes
-  its reason to standard error and exits with status 1.
+- **Starting and serving.** The open starts once go-plugin's handshake
+  line is written. Until it completes, health answers `NOT_SERVING`, `Run`
+  answers `UNAVAILABLE` with the `RUN_NOT_STARTED` detail, and
+  `GetBuildInfo` and `Cancel` answer `UNAVAILABLE`; then health answers
+  `SERVING` and the calls run. An open that fails writes its reason to
+  standard error and exits with status 1.
 - **Health.** The engine answers `Check`, `List` and `Watch` of
   `grpc.health.v1.Health` itself, for the empty service name, `plugin`
   and `windmill_lite.v1.Runner`. `Check` of another name answers
@@ -403,8 +404,9 @@ warm start when the configuration asks for it, until the host stops it.
 - **Shutdown.** go-plugin's shutdown call, which the host's `Kill` sends,
   stops the server, which ends the calls in flight and so cancels their
   runs. The engine then closes the runtime, which cancels any run left
-  with the cause `closing` and removes a temporary data directory. A
-  runtime that is still opening ends with the process.
+  with the cause `closing` and removes a temporary data directory. An open
+  still running at shutdown gets a second to complete, and its runtime is
+  then closed too; past that second, the runtime ends with the process.
 - **Signals.** go-plugin ignores SIGINT. SIGTERM ends the engine at once,
   without a drain, and leaves a temporary data directory behind.
 - **Diagnostics.** The harness processes' output that no step owns, and
@@ -667,16 +669,17 @@ synthetic folders that the test file holds.
 | `TestPluginCancelReason` | `Cancel` ends a run in flight `canceled`, with the cause `canceled` and an error that names the reason and the canceler. An id of no run answers `NOT_FOUND`. |
 | `TestPluginErrorCodes` | `UNAVAILABLE` for a run while the engine starts. `ALREADY_EXISTS` for a second run with the id of a run in its step. `NOT_FOUND` for a path that names no flow or root script. `INVALID_ARGUMENT` for the request's other refusals, such as unknown fields at the top or in `identity` or a resource, and selectors that are `null` or followed by more JSON. |
 | `TestPluginDispatchedID` | The id of a run that a step dispatched refuses a run with `ALREADY_EXISTS` and the `RUN_NOT_STARTED` detail. One run is dispatched to start in a day, which the test cannot outlast, so it waits for its start; another runs its step. The second then goes on to its end. |
-| `TestPluginServesBundle` | With the runtime's open held by the engine's test hook (`WL_TEST_PLUGIN_HOLD_OPEN`), the engine has completed the handshake, health answers `NOT_SERVING` and `GetBuildInfo` `UNAVAILABLE`. Released, health answers `SERVING`, and `GetBuildInfo` returns `wl`'s build information with the labels, the configuration's digest and the protocol version. |
+| `TestPluginServesBundle` | With the runtime's open held by the engine's test hook (`WL_TEST_PLUGIN_HOLD_OPEN`), the engine has completed the handshake, health answers `NOT_SERVING` and `GetBuildInfo` `UNAVAILABLE`. Released, health answers `SERVING`, and `GetBuildInfo` returns `wl`'s build information with the labels, the configuration's digest and the protocol version. With a Bun that cannot start a harness process, the engine serves without a warm start; with one, it never serves, and exits with status 1 after the handshake, naming the warm start. |
+| `TestPluginShutdownWhileStarting` | go-plugin's shutdown call, with the runtime's open held, ends the engine within 10 seconds. With the runtime opened and the engine held before it serves (`WL_TEST_PLUGIN_HOLD_PUBLISH`), the engine closes the runtime, whose temporary data directory is then gone, before it exits. |
 | `TestPluginHealthMethods` | `Check` and `List` answer the engine's state for the three names, while it starts and once it serves. Another name answers `NOT_FOUND` to `Check` and `SERVICE_UNKNOWN` to `Watch`. A `Watch` opened while the engine starts receives `NOT_SERVING`, then `SERVING`. |
 | `TestPluginNonRootFlow` | A flow that only a root calls by path runs, as `wl`'s `Runtime.Run` runs it. |
 | `TestPluginRefusalDetail` | Each of those refusals, the one while the engine starts included, carries the `RUN_NOT_STARTED` detail, so `Client.Run` reports `ErrNotStarted`. A run that started and failed, or was canceled, answers its result. |
-| `TestPluginStagedFields` | A request with `pin`, `limits`, `run_data` or `hooks`, and a configuration with each field that the engine does not serve yet, or a bundle with a host plugin, are refused, naming the field. A bundle that a test hook replaces with one with a host plugin after its check does not open. |
+| `TestPluginStagedFields` | A request with `pin`, `limits`, `run_data` or `hooks`, and a configuration with each field that the engine does not serve yet, or a bundle with a host plugin, are refused, naming the field. A bundle that a test hook replaces with one with a host plugin after its check does not open: the engine exits with status 1 after the handshake line, which a test hook delays (`WL_TEST_PLUGIN_DELAY_HANDSHAKE`) past the failing open's time. |
 | `TestPluginConfigRefusals` | Settings in milliseconds beyond what a duration holds refuse the start, naming the field, and a socket directory that is a file ends the engine with status 1 and no handshake. |
 | `TestPluginSecretsByReference` | A secret's value comes from `value_env` and reaches the step that reads it, but no stderr line or build information. Two variables may name one environment variable. The configuration's digest changes with the reference's name, not with the value. An unset variable, a secret `value` and a store's `url` refuse the start without the value. |
 | `TestPluginSocketPrivate` | Started under the umask `0027`, the engine serves on a socket of mode `0700`, and a step creates a file of mode `0640`. |
 | `TestRunnerResultPolls` | `result_polls_for_all_jobs`, through `Client.Run` on the result-polls fixture: on, the run gets the recorded answers; off, the default, the polls answer 501, which fails the step. |
-| `TestPluginHandshakeFirstLine` | With a warm start, which starts a harness process before the engine serves, go-plugin's handshake line is the first line of the engine's standard output. |
+| `TestPluginHandshakeFirstLine` | With a configuration whose warm start starts a harness process, go-plugin's handshake line is the first line of the engine's standard output. |
 | `TestPluginFlowRequest` | A flow run's `intercept` stands in for its module, `trace` gives the `summary` and `full` traces of a host plugin's run-end hook, and the run's own `variables` replace the runtime's. |
 
 ### Memory tests

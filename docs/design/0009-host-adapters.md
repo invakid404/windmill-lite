@@ -354,8 +354,8 @@ for the services `""`, `plugin` and `windmill_lite.v1.Runner`.
   `Watch` of one streams `SERVICE_UNKNOWN`, as gRPC's own health server
   does. A `Watch` that is open sends each change of state.
 
-- **Readiness.** The engine completes go-plugin's handshake at once. It
-  serves, `GetBuildInfo` included, only once `wl.Open` has returned and,
+- **Readiness.** The engine completes go-plugin's handshake at once, and
+  starts `wl.Open` once the handshake line is written. It serves, `GetBuildInfo` included, only once `wl.Open` has returned and,
   with the pool's warm start, its minimum of harness processes has started.
   A start that fails writes its reason to standard error, which go-plugin
   passes to the host's logger, and exits with status 1.

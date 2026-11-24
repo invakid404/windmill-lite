@@ -38,12 +38,16 @@ is generated into this package: the message types, such as `RunRequest`,
    client's `Kill`, which then runs before the cleanup.
 4. Connect with the client's `Client`, then call `Dispense(PluginName)`,
    which returns a `*Client`.
-5. Compare `BuildInfo` with the release record that the host ships: at
+5. Wait, within your deadline, until `Health` answers `SERVING`. The
+   engine serves while it opens its bundle: until then health answers
+   `NOT_SERVING`, and `BuildInfo` and `Run` answer `UNAVAILABLE`.
+6. Compare `BuildInfo` with the release record that the host ships: at
    least the bundle digest, the engine version, the Bun version, the
    configuration's digest and the labels.
-6. Run flows and scripts with `Run`.
+7. Run flows and scripts with `Run`.
 
-This example, from `example_test.go`, does the six steps; its `admit`
+This example, from `example_test.go`, does the seven steps. Its
+`waitServing` polls `Health` until the context ends, and its `admit`
 compares those five fields with the release record `want`:
 
 ```go
@@ -70,6 +74,9 @@ if err != nil {
 }
 engine := raw.(*plugin.Client)
 
+if err := waitServing(ctx, engine); err != nil {
+	return err
+}
 info, err := engine.BuildInfo(ctx)
 if err != nil {
 	return err

@@ -908,9 +908,11 @@ func TestPluginStagedFields(t *testing.T) {
 	if err := os.CopyFS(replaced, os.DirFS(out)); err != nil {
 		t.Fatal(err)
 	}
-	// The runtime opens after go-plugin's handshake, so this start fails
-	// after it.
-	code, stderr = startFails(t, pluginConfigOf(t, bun, replaced), swapBundleEnv+"="+withPlugin)
+	// The runtime opens once go-plugin has written its handshake line, so
+	// this start fails after it, however long go-plugin takes to set its
+	// server up: the engine's test hook delays that (delayHandshakeEnv) past
+	// the time that the failing open takes.
+	code, stderr = startFails(t, pluginConfigOf(t, bun, replaced), swapBundleEnv+"="+withPlugin, delayHandshakeEnv+"=500ms")
 	if code != 1 || !strings.Contains(stderr, "digest") {
 		t.Errorf("a bundle replaced after its check: exit %d, stderr %q; want 1, naming the digest", code, stderr)
 	}
@@ -919,7 +921,8 @@ func TestPluginStagedFields(t *testing.T) {
 // startFails starts the engine directly, as go-plugin would, with the
 // configuration cfg and env added to its environment, and returns its exit
 // code and standard error once it exits, at most a minute later. Unlike
-// startRefused, it lets the engine complete go-plugin's handshake first.
+// startRefused, it requires go-plugin's handshake line, as the first line of
+// the engine's standard output, before the start fails.
 func startFails(t *testing.T, cfg map[string]any, env ...string) (int, string) {
 	t.Helper()
 	exe, _ := engineExecutable(t)
@@ -939,13 +942,29 @@ func startFails(t *testing.T, cfg map[string]any, env ...string) (int, string) {
 	if !errors.As(err, &exit) || ctx.Err() != nil {
 		t.Fatalf("the engine exited with %v (context %v), want a failed start\nits standard error:\n%s", err, ctx.Err(), stderr.String())
 	}
+	first, _, _ := strings.Cut(stdout.String(), "\n")
+	if !handshakeLine.MatchString(first + "\n") {
+		t.Errorf("the engine's standard output starts %q, want go-plugin's handshake line before the start fails\nits standard error:\n%s", first, stderr.String())
+	}
 	return exit.ExitCode(), stderr.String()
 }
+
+// handshakeLine matches go-plugin's handshake line on a Unix socket.
+var handshakeLine = regexp.MustCompile(`^1\|1\|unix\|[^|]+\|grpc\|\n$`)
 
 // holdOpenEnv names a file whose creation releases the engine's runtime
 // open: the engine's test hook holds the open until the file exists, at
 // most 2 minutes (beforeOpen).
 const holdOpenEnv = "WL_TEST_PLUGIN_HOLD_OPEN"
+
+// holdPublishEnv names a file that the engine's test hook writes once its
+// runtime has opened, before it serves; the hook then holds the engine
+// there until its shutdown, at most 2 minutes (beforePublish).
+const holdPublishEnv = "WL_TEST_PLUGIN_HOLD_PUBLISH"
+
+// delayHandshakeEnv is a duration by which the engine's test hook delays
+// go-plugin's server setup, and so its handshake line (beforeHandshake).
+const delayHandshakeEnv = "WL_TEST_PLUGIN_DELAY_HANDSHAKE"
 
 // swapBundleEnv names a bundle that the engine's test hook copies over the
 // configured bundle between its check and the runtime's open
@@ -963,6 +982,24 @@ func installPluginTestHooks() {
 				}
 			}
 		}
+	}
+	if file := os.Getenv(holdPublishEnv); file != "" {
+		beforePublish = func(stopped <-chan struct{}) {
+			if err := os.WriteFile(file, nil, 0o600); err != nil {
+				panic(err)
+			}
+			select {
+			case <-stopped:
+			case <-time.After(2 * time.Minute):
+			}
+		}
+	}
+	if d := os.Getenv(delayHandshakeEnv); d != "" {
+		delay, err := time.ParseDuration(d)
+		if err != nil {
+			panic(err)
+		}
+		beforeHandshake = func() { time.Sleep(delay) }
 	}
 	if from := os.Getenv(swapBundleEnv); from != "" {
 		afterBundleCheck = func(bundle string) {
@@ -1121,6 +1158,40 @@ func TestPluginServesBundle(t *testing.T) {
 	case info.GetConfigDigest() != hex.EncodeToString(digest[:]):
 		t.Errorf("config_digest %s, want the SHA-256 of the file, %x", info.GetConfigDigest(), digest)
 	}
+
+	// A Bun that cannot start a harness process: without a warm start, no
+	// harness process starts before a run, so the engine serves; with one,
+	// the open fails, so the engine never serves, and it exits with status
+	// 1, naming the warm start, after go-plugin's handshake.
+	broken := filepath.Join(t.TempDir(), "bun")
+	if err := os.WriteFile(broken, []byte("#!/bin/sh\nexit 3\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	launchPlugin(t, pluginConfigOf(t, broken, out))
+	warm := pluginConfigOf(t, broken, out)
+	warm["pool"] = map[string]any{"min": 1, "warm_start": true}
+	w, releaseWarm := launchHeld(t, warm)
+	watch, err := w.health.Watch(ctx, &healthpb.HealthCheckRequest{Service: plugin.Runner_ServiceDesc.ServiceName})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r, err := watch.Recv(); err != nil || r.GetStatus() != healthpb.HealthCheckResponse_NOT_SERVING {
+		t.Fatalf("a warm start that fails, while the engine starts: %v, %v; want NOT_SERVING", r.GetStatus(), err)
+	}
+	releaseWarm()
+	for {
+		r, err := watch.Recv()
+		if err != nil {
+			break
+		}
+		if r.GetStatus() == healthpb.HealthCheckResponse_SERVING {
+			t.Fatalf("a warm start that fails: the engine serves\nits standard error:\n%s", w.stderr)
+		}
+	}
+	code, stderr := startFails(t, warm)
+	if code != 1 || !strings.Contains(stderr, "warm start") {
+		t.Errorf("a warm start that fails: exit %d, stderr %q; want 1, naming the warm start", code, stderr)
+	}
 }
 
 // waitServing waits up to 2 minutes for e's health to answer SERVING.
@@ -1137,6 +1208,50 @@ func waitServing(t *testing.T, e *pluginEngine) {
 			t.Fatalf("the engine did not serve within 2 minutes (last health %v, %v)\nits standard error:\n%s", st, err, e.stderr)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TestPluginShutdownWhileStarting checks go-plugin's shutdown call, which
+// the host's Kill sends, while the engine starts. With the runtime's open
+// held by the engine's test hook, the engine still exits within 10
+// seconds. With the runtime opened, and the engine held by its test hook
+// before it serves (holdPublishEnv), the engine closes the runtime before
+// it exits: the runtime's temporary data directory is gone.
+func TestPluginShutdownWhileStarting(t *testing.T) {
+	bun, out := pluginBundle(t)
+	held, _ := launchHeld(t, pluginConfigOf(t, bun, out))
+	shutdown(t, held)
+
+	tmp := t.TempDir()
+	marker := filepath.Join(t.TempDir(), "opened")
+	e := connectPlugin(t, pluginConfigOf(t, bun, out), "TMPDIR="+tmp, holdPublishEnv+"="+marker)
+	waitFile(t, filepath.Dir(marker), filepath.Base(marker))
+	if data, err := filepath.Glob(filepath.Join(tmp, "wl-*")); err != nil || len(data) != 1 {
+		t.Fatalf("the opened runtime's data directories in the engine's TMPDIR: %v, %v; want one", data, err)
+	}
+	if st, err := e.runner.Health(context.Background()); err != nil || st != healthpb.HealthCheckResponse_NOT_SERVING {
+		t.Errorf("health before the engine serves: %v, %v; want NOT_SERVING", st, err)
+	}
+	shutdown(t, e)
+	if data, err := filepath.Glob(filepath.Join(tmp, "wl-*")); err != nil || len(data) != 0 {
+		t.Errorf("after the shutdown, the runtime's data directories: %v, %v; want none, removed by its Close", data, err)
+	}
+}
+
+// shutdown sends e go-plugin's shutdown call, as the host's Kill does before
+// it waits 2 seconds and kills the engine, and waits up to 10 seconds for
+// the engine to exit.
+func shutdown(t *testing.T, e *pluginEngine) {
+	t.Helper()
+	rpc, err := e.client.Client()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rpc.Close()
+	for until := time.Now().Add(10 * time.Second); !e.client.Exited(); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(until) {
+			t.Fatalf("the engine did not exit within 10 seconds of the shutdown call\nits standard error:\n%s", e.stderr)
+		}
 	}
 }
 
@@ -1389,9 +1504,8 @@ func TestRunnerResultPolls(t *testing.T) {
 
 // TestPluginHandshakeFirstLine checks that go-plugin's handshake line is the
 // first line of the engine's standard output, which go-plugin reads before
-// anything else: the engine opens the bundle, with a warm start that
-// starts a harness process, before it serves, and writes nothing to
-// standard output meanwhile.
+// anything else, with a configuration whose warm start starts a harness
+// process.
 func TestPluginHandshakeFirstLine(t *testing.T) {
 	bun, out := pluginBundle(t)
 	cfg := pluginConfigOf(t, bun, out)
@@ -1426,7 +1540,7 @@ func TestPluginHandshakeFirstLine(t *testing.T) {
 	}()
 	select {
 	case s := <-line:
-		if !regexp.MustCompile(`^1\|1\|unix\|[^|]+\|grpc\|\n$`).MatchString(s) {
+		if !handshakeLine.MatchString(s) {
 			t.Errorf("the engine's first line of standard output is %q, want go-plugin's handshake line\nits standard error:\n%s", s, stderr.String())
 		}
 	case <-time.After(2 * time.Minute):

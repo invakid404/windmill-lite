@@ -90,7 +90,7 @@ reason `RUN_NOT_STARTED`, which `wl/plugin`'s `Client.Run` reports as
 
 `windmill-lite plugin` completes go-plugin's handshake before its runtime
 opens, so the engine serves in two states, which a `Gate` holds
-(ADR 0009, health, readiness and drain).
+([health, readiness and drain](../../docs/design/0009-host-adapters.md#health-readiness-and-drain)).
 
 | State | Health | `Run` | `GetBuildInfo`, `Cancel`, `GetRun` |
 |---|---|---|---|
