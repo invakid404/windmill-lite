@@ -12,6 +12,7 @@ import (
 
 	"github.com/invakid404/windmill-lite/internal/conformance"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
+	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
 // runLimited runs f/t/main with limits on a goroutine.
@@ -266,5 +267,34 @@ func TestByteBudgetBoundaries(t *testing.T) {
 	}
 	if err := b.Reserve(1); err == nil {
 		t.Fatal("a byte past a full budget")
+	}
+}
+
+// The dispatcher's runs without an executor fail as such, also with a
+// host part that tracks their settlement (SetRuns): each run's end and
+// settlement calls are made once, and nothing panics.
+func TestDispatcherRunsWithoutAnExecutor(t *testing.T) {
+	services := testServices(t)
+	e := openWithPlatform(t, map[string]string{"f/t/main": flowOf(value("a", "1", ""))}, nil, services)
+	d := NewDispatcher(e, nil)
+	defer d.Close(context.Background())
+	var ended, settled atomic.Int32
+	d.SetRuns(func(ctx context.Context, id string) (context.Context, RunLimits, func(), func()) {
+		return ctx, RunLimits{}, func() { ended.Add(1) }, func() { settled.Add(1) }
+	})
+	for _, c := range []struct {
+		kind   platform.DispatchKind
+		target string
+	}{{platform.DispatchScript, "f/t/value"}, {platform.DispatchFlow, "f/t/main"}} {
+		id, err := d.Dispatch(context.Background(), platform.Dispatch{Kind: c.kind, Target: c.target, Args: []byte(`{}`)})
+		if err != nil {
+			t.Fatalf("%s: %v", c.target, err)
+		}
+		if r := waitResult(t, d, id); r.Success || !strings.Contains(string(r.Result), "no step executor") {
+			t.Fatalf("%s without an executor: %+v %s", c.target, r, r.Result)
+		}
+	}
+	if ended.Load() != 2 || settled.Load() != 2 {
+		t.Fatalf("%d end and %d settlement calls for two runs, want 2 and 2", ended.Load(), settled.Load())
 	}
 }

@@ -242,9 +242,11 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 		// rejects, and the job fails with the storage error.
 		return ScriptResult{ID: id, Failed: true, Result: engineError("InternalErr", databaseError(err).Error())}, nil
 	}
-	if held := int64(len(stored)) + int64(storedLen(st.Value)); req.MaxHeldBytes > 0 && held > req.MaxHeldBytes {
+	if req.MaxHeldBytes > 0 {
 		// Latched before the cache could keep the result.
-		rep.latch.Set(heldError(id, held, req.MaxHeldBytes))
+		if held := int64(len(stored)) + int64(storedLen(st.Value)); held > req.MaxHeldBytes {
+			rep.latch.Set(heldError(id, held, req.MaxHeldBytes))
+		}
 	}
 	if key != "" && ttl.stores() && !st.Failed && rep.latch.Err() == nil {
 		// A store that fails leaves the job's result as it is: the
@@ -536,21 +538,27 @@ func (x *Dispatcher) runScript(id, path string, args jsonval.Value, l parentLink
 	req := ScriptRequest{ID: id, Path: path, Args: args, Exec: x.exec, ParentJob: l.job, RootJob: l.root, ParentPath: l.path,
 		MaxHeldBytes: limits.MaxHeldBytes, Bytes: limits.Bytes, ByteTotal: limits.ByteTotal}
 	var s *RunSettlement
-	if settled != nil {
+	exec := req.Exec
+	if exec == nil {
+		exec = x.e.exec
+	}
+	if settled != nil && exec != nil {
 		// A script job has its own one invocation, which settles it.
+		// Without an executor, RunScript refuses the job, as it would
+		// without the tracking.
 		s = NewRunSettlement(settled)
-		exec := req.Exec
-		if exec == nil {
-			exec = x.e.exec
-		}
 		req.Exec = trackingExec{inner: exec, settle: s}
 	}
 	r, err := x.e.RunScript(ctx, req)
 	if ended != nil {
 		ended()
 	}
-	if s != nil {
+	switch {
+	case s != nil:
 		s.End()
+	case settled != nil:
+		// A job that did not start never settles on its own.
+		settled()
 	}
 	if err != nil {
 		return platform.JobResult{Result: storedText(engineError("InternalErr", err.Error()))}
