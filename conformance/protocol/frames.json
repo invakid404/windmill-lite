@@ -772,6 +772,15 @@
       "payload": "{\"t\":\"run\",\"id\":\"r4\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{}}"
     },
     {
+      "case": "run-identity",
+      "title": "a run with its own job identity, a raw object, after every other field",
+      "message_text": "{\"identity\":{\"workspace\":\"ws-a\",\"username\":\"alice\"},\"clock\":\"record\",\"t\":\"run\",\"id\":\"r6\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{}}",
+      "raw": {
+        "identity": "{\"workspace\":\"ws-a\",\"username\":\"alice\"}"
+      },
+      "payload": "{\"t\":\"run\",\"id\":\"r6\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"clock\":\"record\",\"identity\":{\"workspace\":\"ws-a\",\"username\":\"alice\"}}"
+    },
+    {
       "case": "run-halts",
       "title": "a run with its own halts: selectors before or after whose modules the run ends halted (H8), after its write-capable selectors in the canonical order",
       "message_text": "{\"t\":\"run\",\"id\":\"r5\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"fatal_error_names\":[\"HostFatal\"],\"halt_after\":[{\"flow\":\"f/w1/flow\",\"module\":\"a\"}],\"halt_before\":[{\"flow\":\"f/w1/flow\",\"module\":\"b\",\"occurrence\":1}],\"write_capable\":[{\"module\":\"b\"}]}",
@@ -1864,6 +1873,14 @@
       "title": "a run's clock is real or record",
       "frames": [
         "{\"t\":\"run\",\"id\":\"r4\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"clock\":\"fast\"}"
+      ],
+      "error": "bad_field"
+    },
+    {
+      "case": "run-identity-not-object",
+      "title": "a run's identity is an object",
+      "frames": [
+        "{\"t\":\"run\",\"id\":\"r6\",\"kind\":\"flow\",\"path\":\"f/w1/flow\",\"args\":{},\"identity\":\"ws-a\"}"
       ],
       "error": "bad_field"
     },

@@ -583,7 +583,7 @@ The engine gives each step its job identity, from which
 | `WM_FLOW_JOB_ID`, `WM_ROOT_FLOW_JOB_ID`, `WM_ROOT_JOB_ID` | The run's id; a dispatched run's two root ids follow its links ([A dispatched flow](#a-dispatched-flow)) |
 | `WM_FLOW_PATH`, `WM_FLOW_STEP_ID`, `WM_JOB_PATH`, `WM_STATE_PATH` | The flow's path, the module id, the job path, the state path |
 | `WM_TOKEN` | A fresh token |
-| The host configuration | `Config.Host` and `Config.Workspace` |
+| The host configuration | `Config.Host` and `Config.Workspace`, under the run's own (`RunRequest.Host`, `ScriptRequest.Host`), field by field. Each invocation carries the result as `Invocation.Host`, from which the facade scopes its job lookups |
 
 A step in a loop body takes its child flow's job id, innermost scope and
 path. A collapsed iteration's step takes its loop's step id and the job
@@ -1460,7 +1460,7 @@ client ([JE-20](../../docs/semantics/expressions.md#je-20)):
 |---|---|---|
 | `variable(path)` | The variable's value; a secret's plaintext | Throws the API's error text |
 | `resource(path)` | The resource, read as the stock client reads it, without a job id | Throws the API's error text |
-| `flow_user_state(key)` | The value stored at `key` for the run's root, as the API's read gives it; JSON `null` for a missing key ([WA-14](../../docs/semantics/client-api.md#wa-14)) | |
+| `flow_user_state(key)` | The value stored at `key` for the run's root, as the API's read gives it; JSON `null` for a missing key ([WA-14](../../docs/semantics/client-api.md#wa-14)), and for a root of another workspace than the run's | |
 
 Which of the client's reads Windmill's `resource()` helper uses is not in
 the reference; the engine uses the read without a job id.
@@ -1589,6 +1589,21 @@ root through `Run` for `jobs/run/f`.
   job's runnable path, from the job registry) are taken when the dispatch
   is accepted. So a run that starts after its parent has ended, after
   `scheduled_in_secs` or at once, keeps them.
+- **An id of another workspace.** With the services' own job registry,
+  `Run` and `RunScript` refuse a run whose id a job of another workspace
+  holds, live or ended and kept (`platform.BeginExclusive`), before it
+  starts. A host's registry registers the run as it always did.
+- **The services a workspace needs.** They also refuse a run in a
+  workspace other than the engine's configured one (`Config.Host`,
+  `Config.Workspace`) when the engine's services keep jobs or flow user
+  state in a host's registry or store (`platform.Services.OwnsJobs`). A run
+  in the engine's own workspace runs whatever its services, as it always
+  did, and an engine with no services admits every run.
+- **Links to another workspace.** With the services' own job registry, a
+  parent of another workspace than the dispatching run's is as unknown:
+  its path is not taken. The ids stay as
+  sent, as an unknown id's do, and `flow_user_state()` reads null through
+  a root of another workspace.
 - **Result polls.** It answers the result polls for its runs. The record
   of a completed run is kept while the dispatching step's root lives in the
   registry, and swept after.
@@ -1616,11 +1631,11 @@ is accepted, and the run starts with the arguments without it ([FX-48/d](../../d
 A run renders the record that `GET jobs_u/get/{id}` answers for each job
 of its tree while it lives, and the arguments that
 `GET jobs_u/get_args/{id}` answers
-([WA-19](../../docs/semantics/client-api.md#wa-19)). It also answers the
-result polls of those jobs (`JobPoll`): the record's state, and a
-completed job's whole stored result, where the record replaces a result
-that is too large. The facade reaches them through the job registry.
-`jobrecord.go` holds the code.
+([WA-19](../../docs/semantics/client-api.md#wa-19)). Its result polls
+(`JobPoll`) take the state of the record that `JobRecord` renders for the
+checked job, and fail as it fails. A completed job's poll gives its whole
+stored result, even one that the record replaces as too large. The facade
+reaches them through the job registry; `jobrecord.go` holds the code.
 
 ### References, not copies
 
@@ -1788,6 +1803,10 @@ services keeps one of its own, per engine (`New` makes it), a
   sorted key order as its name and stored text. The runnable is an inline
   step's inventory id (which the collapsed iterations of its loop share), a
   path script's path, or a flow's path.
+- **The key's workspace.** A run of another workspace than `windmill-lite`
+  (its `Host.EffectiveWorkspace`) starts its keys with a marker of its own
+  and the workspace, so it never shares an entry with a run of another
+  workspace. A run of `windmill-lite` keeps the key it always had.
 - **What the key leaves out.** No path that differs between jobs enters
   it, so the iterations of one loop share an entry, as [FX-40/d](../../docs/semantics/conformance.md#fx-40) recorded.
   The bundle's digest keeps entries from crossing bundles in a shared
@@ -2365,6 +2384,8 @@ engine on the real Bun harness in `wltest check`
 | `flowtimeout_test.go` | The flow's own timeout: a root's and a subflow's; a step's timeout that replaces a subflow's; the failure module; a tolerated or retried subflow; the unset values; an ancestor's timeout |
 | `readback_test.go` | Unreadable child results: the flow left waiting and canceled by `monitor`, for each kind of container of child flows. A collapsed body's failure at once, with its column in PostgreSQL's printed text, also in a `branchone`'s branch and in a subflow. A parallel child (`TestReadBackInAParallelChild`), and the monitor disabled (`TestReadBackInAParallelChildWithoutMonitor`, `TestReadBackWithoutMonitor`) |
 | `cache_test.go` | A step's hit, expiry, a zero TTL, equal arguments, S3 object arguments and a collapsed loop. Whose `cache_ttl` applies ([FX-40](../../docs/semantics/execution.md#fx-40)): a path script's own, never its module's, and none for an identity or a subflow step. A flow job's store, the root flow's cache, a host store per bundle and a failing one. `Intercept` bypassing the cache, the module state, the host's checks and a hit's job |
+| `identity_test.go` | Refused runs: one whose id another workspace's job holds, also through a registry two engines share, and one in another workspace than the engine's with a host's registry or store. Controls: an engine configured with a workspace over a host's registry or store, and a host registry shared with another engine, run as before. A run's record lists the state of its registration; a completed child flow's record has none |
+| | A result poll of a running flow whose user state a host's store cannot list gives its owner the store's error, and another workspace's caller no job (`TestResultPollOfAFlowWhoseStateCannotBeListed`) |
 | `dispatch_test.go` | The dispatcher: a script root and a flow root as separate runs, a failure's value, the arguments resolved and stored. The script job's identity, alone and with a dispatch's links; the refusals (`TestDispatchRefusesUnstorableArguments`). `Close`, a scheduled start, links that outlive the parent, a script job's own timeout, the records following their root, `flow_user_state()`, and a script root's own `cache_ttl` (`TestRunScriptCache`) |
 | `providers_test.go` | The resolved arguments: `$WM_*` from the reserved variables and from a resource's stored fields, and a secret. The resolved arguments after a timeout, a cancellation and an executor's error; a resolution failure and the run's settlement. `flow_env` per transition, and its unresolved fallback. The helpers, a helper's failure, and an engine with no platform |
 | `provided_test.go` | Host-provided sites: a named and a static provider, the provider's arguments, the site's `stop_after_if`, its retry, a declining provider, a provider's error, no `Provide`. Child flows in the job registry with their paths, and a dispatch from inside an iteration (`TestChildFlowsAreJobs`). A flow job while its provided site waits (`TestFlowWithAWaitingProvidedSiteIsNotServed`) |

@@ -162,6 +162,7 @@ The zero value of each field is its default.
 | `Pool` | The pool of `warm` harness processes: its size, cap, lag threshold, recycle timeout, recycle triggers, bound on live processes, warm start and pinned runs ([The harness pool](#the-harness-pool)) | One process, no cap, started on the first step or earlier for a host plugin | To run CPU-bound steps beside others, to replace processes that grow, to start processes before the first run, or to keep each run on one process |
 | `Limits` | `Bytes`: a total of bytes that every run's reservations share ([Budgets](#budgets)) | None | To bound what all runs' steps reserve together |
 | `ReadCache` | Gives each flow run a read cache: the run reads each of the host's and the bundle's resources and variables once, and answers its later reads from that read. A provider's error is not kept, so the next read asks again, and an update of a variable through the run drops its cached value ([the read cache](../internal/platform/README.md#the-read-cache)). A state that steps wrote to the `ResourceStore` is read again each time, so a run sees its latest value. | Off | When a run reads the same values often and need not see a change during the run |
+| `Identity` | The [job identity](#job-identity) of every job: its workspace, user and the instance's public URL | windmill-lite's placeholders, such as the workspace `windmill-lite` | To give steps the workspace and user that their code expects |
 | `ForeignWindmillOrigins` | The origins of real [Windmill](../docs/glossary.md#windmill) instances that steps call through their own client, such as `https://windmill.example.com`. A step's dispatch to one of them loses its links to the step's own [job](../docs/glossary.md#job) ids ([Job ids on a real Windmill](#job-ids-on-a-real-windmill)). | None | When steps dispatch jobs on a real Windmill |
 | `ResultPollsForAllJobs` | A step's result polls (`getResultMaybe` and `getResult`, which `waitJob` uses) answer for every job of a live run that its job read answers for, as Windmill answers them, and not only for the runs that steps dispatched ([internal/platform/facade](../internal/platform/facade/README.md#dispatch-and-results)) | Off | When steps poll the result of another job of their run |
 | `Host` | Opens the runtime in [host mode](#host-mode) | Nil | Only for host mode |
@@ -173,6 +174,45 @@ decrypts: a step that reads it fails as Windmill fails a secret that it
 cannot decrypt. A step can update a variable through Windmill's
 [job](../docs/glossary.md#job) API,
 and later runs of the runtime read the new value.
+
+### Job identity
+
+`Identity` sets the variables that a job's environment carries of its
+instance and user, and a run's `RunOptions.Identity` replaces the fields
+that it sets for that run
+([platform interface](../docs/design/0007-platform-interface.md#job-identity)).
+
+| Field | Job variables |
+|---|---|
+| `Workspace` | `WM_WORKSPACE`, `WM_ROOT_WORKSPACE` |
+| `Username` | `WM_USERNAME` |
+| `Email` | `WM_EMAIL`, `WM_END_USER_EMAIL` |
+| `PermissionedAs` | `WM_PERMISSIONED_AS`; empty means `u/<Username>` |
+| `BaseURL` | `WM_BASE_URL` |
+| `WorkerGroup` | `WM_WORKER_GROUP` |
+
+- **A job is in its run's workspace**, `windmill-lite` when neither the
+  runtime nor the run sets one. A run that names `windmill-lite` and one
+  that names none are so in one workspace.
+- **The job API's workspace.** Its authenticated routes answer `401` for
+  a call whose path names another workspace than the step's. The `jobs_u`
+  routes (the job reads, the root lookup and the result polls) find no job
+  in another workspace. A step finds only the jobs of its workspace's runs:
+  the jobs of another workspace's runs answer as unknown ids, there and in
+  flow user state and a resource read's `job_id`.
+- **A hook's `WM_WORKSPACE`** (`InvocationEnv`) sets the workspace of a run
+  without a configured one, as it always did, but not that of a run with
+  one.
+- **The resource store and the result cache** key a run's entries under
+  its workspace.
+- **A run's ID of another workspace.** `Run` refuses a run whose
+  `RunOptions.ID` a job of another workspace holds, running or ended and
+  still kept, so runs of two workspaces never share a job id.
+- **A run that a step dispatches** takes the identity of the step's run. A
+  `parent_job` or `root_job` of another workspace's run is unknown to it.
+- **The JSON form**, which host mode uses, names the fields `workspace`,
+  `username`, `email`, `permissioned_as`, `base_url` and `worker_group`
+  (`DecodeIdentity`).
 
 `ReadCache` is a [deviation](../docs/glossary.md#deviation): Windmill reads
 a resource or variable again for each step and each call. The
@@ -356,11 +396,12 @@ its own reason and canceler.
 | `PreWriteDeadline` | A deadline that applies until the run's first write is approved ([Budgets](#budgets)) | None |
 | `Clock` | The clock of every sleep and retry delay: `wl.RealClock`, or a `*wl.RecordClock` that returns each wait at once | The real clock |
 | `Jitter` | The source of the retry jitter. `SeededJitter(seed)` fixes it. | One seeded with `Seed` |
+| `Identity` | The run's own [job identity](#job-identity): each field that it sets replaces the runtime's for this run's jobs | The runtime's |
 | `Pin` | Pins the run to one `warm` process ([Pinned runs](#pinned-runs)) | Off |
 | `Limits` | The run's own limits: `MaxInFlight`, `MaxArgsBytes`, `MaxHeldBytes` and `Bytes` ([Budgets](#budgets)) | None |
 
-A script run uses only `Kind`, `ID`, `Pin` and `Limits`. The other fields
-apply to flow runs.
+A script run uses only `Kind`, `ID`, `Identity`, `Pin` and `Limits`. The
+other fields apply to flow runs.
 
 ### Result
 
@@ -773,6 +814,10 @@ with the engine's side of the protocol in
   `checkSelectorIn` checks their selectors as a plugin's are checked, and
   a selector that fails refuses the run, naming it, such as
   `the run's haltAfter[0]`.
+- **A run's identity.** A run frame's `identity` is the run's own
+  [job identity](#job-identity), decoded by `DecodeIdentity`. One that it
+  cannot decode, such as one with an unknown field, refuses the run with
+  the reason.
 - **Deadlines.** A frame without `deadline_ms` or `pre_write_deadline_ms`
   has no such deadline, and a root script's run takes only the hard one.
   `budgetDuration` converts either value:
@@ -826,7 +871,8 @@ build helper's dependencies, and skip without them unless
 | `wl_test.go` | `Open`, `Run`, `BuildInfo` and `Close` on hand-written bundles that need no harness. It covers archives, data directories, the host's variables, every refusal of `Open` and `Run`, cancellation, `Close` during runs, and a late platform call that still reaches its run. | No |
 | `hooks_test.go` | Every hook without Bun: interceptions, rewrites, observers, halts, run-end hooks, latches, selector checks, providers and their errors, per-run variables and the resolver | No |
 | `hookcases_test.go` | The latch-precedence cases of `conformance/hooks`, through the public hooks | No |
-| `host_test.go` | Host mode on a socketpair: the welcome, `run_done` and `run_settled`, refused runs, drain, `Close`, every refusal in the handshake, and per-run halts (`TestHostRunHalts`). Deadlines that have passed, which end only their run (`TestHostExpiredDeadlineEndsOnlyItsRun`), the conversion of both deadlines (`TestBudgetDuration`), and a `run_cancel`'s reason and canceler (`TestHostRunCancelReason`) | No |
+| `host_test.go` | Host mode on a socketpair: the welcome, `run_done` and `run_settled`, refused runs, drain, `Close`, every refusal in the handshake, and per-run halts (`TestHostRunHalts`). Deadlines that have passed, which end only their run (`TestHostExpiredDeadlineEndsOnlyItsRun`), the conversion of both deadlines (`TestBudgetDuration`), and a `run_cancel`'s reason and canceler (`TestHostRunCancelReason`). A run frame's `identity`, and the runs that a malformed one refuses while the connection serves on (`TestHostRunIdentity`) | No |
+| `identity_test.go` | The job identity: `Options.Identity` and `RunOptions.Identity` in the job variables, the facade's workspace check, and the keys of the resource store and the result cache. Two concurrent runs of two workspaces on one runtime and their dispatches; the default workspace named and not; a hook's `WM_WORKSPACE`; two invocations with one job id; a dispatch tracked in another workspace's ended root; `DecodeIdentity` | Yes, but `TestDecodeIdentity` |
 | `cause_test.go` | The cause of a canceled run (`TestRunCancelCause`): a deadline, a passed pre-write deadline, a cancellation, `Close` and a flow's own limit. A root script's run past its deadline (`TestScriptRunCancelCause`) needs Bun | No, but for the script |
 | `plugin_test.go` | Host plugins without Bun: refusals, the declaration's checks, providers, `host_call`s, timeouts, `mergeHooks`, settlement (`TestPluginCallsHoldSettlement`) and the run-end trace detail (`TestPluginTraceDetail`) | No |
 | `payload_test.go` | The payload encoding against `json.Marshal` (`TestPayloadSplice`) | No |

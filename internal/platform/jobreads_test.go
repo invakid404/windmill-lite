@@ -13,8 +13,8 @@ import (
 // id, so a test sees which run answered.
 type testView struct{ run string }
 
-func (v testView) JobRecord(id string) ([]byte, error) {
-	return []byte(fmt.Sprintf(`{"run":%q,"id":%q}`, v.run, id)), nil
+func (v testView) JobRecord(j Job) ([]byte, error) {
+	return []byte(fmt.Sprintf(`{"run":%q,"id":%q}`, v.run, j.ID)), nil
 }
 
 func (v testView) JobArgs(id string) ([]byte, error) {
@@ -22,7 +22,7 @@ func (v testView) JobArgs(id string) ([]byte, error) {
 }
 
 // JobPoll answers a completed job whose result is the run's id.
-func (v testView) JobPoll(string) (JobResult, error) {
+func (v testView) JobPoll(Job) (JobResult, error) {
 	return JobResult{Started: true, Completed: true, Success: true, Result: []byte(fmt.Sprintf("%q", v.run))}, nil
 }
 

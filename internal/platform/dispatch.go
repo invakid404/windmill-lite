@@ -31,6 +31,9 @@ type Dispatch struct {
 	ScheduledInSecs         int64
 	// Caller is the job variables of the invocation that dispatched it.
 	Caller map[string]string
+	// Host is the identity of the dispatching invocation's run (Job.Host),
+	// which the dispatched run takes: its workspace, as the user's.
+	Host Host
 }
 
 // JobResult is the state of a dispatched job, as getResultMaybe and
@@ -55,8 +58,11 @@ type Dispatcher interface {
 	// (ADR 0001 §5a).
 	Dispatch(ctx context.Context, d Dispatch) (string, error)
 	// Result returns the state of the job id names, and false when the
-	// dispatcher did not start it.
-	Result(ctx context.Context, id string) (JobResult, bool, error)
+	// dispatcher did not start it, or started it for a dispatch whose
+	// Host's effective workspace (Host.EffectiveWorkspace) is not
+	// workspace: a caller of another workspace scope finds no such job.
+	// A workspace of "" finds the job of any scope.
+	Result(ctx context.Context, id, workspace string) (JobResult, bool, error)
 }
 
 // NotInBundleError is a dispatch whose target is not a root of the bundle

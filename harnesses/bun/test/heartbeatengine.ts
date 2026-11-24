@@ -13,8 +13,8 @@
 //   of that script's main, then answers the run at once, while the step
 //   still runs; run_settled follows the invocation's result;
 // - echo: true: at once, with a result that holds the run frame's
-//   deadline_ms and pre_write_deadline_ms, null where the frame has none,
-//   and runs, the count of run frames this engine has received;
+//   deadline_ms, pre_write_deadline_ms and identity, null where the frame
+//   has none, and runs, the count of run frames this engine has received;
 // - canceled, a cause: at once, with status canceled and that
 //   cancel_cause, written as given, an empty one included.
 
@@ -45,7 +45,7 @@ socket.on("data", (d) => {
       const id = String(m.id);
       const args = (m.args ?? {}) as { hold?: unknown; invoke?: unknown; echo?: unknown; canceled?: unknown };
       if (args.echo === true) {
-        const result = { deadline_ms: m.deadline_ms ?? null, pre_write_deadline_ms: m.pre_write_deadline_ms ?? null, runs };
+        const result = { deadline_ms: m.deadline_ms ?? null, pre_write_deadline_ms: m.pre_write_deadline_ms ?? null, identity: m.identity ?? null, runs };
         send({ t: "run_done", id, status: "success", result: new Raw(JSON.stringify(result)) });
         send({ t: "run_settled", id });
       } else if (typeof args.canceled === "string") {

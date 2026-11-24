@@ -13,8 +13,8 @@ import (
 // viewOf renders each job as the run that holds it and the job's id.
 type viewOf string
 
-func (v viewOf) JobRecord(id string) ([]byte, error) {
-	return []byte(fmt.Sprintf(`{"run":%q,"id":%q}`, string(v), id)), nil
+func (v viewOf) JobRecord(j platform.Job) ([]byte, error) {
+	return []byte(fmt.Sprintf(`{"run":%q,"id":%q}`, string(v), j.ID)), nil
 }
 
 func (v viewOf) JobArgs(string) ([]byte, error) {
@@ -22,7 +22,7 @@ func (v viewOf) JobArgs(string) ([]byte, error) {
 }
 
 // JobPoll answers a completed job whose result is the run's id.
-func (v viewOf) JobPoll(string) (platform.JobResult, error) {
+func (v viewOf) JobPoll(platform.Job) (platform.JobResult, error) {
 	return platform.JobResult{Started: true, Completed: true, Success: true, Result: []byte(fmt.Sprintf("%q", string(v)))}, nil
 }
 

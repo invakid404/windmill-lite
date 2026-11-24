@@ -40,6 +40,7 @@ func runHost(args []string, stderr io.Writer) int {
 	resultPolls := fs.Bool("result-polls-for-all-jobs", false, "answer the result polls for every job of a live run that the job read answers for, not only for the runs that steps dispatched")
 	store := storeFlags(fs)
 	quickJSOnly := fs.Bool("quickjs-only", false, "evaluate every expression the shortcuts and member paths do not answer in QuickJS, without the Go evaluator (ADR 0003)")
+	identity := fs.String("identity", "", "a JSON `file` of the runtime's job identity: workspace, username, email, permissioned_as, base_url, worker_group, each optional")
 	checkBundle := fs.String("check-bundle", "", "check the bundle against its manifest, -digest and this `digest`, as Open does, and exit without connecting (the host SDK runs it before it loads a bundle's own plugin)")
 	pos, ok := parse(fs, args)
 	if !ok {
@@ -76,6 +77,12 @@ func runHost(args []string, stderr io.Writer) int {
 	opts := wl.Options{DataDir: *data, Digest: *digest, EngineVersion: resolveVersion(), Diagnostics: stderr, Host: host, PluginTimeout: *pluginTimeout, ReadCache: *readCache, QuickJSOnly: *quickJSOnly, ForeignWindmillOrigins: foreign, ResultPollsForAllJobs: *resultPolls}
 	if opts.Variables, err = hostVariables(*variables); err == nil {
 		opts.Resources, err = hostResources(*resources)
+	}
+	if err == nil && *identity != "" {
+		var data []byte
+		if data, err = os.ReadFile(*identity); err == nil {
+			opts.Identity, err = wl.DecodeIdentity(data)
+		}
 	}
 	var closeStore func()
 	if err == nil {

@@ -50,6 +50,20 @@ type Job struct {
 	//
 	// [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
 	View JobView
+	// Host is the identity the job's run was given, the runtime's with the
+	// run's own over it, with zero fields where neither set one (ADR 0007,
+	// job identity). Its Workspace scopes the job: the facade finds it for
+	// a caller only when the caller's run has the same Workspace
+	// (Services.JobScope).
+	// A job registered with a zero Host takes the Host of the job its Run
+	// names, when the registry knows that job.
+	Host Host
+	// Gen numbers the registration that the registry holds for the job:
+	// Registry gives each new registration of an id a number that no
+	// earlier one had, so that a flow job's user state stays with the
+	// registration that wrote it when its id ends and is registered again.
+	// The registry sets it; 0 is a registry that numbers none.
+	Gen uint64
 }
 
 // JobView renders the records of one run's jobs as GET jobs_u/get/{id}
@@ -59,24 +73,29 @@ type Job struct {
 //
 // [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
 type JobView interface {
-	// JobRecord returns the record of the job id names, as the JSON text
-	// the route answers. It fails with a *NotServed when the run does not
-	// hold the job, or holds it in a state whose record windmill-lite does
-	// not reproduce.
-	JobRecord(id string) ([]byte, error)
+	// JobRecord returns the record of the job that j registers, as the
+	// JSON text the route answers: j is the registration that the read
+	// checked, whose flow user state the record lists
+	// (Services.FlowUserStatesOf), whatever the registry holds for its id
+	// by then. It fails with a *NotServed when the run does not hold the
+	// job, or holds it in a state whose record windmill-lite does not
+	// reproduce.
+	JobRecord(j Job) ([]byte, error)
 	// JobArgs returns the stored arguments of the job id names, as GET
 	// jobs_u/get_args/{id} answers them: jsonb's text output of the job's
 	// args, or of a flow job's input. It fails as JobRecord does.
 	JobArgs(id string) ([]byte, error)
-	// JobPoll returns the state of the job id names for the result polls
-	// ([WA-15], [WA-V2]): whether it has started, and once it has completed
-	// whether it succeeded and its whole result in jsonb's text output,
-	// which JobRecord replaces once it is too large. It serves the jobs
-	// that JobRecord serves, and fails as JobRecord does for the others.
+	// JobPoll returns the state of the job that j registers, as the
+	// lookup checked it, for the result polls ([WA-15], [WA-V2]): whether
+	// it has started, and once it has completed whether it succeeded and
+	// its whole result in jsonb's text output, which JobRecord replaces
+	// once it is too large. It serves the jobs that JobRecord serves, and
+	// fails as JobRecord does for j, a failure to list a flow job's user
+	// state included.
 	//
 	// [WA-15]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-15
 	// [WA-V2]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-v2
-	JobPoll(id string) (JobResult, error)
+	JobPoll(j Job) (JobResult, error)
 }
 
 // NotServed is why windmill-lite does not answer GET jobs_u/get/{id} for a
@@ -121,7 +140,9 @@ type Jobs interface {
 // key/value map per flow job, which the stock helpers address by their
 // effective root. The facade and the engine only read or write the map of
 // a live flow job (Services.FlowUserState, Services.SetFlowUserState), so
-// a service need not check that itself.
+// a service need not check that itself. A host's FlowUserState serves its
+// engine's configured workspace only: the engine runs a run of another
+// workspace only with the services' own store (Services.OwnsJobs).
 type FlowUserState interface {
 	// UserState returns the value stored under key for the flow job, as
 	// the JSON text a read gives back, and false when there is none.
@@ -150,6 +171,7 @@ type Registry struct {
 	order []endedRef
 	seq   uint64
 	keep  int // the most ended jobs kept: endedJobs
+	gen   uint64
 }
 
 // endedJobs is how many jobs of ended trees a Registry keeps known.
@@ -160,9 +182,9 @@ const endedJobs = 4096
 // ended job costs no more than these strings, whatever Job holds while it
 // is live.
 type endedJob struct {
-	kind       JobKind
-	root, path string
-	seq        uint64
+	kind                  JobKind
+	root, path, workspace string
+	seq                   uint64
 }
 
 type endedRef struct {
@@ -189,49 +211,120 @@ func NewRegistry() *Registry {
 // it explicit; a second registration of a live id counts, and the job
 // ends when every registration has ended.
 func (r *Registry) Begin(j Job) (end func()) {
+	end, _ = r.begin(j, false)
+	return end
+}
+
+// BeginExclusive is Begin for a job whose id its run or host chose, such as
+// a run's own id or a step's WM_JOB_ID: it registers j only when no job of
+// another workspace holds the id, live or among the ended jobs it keeps, and
+// reports whether it did. Runs of two workspaces so never share an entry of
+// the registry (ADR 0007, a workspace per run).
+func (r *Registry) BeginExclusive(j Job) (end func(), ok bool) {
+	return r.begin(j, true)
+}
+
+// begin is Begin, and with exclusive BeginExclusive.
+func (r *Registry) begin(j Job, exclusive bool) (end func(), ok bool) {
 	if j.ID == "" {
-		return func() {}
+		return func() {}, true
 	}
 	if j.Root == "" {
 		j.Root = j.ID
 	}
 	r.mu.Lock()
+	if j.Host == (Host{}) && j.Run != "" && j.Run != j.ID {
+		// The jobs of a run are in its run's workspace, as its user's.
+		if re := r.jobs[j.Run]; re != nil {
+			j.Host = re.job.Host
+		}
+	}
+	if exclusive && r.heldElsewhere(j) {
+		r.mu.Unlock()
+		return nil, false
+	}
 	delete(r.ended, j.ID)
 	e := r.jobs[j.ID]
 	switch {
 	case e == nil:
+		r.gen++
+		j.Gen = r.gen
 		e = &regJob{job: j}
 		r.jobs[j.ID] = e
 		r.addToTree(j.Root, j.ID)
 	case e.derived:
+		// The registration of a job known only from a script job: the same
+		// job in the same workspace, else another one.
+		j.Gen = e.job.Gen
+		if !sameWorkspace(e.job.Host, j.Host) {
+			r.gen++
+			j.Gen = r.gen
+		}
 		r.removeFromTree(e.job.Root, j.ID)
 		e.job, e.derived = j, false
 		r.addToTree(j.Root, j.ID)
-	case e.job.View == nil && j.View != nil:
+	case e.job.View == nil && j.View != nil && sameWorkspace(e.job.Host, j.Host):
 		// A second registration that brings the run's view (a script
-		// run registers its job before its invocation does).
+		// run registers its job before its invocation does). One of
+		// another workspace leaves the entry as it is.
 		e.job.Run, e.job.View = j.Run, j.View
 	}
 	e.live++
 	if j.Kind == JobScript {
-		r.derive(j.Env["WM_FLOW_JOB_ID"], j.Root, j.Env["WM_FLOW_PATH"], j.Run)
-		r.derive(j.Env["WM_ROOT_FLOW_JOB_ID"], j.Root, "", j.Run)
-		r.derive(j.Root, j.Root, "", j.Run)
+		r.derive(j.Env["WM_FLOW_JOB_ID"], j.Root, j.Env["WM_FLOW_PATH"], j.Run, j.Host)
+		r.derive(j.Env["WM_ROOT_FLOW_JOB_ID"], j.Root, "", j.Run, j.Host)
+		r.derive(j.Root, j.Root, "", j.Run, j.Host)
 	}
 	r.mu.Unlock()
 	var once sync.Once
-	return func() { once.Do(func() { r.end(e) }) }
+	return func() { once.Do(func() { r.end(e) }) }, true
+}
+
+// heldElsewhere reports whether a job of another workspace than j's holds
+// j's id: a registered job, not one known only from a script job's
+// variables, or an ended job the registry keeps. Called with mu held.
+func (r *Registry) heldElsewhere(j Job) bool {
+	if e := r.jobs[j.ID]; e != nil && !e.derived && !sameWorkspace(e.job.Host, j.Host) {
+		return true
+	}
+	k, ok := r.ended[j.ID]
+	return ok && !sameWorkspace(Host{Workspace: k.workspace}, j.Host)
+}
+
+// ExclusiveJobs is a Jobs that can refuse a registration whose id a job of
+// another workspace holds (Registry.BeginExclusive).
+type ExclusiveJobs interface {
+	Jobs
+	BeginExclusive(j Job) (end func(), ok bool)
+}
+
+// BeginExclusive registers j with jobs through its BeginExclusive when it
+// has one, and with Begin otherwise, which never refuses.
+func BeginExclusive(jobs Jobs, j Job) (end func(), ok bool) {
+	if x, own := jobs.(ExclusiveJobs); own {
+		return x.BeginExclusive(j)
+	}
+	return jobs.Begin(j), true
 }
 
 // derive makes a flow job of root known from a script job's variables,
 // unless it is known already. It takes the script job's run, which is the
 // run that holds that flow job too, unless a dispatch placed the script
-// job's run in another run's tree.
-func (r *Registry) derive(id, root, path, run string) {
+// job's run in another run's tree, and the script job's host.
+//
+// An id that the registry keeps as an ended job of another workspace stays
+// that job: a script job of a run that a dispatch tracked in it (root_job)
+// does not make it a flow job of the script job's workspace, so it keeps
+// answering for its own workspace while the script job runs and after.
+func (r *Registry) derive(id, root, path, run string, host Host) {
 	if id == "" || r.jobs[id] != nil {
 		return
 	}
-	r.jobs[id] = &regJob{job: Job{ID: id, Kind: JobFlow, Root: root, Path: path, Run: run}, derived: true}
+	if k, ok := r.ended[id]; ok && !sameWorkspace(Host{Workspace: k.workspace}, host) {
+		return
+	}
+	r.gen++
+	r.jobs[id] = &regJob{job: Job{ID: id, Kind: JobFlow, Root: root, Path: path, Run: run, Host: host, Gen: r.gen}, derived: true}
 	r.addToTree(root, id)
 }
 
@@ -302,12 +395,12 @@ func (r *Registry) sweep(root string) {
 }
 
 // retire keeps j, a job whose tree has ended, among the ended jobs, by its
-// kind, root and path only: without its Env, its run and its View, so that
-// no ended run stays reachable from the registry. It forgets the oldest
-// ones beyond keep. Called with mu held.
+// kind, root, path and workspace only: without its Env, its run and its
+// View, so that no ended run stays reachable from the registry. It forgets
+// the oldest ones beyond keep. Called with mu held.
 func (r *Registry) retire(j Job) {
 	r.seq++
-	r.ended[j.ID] = endedJob{kind: j.Kind, root: j.Root, path: j.Path, seq: r.seq}
+	r.ended[j.ID] = endedJob{kind: j.Kind, root: j.Root, path: j.Path, workspace: j.Host.Workspace, seq: r.seq}
 	r.order = append(r.order, endedRef{id: j.ID, seq: r.seq})
 	for len(r.ended) > r.keep || len(r.order) > 2*r.keep {
 		old := r.order[0]
@@ -328,7 +421,7 @@ func (r *Registry) Job(id string) (Job, bool, bool) {
 		if !ok {
 			return Job{}, false, false
 		}
-		return Job{ID: id, Kind: k.kind, Root: k.root, Path: k.path}, false, true
+		return Job{ID: id, Kind: k.kind, Root: k.root, Path: k.path, Host: Host{Workspace: k.workspace}}, false, true
 	}
 	live := e.live > 0
 	if e.derived {
@@ -366,7 +459,13 @@ type UserStates struct {
 // userMap is one flow job's user state.
 type userMap struct {
 	root string
-	vals map[string]json.RawMessage
+	// gen and rootGen are the registrations (Job.Gen) of the job and of
+	// its root that the map was written under, and workspace the job's
+	// workspace: a map is the state of that registration only, and of
+	// that workspace's even with a registry that numbers none.
+	gen, rootGen uint64
+	workspace    string
+	vals         map[string]json.RawMessage
 }
 
 // minSweep is the number of maps below which UserStates never sweeps.
@@ -397,42 +496,92 @@ func (u *UserStates) SetUserState(_ context.Context, job, key string, v json.Raw
 	if !ok || !live {
 		return nil
 	}
+	u.setAt(j, key, v)
+	return nil
+}
+
+// owns reports whether m is the map of the registration j.
+func (m *userMap) owns(j Job) bool {
+	return m != nil && m.gen == j.Gen && m.workspace == j.Host.EffectiveWorkspace()
+}
+
+// stateAt returns the value stored under key for the flow job's
+// registration j (Job.Gen, in its workspace), and false when that
+// registration has none.
+func (u *UserStates) stateAt(j Job, key string) (json.RawMessage, bool) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	m := u.maps[job]
-	if m == nil {
+	m := u.maps[j.ID]
+	if !m.owns(j) {
+		return nil, false
+	}
+	v, ok := m.vals[key]
+	return v, ok
+}
+
+// setAt stores v under key for the flow job's registration checked, and
+// reports whether it did: only while the registry reports that very
+// registration live, in the same workspace, checked under the map lock,
+// so that a write checked against one registration never lands in
+// another's map. A map of another registration of the id is dropped.
+func (u *UserStates) setAt(checked Job, key string, v json.RawMessage) bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	j, live, ok := u.jobs.Job(checked.ID)
+	if !ok || !live || j.Gen != checked.Gen || !sameWorkspace(j.Host, checked.Host) {
+		return false
+	}
+	m := u.maps[j.ID]
+	if !m.owns(j) {
 		if len(u.maps) >= u.sweep {
 			u.dropDead()
 		}
-		m = &userMap{root: cmp.Or(j.Root, job), vals: map[string]json.RawMessage{}}
-		u.maps[job] = m
+		root := cmp.Or(j.Root, j.ID)
+		rj, _, _ := u.jobs.Job(root)
+		m = &userMap{root: root, gen: j.Gen, rootGen: rj.Gen, workspace: j.Host.EffectiveWorkspace(), vals: map[string]json.RawMessage{}}
+		u.maps[j.ID] = m
 	}
 	m.vals[key] = v
-	return nil
+	return true
+}
+
+// statesAt returns a copy of the flow job's map for its registration j,
+// nil when it has none.
+func (u *UserStates) statesAt(j Job) map[string]json.RawMessage {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	m := u.maps[j.ID]
+	if !m.owns(j) {
+		return nil
+	}
+	return maps.Clone(m.vals)
 }
 
 // dropDead drops the maps of the jobs the registry no longer reports live,
 // and sets the next sweep at twice the maps that remain. Called with mu
 // held.
 func (u *UserStates) dropDead() {
-	for id := range u.maps {
-		if _, live, ok := u.jobs.Job(id); !ok || !live {
+	for id, m := range u.maps {
+		if j, live, ok := u.jobs.Job(id); !ok || !live || !m.owns(j) {
 			delete(u.maps, id)
 		}
 	}
 	u.sweep = max(minSweep, 2*len(u.maps))
 }
 
-// forgetRoot drops the maps of root's jobs, once the registry no longer
-// reports root live.
-func (u *UserStates) forgetRoot(root string) {
-	if _, live, ok := u.jobs.Job(root); ok && live {
-		return
-	}
+// forgetRoot drops the maps of root's jobs written under its registration
+// gen, once the registry no longer reports that registration live: the
+// maps of a later registration of the id stay. It decides under the map
+// lock, under which every map is created, so a registration that replaces
+// root and writes before it runs keeps its maps.
+func (u *UserStates) forgetRoot(root string, gen uint64) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
+	if rj, live, ok := u.jobs.Job(root); ok && live && rj.Gen == gen {
+		return
+	}
 	for id, m := range u.maps {
-		if m.root == root {
+		if m.root == root && m.rootGen == gen {
 			delete(u.maps, id)
 		}
 	}
@@ -455,15 +604,32 @@ type servicesJobs struct {
 }
 
 func (s servicesJobs) Begin(j Job) func() {
-	end := s.Jobs.Begin(j)
+	return s.forgetting(j, s.Jobs.Begin(j))
+}
+
+// BeginExclusive is the Jobs service's BeginExclusive, or its Begin when it
+// has none (BeginExclusive), with the same forgetting of a root's maps.
+func (s servicesJobs) BeginExclusive(j Job) (func(), bool) {
+	end, ok := BeginExclusive(s.Jobs, j)
+	if !ok {
+		return nil, false
+	}
+	return s.forgetting(j, end), true
+}
+
+// forgetting returns end, the end of j's registration, which for a root's
+// registration also drops the maps written under it.
+func (s servicesJobs) forgetting(j Job, end func()) func() {
 	if s.states == nil || j.ID == "" || cmp.Or(j.Root, j.ID) != j.ID {
 		return end
 	}
+	// The registration that this call made, whose maps its end drops.
+	reg, _, _ := s.Jobs.Job(j.ID)
 	var once sync.Once
 	return func() {
 		once.Do(func() {
 			end()
-			s.states.forgetRoot(j.ID)
+			s.states.forgetRoot(j.ID, reg.Gen)
 		})
 	}
 }
@@ -478,11 +644,63 @@ func (noJobs) Job(string) (Job, bool, bool) { return Job{}, false, false }
 // job is not a live flow job (WA-14): 404 `Not found: Flow job not found`.
 var ErrFlowJobNotFound = &Error{Variant: "NotFound", Message: "Flow job not found"}
 
+// JobScope returns the workspace scope of the job id names, live or ended:
+// the effective workspace of its Host as the registry holds it
+// (Host.EffectiveWorkspace; ADR 0007, a workspace per run); and false when
+// the registry does not know the job. With the services' own registry a
+// job of another scope is as unknown to a caller of this one (InScope).
+func (s *Services) JobScope(id string) (string, bool) {
+	j, _, ok := s.jobs().Job(id)
+	return j.Host.EffectiveWorkspace(), ok
+}
+
+// sameWorkspace reports whether jobs of a and b are in one workspace.
+func sameWorkspace(a, b Host) bool {
+	return a.EffectiveWorkspace() == b.EffectiveWorkspace()
+}
+
+// inScope reports whether j is of the workspace scope scope; every job is
+// of scope "", which a caller that is of every workspace looks up with.
+func inScope(j Job, scope string) bool {
+	return scope == "" || j.Host.EffectiveWorkspace() == scope
+}
+
+// InScope reports whether the services find j for a caller of the
+// workspace scope scope. With their own registry, which gives each job its
+// owner when it registers, j must be of that scope (inScope). A host's
+// registry keeps the base's behaviour: its jobs carry no owner the
+// services can trust (it may keep them as submitted, or keep only an ended
+// job's id, kind, root and path), so every job it knows is found, as
+// before, and the engine runs no run of another workspace than its
+// configured one over it (Services.OwnsJobs).
+func (s *Services) InScope(j Job, scope string) bool {
+	if _, own := s.jobs().(*Registry); !own {
+		return true
+	}
+	return inScope(j, scope)
+}
+
+// KnownIn reports whether the registry knows the job id names, for a caller
+// of the workspace scope scope (InScope).
+func (s *Services) KnownIn(id, scope string) bool {
+	j, _, ok := s.jobs().Job(id)
+	return ok && s.InScope(j, scope)
+}
+
 // RootJob answers getRootJobId (WA-14, WA-V1): the effective root of the
 // job id names, and false when the registry does not know it.
 func (s *Services) RootJob(id string) (string, bool) {
+	return s.RootJobIn(id, "")
+}
+
+// RootJobIn is RootJob for a caller of the workspace scope scope (JobScope;
+// "" for every scope): with the services' own registry a job of another
+// scope is unknown (InScope). The scope and the root come from one lookup
+// of the registry, so a job registered again in between cannot answer for
+// another workspace.
+func (s *Services) RootJobIn(id, scope string) (string, bool) {
 	j, _, ok := s.jobs().Job(id)
-	if !ok {
+	if !ok || !s.InScope(j, scope) {
 		return "", false
 	}
 	return j.Root, true
@@ -499,11 +717,18 @@ func (s *Services) RootJob(id string) (string, bool) {
 //
 // [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
 func (s *Services) GetJob(id string) ([]byte, error) {
-	j, err := s.liveJob(id, "Job not found at name %s")
+	return s.GetJobIn(id, "")
+}
+
+// GetJobIn is GetJob for a caller of the workspace scope scope: a job of
+// another scope fails as an unknown id. The record comes from the view of
+// the registry entry whose scope was checked.
+func (s *Services) GetJobIn(id, scope string) ([]byte, error) {
+	j, err := s.liveJob(id, scope, "Job not found at name %s")
 	if err != nil {
 		return nil, err
 	}
-	return j.View.JobRecord(id)
+	return j.View.JobRecord(j)
 }
 
 // GetJobArgs answers GET jobs_u/get_args/{id} ([WA-19]): the stored
@@ -515,7 +740,13 @@ func (s *Services) GetJob(id string) ([]byte, error) {
 //
 // [WA-19]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-19
 func (s *Services) GetJobArgs(id string) ([]byte, error) {
-	j, err := s.liveJob(id, "Job Args not found at name %s")
+	return s.GetJobArgsIn(id, "")
+}
+
+// GetJobArgsIn is GetJobArgs for a caller of the workspace scope scope, as
+// GetJobIn is GetJob's.
+func (s *Services) GetJobArgsIn(id, scope string) ([]byte, error) {
+	j, err := s.liveJob(id, scope, "Job Args not found at name %s")
 	if err != nil {
 		return nil, err
 	}
@@ -534,25 +765,34 @@ func (s *Services) GetJobArgs(id string) ([]byte, error) {
 // [WA-15]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-15
 // [WA-V2]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-v2
 func (s *Services) ResultPoll(id string) (r JobResult, known bool, err error) {
+	return s.ResultPollIn(id, "")
+}
+
+// ResultPollIn is ResultPoll for a caller of the workspace scope scope
+// ("" for every scope): with the services' own registry a job of another
+// scope is unknown (InScope), checked on the entry that the one lookup
+// found.
+func (s *Services) ResultPollIn(id, scope string) (r JobResult, known bool, err error) {
 	jobs := s.jobs()
 	j, live, ok := jobs.Job(id)
-	if !ok {
+	if !ok || !s.InScope(j, scope) {
 		return JobResult{}, false, nil
 	}
 	if j, err = liveOf(jobs, j, live, id); err != nil {
 		return JobResult{}, true, err
 	}
-	r, err = j.View.JobPoll(id)
+	r, err = j.View.JobPoll(j)
 	return r, true, err
 }
 
 // liveJob returns the job id names when a run that is live holds it: an
-// id the registry does not know fails with the API's 404 of format, a job
-// whose root run has ended with ErrEndedRun.
-func (s *Services) liveJob(id, format string) (Job, error) {
+// id the registry does not know, or knows in another scope than scope,
+// fails with the API's 404 of format, a job whose root run has ended with
+// ErrEndedRun.
+func (s *Services) liveJob(id, scope, format string) (Job, error) {
 	jobs := s.jobs()
 	j, live, ok := jobs.Job(id)
-	if !ok {
+	if !ok || !s.InScope(j, scope) {
 		return Job{}, notFound(format, id)
 	}
 	return liveOf(jobs, j, live, id)
@@ -613,11 +853,33 @@ func (u *UserStates) UserStates(_ context.Context, job string) (map[string]json.
 // when the services' FlowUserState cannot list a map
 // (FlowUserStateLister).
 func (s *Services) FlowUserStates(ctx context.Context, id string) (json.RawMessage, bool, error) {
-	l, ok := s.userState().(FlowUserStateLister)
-	if !ok || !s.liveFlow(id) {
+	j, live := s.liveFlowJob(id, "")
+	if !live {
 		return nil, false, nil
 	}
-	m, err := l.UserStates(ctx, id)
+	return s.FlowUserStatesOf(ctx, j)
+}
+
+// FlowUserStatesOf is FlowUserStates for the registration j, as a job read
+// found it (JobView.JobRecord): it lists only while the registry still holds
+// that registration live as a flow job, in its workspace (a completed child
+// flow lists none, as FlowUserStates would not), and with the services' own
+// store it lists that registration's map and none of another's.
+func (s *Services) FlowUserStatesOf(ctx context.Context, j Job) (json.RawMessage, bool, error) {
+	l, ok := s.userState().(FlowUserStateLister)
+	if !ok {
+		return nil, false, nil
+	}
+	if cur, live, known := s.jobs().Job(j.ID); !known || !live || cur.Kind != JobFlow || cur.Gen != j.Gen || !sameWorkspace(cur.Host, j.Host) {
+		return nil, false, nil
+	}
+	var m map[string]json.RawMessage
+	var err error
+	if u, own := l.(*UserStates); own {
+		m = u.statesAt(j)
+	} else {
+		m, err = l.UserStates(ctx, j.ID)
+	}
 	if err != nil || len(m) == 0 {
 		return nil, false, err
 	}
@@ -666,9 +928,23 @@ var ErrNoJobVariables = errors.New("platform: the job registry keeps no job vari
 // <id>`, written without Windmill's Rust location (D14); a live flow job
 // fails with ErrNoJobVariables.
 func (s *Services) ReadJobEnv(id, workspace string) (map[string]string, error) {
+	return s.ReadJobEnvIn(id, workspace, "")
+}
+
+// ReadJobEnvIn is ReadJobEnv for a caller of the workspace scope scope: a
+// job of another scope fails as an unknown id, whatever its job variables
+// say, and so does a live flow job of another scope. The job's workspace
+// that the path must name is, with the services' own registry, its run's
+// configured one when it has one, and else, as with a host's registry, its
+// WM_WORKSPACE, which a hook may have set.
+func (s *Services) ReadJobEnvIn(id, workspace, scope string) (map[string]string, error) {
 	j, live, ok := s.jobs().Job(id)
+	own := j.Env["WM_WORKSPACE"]
+	if _, reg := s.jobs().(*Registry); reg {
+		own = cmp.Or(j.Host.Workspace, own)
+	}
 	switch {
-	case !ok || !live || workspace != "" && j.Env["WM_WORKSPACE"] != "" && j.Env["WM_WORKSPACE"] != workspace:
+	case !ok || !live || !s.InScope(j, scope) || workspace != "" && own != "" && own != workspace:
 		return nil, notFound("Job not found at name %s", id)
 	case j.Kind != JobScript || j.Env == nil:
 		return nil, ErrNoJobVariables
@@ -681,7 +957,25 @@ func (s *Services) ReadJobEnv(id, workspace string) (map[string]string, error) {
 // when the job is not a flow job, and when it is no longer live, as the
 // API answers once a root has left the queue.
 func (s *Services) FlowUserState(ctx context.Context, id, key string) (json.RawMessage, error) {
-	if !s.liveFlow(id) {
+	return s.FlowUserStateIn(ctx, id, key, "")
+}
+
+// FlowUserStateIn is FlowUserState for a caller of the workspace scope
+// scope: a flow job of another scope reads null, as an unknown one does.
+// With the services' own store a read gives the map of the registration
+// it checked (Job.Gen, in its workspace) and none other. With a host's
+// store, which serves its engine's configured workspace only (OwnsJobs),
+// the job is looked up again after the read: a value read while the id
+// stopped naming that registration reads null.
+func (s *Services) FlowUserStateIn(ctx context.Context, id, key, scope string) (json.RawMessage, error) {
+	j, ok := s.liveFlowJob(id, scope)
+	if !ok {
+		return json.RawMessage("null"), nil
+	}
+	if u, own := s.userState().(*UserStates); own {
+		if v, ok := u.stateAt(j, key); ok {
+			return v, nil
+		}
 		return json.RawMessage("null"), nil
 	}
 	v, ok, err := s.userState().UserState(ctx, id, key)
@@ -691,7 +985,21 @@ func (s *Services) FlowUserState(ctx context.Context, id, key string) (json.RawM
 	case !ok:
 		return json.RawMessage("null"), nil
 	}
+	if again, ok := s.liveFlowJob(id, scope); !ok || again.Gen != j.Gen || !sameWorkspace(again.Host, j.Host) {
+		return json.RawMessage("null"), nil
+	}
 	return v, nil
+}
+
+// OwnsJobs reports whether the services keep jobs and flow user state in
+// their own job registry and store (Registry, UserStates), as wl's do, and
+// not in a host's Jobs or FlowUserState. Only these keep workspaces apart
+// (BeginExclusive, a map per registration and workspace), so the engine
+// refuses a run in a workspace other than its configured one without them.
+func (s *Services) OwnsJobs() bool {
+	_, reg := s.jobs().(*Registry)
+	_, states := s.userState().(*UserStates)
+	return reg && states
 }
 
 // SetFlowUserState writes body, a JSON text, at key of the job id names
@@ -707,12 +1015,28 @@ func (s *Services) FlowUserState(ctx context.Context, id, key string) (json.RawM
 // A body that is not JSON, or that jsonb refuses, answers 400; the text is
 // windmill-lite's.
 func (s *Services) SetFlowUserState(ctx context.Context, id, key string, body []byte) error {
+	return s.SetFlowUserStateIn(ctx, id, key, body, "")
+}
+
+// SetFlowUserStateIn is SetFlowUserState for a caller of the workspace
+// scope scope: a flow job of another scope fails as an unknown one does,
+// after the value's own check, in the same order.
+func (s *Services) SetFlowUserStateIn(ctx context.Context, id, key string, body []byte, scope string) error {
 	v, err := userStateValue(body)
 	if err != nil {
 		return &Error{Variant: "BadRequest", Message: "windmill-lite: the flow user state value: " + err.Error()}
 	}
-	if !s.liveFlow(id) {
+	j, ok := s.liveFlowJob(id, scope)
+	if !ok {
 		return ErrFlowJobNotFound
+	}
+	if u, own := s.userState().(*UserStates); own {
+		// Into the map of the registration that was checked, which must
+		// still be the registry's when the write lands.
+		if !u.setAt(j, key, v) {
+			return ErrFlowJobNotFound
+		}
+		return nil
 	}
 	return s.userState().SetUserState(ctx, id, key, v)
 }
@@ -744,7 +1068,14 @@ func JSONSyntaxError(text []byte) error {
 	return err
 }
 
-func (s *Services) liveFlow(id string) bool {
+func (s *Services) liveFlow(id, scope string) bool {
+	_, ok := s.liveFlowJob(id, scope)
+	return ok
+}
+
+// liveFlowJob returns the job id names when it is a live flow job of the
+// workspace scope scope.
+func (s *Services) liveFlowJob(id, scope string) (Job, bool) {
 	j, live, ok := s.jobs().Job(id)
-	return ok && live && j.Kind == JobFlow
+	return j, ok && live && j.Kind == JobFlow && s.InScope(j, scope)
 }

@@ -218,6 +218,19 @@ test("a plugin whose connect fails before it is copied does not hold its path: a
   expect(readFileSync(marker, "utf8")).toBe("second");
 }, 20_000);
 
+test("connect removes its identity file when the engine's check refuses the bundle", async () => {
+  const dir = pluginBundle("export default {};\n");
+  const args = join(tempDir("wl-host-args-"), "args");
+  // The stand-in engine's check records its arguments and refuses the bundle.
+  const refusing = { engine: "/bin/sh", engineArgs: ["-c", `case "$2" in -check-bundle) printf '%s\\n' "$@" > '${args}'; exit 1;; esac; exit 0`, "sh"] };
+  expect(await connectIn(dir, { ...refusing, identity: { workspace: "ws-a" } })).toBe("bundle");
+  const passed = readFileSync(args, "utf8").split("\n");
+  expect(passed).toContain("-identity");
+  const file = passed[passed.indexOf("-identity") + 1];
+  expect(file.endsWith("identity.json")).toBe(true);
+  expect(existsSync(file)).toBe(false);
+}, 20_000);
+
 test("connect stops the engine and rejects with bundle when it cannot copy the plugin, and a later connect copies it", async () => {
   const marker = join(tempDir("wl-host-marker-"), "ran");
   const dir = pluginBundle(`require("node:fs").writeFileSync(${JSON.stringify(marker)}, "ran");\nexport default {};\n`);
@@ -539,10 +552,10 @@ test("a run's deadlines go in its run frame as whole milliseconds of at least 0,
     const sent = async (opts: RunOptions) => (await host.run("f/x", { echo: true }, opts)).result;
     // runs counts only the frames that reached the engine: none of the
     // refused runs sent one.
-    expect(await sent({ deadlineMs: 0.2, preWriteDeadlineMs: -5 })).toEqual({ deadline_ms: 1, pre_write_deadline_ms: 0, runs: 1 });
-    expect(await sent({ deadlineMs: Number.MAX_SAFE_INTEGER, preWriteDeadlineMs: 0 })).toEqual({ deadline_ms: Number.MAX_SAFE_INTEGER, pre_write_deadline_ms: 0, runs: 2 });
-    expect(await sent({ deadlineMs: -0.5, preWriteDeadlineMs: 1.0000001 })).toEqual({ deadline_ms: 0, pre_write_deadline_ms: 2, runs: 3 });
-    expect(await sent({})).toEqual({ deadline_ms: null, pre_write_deadline_ms: null, runs: 4 });
+    expect(await sent({ deadlineMs: 0.2, preWriteDeadlineMs: -5 })).toEqual({ deadline_ms: 1, pre_write_deadline_ms: 0, identity: null, runs: 1 });
+    expect(await sent({ deadlineMs: Number.MAX_SAFE_INTEGER, preWriteDeadlineMs: 0 })).toEqual({ deadline_ms: Number.MAX_SAFE_INTEGER, pre_write_deadline_ms: 0, identity: null, runs: 2 });
+    expect(await sent({ deadlineMs: -0.5, preWriteDeadlineMs: 1.0000001 })).toEqual({ deadline_ms: 0, pre_write_deadline_ms: 2, identity: null, runs: 3 });
+    expect(await sent({})).toEqual({ deadline_ms: null, pre_write_deadline_ms: null, identity: null, runs: 4 });
     // The run's outcome names the cause of its cancellation, as run_done
     // gives it.
     const r = await host.run("f/x", { canceled: "pre_write_deadline" });
@@ -553,6 +566,59 @@ test("a run's deadlines go in its run frame as whole milliseconds of at least 0,
     expect((await host.run("f/x", { echo: true })).cancelCause).toBeUndefined();
   } finally {
     await host.close();
+  }
+});
+
+// A job identity reaches the engine with its fields in snake case: a run's
+// in its run frame, and connect's in the file that -identity names, which
+// connect removes once the engine has answered. An identity that is not an
+// object, has a field the SDK does not know, or a field that is not a
+// string refuses the run before any frame, or fails connect with options.
+test("a job identity reaches the engine in snake case, and a malformed one refuses the run without a frame", async () => {
+  const dir = tempDir("wl-host-identity-");
+  writeFileSync(join(dir, "manifest.json"), "{}");
+  const back = process.cwd();
+  process.chdir(dir);
+  process.env.WL_TEST_HEARTBEAT_MS = "60000";
+  let host: Host;
+  try {
+    host = await connect({ engine: process.execPath, engineArgs: [join(import.meta.dir, "heartbeatengine.ts")], bundle: dir, workdir: dir, diag: () => {} });
+  } finally {
+    delete process.env.WL_TEST_HEARTBEAT_MS;
+    process.chdir(back);
+  }
+  try {
+    for (const bad of ["ws-a", null, { workspace: 1 }, { workspac: "ws-a" }] as unknown[]) {
+      expect(await code(host.run("f/x", { echo: true }, { identity: bad as RunOptions["identity"] }))).toBe("refused");
+    }
+    const r = await host.run("f/x", { echo: true }, { identity: { workspace: "ws-a", permissionedAs: "g/admins", baseUrl: "https://windmill.example.test", workerGroup: "g1", username: "alice", email: "alice@example.test" } });
+    expect(r.result).toEqual({
+      deadline_ms: null,
+      pre_write_deadline_ms: null,
+      identity: { workspace: "ws-a", username: "alice", email: "alice@example.test", permissioned_as: "g/admins", base_url: "https://windmill.example.test", worker_group: "g1" },
+      runs: 1,
+    });
+    expect(((await host.run("f/x", { echo: true })).result as { identity: unknown }).identity).toBeNull();
+  } finally {
+    await host.close();
+  }
+  // connect's identity, through argsengine, which copies the file.
+  const args = join(dir, "args.json");
+  const copy = join(dir, "identity-copy.json");
+  process.env.WL_TEST_ARGS_FILE = args;
+  process.env.WL_TEST_IDENTITY_FILE = copy;
+  process.chdir(dir);
+  try {
+    expect(await code(connect({ engine: process.execPath, engineArgs: [join(import.meta.dir, "argsengine.ts")], bundle: dir, workdir: dir, diag: () => {}, identity: { workspace: "ws-c", workerGroup: "g2" } }))).toBe("rejected");
+    const passed = JSON.parse(await Bun.file(args).text()) as string[];
+    const file = passed[passed.indexOf("-identity") + 1];
+    expect(JSON.parse(await Bun.file(copy).text())).toEqual({ workspace: "ws-c", worker_group: "g2" });
+    expect(await Bun.file(file).exists()).toBe(false);
+    expect(await code(connect({ engine: process.execPath, engineArgs: [join(import.meta.dir, "argsengine.ts")], bundle: dir, workdir: dir, diag: () => {}, identity: { workspace: 2 } as unknown as RunOptions["identity"] }))).toBe("options");
+  } finally {
+    delete process.env.WL_TEST_ARGS_FILE;
+    delete process.env.WL_TEST_IDENTITY_FILE;
+    process.chdir(back);
   }
 });
 

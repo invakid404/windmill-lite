@@ -60,6 +60,15 @@ type ScriptRequest struct {
 	// script job's site, a site with no path whose Script is the script's
 	// path (RunRequest.Around).
 	Around func(Site) []int
+	// Host is the job's own identity: each field it sets replaces
+	// Config.Host's, for the job's environment and its registration
+	// (platform.Job.Host); zero means Config.Host.
+	Host platform.Host
+	// Platform, when set, is the platform services of a job that chose
+	// its own (RunRequest.Platform), which resolve its arguments and
+	// which the facade answers its resource and variable reads from (as
+	// Invocation.Platform); nil means Config.Platform.
+	Platform *platform.Services
 }
 
 // ScriptResult is how a script job ended: its stored result, or its
@@ -129,13 +138,21 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 		ident.FlowJobID, ident.RootFlowJobID, ident.FlowPath = req.ParentJob, req.RootJob, req.ParentPath
 		ident.RootJobID = cmp.Or(req.RootJob, req.ParentJob, id)
 	}
-	env := ident.Env(e.host)
+	host := e.host.Override(req.Host)
+	env := ident.Env(host)
 	reserved := maps.Clone(env)
 	// The job is the run's own: its record (WA-19) shows it running, then
 	// completed while its root lives, which outlives it when its dispatch
 	// placed it in another run's tree.
 	view := &scriptView{id: id, env: reserved, script: s, args: args}
-	defer e.platform.JobRegistry().Begin(platform.Job{ID: id, Kind: platform.JobScript, Root: env["WM_ROOT_JOB_ID"], Path: s.Path, Env: env, Run: id, View: view})()
+	if err := e.admits(host, req.Platform); err != nil {
+		return ScriptResult{}, err
+	}
+	endJob, ok := platform.BeginExclusive(e.platform.JobRegistry(), platform.Job{ID: id, Kind: platform.JobScript, Root: env["WM_ROOT_JOB_ID"], Path: s.Path, Env: env, Run: id, View: view, Host: host})
+	if !ok {
+		return ScriptResult{}, heldElsewhere(id)
+	}
+	defer endJob()
 	defer func() { view.complete(res, err, rep.latch.Err() != nil) }()
 	if req.MaxHeldBytes > 0 {
 		// The job's stored arguments alone may pass its limit, which then
@@ -172,7 +189,7 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 		ttl = ttlOf(s.Metadata.CacheTTL)
 	}
 	if ttl.set {
-		if k, ok := e.cacheKey(ctx, cacheKindScript, s.ID, args, false); ok {
+		if k, ok := e.cacheKey(ctx, host.EffectiveWorkspace(), cacheKindScript, s.ID, args, false); ok {
 			key = k
 			if c, hit, err := e.cacheGet(ctx, key, time.Now()); err == nil && hit {
 				if ctx.Err() != nil {
@@ -194,7 +211,11 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 	if envErr != nil {
 		return ScriptResult{ID: id, Failed: true, Result: workerError("", "execution error:\n"+envErr.Error())}, nil
 	}
-	resolved, err := e.platform.ResolveArgs(ctx, args, reserved, platform.APIEnv(reserved))
+	services := e.platform
+	if req.Platform != nil {
+		services = req.Platform
+	}
+	resolved, err := services.ResolveArgs(ctx, args, reserved, platform.APIEnv(reserved))
 	if err != nil {
 		return ScriptResult{ID: id, Failed: true, Result: workerError("", "execution error:\n"+err.Error())}, nil
 	}
@@ -215,6 +236,8 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 		ModuleState: e.moduleState,
 		Report:      rep,
 		Around:      around,
+		Platform:    req.Platform,
+		Host:        host,
 	}
 	if a := newByteAccount(RunLimits{Bytes: req.Bytes, ByteTotal: req.ByteTotal}); a != nil {
 		inv.Budget, inv.Report = a.draw(inv.Report)
@@ -361,10 +384,12 @@ func (x trackingExec) Execute(ctx context.Context, inv Invocation) (StepOutcome,
 // dispatched is the record of one dispatched run.
 type dispatched struct {
 	// owner is the effective root of the step that dispatched it, whose
-	// life the record follows.
-	owner  string
-	result platform.JobResult
-	done   bool
+	// life the record follows; workspace the workspace scope of its
+	// dispatch (platform.Dispatch.Host), which a result poll must share.
+	owner     string
+	workspace string
+	result    platform.JobResult
+	done      bool
 }
 
 // NewDispatcher returns the dispatcher of e's program, whose runs go to
@@ -438,7 +463,7 @@ func (x *Dispatcher) Dispatch(_ context.Context, d platform.Dispatch) (string, e
 		x.wg.Done()
 		return "", fmt.Errorf("engine: the dispatched run cannot start: %w", err)
 	}
-	rec := &dispatched{owner: d.Caller["WM_ROOT_JOB_ID"]}
+	rec := &dispatched{owner: d.Caller["WM_ROOT_JOB_ID"], workspace: d.Host.EffectiveWorkspace()}
 	x.mu.Lock()
 	if x.closed {
 		// Close began while the host prepared the run, which will not
@@ -557,9 +582,9 @@ func (x *Dispatcher) run(id string, d platform.Dispatch, args jsonval.Value, lin
 	x.mu.Unlock()
 	var res platform.JobResult
 	if d.Kind == platform.DispatchFlow {
-		res = x.runFlow(id, d.Target, args, links, prep)
+		res = x.runFlow(id, d.Target, args, links, d.Host, prep)
 	} else {
-		res = x.runScript(id, d.Target, args, links, prep)
+		res = x.runScript(id, d.Target, args, links, d.Host, prep)
 	}
 	res.Started, res.Completed = true, true
 	x.mu.Lock()
@@ -567,10 +592,11 @@ func (x *Dispatcher) run(id string, d platform.Dispatch, args jsonval.Value, lin
 	x.mu.Unlock()
 }
 
-// runFlow runs a dispatched flow, with the links its dispatch sent.
-func (x *Dispatcher) runFlow(id, path string, args jsonval.Value, l parentLinks, prep preparedRun) platform.JobResult {
+// runFlow runs a dispatched flow, with the links its dispatch sent and its
+// dispatching run's identity.
+func (x *Dispatcher) runFlow(id, path string, args jsonval.Value, l parentLinks, host platform.Host, prep preparedRun) platform.JobResult {
 	ctx, limits, ended, settled := prep.ctx, prep.limits, prep.ended, prep.settled
-	req := RunRequest{ID: id, Path: path, Args: args, Exec: x.exec, ParentJob: l.job, RootJob: l.root, ParentPath: l.path, Limits: limits}
+	req := RunRequest{ID: id, Path: path, Args: args, Exec: x.exec, ParentJob: l.job, RootJob: l.root, ParentPath: l.path, Host: host, Platform: x.services(host), Limits: limits}
 	if settled != nil {
 		req.Hooks = onSettled{f: settled}
 	}
@@ -587,10 +613,11 @@ func (x *Dispatcher) runFlow(id, path string, args jsonval.Value, l parentLinks,
 	return platform.JobResult{Success: t.Status == conformance.RunSuccess, Result: storedText(t.Result)}
 }
 
-// runScript runs a dispatched script, with the links its dispatch sent.
-func (x *Dispatcher) runScript(id, path string, args jsonval.Value, l parentLinks, prep preparedRun) platform.JobResult {
+// runScript runs a dispatched script, with the links its dispatch sent and
+// its dispatching run's identity.
+func (x *Dispatcher) runScript(id, path string, args jsonval.Value, l parentLinks, host platform.Host, prep preparedRun) platform.JobResult {
 	ctx, limits, ended, settled := prep.ctx, prep.limits, prep.ended, prep.settled
-	req := ScriptRequest{ID: id, Path: path, Args: args, Exec: x.exec, ParentJob: l.job, RootJob: l.root, ParentPath: l.path,
+	req := ScriptRequest{ID: id, Path: path, Args: args, Exec: x.exec, ParentJob: l.job, RootJob: l.root, ParentPath: l.path, Host: host, Platform: x.services(host),
 		MaxHeldBytes: limits.MaxHeldBytes, Bytes: limits.Bytes, ByteTotal: limits.ByteTotal}
 	var s *RunSettlement
 	exec := req.Exec
@@ -621,18 +648,35 @@ func (x *Dispatcher) runScript(id, path string, args jsonval.Value, l parentLink
 	return platform.JobResult{Success: !r.Failed, Result: storedText(r.Result)}
 }
 
+// services is the platform services of a dispatched run of host's
+// identity: nil, the engine's, unless host sets a workspace other than
+// theirs, whose resource store entries are then keyed under it.
+func (x *Dispatcher) services(host platform.Host) *platform.Services {
+	if host.Workspace == "" || x.e.platform != nil && host.Workspace == x.e.platform.Workspace {
+		return nil
+	}
+	s := x.e.platform.WithProviders(platform.Providers{})
+	s.Workspace = host.Workspace
+	return s
+}
+
 // parentLinks are the links a dispatch tracked in its parent gives its
 // run: the query's parent_job and root_job, and the parent job's runnable
 // path, taken from the job registry when the dispatch is accepted.
 type parentLinks struct{ job, root, path string }
 
 // links snapshots d's links; the path is "" when d names no parent, or one
-// the registry does not know.
+// the registry does not know, or knows in another workspace scope than
+// d's (ADR 0007, a workspace per run), which is as unknown to it. The ids
+// stay as d sent them, as an unknown id's do; the dispatched run's reads
+// through them check the scope (helpers.FlowUserState, the facade).
 func (x *Dispatcher) links(d platform.Dispatch) parentLinks {
 	l := parentLinks{job: d.ParentJob, root: d.RootJob}
 	if l.job != "" {
-		j, _, _ := x.e.platform.JobRegistry().Job(l.job)
-		l.path = j.Path
+		j, _, ok := x.e.platform.JobRegistry().Job(l.job)
+		if ok && x.e.platform.InScope(j, d.Host.EffectiveWorkspace()) {
+			l.path = j.Path
+		}
 	}
 	return l
 }
@@ -650,12 +694,14 @@ func storedText(v jsonval.Value) []byte {
 	return s
 }
 
-// Result returns the state of a run the dispatcher started.
-func (x *Dispatcher) Result(_ context.Context, id string) (platform.JobResult, bool, error) {
+// Result returns the state of a run the dispatcher started for a dispatch
+// of workspace scope workspace, the effective workspace of the dispatching
+// run (platform.Host.EffectiveWorkspace), or of any scope for "".
+func (x *Dispatcher) Result(_ context.Context, id, workspace string) (platform.JobResult, bool, error) {
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	rec := x.runs[id]
-	if rec == nil {
+	if rec == nil || workspace != "" && rec.workspace != workspace {
 		return platform.JobResult{}, false, nil
 	}
 	return rec.result, true, nil

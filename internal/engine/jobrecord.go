@@ -159,15 +159,23 @@ func (r *run) noInvocationJob(fr *frame, i, idx int, o *outcome) {
 	r.e.platform.JobRegistry().Begin(platform.Job{ID: id, Kind: platform.JobScript, Root: r.rootID, Run: r.id})()
 }
 
-// JobRecord renders the record of the job id names (platform.JobView).
-func (v runView) JobRecord(id string) ([]byte, error) {
-	r := v.r
+// JobRecord renders the record of the job that j registers, with the flow
+// user state of that registration, as the job read checked it
+// (platform.JobView).
+func (v runView) JobRecord(j platform.Job) ([]byte, error) {
 	// The user state is read before the run's lock: its service takes
 	// locks of its own.
-	states, hasStates, err := r.platform.FlowUserStates(context.Background(), id)
+	states, hasStates, err := v.r.platform.FlowUserStatesOf(context.Background(), j)
 	if err != nil {
 		return nil, err
 	}
+	return v.record(j.ID, states, hasStates)
+}
+
+// record renders the record of the job id names, with the flow user state
+// states when hasStates.
+func (v runView) record(id string, states json.RawMessage, hasStates bool) ([]byte, error) {
+	r := v.r
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	ref, err := r.lookupJob(id)
@@ -185,14 +193,17 @@ func (v runView) JobRecord(id string) ([]byte, error) {
 	return x.leafRecord(id, ref)
 }
 
-// JobPoll answers the result polls for the job id names
-// (platform.JobView). The job's state is the record's, as JobRecord
-// renders it, so that the polls serve the jobs that the job read serves;
+// JobPoll answers the result polls for the job that j registers, as the
+// lookup checked it (platform.JobView). The job's state is the record's,
+// as JobRecord renders it for j, so that the polls serve the jobs that the
+// job read serves and fail as it fails, when a flow job's user state
+// cannot be listed too;
 // a completed job's result is its whole stored result, in jsonb's text
 // output, where the record replaces a result that is too large (tooBig),
 // since Windmill's polls read the result column itself.
-func (v runView) JobPoll(id string) (platform.JobResult, error) {
-	rec, err := v.JobRecord(id)
+func (v runView) JobPoll(j platform.Job) (platform.JobResult, error) {
+	id := j.ID
+	rec, err := v.JobRecord(j)
 	if err != nil {
 		return platform.JobResult{}, err
 	}
@@ -878,7 +889,8 @@ func (v *scriptView) check(id string) error {
 // JobRecord renders the script run's record (platform.JobView). A job
 // stored canceled is not served: the oracle recorded no canceled job's
 // record, so it is refused as a canceled step's is (leafRecord).
-func (v *scriptView) JobRecord(id string) ([]byte, error) {
+func (v *scriptView) JobRecord(j platform.Job) ([]byte, error) {
+	id := j.ID
 	if err := v.check(id); err != nil {
 		return nil, err
 	}
@@ -921,8 +933,8 @@ func (v *scriptView) JobRecord(id string) ([]byte, error) {
 // JobPoll answers the result polls for a dispatched script's job
 // (platform.JobView), as a run's JobPoll does: the record's state and
 // the whole stored result.
-func (v *scriptView) JobPoll(id string) (platform.JobResult, error) {
-	rec, err := v.JobRecord(id)
+func (v *scriptView) JobPoll(j platform.Job) (platform.JobResult, error) {
+	rec, err := v.JobRecord(j)
 	if err != nil {
 		return platform.JobResult{}, err
 	}

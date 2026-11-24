@@ -52,7 +52,9 @@ func (f *Facade) resourceInterpolated(ctx context.Context, c *Call) Reply {
 	}
 	var job platform.JobLookup
 	if id != "" {
-		job = func() (map[string]string, error) { return f.platform.ReadJobEnv(id, c.Params["workspace"]) }
+		job = func() (map[string]string, error) {
+			return f.platform.ReadJobEnvIn(id, c.Params["workspace"], callerScope(c))
+		}
 	}
 	body, err := f.providers(c).InterpolatedResourceOf(ctx, c.Params["path"], job)
 	if errors.Is(err, platform.ErrNoJobVariables) {

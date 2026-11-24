@@ -53,6 +53,7 @@ func (f *Facade) dispatch(kind platform.DispatchKind, param string) Handler {
 			RootJob:   c.Query.Get("root_job"),
 			Tag:       c.Query.Get("tag"),
 			Caller:    c.Caller.Env,
+			Host:      c.Caller.Host,
 		}
 		if s := c.Query.Get("scheduled_in_secs"); s != "" {
 			n, err := strconv.ParseInt(s, 10, 64)

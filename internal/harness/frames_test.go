@@ -185,6 +185,8 @@ func runEncode(t *testing.T, c *frameCase) {
 				raw = v.HaltBefore.Producer()
 			case "halt_after":
 				raw = v.HaltAfter.Producer()
+			case "identity":
+				raw = v.Identity.Producer()
 			}
 		case RunDone:
 			raw = v.Result.Producer()

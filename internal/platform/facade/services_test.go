@@ -151,7 +151,7 @@ func (d *fakeDispatcher) Dispatch(_ context.Context, req platform.Dispatch) (str
 	return "00000000-0000-4000-8000-00000000d150", nil
 }
 
-func (d *fakeDispatcher) Result(_ context.Context, id string) (platform.JobResult, bool, error) {
+func (d *fakeDispatcher) Result(_ context.Context, id, _ string) (platform.JobResult, bool, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	r, ok := d.results[id]

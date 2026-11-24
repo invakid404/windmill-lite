@@ -7,6 +7,7 @@
 package wl
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -137,6 +139,14 @@ type Options struct {
 	// variable a step updates is read again. Off by default; the trace of
 	// a run with it lists D21.
 	ReadCache bool
+	// Identity is the job identity of the runtime's jobs (ADR 0007, job
+	// identity): the workspace they run in, the user they run as and the
+	// instance's public URL, which every job's environment carries. Each
+	// empty field takes windmill-lite's placeholder, such as the
+	// workspace windmill-lite. The workspace is also the one the facade
+	// accepts in a call's path, and the resource store's key. A run may
+	// set its own (RunOptions.Identity).
+	Identity Identity
 	// Pool sets the pool of a warm runtime's harness processes (ADR 0004
 	// §Pooling): its size, the cap per process, the lag threshold, the
 	// recycle triggers, the bound on live processes and a warm start. Its
@@ -314,6 +324,71 @@ var ErrEngineVersion = errors.New("wl: the bundle was built by another engine ve
 // ErrClosed is Run's error once Close has begun.
 var ErrClosed = errors.New("wl: the runtime is closed")
 
+// Identity is a job identity (ADR 0007, job identity): what a job's
+// environment carries of its instance and user rather than of its run.
+// Each field names the job variable it sets. Its JSON form, which host
+// mode's run frame and `windmill-lite host -identity` take, uses the
+// field names in snake case (DecodeIdentity).
+type Identity struct {
+	// Workspace is WM_WORKSPACE and WM_ROOT_WORKSPACE. A job is in its
+	// run's workspace: the facade finds the jobs of another workspace's
+	// runs as unknown ids, and keys the resource store's entries under it.
+	Workspace string `json:"workspace,omitempty"`
+	// Username is WM_USERNAME; Email is WM_EMAIL and WM_END_USER_EMAIL.
+	Username string `json:"username,omitempty"`
+	Email    string `json:"email,omitempty"`
+	// PermissionedAs is WM_PERMISSIONED_AS, u/<user> or g/<group>; empty
+	// means u/<Username>.
+	PermissionedAs string `json:"permissioned_as,omitempty"`
+	// BaseURL is WM_BASE_URL, the instance's public URL, which the stock
+	// client uses for the links it builds, never for its calls.
+	BaseURL string `json:"base_url,omitempty"`
+	// WorkerGroup is WM_WORKER_GROUP.
+	WorkerGroup string `json:"worker_group,omitempty"`
+}
+
+// DecodeIdentity decodes an identity from its JSON form: exactly one JSON
+// object, and nothing after it but white space, whose keys are workspace,
+// username, email, permissioned_as, base_url and worker_group, spelled
+// exactly so, each optional and each a string. Another key (a spelling in
+// another case included), a value that is not a string (null included),
+// a text that is not an object (null included) and a second value are
+// errors.
+func DecodeIdentity(data []byte) (Identity, error) {
+	var fields map[string]json.RawMessage
+	dec := json.NewDecoder(bytes.NewReader(data))
+	if err := dec.Decode(&fields); err != nil {
+		return Identity{}, fmt.Errorf("wl: identity: %w", err)
+	}
+	if fields == nil {
+		return Identity{}, errors.New("wl: identity: not a JSON object")
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return Identity{}, errors.New("wl: identity: more than one JSON value")
+	}
+	var id Identity
+	dst := map[string]*string{
+		"workspace": &id.Workspace, "username": &id.Username, "email": &id.Email,
+		"permissioned_as": &id.PermissionedAs, "base_url": &id.BaseURL, "worker_group": &id.WorkerGroup,
+	}
+	for _, k := range slices.Sorted(maps.Keys(fields)) {
+		p, ok := dst[k]
+		if !ok {
+			return Identity{}, fmt.Errorf("wl: identity: unknown field %q", k)
+		}
+		v := bytes.TrimSpace(fields[k])
+		if len(v) == 0 || v[0] != '"' || json.Unmarshal(v, p) != nil {
+			return Identity{}, fmt.Errorf("wl: identity: field %q is not a string", k)
+		}
+	}
+	return id, nil
+}
+
+// host is the identity as the engine's host configuration.
+func (i Identity) host() platform.Host {
+	return platform.Host{Workspace: i.Workspace, Username: i.Username, Email: i.Email, PermissionedAs: i.PermissionedAs, BaseURL: i.BaseURL, WorkerGroup: i.WorkerGroup}
+}
+
 // closing is the cause Close cancels the runs in flight with (FX-38), which
 // gives them the cause CauseClosing.
 var closing = engine.Closing
@@ -339,9 +414,10 @@ type Runtime struct {
 	store     *platform.Store
 	services  *platform.Services
 	dispatch  *engine.Dispatcher
-	readCache bool // Options.ReadCache
-	capped    bool // Options.Pool.Cap is set: each flow run's trace lists "D15"
-	pinRuns   bool // Options.Pool.PinRuns
+	readCache bool     // Options.ReadCache
+	identity  Identity // Options.Identity
+	capped    bool     // Options.Pool.Cap is set: each flow run's trace lists "D15"
+	pinRuns   bool     // Options.Pool.PinRuns
 	// byteTotal is Options.Limits.Bytes, nil for none.
 	byteTotal *engine.ByteTotal
 	// foreign is Options.ForeignWindmillOrigins as the welcomes carry
@@ -429,7 +505,7 @@ func Version() string {
 // store under the data directory, and the default dispatcher over the
 // bundle's program. The facade serves them to its steps.
 func Open(path string, opts Options) (_ *Runtime, err error) {
-	rt := &Runtime{version: opts.EngineVersion, readCache: opts.ReadCache, capped: opts.Pool.Cap > 0, pinRuns: opts.Pool.PinRuns}
+	rt := &Runtime{version: opts.EngineVersion, readCache: opts.ReadCache, identity: opts.Identity, capped: opts.Pool.Cap > 0, pinRuns: opts.Pool.PinRuns}
 	if opts.Diagnostics != nil && opts.Pool != (PoolOptions{}) {
 		// The harness processes, the pool and the host plugin's calls write
 		// to it from goroutines of their own, and the pool settings let
@@ -593,7 +669,7 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 		resourceStore = rt.ownStore
 	}
 	_, rt.memoryStore = resourceStore.(*platform.MemoryResourceStore)
-	rt.services = &platform.Services{Resources: store, Variables: store, Objects: objects, Results: opts.Results, ResourceStore: resourceStore}
+	rt.services = &platform.Services{Resources: store, Variables: store, Objects: objects, Results: opts.Results, ResourceStore: resourceStore, Workspace: opts.Identity.Workspace}
 	rt.exec = &recorder{runs: map[string]*callLog{}, invs: map[string]invocation{}}
 	if rt.fac, err = facade.New(facade.Config{Platform: rt.services, Answered: rt.exec.answered, Recorded: rt.exec.released, ResultPollsForAllJobs: opts.ResultPollsForAllJobs}); err != nil {
 		return nil, err
@@ -615,7 +691,7 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	if rt.js, err = quickjs.New(quickjs.Options{Slots: opts.ExpressionSlots}); err != nil {
 		return nil, err
 	}
-	if rt.eng, err = engine.New(engine.Config{Program: prog, Bundle: rt.digest, ModuleState: rt.state, SharedCode: rt.sharedCode(), Exec: rt.exec, JS: rt.js, Platform: rt.services, Provide: rt.provide, QuickJSOnly: opts.QuickJSOnly}); err != nil {
+	if rt.eng, err = engine.New(engine.Config{Program: prog, Bundle: rt.digest, ModuleState: rt.state, SharedCode: rt.sharedCode(), Exec: rt.exec, JS: rt.js, Platform: rt.services, Provide: rt.provide, QuickJSOnly: opts.QuickJSOnly, Host: opts.Identity.host()}); err != nil {
 		return nil, err
 	}
 	// The default dispatcher runs the bundle's roots as runs of their own

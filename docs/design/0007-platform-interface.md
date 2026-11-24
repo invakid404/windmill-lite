@@ -24,8 +24,8 @@ default `fail` policy a step that called an unsupported route fails with
 - the job routes other than the root lookup, the job reads, flow user
   state, dispatch, the result polls and the flow restart, which answer 501
   too;
-- the settings of the job identity in `wl` and in the go-plugin adapter,
-  and a workspace per run (§Job identity).
+- the settings of the job identity in the go-plugin adapter (§Job
+  identity).
 
 ## Context
 
@@ -306,20 +306,71 @@ and [WA-4](../semantics/client-api.md#wa-4):
   since no schedule or CI test starts a job and windmill-lite keeps no
   script hashes ([WA-V10](../semantics/client-api.md#wa-v10)).
 
-**The identity's settings** (planned). A runtime option is planned to set
-this host configuration once, for the job environment, the facade's check
-of a call's workspace and the resource store's key alike. Until then `wl`
-sets none of it, so every job reads windmill-lite's placeholders, such as
-`WM_WORKSPACE` `windmill-lite`. The go-plugin adapter's configuration is to
-carry the option.
+**The identity's settings.** A runtime option (`wl`'s `Options.Identity`)
+sets this host configuration once, for the job environment, the facade's
+check of a call's workspace and the resource store's key alike. A field it
+leaves empty takes windmill-lite's placeholder, such as `WM_WORKSPACE`
+`windmill-lite`.
 
-**A workspace per run** (planned). A run may set the identity for itself,
-so one runtime can hold runs of several workspaces, each job in its run's
-workspace. The job reads, the result polls, the root lookup
-with its record of ended jobs, flow user state and the dispatcher's results
-find a job only through a path in its own workspace. For a job of another
-workspace they answer as for an unknown id, as Windmill does
-([WA-V2](../semantics/client-api.md#wa-v2)).
+Host mode takes it as the host SDK's connect option `identity`, which
+reaches the engine as `windmill-lite host -identity`. The go-plugin
+adapter's configuration is to carry the option (planned).
+
+**A workspace per run.** A run may set the identity for itself
+(`RunOptions.Identity`, or a host-mode `run` frame's `identity`): each field
+it sets replaces the runtime's for the run's jobs and the runs that they
+dispatch. One runtime can so hold runs of several workspaces, each job in
+its run's workspace.
+
+- **A job's workspace** is its run's effective one: the configured
+  workspace, or `windmill-lite` when neither the runtime nor the run sets
+  one. A run that names `windmill-lite` and one that names none share a
+  workspace, as they share a job environment and a resource store key.
+- **The lookups**: the job reads, the result polls, the root lookup with
+  its record of ended jobs, flow user state, a read's `job_id` and the
+  dispatcher's results. Each finds a job only through a path in its own
+  workspace, from a run of that workspace, and answers for a job of
+  another as for an unknown id, as Windmill does
+  ([WA-V2](../semantics/client-api.md#wa-v2)). Each checks the workspace
+  on the registry entry that it answers from.
+- **The services it needs.** The guarantees of this section hold with the
+  services' own job registry and flow user state store, which `wl` always
+  uses, shared between engines or not. A run in a workspace other than the
+  engine's configured one, which only a run's own identity asks for, needs
+  them: with a host's registry or store the engine refuses it.
+- **A host's registry or store** keeps the base's behaviour. An engine
+  configured with one workspace (`Config.Workspace`) over a host's
+  registry or store runs as it always did, and the job lookups find every
+  job the host's registry knows, without a workspace scope. Engines that
+  share a registry through a host's `Jobs` get no isolation from this
+  section.
+- **One workspace per id.** A run whose id a job of another workspace
+  holds, live or among the ended jobs kept, is refused before it starts.
+  A step whose hook sets a `WM_JOB_ID` held so registers under its own
+  invocation id, and a `root_job` that names another workspace's ended
+  job leaves that job its workspace's. Runs of two workspaces so never
+  share a registry entry.
+- **Flow user state.** Two workspaces never share a flow job's state: the
+  services' own store keeps each map with the registration (`Job.Gen`)
+  and workspace that wrote it. A job record lists the state of the
+  registration that the read checked, while that registration is a live
+  flow job.
+- **Reuse within a workspace.** In the services' own store, a run whose
+  id is registered again starts with no state. A host's registry or store,
+  which serves the engine's configured workspace alone, keeps the state of
+  a reused id as before, by the job's id.
+- **A hook's `WM_WORKSPACE`** ([H12](0008-host-hooks.md#the-hooks)) is the
+  workspace of a run without a configured one, as it always was. A run
+  with a configured workspace stays in it: its token is valid there only,
+  whatever its environment says.
+- **The invocation's identity.** The facade takes each invocation's
+  workspace from its run, never from a lookup by its `WM_JOB_ID`, which a
+  hook may change and another live invocation may share.
+- **A dispatch's links.** A `parent_job` or `root_job` that names a job of
+  another workspace is as unknown to the dispatched run: it does not take
+  that parent's path, and `flow_user_state()` reads null through that root.
+- **Keys.** The resource store keys a run's entries under its workspace,
+  and the result cache its results.
 
 `FlowUserState` keys on the effective root; `getRootJobId` answers from the
 run registry. A host can override the environment of an invocation
@@ -477,8 +528,8 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     facade too: each host-mode invocation carries its origin as `BASE_URL`
     ([harness protocol](0004-harness-protocol.md), host mode item 7). An
     authenticated route whose path names another workspace than the
-    caller's `WM_WORKSPACE` answers `401`; a `jobs_u` lookup there answers
-    as for an unknown job (the workspace of a token, below).
+    caller's answers `401`; a `jobs_u` lookup there answers as for an
+    unknown job (the workspace of a token, below).
 - The resource, variable and secret services, their local defaults, the
   host secret layer and the interpolation walker
   ([internal/platform](../../internal/platform/README.md)), their routes in
@@ -673,6 +724,10 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
     collapsed loop share an entry (FX-40/d); the bundle's digest stands for
     the deployed version those ids belong to, so an entry never crosses
     bundles in a shared store.
+  - **The key's workspace.** The key of a run of another workspace than
+    `windmill-lite` (§Job identity) starts with a marker of its own and the
+    workspace. Runs of two workspaces so never share an entry, and a run of
+    `windmill-lite` keeps the key that every run had before.
   - **A store's failure** is a miss and a run warning
     (`result_cache_unavailable`), never a failed run.
   - **S3 object arguments.** An argument whose whole value is an S3
@@ -688,23 +743,34 @@ a remote Windmill (`platform/remote`) is merged only after that decision.
   follow these rules of the reference:
   - **The workspace of a token** ([WA-4](../semantics/client-api.md#wa-4),
     [WA-42](../semantics/client-api.md#wa-42)). A job token is valid only
-    for the job's workspace, so an authenticated route whose path names
-    another workspace answers `401` `Not authorized: Unauthorized` before
-    its handler runs: before the 501 of an operation without one, and
-    before any rejection of its path or body. Every route of a workspace
+    for the job's workspace. An authenticated route whose path names
+    another workspace answers `401` `Not authorized: Unauthorized` first:
+    before the 501 of an operation without a handler, and before any
+    rejection of its path or body. Every route of a workspace
     (`/w/{workspace}/…`) is authenticated but those of the unauthenticated
     groups: `jobs_u`, which the reference names, and `apps_u`, the public
-    apps' routes, which have no handler and keep their 501. The caller's
-    workspace is its `WM_WORKSPACE`, and a caller without one is of every
-    workspace. Every token windmill-lite issues names one of its
-    invocations, of the one workspace its jobs run in, so no caller is
-    anonymous and a token issued for another workspace (WA-V2/d's first
-    request) cannot arise; a token that names no invocation keeps its own
+    apps' routes, which have no handler and keep their 501.
+  - **The caller's workspace** is its run's configured one, and without
+    one its `WM_WORKSPACE`; a caller with neither is of every workspace.
+    Every token windmill-lite issues names one of its invocations, so no
+    caller is anonymous. A token that names no invocation keeps its own
     `401` text (Transports, above).
-  - **Job lookups in the path's workspace.** windmill-lite's jobs are all
-    of the caller's workspace, so a `jobs_u` lookup in any other finds no
-    job: the root lookup answers as for an unknown id, and the result
-    polls as for a UUID with no job (WA-V2/d's second request).
+  - **A token of another workspace.** A runtime with runs of two
+    workspaces holds live tokens of both, so a step can send its token to a
+    path of the other workspace. An authenticated route answers it `401`.
+    A `jobs_u` route finds no job there (the next item), as for
+    [WA-V2/d](../semantics/conformance.md#wa-v2)'s second request.
+  - **[WA-V2/d](../semantics/conformance.md#wa-v2)'s first request** reads a job of the path's
+    workspace with another workspace's token. Windmill reads that caller as
+    anonymous, and answers `400` for a job that a user ran. windmill-lite
+    has no anonymous callers, which the equivalence contract leaves
+    [out of scope](0001-equivalence-contract.md#3-out-of-scope), and
+    answers it as an unknown id.
+  - **Job lookups in the path's workspace.** A `jobs_u` lookup in another
+    workspace than the caller's finds no job. Neither does a lookup of a
+    job of a run of another workspace (§Job identity, a workspace per run).
+    The root lookup then answers as for an unknown id, and the result polls
+    as for a UUID with no job ([WA-V2/d](../semantics/conformance.md#wa-v2)'s second request).
   - **The root lookup of an unknown id** answers as Windmill answers an id
     with no job row ([WA-19](../semantics/client-api.md#wa-19)/b): `400`
     `text/plain` `SqlErr: no rows returned by a query that expected to

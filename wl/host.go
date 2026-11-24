@@ -212,7 +212,8 @@ func hostDeadline(ctx context.Context, r harness.RunRequest) (context.Context, c
 	return context.WithTimeout(ctx, budgetDuration(*r.DeadlineMS))
 }
 
-// hostBudgets are the RunOptions of a run frame: its id and kind, and what
+// hostBudgets are the RunOptions of a run frame: its id, kind and identity,
+// and what
 // a Go host gives in RunOptions (ADR 0008): write-capable selectors (H3),
 // halts (H8) and fatal error names (H7), as the run's own hooks, which
 // come ahead of the plugin's (mergeHooks); the pre-write deadline (H4),
@@ -256,6 +257,13 @@ func hostBudgets(r harness.RunRequest, prog *ir.Program) (RunOptions, error) {
 	}
 	if r.Clock == harness.ClockRecord {
 		opts.Clock = &RecordClock{}
+	}
+	if !r.Identity.IsZero() {
+		id, err := DecodeIdentity(r.Identity.Producer())
+		if err != nil {
+			return opts, fmt.Errorf("the run's %w", err)
+		}
+		opts.Identity = id
 	}
 	return opts, nil
 }
