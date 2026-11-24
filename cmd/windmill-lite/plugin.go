@@ -33,11 +33,14 @@ const pluginUsage = "usage: windmill-lite plugin -config <file>"
 
 // runPlugin is `windmill-lite plugin -config <file>` (ADR 0009, the
 // go-plugin adapter): the engine as a go-plugin plugin, which a Go host
-// launches with wl/plugin. It reads its configuration, opens the bundle
-// with wl, with the pool's warm start when the configuration asks for it,
-// and only then serves windmill_lite.v1.Runner until its host stops it. A
-// start that fails writes its reason to standard error, which go-plugin
-// passes to the host's logger, and exits with status 1.
+// launches with wl/plugin. It reads and checks its configuration, completes
+// go-plugin's handshake, and serves while it opens the bundle with wl, with
+// the pool's warm start when the configuration asks for it: health answers
+// NOT_SERVING and the Runner calls UNAVAILABLE until the open completes,
+// then SERVING, and windmill_lite.v1.Runner serves until the host stops
+// it. A start that fails, before the handshake or after it, writes its
+// reason to standard error, which go-plugin passes to the host's logger,
+// and exits with status 1.
 func runPlugin(args []string, stderr io.Writer) int {
 	fs := newFlagSet("plugin", stderr)
 	configPath := fs.String("config", "", "the configuration `file`, JSON, which the host writes")
@@ -92,31 +95,69 @@ func runPlugin(args []string, stderr io.Writer) int {
 		return fail(err)
 	}
 	harness.SetLaunchUmask(launch)
-	rt, err := wl.Open(cfg.Bundle, opts)
-	if err != nil {
-		return fail(err)
-	}
-	defer rt.Close()
+	// The engine serves in the state Starting while the runtime opens.
+	gate := host.NewGate()
+	opened := make(chan openResult, 1)
+	go func() {
+		if beforeOpen != nil {
+			beforeOpen()
+		}
+		rt, err := wl.Open(cfg.Bundle, opts)
+		if err == nil {
+			gate.Serve(host.New(host.Config{Runtime: rt, Labels: cfg.Labels, ConfigDigest: digest}))
+		}
+		opened <- openResult{rt, err}
+	}()
 	limit := cfg.maxMessageBytes()
-	srv := &servedRunner{RunnerPlugin: plugin.RunnerPlugin{Runner: host.New(host.Config{Runtime: rt, Labels: cfg.Labels, ConfigDigest: digest})}}
-	goplugin.Serve(&goplugin.ServeConfig{
-		HandshakeConfig:  plugin.Handshake,
-		VersionedPlugins: map[int]goplugin.PluginSet{plugin.ProtocolVersion: {plugin.PluginName: srv}},
-		GRPCServer: func(o []grpc.ServerOption) *grpc.Server {
-			return grpc.NewServer(append(o, grpc.MaxRecvMsgSize(limit), grpc.MaxSendMsgSize(limit))...)
-		},
-		Logger: hclog.New(&hclog.LoggerOptions{Name: "windmill-lite", Output: stderr, Level: hclog.Error}),
-	})
-	if !srv.served.Load() {
-		// go-plugin returns without serving when it cannot listen or set
-		// its server up, having logged why.
-		return fail(errors.New("go-plugin did not start serving"))
+	srv := &servedRunner{RunnerPlugin: plugin.RunnerPlugin{Runner: gate.Runner()}}
+	served := make(chan struct{})
+	go func() {
+		defer close(served)
+		goplugin.Serve(&goplugin.ServeConfig{
+			HandshakeConfig:  plugin.Handshake,
+			VersionedPlugins: map[int]goplugin.PluginSet{plugin.ProtocolVersion: {plugin.PluginName: srv}},
+			GRPCServer: func(o []grpc.ServerOption) *grpc.Server {
+				o = append(o, grpc.MaxRecvMsgSize(limit), grpc.MaxSendMsgSize(limit))
+				return grpc.NewServer(append(o, gate.ServerOptions()...)...)
+			},
+			Logger: hclog.New(&hclog.LoggerOptions{Name: "windmill-lite", Output: stderr, Level: hclog.Error}),
+		})
+	}()
+	for {
+		select {
+		case r := <-opened:
+			if r.err != nil {
+				// The process exits, and go-plugin's server with it.
+				return fail(r.err)
+			}
+			defer r.rt.Close()
+			opened = nil
+		case <-served:
+			if !srv.served.Load() {
+				// go-plugin returns without serving when it cannot listen or
+				// set its server up, having logged why.
+				return fail(errors.New("go-plugin did not start serving"))
+			}
+			// go-plugin's shutdown call, which the host's Kill sends, stopped
+			// the server, which ends the calls in flight and so the runs that
+			// they started. The deferred Close then cancels any run left
+			// (cause closing). A runtime still opening is left to the
+			// process's exit.
+			return 0
+		}
 	}
-	// go-plugin's shutdown call, which the host's Kill sends, stopped the
-	// server, which ends the calls in flight and so the runs that they
-	// started. The deferred Close then cancels any run left (cause closing).
-	return 0
 }
+
+// openResult is the outcome of the runtime's open.
+type openResult struct {
+	rt  *wl.Runtime
+	err error
+}
+
+// beforeOpen, when set, is called just before the runtime opens, after
+// go-plugin's handshake may have begun. Tests use it to hold the engine in
+// the state Starting; it is nil otherwise.
+var beforeOpen func()
 
 // servedRunner is the Runner plugin, which notes that go-plugin set its
 // server up: go-plugin prints its handshake line and serves only after

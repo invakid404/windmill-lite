@@ -5,8 +5,8 @@ pins its executable by SHA-256, and calls its `Runner` service: build
 information, runs, cancellation and health. The engine's side is the
 `windmill-lite plugin` command
 ([cmd/windmill-lite](../../cmd/windmill-lite/README.md#plugin)), which
-answers every call but `Health`: the engine serves no health service of
-its own yet. This package's tests launch a test plugin. The supervisor,
+answers every call, `Health` included, from its own state. This
+package's tests launch a test plugin. The supervisor,
 and the serving of a run's Go hooks on the broker, are planned.
 
 This README covers `wl/plugin/`, the Go package

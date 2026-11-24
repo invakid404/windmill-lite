@@ -12,10 +12,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -26,6 +28,7 @@ import (
 	goplugin "github.com/hashicorp/go-plugin"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protowire"
 
@@ -313,6 +316,8 @@ func (l *lineLog) String() string {
 type pluginEngine struct {
 	client *goplugin.Client
 	runner *plugin.Client
+	// health is a gRPC health client of the engine's connection.
+	health healthpb.HealthClient
 	stderr *lineLog
 	// addr is the address of the engine's socket.
 	addr string
@@ -321,9 +326,44 @@ type pluginEngine struct {
 }
 
 // launchPlugin launches the engine with the configuration cfg, with env
-// added to its environment, and connects to it. The launch ends with the
-// test.
+// added to its environment, connects to it and waits until it serves, as a
+// host's admission does. The launch ends with the test.
 func launchPlugin(t *testing.T, cfg map[string]any, env ...string) *pluginEngine {
+	t.Helper()
+	e := connectPlugin(t, cfg, env...)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	for {
+		st, err := e.runner.Health(ctx)
+		if err == nil && st == healthpb.HealthCheckResponse_SERVING {
+			return e
+		}
+		if ctx.Err() != nil {
+			t.Fatalf("the engine did not serve within 2 minutes (last health %v, %v)\nits standard error:\n%s", st, err, e.stderr)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// launchHeld launches the engine with the configuration cfg and connects to
+// it, with its runtime's open held by the engine's test hook (holdOpenEnv),
+// so it stays in the state Starting until the test calls release.
+func launchHeld(t *testing.T, cfg map[string]any) (e *pluginEngine, release func()) {
+	t.Helper()
+	file := filepath.Join(t.TempDir(), "release-open")
+	e = connectPlugin(t, cfg, holdOpenEnv+"="+file)
+	return e, func() {
+		t.Helper()
+		if err := os.WriteFile(file, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// connectPlugin launches the engine with the configuration cfg, with env
+// added to its environment, and connects to it, without waiting for it to
+// serve. The launch ends with the test.
+func connectPlugin(t *testing.T, cfg map[string]any, env ...string) *pluginEngine {
 	t.Helper()
 	exe, sum := engineExecutable(t)
 	gcfg, cleanup, err := plugin.ClientConfig(plugin.Launch{
@@ -359,6 +399,11 @@ func launchPlugin(t *testing.T, cfg map[string]any, env ...string) *pluginEngine
 		t.Fatalf("Dispense returned %T, want *plugin.Client", raw)
 	}
 	e.runner = c
+	g, ok := rpc.(*goplugin.GRPCClient)
+	if !ok {
+		t.Fatalf("go-plugin's client is %T, want a gRPC client", rpc)
+	}
+	e.health = healthpb.NewHealthClient(g.Conn)
 	return e
 }
 
@@ -745,12 +790,18 @@ func alreadyExists(t *testing.T, e *pluginEngine) error {
 	return err
 }
 
-// TestPluginErrorCodes checks the gRPC code of each refusal of a serving
-// engine (ADR 0009, runs that do not start): ALREADY_EXISTS for an id that
-// a run in flight has, NOT_FOUND for a path that names no root of the
-// bundle, INVALID_ARGUMENT for a request that the engine refuses.
+// TestPluginErrorCodes checks the gRPC code of each refusal (ADR 0009, runs
+// that do not start): UNAVAILABLE while the engine starts, its runtime's
+// open held by its test hook; then, on a serving engine, ALREADY_EXISTS for
+// an id that a run in flight has, NOT_FOUND for a path that names no root
+// of the bundle, INVALID_ARGUMENT for a request that the engine refuses.
 func TestPluginErrorCodes(t *testing.T) {
 	bun, out := pluginBundle(t)
+	held, release := launchHeld(t, pluginConfigOf(t, bun, out))
+	if _, err := held.run(&plugin.RunRequest{Path: "f/plugin/echo", Args: []byte(`{"x":1}`)}); status.Code(err) != codes.Unavailable {
+		t.Errorf("a run while the engine starts: %v, want UNAVAILABLE", err)
+	}
+	release()
 	e := launchPlugin(t, pluginConfigOf(t, bun, out))
 	if err := alreadyExists(t, e); status.Code(err) != codes.AlreadyExists {
 		t.Errorf("a run whose id a run in flight has: %v, want ALREADY_EXISTS", err)
@@ -767,11 +818,16 @@ func TestPluginErrorCodes(t *testing.T) {
 }
 
 // TestPluginRefusalDetail checks that every refusal of a run that did not
-// start carries the RUN_NOT_STARTED detail, so that Client.Run reports
+// start, UNAVAILABLE while the engine starts included, carries the
+// RUN_NOT_STARTED detail, so that Client.Run reports
 // ErrNotStarted and the host may retry it, while a run that started and
 // failed, or was canceled, answers its RunResult and never an error.
 func TestPluginRefusalDetail(t *testing.T) {
 	bun, out := pluginBundle(t)
+	held, release := launchHeld(t, pluginConfigOf(t, bun, out))
+	_, err := held.run(&plugin.RunRequest{Path: "f/plugin/echo", Args: []byte(`{"x":1}`)})
+	checkRefused(t, "UNAVAILABLE while the engine starts", err, codes.Unavailable, "")
+	release()
 	e := launchPlugin(t, pluginConfigOf(t, bun, out))
 	checkRefused(t, "ALREADY_EXISTS", alreadyExists(t, e), codes.AlreadyExists, "")
 	for _, c := range refusalCases() {
@@ -852,11 +908,44 @@ func TestPluginStagedFields(t *testing.T) {
 	if err := os.CopyFS(replaced, os.DirFS(out)); err != nil {
 		t.Fatal(err)
 	}
-	code, stderr = startRefused(t, pluginConfigOf(t, bun, replaced), swapBundleEnv+"="+withPlugin)
+	// The runtime opens after go-plugin's handshake, so this start fails
+	// after it.
+	code, stderr = startFails(t, pluginConfigOf(t, bun, replaced), swapBundleEnv+"="+withPlugin)
 	if code != 1 || !strings.Contains(stderr, "digest") {
 		t.Errorf("a bundle replaced after its check: exit %d, stderr %q; want 1, naming the digest", code, stderr)
 	}
 }
+
+// startFails starts the engine directly, as go-plugin would, with the
+// configuration cfg and env added to its environment, and returns its exit
+// code and standard error once it exits, at most a minute later. Unlike
+// startRefused, it lets the engine complete go-plugin's handshake first.
+func startFails(t *testing.T, cfg map[string]any, env ...string) (int, string) {
+	t.Helper()
+	exe, _ := engineExecutable(t)
+	sockets, err := os.MkdirTemp("", "wlr-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(sockets) })
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, exe, "plugin", "-config", writePluginConfig(t, cfg))
+	cmd.Env = engineEnv(append([]string{plugin.Handshake.MagicCookieKey + "=" + plugin.Handshake.MagicCookieValue, "PLUGIN_UNIX_SOCKET_DIR=" + sockets}, env...)...)
+	var stdout, stderr syncBuffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	err = cmd.Run()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || ctx.Err() != nil {
+		t.Fatalf("the engine exited with %v (context %v), want a failed start\nits standard error:\n%s", err, ctx.Err(), stderr.String())
+	}
+	return exit.ExitCode(), stderr.String()
+}
+
+// holdOpenEnv names a file whose creation releases the engine's runtime
+// open: the engine's test hook holds the open until the file exists, at
+// most 2 minutes (beforeOpen).
+const holdOpenEnv = "WL_TEST_PLUGIN_HOLD_OPEN"
 
 // swapBundleEnv names a bundle that the engine's test hook copies over the
 // configured bundle between its check and the runtime's open
@@ -866,6 +955,15 @@ const swapBundleEnv = "WL_TEST_PLUGIN_SWAP_BUNDLE"
 // installPluginTestHooks installs, in the engine that TestMain starts, the
 // hooks that the plugin tests set through the environment.
 func installPluginTestHooks() {
+	if file := os.Getenv(holdOpenEnv); file != "" {
+		beforeOpen = func() {
+			for until := time.Now().Add(2 * time.Minute); time.Now().Before(until); time.Sleep(10 * time.Millisecond) {
+				if _, err := os.Stat(file); err == nil {
+					return
+				}
+			}
+		}
+	}
 	if from := os.Getenv(swapBundleEnv); from != "" {
 		afterBundleCheck = func(bundle string) {
 			if err := os.RemoveAll(bundle); err != nil {
@@ -962,6 +1060,140 @@ func TestPluginDispatchedID(t *testing.T) {
 	checkRefused(t, "a run with the id of a dispatched run in its step", err, codes.AlreadyExists, child)
 	release(t, dir)
 	waitFile(t, dir, "left")
+}
+
+// TestPluginServesBundle checks readiness (ADR 0009, health, readiness and
+// drain): with the runtime's open held by the engine's test hook, the engine
+// has completed go-plugin's handshake and answers health NOT_SERVING, not
+// go-plugin's own SERVING, and GetBuildInfo UNAVAILABLE. Released, it
+// answers SERVING, and GetBuildInfo returns wl's build information of the
+// bundle, with the configuration's labels and digest and the protocol
+// version.
+func TestPluginServesBundle(t *testing.T) {
+	bun, out := pluginBundle(t)
+	cfg := pluginConfigOf(t, bun, out)
+	cfg["labels"] = map[string]string{"region": "test-region"}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(data)
+	e, release := launchHeld(t, cfg)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	for _, name := range []string{"", "plugin", plugin.Runner_ServiceDesc.ServiceName} {
+		r, err := e.health.Check(ctx, &healthpb.HealthCheckRequest{Service: name})
+		if err != nil || r.GetStatus() != healthpb.HealthCheckResponse_NOT_SERVING {
+			t.Errorf("health of %q while the engine starts: %v, %v; want NOT_SERVING", name, r.GetStatus(), err)
+		}
+	}
+	if _, err := e.runner.BuildInfo(ctx); status.Code(err) != codes.Unavailable {
+		t.Errorf("GetBuildInfo while the engine starts: %v, want UNAVAILABLE", err)
+	}
+
+	release()
+	waitServing(t, e)
+	info, err := e.runner.BuildInfo(ctx)
+	if err != nil {
+		t.Fatalf("GetBuildInfo once the engine serves: %v", err)
+	}
+	repo, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt, err := wl.Open(out, wl.Options{Bun: bun, HarnessRuntime: filepath.Join(repo, "harnesses", "bun", "runtime"), EngineVersion: resolveVersion()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := rt.BuildInfo()
+	rt.Close()
+	switch {
+	case info.GetBundleDigest() != want.BundleDigest || info.GetEngineVersion() != want.EngineVersion ||
+		info.GetBunVersion() != want.BunVersion || info.GetEsbuildVersion() != want.EsbuildVersion ||
+		!maps.Equal(info.GetHarnessRuntimes(), want.HarnessRuntimes) || info.GetModuleState() != want.ModuleState ||
+		info.GetSharedCode() != want.SharedCode || string(info.GetContract()) != string(want.Contract) ||
+		!slices.Equal(info.GetDeviations(), want.Deviations) || info.GetNonconformantRuntime() != want.NonconformantRuntime:
+		t.Errorf("GetBuildInfo %v, want wl's %+v", info, want)
+	case info.GetProtocolVersion() != plugin.ProtocolVersion:
+		t.Errorf("protocol_version %d, want %d", info.GetProtocolVersion(), plugin.ProtocolVersion)
+	case !maps.Equal(info.GetLabels(), map[string]string{"region": "test-region"}):
+		t.Errorf("labels %v, want the configuration's", info.GetLabels())
+	case info.GetConfigDigest() != hex.EncodeToString(digest[:]):
+		t.Errorf("config_digest %s, want the SHA-256 of the file, %x", info.GetConfigDigest(), digest)
+	}
+}
+
+// waitServing waits up to 2 minutes for e's health to answer SERVING.
+func waitServing(t *testing.T, e *pluginEngine) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	for {
+		st, err := e.runner.Health(ctx)
+		if err == nil && st == healthpb.HealthCheckResponse_SERVING {
+			return
+		}
+		if ctx.Err() != nil {
+			t.Fatalf("the engine did not serve within 2 minutes (last health %v, %v)\nits standard error:\n%s", st, err, e.stderr)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TestPluginHealthMethods checks gRPC health (ADR 0009, health, readiness
+// and drain): Check answers the engine's state for the empty name, plugin
+// and windmill_lite.v1.Runner, NOT_SERVING while it starts and SERVING once
+// it serves, and List answers the same three; Check of another name answers
+// NOT_FOUND, and Watch of it SERVICE_UNKNOWN; a Watch opened while the
+// engine starts receives NOT_SERVING, then SERVING once the engine serves.
+func TestPluginHealthMethods(t *testing.T) {
+	bun, out := pluginBundle(t)
+	e, release := launchHeld(t, pluginConfigOf(t, bun, out))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	names := []string{"", "plugin", plugin.Runner_ServiceDesc.ServiceName}
+	checkAll := func(when string, want healthpb.HealthCheckResponse_ServingStatus) {
+		t.Helper()
+		for _, name := range names {
+			r, err := e.health.Check(ctx, &healthpb.HealthCheckRequest{Service: name})
+			if err != nil || r.GetStatus() != want {
+				t.Errorf("Check(%q) %s: %v, %v; want %v", name, when, r.GetStatus(), err, want)
+			}
+		}
+		l, err := e.health.List(ctx, &healthpb.HealthListRequest{})
+		if err != nil || len(l.GetStatuses()) != len(names) {
+			t.Fatalf("List %s: %v, %v; want the %d names", when, l, err, len(names))
+		}
+		for _, name := range names {
+			if got := l.GetStatuses()[name].GetStatus(); got != want {
+				t.Errorf("List %s: %q is %v, want %v", when, name, got, want)
+			}
+		}
+	}
+	checkAll("while the engine starts", healthpb.HealthCheckResponse_NOT_SERVING)
+	if _, err := e.health.Check(ctx, &healthpb.HealthCheckRequest{Service: "other"}); status.Code(err) != codes.NotFound {
+		t.Errorf("Check(\"other\"): %v, want NOT_FOUND", err)
+	}
+	unknown, err := e.health.Watch(ctx, &healthpb.HealthCheckRequest{Service: "other"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r, err := unknown.Recv(); err != nil || r.GetStatus() != healthpb.HealthCheckResponse_SERVICE_UNKNOWN {
+		t.Errorf("Watch(\"other\"): %v, %v; want SERVICE_UNKNOWN", r.GetStatus(), err)
+	}
+	watch, err := e.health.Watch(ctx, &healthpb.HealthCheckRequest{Service: plugin.Runner_ServiceDesc.ServiceName})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r, err := watch.Recv(); err != nil || r.GetStatus() != healthpb.HealthCheckResponse_NOT_SERVING {
+		t.Fatalf("the Watch opened while the engine starts: first %v, %v; want NOT_SERVING", r.GetStatus(), err)
+	}
+
+	release()
+	if r, err := watch.Recv(); err != nil || r.GetStatus() != healthpb.HealthCheckResponse_SERVING {
+		t.Errorf("the Watch opened while the engine starts: next %v, %v; want SERVING", r.GetStatus(), err)
+	}
+	checkAll("once the engine serves", healthpb.HealthCheckResponse_SERVING)
 }
 
 // TestPluginNonRootFlow checks the path of a flow that the bundle compiled

@@ -4,10 +4,12 @@
 [wl](../../wl/README.md) runtime: `Run`, `Cancel` and `GetBuildInfo`.
 `GetRun` answers `UNIMPLEMENTED`, and a request's `hooks`, `pin`, `limits`
 and `run_data` are refused, until the engine serves the host's hooks on
-go-plugin's broker and those run options. The service's health and
-readiness, and the plain gRPC and HTTP adapters, are planned
-([host adapters](../../docs/design/0009-host-adapters.md)). This README
-covers `internal/host`, the Go package
+go-plugin's broker and those run options. A `Gate` answers gRPC health
+from the engine's state, Starting or Serving, and refuses the calls while
+the engine starts. The plain gRPC and HTTP adapters are planned
+([host adapters](../../docs/design/0009-host-adapters.md)).
+
+This README covers `internal/host`, the Go package
 `github.com/invakid404/windmill-lite/internal/host`.
 
 `windmill-lite plugin` serves this service to a Go host that launches the
@@ -84,11 +86,35 @@ reason `RUN_NOT_STARTED`, which `wl/plugin`'s `Client.Run` reports as
 | `UNAVAILABLE` | The runtime is closed (`wl.ErrClosed`) |
 | `INVALID_ARGUMENT` | The request's own checks above, and every other error with which `Runtime.Run` refuses a run, such as arguments that are not a JSON object |
 
+## Health and readiness
+
+`windmill-lite plugin` completes go-plugin's handshake before its runtime
+opens, so the engine serves in two states, which a `Gate` holds
+(ADR 0009, health, readiness and drain).
+
+| State | Health | `Run` | `GetBuildInfo`, `Cancel`, `GetRun` |
+|---|---|---|---|
+| `Starting`: the runtime opens, with its warm start | `NOT_SERVING` | `UNAVAILABLE` with the `RUN_NOT_STARTED` detail | `UNAVAILABLE` |
+| `Serving`: after `Gate.Serve` | `SERVING` | the `Server` | the `Server` |
+
+- **`NewGate()`** returns a `Gate` in `Starting`. `Gate.Serve(srv)` moves it
+  to `Serving` once, with the `Server` of the opened runtime.
+- **`Gate.Runner()`** is the `plugin.RunnerServer` that the command
+  registers. It sends every call to the `Server` once the engine serves.
+- **`Gate.ServerOptions()`** are the gRPC server options with the
+  interceptors that answer `grpc.health.v1.Health` from the state, before
+  the health service that go-plugin registers sees a call. `Check` and
+  `List` answer for `""`, `plugin` and `windmill_lite.v1.Runner`. `Check`
+  of another name answers `NOT_FOUND`, and `Watch` of one sends
+  `SERVICE_UNKNOWN`; `Watch` sends the current status, then each change.
+  Every other method of the service answers `UNIMPLEMENTED`.
+
 ## Files
 
 | File | Contents |
 |---|---|
 | `server.go` | The package comment, `Server`, the request and result mapping, and the refusals |
+| `health.go` | `State`, `Gate`: the engine's state, its gated `Runner` service and the health interceptors |
 
 ## Tests
 
