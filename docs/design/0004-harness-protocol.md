@@ -112,8 +112,8 @@ step without failing the others.
 | `host_call` / `host_reply` | engine → harness / back | `host_call`: `id`, `hook`, `run`, `site` (`""` for a hook of the run as a whole), `payload` (raw object); `host_reply`: `id`, then `payload` (raw object) or `error` (`code`: `plugin_error` or `unknown_hook`, `message`) | a host plugin hook ([host hooks](0008-host-hooks.md), §Host plugins) |
 | `run` / `run_done` / `run_cancel` | harness → engine / back / harness → engine | the fields that they share with `runner.proto`'s `RunRequest`, `RunResult` and `CancelRequest`, under the same names, JSON values raw ([host adapters](0009-host-adapters.md#the-runner-service)). `run`: `id`, `kind`, `path`, `args`, `intercept`, `write_capable`, `halt_before` and `halt_after` (raw arrays of selectors), `fatal_error_names`, `deadline_ms`, `pre_write_deadline_ms` and `clock` (`real` or `record`). `run_done`: `id`, then `status`, `result`, `may_have_mutated`, `warnings` (raw, each a `code` and a `message`), `latched` and `deviations`, or `error` for a run the engine did not start (`code`: `draining` or `refused`); then `cancel_cause`. `run_cancel`: `id`, `reason`, `canceler` | host mode: a harness that is also the host submits runs |
 | `run_settled` | engine → harness | `id` | host mode: one of the host's runs has settled, after its `run_done` (host mode item 5) |
-| `run`, `invoke`, `host_call` | as above | also `run_data` (raw, optional): the run's data. A `run` carries what its host gives; an `invoke` or a `host_call` carries it when it is the first of the run that the process gets | the host plugin's `wl.run.data` (§Host plugins item 9) |
-| `run_released` | engine → harness | `run` | a run whose data the process holds has settled; the process drops the data (§Host plugins item 9) |
+| `run`, `invoke`, `host_call` | as above | also `run_data` (raw, optional): the run's data, which a `run` carries as its host gives it. An `invoke` or a `host_call` of a run with data carries `run_data_id`, which names the data, and `run_data` too when it is the first of the run that the process gets | the host plugin's `wl.run.data` (§Host plugins item 9) |
+| `run_released` | engine → harness | `run`, `run_data_id` | a run whose data the process holds has settled; the process drops the data that `run_data_id` names (§Host plugins item 9) |
 | `ping` / `pong` | either way | `id`; from a harness also `in_flight`, `abandoned`, `errors` (process-level errors no invocation owned), `lag_ms` (event-loop lag), `rss`, and `runs_held` (the runs whose data it holds, written when not 0) | health; a harness also pings on its own every `heartbeat_ms` |
 | `part` | either way | `id`, `seq`, `last`, `chunk` | one piece of a message over 1 MiB |
 | `drain` / `bye` | engine → harness / back; in host mode harness → engine / back | — | orderly shutdown; in host mode the host's drain (host mode item 3) |
@@ -988,7 +988,13 @@ answered by a `host_reply`.
    read it as `wl.run.data`, frozen.
    - **Plugin code only.** Step code reads `undefined`, and so does what
      runs inside a wrapper's `next()`; an inner wrapper reads the data
-     itself. A run without data reads `undefined` too.
+     itself. A run without data reads `undefined` too, and so does a run
+     that a plugin hook submits through its host.
+   - **One run's own.** The engine gives each run's data an id, unique in
+     the engine, and each `invoke` and `host_call` of the run carries it as
+     `run_data_id`. The process keeps the data by that id. So a run that
+     reuses the id of one that has not settled never reads or releases the
+     other's data, and a run without data reads none.
    - **Order.** A small frame may leave before a large one that is still
      being sent in parts. So each `invoke` and `host_call` of the run to a
      process carries the data until one that carries it holds its place
@@ -997,8 +1003,12 @@ answered by a `host_reply`.
    - **Release.** Once the run has settled, the engine sends
      `run_released` to each process that the data reached, and the
      process drops it. A frame that carries the data and is placed after
-     the release is followed by a `run_released` of its own. The harness's
-     health counts the runs whose data it holds, as `runs_held`.
+     the release is followed by a `run_released` of its own.
+   - **After the release.** Plugin code that runs on, such as a
+     continuation that a hook left behind, reads `undefined` from then on.
+     A process also drops every run's data when its connection ends. The
+     harness's health counts the runs whose data it holds, as
+     `runs_held`.
 
 ### Parallel loops
 
@@ -1416,9 +1426,10 @@ after it, that release would read as a cancellation, and such a run as
     the recycle triggers are the host's (item 3).
 
 - A host plugin reads a run's data (§Host plugins item 9). `invoke`,
-  `host_call` and `run` carry an optional raw `run_data`, `run_released` is
-  a new frame, and the health group gains an optional `runs_held`. A frame
-  without them reads as before.
+  `host_call` and `run` carry an optional raw `run_data`, and `invoke` and
+  `host_call` an optional `run_data_id`. `run_released` is a new frame, and
+  the health group gains an optional `runs_held`. A frame without them
+  reads as before.
 
 - The repository's benchmarks measure the transport alone: the engine's
   connection against the runtime's frame layer over a socketpair, with

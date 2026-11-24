@@ -75,7 +75,7 @@ the code.
 | `Key` | struct | What a pool serves: harness class, runtime pin, dependency set, module-state mode | `wl` |
 | `ProcessStats` | struct | One process's figures in `Pool.Stats` | tests |
 | `Health` | struct | A harness's health, from its heartbeat `ping` or a `pong`; `RunsHeld` counts the runs whose data it holds | tests |
-| `RunData`, `NewRunData` | struct, func | The data of a runtime's runs, which its processes' plugins read ([Run data](#run-data)): `Set`, `Release`, `Len` | `wl` |
+| `RunData`, `NewRunData`, `WithRunData`, `RunDataOf` | struct, funcs | One run's data, which the plugins of the processes it reaches read, carried in the run's context ([Run data](#run-data)); `Release` | `wl` |
 | `ExitStatus` | struct | How a process ended: code or signal | tests |
 | `BaseEnv` | func | The base environment of a spawned process | `ProcessConfig`'s default, `wltest` |
 | `BunCommand` | func | The command line that starts the Bun harness runtime on a bundle | `wl`, `wltest` |
@@ -790,16 +790,20 @@ hooks ([harnesses/bun](../../harnesses/bun/README.md#host-plugins)).
 
 ### Run data
 
-`ProcessConfig.RunData` and `HostConfig.RunData` name a `RunData`, which
-every process of a runtime shares. `wl` sets a run's data before the run
-starts, and releases it once the run has settled.
+`NewRunData` gives a run's data an id, unique in the engine. `wl` puts it
+in the run's context with `WithRunData` before the run starts, and calls
+`Release` once the run has settled. `Execute` and `HostCall` take it from
+their context, so the frames of another run, one that reuses the run's id
+included, never carry it.
 
 - **Which frames carry it.** An `invoke` to a process with a plugin, or a
-  `host_call`, carries the run's data as `run_data` until one frame that
-  carries it holds its place on the wire. A whole frame holds it once
-  queued, and a part stream once its last part is taken (the connection's
-  `placed` callback). A small frame can overtake a large one, so a later
-  frame of the run carries the data too while the first is still in parts.
+  `host_call`, carries the data's `run_data_id`, and the data as
+  `run_data` until one frame that carries it holds its place on the wire.
+  A whole frame holds it once queued, and a part stream once its last part
+  is taken (the connection's `placed` callback).
+- **Why a later frame may carry it.** A small frame can overtake a large
+  one, so a later frame of the run carries the data too while the first is
+  still in parts.
 - **Release.** `Release` sends `run_released` to each process that the
   data reached. A frame that carries the data and is placed after the
   release sends one of its own.
@@ -943,9 +947,8 @@ and `WL_REQUIRE_BUN` set ([docs/ci.md](../../docs/ci.md#the-go-jobs)).
 
 | Variable | Value | Tests that need it | When it is not set |
 |---|---|---|---|
-| `WL_BUN` | The path of a Bun 1.4.3 executable | Every test that runs the real Bun harness: `bun_test.go`, `exchange_test.go`, `children_test.go`, `reap_linux_test.go` (all but `TestFreshLandedKillReapsALaterOrphan`), `qwa4_test.go`, the `TestBunWarm*` tests of `childgroup_test.go`, `TestTimesHook`, `TestBenchEcho`; and `BenchmarkHarnessCodec` and `BenchmarkTransport`, which fail rather than skip | The test skips, or fails when `WL_REQUIRE_BUN` is set |
-| `WL_WINDMILL_CLIENT` | A directory whose `node_modules` holds `windmill-client@1.862.0` | `rundata_test.go` | A run's large first invoke held after its first part. A `host_call` of the run overtakes it and carries the data, and `runs_held` follows `Release` (`TestRunDataOvertakingFrame`). A release while the invoke is held still reaches the process (`TestRunDataReleasedWhileQueued`). | `WL_BUN` |
-| `qwa4_test.go` | The test skips, or fails when `WL_REQUIRE_BUN` is set |
+| `WL_BUN` | The path of a Bun 1.4.3 executable | Every test that runs the real Bun harness: `bun_test.go`, `exchange_test.go`, `children_test.go`, `rundata_test.go`, `reap_linux_test.go` (all but `TestFreshLandedKillReapsALaterOrphan`), `qwa4_test.go`, the `TestBunWarm*` tests of `childgroup_test.go`, `TestTimesHook`, `TestBenchEcho`; and `BenchmarkHarnessCodec` and `BenchmarkTransport`, which fail rather than skip | The test skips, or fails when `WL_REQUIRE_BUN` is set |
+| `WL_WINDMILL_CLIENT` | A directory whose `node_modules` holds `windmill-client@1.862.0` | `qwa4_test.go` | The test skips, or fails when `WL_REQUIRE_BUN` is set |
 | `WL_REQUIRE_BUN` | Any non-empty value | All of the above | Missing tools skip their tests |
 | `WL_FAKE_HARNESS`, `WL_FAKE_CTL`, `WL_SUBREAPER`, `WL_WAIT_ALL`, `WL_DRIP_CHILD` | Set by the tests and their fixture steps (`spawn-waitall` sets `WL_WAIT_ALL`), when they re-run the test binary as a fake harness, a subreaper, a process that waits for all its children, or a child that keeps writing. `WL_FAKE_CTL` is a fake harness's control directory | `fake_test.go`, `pool_test.go`, `reap_linux_test.go`, `children_test.go` | Not for you to set |
 
@@ -965,6 +968,7 @@ and `WL_REQUIRE_BUN` set ([docs/ci.md](../../docs/ci.md#the-go-jobs)).
 | `childgroup_test.go` | Child groups on a fake process table: their identity, the guardian and its tokens (`hasGuardArg`), undecided looks, ending once, release, `groupMembersOf`; the reaping rules (`TestReapChildGroups`); a real guardian, the test's own child, reaped once the watcher releases its group (`TestReviewOwnedGuardianReaped`) | `WL_BUN` for `TestBunWarm*` |
 | `fake_test.go` | A fake harness, for what Bun cannot be made to do on demand ([below](#what-the-fake-harness-tests-check)) | |
 | `pool_test.go` | A warm pool's settings on the fake harness of mode `pool`, whose invocations and drains the tests hold; the pool's own events (spawns begun and failed, exits observed, drains begun, waits) give the order. The tests are listed [below](#what-the-pool-tests-check) | |
+| `rundata_test.go` | Run data with the real harness. A run's large first invoke is held after its first part, and a `host_call` of the run overtakes it and carries the data (`TestRunDataOvertakingFrame`). A release while that invoke is held still reaches the process (`TestRunDataReleasedWhileQueued`). Each of two processes gets the data with its first frame and later frames carry the id alone (`TestRunDataTwoProcesses`), and two runs of one id keep their own data (`TestRunDataSameRunID`). | `WL_BUN` |
 | `qwa4_test.go` | That concurrent invocations each see their own `WM_*` environment variables ([Q-WA-4](../../docs/semantics/client-api.md#q-wa-4), [WA-31](../../docs/semantics/client-api.md#wa-31)) | `WL_BUN`, `WL_WINDMILL_CLIENT` |
 | `retain_test.go` | `TestSerialKeepsNoCallItRan`: an invocation's call queue (`serial`) keeps no function that it has run, so what they closed over becomes unreachable | |
 | `bench_test.go` | The microbenchmarks ([Microbenchmarks](#microbenchmarks)), `TestTimesHook` and `TestBenchEcho` | `WL_BUN` for the Bun parts |
