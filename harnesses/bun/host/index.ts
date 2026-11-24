@@ -218,8 +218,10 @@ export type RunOptions = {
   /** The run's data (H11), any JSON value: the host plugin reads it as
    * wl.run.data in its hooks and around wrappers, in this run's calls
    * only, until the run has settled. Absent or null means none, and
-   * wl.run.data is then undefined. A value JSON.stringify cannot encode
-   * rejects the run with the error it throws. */
+   * wl.run.data is then undefined. A value that JSON.stringify throws on
+   * rejects the run with that error, and one it encodes as nothing, such
+   * as a function or a symbol, with HostError "refused"; neither sends a
+   * frame. */
   data?: unknown;
   /** Cancels the run when it aborts. */
   signal?: AbortSignal;
@@ -1008,6 +1010,15 @@ async function connectOnce(o: ConnectOptions, held: { release?: () => void }): P
       } catch (e) {
         return Promise.reject(new HostError("refused", (e as Error).message));
       }
+      let runData: string | undefined;
+      if (opts.data !== undefined) {
+        try {
+          runData = JSON.stringify(opts.data);
+        } catch (e) {
+          return Promise.reject(e);
+        }
+        if (runData === undefined) return Promise.reject(new HostError("refused", "data: JSON.stringify encodes it as nothing"));
+      }
       let submitted;
       try {
         // Submitted synchronously, so the scope captured is the caller's.
@@ -1021,7 +1032,7 @@ async function connectOnce(o: ConnectOptions, held: { release?: () => void }): P
             fatal_error_names: opts.fatalErrorNames,
             ...budgets,
             clock: opts.clock,
-            run_data: opts.data === undefined ? undefined : JSON.stringify(opts.data),
+            run_data: runData,
           },
           opts.onSettled,
         );

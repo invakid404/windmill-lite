@@ -556,6 +556,40 @@ test("a run's deadlines go in its run frame as whole milliseconds of at least 0,
   }
 });
 
+// A run's data that JSON.stringify encodes as nothing (a symbol, a
+// function, a value whose toJSON gives undefined) refuses the run with
+// HostError "refused", and data that it throws on rejects the run with that
+// error. Neither sends a run frame: test/heartbeatengine.ts counts them,
+// and the first run that goes out is its first.
+test("data that JSON.stringify encodes as nothing refuses the run, and data it throws on rejects it with that error, without a run frame", async () => {
+  const dir = tempDir("wl-host-data-");
+  writeFileSync(join(dir, "manifest.json"), "{}");
+  const back = process.cwd();
+  process.chdir(dir);
+  process.env.WL_TEST_HEARTBEAT_MS = "60000";
+  let host: Host;
+  try {
+    host = await connect({ engine: process.execPath, engineArgs: [join(import.meta.dir, "heartbeatengine.ts")], bundle: dir, workdir: dir, diag: () => {} });
+  } finally {
+    delete process.env.WL_TEST_HEARTBEAT_MS;
+    process.chdir(back);
+  }
+  try {
+    for (const bad of [Symbol("s"), () => 1, { toJSON: () => undefined }]) {
+      expect(await code(host.run("f/x", { echo: true }, { data: bad }))).toBe("refused");
+    }
+    const thrown = await host.run("f/x", { echo: true }, { data: 10n }).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(thrown).toBeInstanceOf(TypeError);
+    expect(thrown).not.toBeInstanceOf(HostError);
+    expect((await host.run("f/x", { echo: true }, { data: { k: 1 } })).result).toMatchObject({ runs: 1 });
+  } finally {
+    await host.close();
+  }
+});
+
 // The collect trigger, on hosts connected to test/heartbeatengine.ts, which
 // welcomes them with a heartbeat of 10 ms, or of the interval that a test
 // gives, and answers their runs when the test says. Each test replaces
