@@ -21,6 +21,7 @@ provided:
     static: {ok: true, n: 017}
     mandatory: true
 host_modules: [f/a/scope.ts]
+plugin: f/a/plugin.ts
 `
 	one := 1
 	want := &Contract{
@@ -32,6 +33,7 @@ host_modules: [f/a/scope.ts]
 			{Selector: Selector{Script: "f/a/audit"}, Static: json.RawMessage(`{"ok":true,"n":17}`), Mandatory: true},
 		},
 		HostModules: []string{"f/a/scope.ts"},
+		Plugin:      "f/a/plugin.ts",
 	}
 	got, err := ParseContract([]byte(yaml))
 	if err != nil {
@@ -88,6 +90,9 @@ func TestParseContractErrors(t *testing.T) {
 		{"roots: [{flow: f/a}]\nprovided:\n  - selector: {flow: f/a, module: m, branches: [other]}\n    provider: p\n    mandatory: true\n", `expected an index or "default"`},
 		{"roots: [{flow: f/a}]\nprovided:\n" + site + "host_modules: [a, a]\n", "listed twice"},
 		{"roots: [{flow: f/a}]\nhost_modules: ['']\n", "empty path"},
+		{"roots: [{flow: f/a}]\nplugin: ''\n", "plugin: empty path"},
+		{"roots: [{flow: f/a}]\nplugin: [f/a/p.ts]\n", "plugin: expected a string"},
+		{"roots: [{flow: f/a}]\nhost_modules: [f/a/p.ts]\nplugin: f/a/p.ts\n", "a host-provided module too"},
 		{"roots: [{flow: f/a}]\nroots: [{flow: f/b}]\n", "yaml"},
 		{"roots: [{flow: f/a}\n", "yaml"},
 	} {

@@ -14,12 +14,9 @@ itself.
 
 **Not built yet:**
 
-- `runner.proto`, whose messages the `run`, `run_done` and `run_cancel`
-  frames share their fields with, and log limits in the welcome;
-- the pool's settings in `wl`, pinned runs, recycle triggers and limits per
-  run (§Pooling);
-- a host plugin built into the bundle, and run data in its processes
-  (§Host plugins).
+- log limits in the welcome;
+- pinned runs and limits per run (§Pooling);
+- run data in a host plugin's processes (§Host plugins).
 
 ## Context
 
@@ -103,7 +100,7 @@ step without failing the others.
 | `t` | Direction | Fields | Purpose |
 |---|---|---|---|
 | `hello` | harness → engine | `proto`, `harness` (kind, version), `runtime` (for Bun, `Bun.version`), `caps` (`fetch`, `native`, `fresh`, `host`), `bundle` (digest of what it loaded), `pid` (its process id), `workdir` (host mode: the host's working directory, host mode item 7), `plugin` (raw: the declaration of the host plugin it loaded, §Host plugins) | handshake |
-| `welcome` | engine → harness | `proto`, `engine`, `bundle`, `config` (module-state mode, `heartbeat_ms`, `max_message`, the facade origin; log limits once windmill-lite uses them) or `reject` (`code`, `message`) | handshake result |
+| `welcome` | engine → harness | `proto`, `engine`, `bundle`, `config` (module-state mode, `heartbeat_ms`, `max_message`, the facade origin, the origins of real Windmill instances; log limits once windmill-lite uses them) or `reject` (`code`, `message`) | handshake result |
 | `invoke` | engine → harness | `id`, `run`, `site` (typed path, [differential testing](0011-differential-testing.md)), `script` (inventory id), `entry` (a validated export name, below), `args` (raw JSON object), `env` (the invocation's `WM_*` and other job variables), `boundary` (`bun` or `native`), `around` (the host plugin's around wrappers for its site, by index, §Host plugins) | run one step |
 | `result` | harness → engine | `id`, `outcome` (`ok`, `error`, `escaped`, `empty`), `body` (raw JSON: the serialised result, or the error object), `origin` (`harness`, for an `error` whose object the harness generated in place of the worker's; absent for the step code's own), `tail` and `exit_code` (for `escaped`: the last log text, and the exit code the job's process would have had), `settled` (false when the outcome was fixed while the entrypoint call goes on: an intercepted `process.exit`, D11, or an attributed process-level error, item 2 of the failure model below) | step outcome |
 | `late` | harness → engine | `id`, `kind` (`result`, `error`, `log`), `body`, `settled` (true on the one late result or error that says how an entrypoint call ended after it was abandoned or after its outcome was fixed early) | something an already settled or abandoned invocation produced (D9) |
@@ -508,6 +505,10 @@ step, never releases them.
   that the invocation's settlement aborts it. Host plugins that wrap
   `fetch` themselves wrap this one, so facade requests pass through the
   plugin's wrapper first and must be passed on.
+- A request that the wrapper passes through to the origin of a real
+  Windmill that the welcome names loses its links to the invocation's own
+  job ids first, under the rule of the
+  [platform interface](0007-platform-interface.md#async-dispatch).
 - **Platform transports.** In `warm` and host-mode processes, `fetch` is the
   only way to reach the platform. The facade origin in `BASE_URL` is a
   loopback port that the engine binds but never listens on, so any other
@@ -613,15 +614,19 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
 - Routing prefers the run's process (affinity), then the least-loaded one.
   When the event loop of a process lags past a threshold (a CPU-bound step),
   the pool starts another process, up to the maximum.
-- **The settings in `wl`** (planned). The minimum, the maximum, the cap
-  and the lag threshold are settings of the pool in `internal/harness`.
-  `wl` is planned to expose them with the rules below, and the go-plugin
-  adapter's configuration as `pool`
+- **The settings in `wl`.** `wl.Options.Pool` sets the minimum, the
+  maximum, the cap, the lag threshold, the recycle timeout, the recycle
+  triggers, the bound on live processes and a warm start, with the rules
+  below. The go-plugin adapter's configuration is planned to carry them as
+  `pool`
   ([host adapters](0009-host-adapters.md#process-affinity-and-limits)).
-  Until then a `warm` runtime of `wl` keeps one process in service, with
-  no cap, and a `fresh` one starts a process for each invocation.
+- Their zero values keep one process in service, with no cap, started on
+  the first step, or when `wl.Open` reads a host plugin's declaration. A
+  warm start makes `wl.Open` return once the minimum serve; a bundle with
+  no step has no pool.
 - These settings, pinned runs and recycle triggers are a `warm` pool's: a
-  `fresh` pool and host mode have none of them.
+  `fresh` pool and host mode have none of them, and `wl.Open` refuses
+  settings that are not zero there.
 - **Pinned runs** (planned), for a runtime or for one run. A run is pinned
   to the process that serves its first invocation or host-plugin call, and
   each later one of the run goes there while that process lives, even when
@@ -645,29 +650,32 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
   then starts another invocation or calls a hook, that latches
   `pinned_process_lost` ([H5](0008-host-hooks.md#the-hooks)), as a host-mode run ends with
   `harness_lost` (§Host mode item 6).
-- **Recycle triggers** (planned). The pool replaces a process whose
-  resident set, its heartbeat's `rss`, reaches a threshold on consecutive
-  heartbeats, or that has loaded more script modules than a cap, counted
-  from the scripts that the engine sent it. The process then takes no new
-  invocations but its pinned runs', a replacement starts beside it outside
-  the maximum, and the process leaves once nothing is in flight in it and
-  no pinned run holds it.
-- **Overlap** (planned). A replacement runs beside the process it replaces
-  until that process leaves, which waits for its steps in flight and its
-  pinned runs. While one process leaves for a recycle trigger, memory or
-  module count alike, another that trips keeps serving.
+- **Recycle triggers.** The pool replaces a process whose resident set,
+  its heartbeat's `rss`, reaches a threshold on consecutive heartbeats (2
+  by default), or that has loaded more script modules than a cap, counted
+  from the distinct scripts that the engine sent it. The process then takes
+  no new invocations, a replacement starts beside it outside the maximum,
+  and the process leaves once nothing is in flight in it.
+- With pinned runs (planned), such a process still takes its pinned runs'
+  invocations, and leaves only once no pinned run holds it either.
+- **Overlap.** A replacement runs beside the process it replaces until that
+  process leaves, which waits for its steps in flight. While one process
+  leaves for a recycle trigger, memory or module count alike, another that
+  trips keeps serving, and leaves once the first has exited.
 - Every process counts from its start until it has exited: serving,
-  starting, tainted, recycling, surplus, or draining after its last pin
-  ended. Without a bound their number has no limit, since a replacement can
-  start while earlier processes still finish their work and their pins.
-- **A bound on live processes** (planned). With `max_live` set, the pool
-  starts no process while that many are alive. Routing does not change: an
-  invocation goes at once to a serving process that can take it, and waits
-  only when none can and the process it needs cannot start.
-- A leaving process first waits until no pinned run holds it and no
-  invocation is active in it. Then it drains within the recycle timeout, and
-  its slot frees once its exit is observed. `max_live` below the pool's
-  maximum refuses to open, since the pool could not reach its size.
+  starting, tainted, recycling, surplus, or draining. Without a bound their
+  number has no limit, since a replacement can start while earlier
+  processes still finish their work.
+- **A bound on live processes.** With `max_live` set (`MaxLive` in
+  `wl.Options.Pool`), the pool starts no process while that many are
+  alive. Routing does not change: an invocation goes at once to a serving
+  process that can take it, and waits only when none can and the process
+  it needs cannot start.
+- A leaving process first waits until no invocation is active in it, and
+  with pinned runs (planned) until no pinned run holds it. Then it drains
+  within the recycle timeout, and its slot frees once its exit is
+  observed. `max_live` below the pool's maximum refuses to open, since the
+  pool could not reach its size.
 - **Memory.** A threshold is sampled at heartbeats and is not a cap: a
   process can pass it between samples, and while it waits to leave. So the
   container's memory limit is the one hard bound on bytes. A host sizes it
@@ -954,15 +962,24 @@ answered by a `host_reply`.
    clock (H10). The hard deadline bounds the run until it has settled, so
    steps a latch or a cancellation left running are abandoned at it.
    `run_done` reports `may_have_mutated` and the trace's `deviations`.
-7. **A plugin in the bundle** (planned). The host contract may name a
-   plugin module, which the build bundles into the bundle's `plugins/` with
-   the same Bun build helper and the same shims of host-provided modules as
-   the steps. In each process, the plugin and the steps then share those
-   modules' instances.
+7. **A plugin in the bundle.** The host contract's `plugin` field names a
+   plugin module: the file of a Bun script of the folder, named as a
+   host-provided module of the folder is. The build bundles it into
+   `plugins/<script path>.mjs` with the same Bun build helper and the same
+   shims of host-provided modules as the steps. In each process, the plugin
+   and the steps then share those modules' instances.
 8. **Loading it.** The manifest records the plugin, so the bundle digest
    covers it, and a `warm` runtime loads it as it loads the module that
    `Options.Plugin` names. A runtime given both refuses to open, and a
-   `fresh` runtime takes neither.
+   `fresh` runtime takes neither. In host mode the Bun host SDK loads it
+   when its `plugin` option is absent, and refuses both.
+   - **When a plugin loads.** A process loads its plugin, the bundle's or
+     the one `Options.Plugin` names, after the runtime has installed its
+     process-wide hooks and the [native realms](0001-equivalence-contract.md#5-named-deviations)
+     have taken the web APIs. A `fetch` wrapper that the plugin installs at
+     load thus wraps the fetch view for ordinary steps, which read
+     `globalThis.fetch` on each call, and reaches no native step, on a
+     host's later connections too.
 9. **Run data** (planned). A run's data ([H11](0008-host-hooks.md#the-hooks)) reaches a process with
    the first `invoke` or `host_call` of the run that the process gets, so
    the plugin's hooks and its `around` wrappers read it as `wl.run.data`.
@@ -1123,9 +1140,8 @@ after it, that release would read as a cancellation, and such a run as
   - `run` carries `id`, `kind` (`flow` or `script`), `path`, raw `args` and
     an optional raw `intercept` (H1's static form,
     [host hooks](0008-host-hooks.md)), and `run_done` carries `status` and
-    an optional raw `result`. `runner.proto`'s messages are planned to
-    hold these fields under the same names, with the JSON values in
-    `bytes` fields
+    an optional raw `result`. `runner.proto`'s messages hold these fields
+    under the same names, with the JSON values in `bytes` fields
     ([host adapters](0009-host-adapters.md#the-runner-service)).
   - A run's `id` is its id in the engine, so the host finds the scope of
     each invocation by its `run`.

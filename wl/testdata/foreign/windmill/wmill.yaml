@@ -1,0 +1,4 @@
+defaultTs: bun
+codebases:
+  - relative_path: f/foreign/cb
+    includes: ["f/foreign/cb/**"]

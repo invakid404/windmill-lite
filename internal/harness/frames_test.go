@@ -8,6 +8,7 @@ import (
 	"flag"
 	"io"
 	"os"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -354,5 +355,39 @@ func TestEncodeRefusesAMisplacedOrigin(t *testing.T) {
 	}
 	if _, err := Encode(Result{ID: "i1", Outcome: OutcomeError, Body: body, Origin: OriginHarness}); err != nil {
 		t.Errorf("an error result from the harness: %v", err)
+	}
+}
+
+// TestWelcomeEmptyForeignOriginsAreNone: a welcome whose
+// foreign_windmill_origins is an empty list, or null, decodes to the welcome
+// without it, as the shared cases' canonical payloads say, so no list of
+// none reaches a process.
+func TestWelcomeEmptyForeignOriginsAreNone(t *testing.T) {
+	_, f := loadFrames(t)
+	n := 0
+	for _, c := range f.Cases {
+		if c.Case != "welcome-config-foreign-windmill-empty" && c.Case != "welcome-config-foreign-windmill-null" {
+			continue
+		}
+		n++
+		src := []byte(c.MessageText)
+		if c.Message != nil {
+			src = c.Message
+		}
+		got, err := Decode(src)
+		if err != nil {
+			t.Fatalf("%s: %v", c.Case, err)
+		}
+		want, err := Decode([]byte(c.Payload))
+		if err != nil {
+			t.Fatalf("%s: the payload: %v", c.Case, err)
+		}
+		w, ok := got.(Welcome)
+		if !ok || w.Config == nil || w.Config.ForeignWindmillOrigins != nil || !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: decoded %#v, want %#v", c.Case, got, want)
+		}
+	}
+	if n != 2 {
+		t.Fatalf("found %d of the 2 cases", n)
 	}
 }

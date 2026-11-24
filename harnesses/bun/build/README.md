@@ -117,7 +117,7 @@ A request file is JSON with `version` 1 and an `op`. The Go build in
 | `op` | What the helper does | Sent by | Returns |
 |---|---|---|---|
 | `scan` | Reads the exports of each host-provided module that the Bun build bundles, so that Go can write its shim | `BuildBun`, first, when it has host-provided modules | `host_modules`: each module's `exports`, `host_modules` and `packages`, and its import `graph` when it imports another listed module |
-| `build` | Builds the entries of the Bun build, which holds no codebase script. It bundles each Bun script, or transpiles a `nativets` one to its native form, and bundles each host-provided module's copy, writing the modules into the bundle. With `shared_code`, it also builds shared code | `BuildBun`, always; after the scan and the shims when there are host-provided modules | `host_modules` (with the workspace scripts each copy inlined); `entries`: each script's `meta`; `closures` and `closure_meta` |
+| `build` | Builds the entries of the Bun build, which holds no codebase script. It bundles each Bun script, or transpiles a `nativets` one to its native form, and bundles each host-provided module's copy and the request's `plugin`, writing the modules into the bundle. With `shared_code`, it also builds shared code | `BuildBun`, always; after the scan and the shims when there are host-provided modules | `host_modules` (with the workspace scripts each copy inlined); `entries`: each script's `meta`; `plugin`; `closures` and `closure_meta` |
 | `parse` | Records what each entry's source holds, for codebase scripts, and checks the source of each host-provided module that esbuild bundles. It installs and bundles nothing, and writes only its response | The esbuild builds of codebase scripts and of host-provided modules (outside the folder, or listed codebase scripts) | `entries`; `host_modules` with `packages` |
 | `native` | Writes the native form of a `//native` codebase script's esbuild bundle | The esbuild build of codebase scripts | `entries` |
 | `kept` | Parses closure bundles for the modules that keep an `import()` | The Go build of codebase shared code | `kept` by closure, and `builtins` |
@@ -625,6 +625,12 @@ build with esbuild; the helper only parses its source ([parse](#parse)).
   bundle's sources.
 - **A copy whose exports differ from its scan** (it re-exports another
   listed module with `export *`) is a problem in Go.
+- **The host plugin.** The build op's `plugin`, a script of the folder, is
+  bundled as a copy is, to `plugins/<id>.mjs`, with every listed module
+  resolved to its shim. Its entry re-exports the source's names, its
+  default export included. The build reports the listed modules that it
+  imports, the packages that its source imports, and the workspace scripts
+  that it inlined.
 - **Late shims.** A module's request may name, in `late`, listed modules
   that it imports lazily and registers before. Its copy resolves its imports
   of each to that module's late shim, whose two sources the module's own

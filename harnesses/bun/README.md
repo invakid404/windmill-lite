@@ -80,7 +80,7 @@ code sees:
 | Channel | What the step sees |
 |---|---|
 | `process.env`, `Bun.env`, `import.meta.env` | Its invocation's variables first, and its writes and deletes stay with the invocation. Two exceptions, through `Bun.env` or `import.meta.env` in code that the build does not rewrite: a write of a process variable that no invocation has claimed reaches the process, and so does a delete ([the limits](#inside-the-per-invocation-context)). Outside every invocation, each reads the process environment. |
-| `fetch` | A request to the [platform facade](../../docs/glossary.md#platform-facade) becomes a platform call of the invocation. Any other request goes out as usual. |
+| `fetch` | A request to the [platform facade](../../docs/glossary.md#platform-facade) becomes a platform call of the invocation. Any other request goes out as usual, except that a dispatch to a real [Windmill](../../docs/glossary.md#windmill) that the engine names first loses its links to the invocation's own job ids ([the fetch view](#inside-the-per-invocation-context)). |
 | `setTimeout`, `setInterval`, `setImmediate` | The timers work as usual, and are registered with the invocation, on `globalThis` and on `node:timers`. |
 | `console`, `process.stdout`, `process.stderr` | Each line goes to the invocation's log ([WR-23](../../docs/semantics/languages.md#wr-23)). `Bun.stdout`, a raw file descriptor and a child's inherited output are not attributed. |
 | Child processes | A child started without an `env` gets the invocation's variables. In a `warm` process, a child that the invocation starts asynchronously, and not detached, leads a process group of its own. The engine kills that group on the step's timeout or cancellation ([WR-55](../../docs/semantics/languages.md#wr-55)). A synchronous call's child stays in the harness's group, unless the step starts it detached ([process groups](#inside-the-per-invocation-context)). |
@@ -249,14 +249,23 @@ the host's own instance of `f/shared/ctx.ts`.
 
 `connect(options)` resolves with a [`Host`](#the-host) once the engine has
 welcomed the host. When a step below fails, it rejects with a `HostError`
-whose `code` names that step. A plugin of the wrong shape rejects with an
-ordinary `Error` instead ([Errors and refusals](#errors-and-refusals)):
+whose `code` names that step. A `plugin` option of the wrong shape rejects
+with an ordinary `Error` instead, and a bundle's own plugin of the wrong
+shape with `bundle` ([Errors and refusals](#errors-and-refusals)):
 
 1. It checks `workdir`: a directory that this process can write
    (`workdir_not_writable`), and already this process's working directory,
    once both are resolved without symbolic links (`workdir_mismatch`).
    Then it checks the fields of the `collect` option (`options`).
-2. It reads the bundle's manifest (`bundle`).
+2. It reads the bundle's manifest (`bundle`). For a bundle with a plugin
+   of its own, it refuses the `plugin` option (`options`). It checks the
+   bundle's plugin (`bundle`): a key, a module of `plugins/` that the
+   manifest lists, reached through no symbolic link, with the manifest's
+   digest.
+   - **Other bytes from the same path** are refused while another
+     `connect` in progress holds that path, or once this process has copied
+     a plugin from it (`bundle`). An attempt that fails before its copy
+     gives the path back when no other attempt holds it.
 3. It registers the host's instances of the bundle's
    [host-provided modules](../../docs/glossary.md#host-provided-module)
    (`hostModules`), before any step loads. It writes a diagnostic for a
@@ -264,11 +273,22 @@ ordinary `Error` instead ([Errors and refusals](#errors-and-refusals)):
    left out: a step that imports it fails when it loads.
 4. It extracts the bundle's codebase assets into `workdir` (`assets`).
 5. It starts the engine as `<engine> host --bundle <bundle> --workdir
-   <workdir> --kill-after <ms>ms`, then `-read-cache`, `-skip-args-file`
-   and `engineFlags` as the options ask (`engine_start`). The
+   <workdir> --kill-after <ms>ms`, then `-read-cache`, `-skip-args-file`,
+   a `-foreign-windmill` flag for each origin, and `engineFlags`, as the
+   options ask (`engine_start`). The
    [`host` command](../../cmd/windmill-lite/README.md#host) describes
-   those flags.
-6. It runs the harness runtime in this process, and greets the engine.
+   those flags. For a bundle with a plugin of its own, it first runs the
+   same command with `-check-bundle` and the digest of the manifest it read.
+   The engine reads the flags as at start and checks the bundle against its
+   manifest, any `-digest` pin and that digest.
+   - **The check's outcomes.** Exit 0 lets `connect` go on. Exit 1, a
+     failed check, stops it with `bundle`; another exit, such as a usage
+     error in `engineFlags`, with `rejected`; an engine that does not
+     start, with `engine_start`.
+6. It runs the harness runtime in this process, loads the bundle's own
+   plugin from a private copy of the bytes it checked, and greets the
+   engine. A plugin that cannot be copied or loaded rejects with `bundle`,
+   and an engine that ends while it loads with `rejected`.
    The engine checks the host's Bun, the bundle, the working directory, the
    SDK's version and the plugin, and welcomes or refuses the host. A
    refusal rejects `connect` with the engine's code.
@@ -292,12 +312,13 @@ sees them.
 | `engineArgs` | `string[]` | `[]` | Arguments before the engine's `host` command |
 | `engineFlags` | `string[]` | `[]` | Flags after the `host` command's own, such as `-variables`, `-resources` or `-cpuprofile` |
 | `hostModules` | `Record<string, object>` | None | The host's instances of the bundle's host-provided modules, by the keys that the host contract gives them |
-| `plugin` | `Plugin` | None | The host's plugin ([Host plugins](#host-plugins)) |
+| `plugin` | `Plugin` | None, or the bundle's own | The host's plugin ([Host plugins](#host-plugins)). Leave it out for a bundle built with a plugin of its own, which `connect()` then loads; it refuses both with `HostError` `options`. |
 | `watchdog` | `{ killAfter: number }` | `{ killAfter: 30000 }` | The engine kills this process when no frame has come from it for `killAfter` ms. `0` turns the watchdog off. |
 | `readCache` | `boolean` | `false` | Each run keeps the answer of its first read of a host's or bundle's resource or variable, the plugin's `resource` and `variable` hooks included, and answers its later reads of that path from it. An error is not kept, and a variable that a step updates and a stored state are read again ([the read cache](../../internal/platform/README.md#the-read-cache)). Windmill reads them for each job, so this is a named deviation of the [equivalence contract](../../docs/design/0001-equivalence-contract.md#5-named-deviations). |
 | `resourceStore` | `{ kind: "memory" }` or `{ kind: "redis"; url: string; prefix?: string; allowEviction?: boolean }` | `{ kind: "memory" }` | The store of the resources that steps write through the job API, such as the stock client's state ([The resource store](#the-resource-store)). Available from version 0.4.0. |
 | `skipArgsFile` | `boolean` | `false` | States that the host's own code, its plugin included, never reads `args.json`. For a bundle none of whose scripts can read it, the engine then writes none. |
 | `identity` | `Identity` | windmill-lite's placeholders, such as the workspace `windmill-lite` | The job identity of every job ([Job identity](#job-identity)) |
+| `foreignWindmillOrigins` | `string[]` | None | The origins of real Windmill instances that the host's steps call through their own client, such as `https://windmill.example.com`. A step's dispatch to one of them loses its links to the step's own job ids ([wl](../../wl/README.md#job-ids-on-a-real-windmill)). `connect()` refuses a value with user information, a query or a fragment (`options`) before it starts the engine, and the engine refuses the host with `engine_refused` when a value is not an origin that `wl` accepts. Neither message repeats the value. |
 | `recycle` | `{ rss?: number; samples?: number; modules?: number; retired?: { max: number; count: () => number } }` | None | Recycle triggers ([Recycle a host](#recycle-a-host)) |
 | `onRecycle` | `(reason: string) => void` | None | Called once, with the first trigger that trips |
 | `collect` | `{ rss: number; cooldown?: number; policy?: "idle" \| "heartbeat"; quiet?: number }` | None | A full garbage collection at a soft mark on the resident set ([Collect garbage](#collect-garbage)). Available from version 0.3.0. |
@@ -592,6 +613,21 @@ the rules of each hook.
 - **Where it comes from.** In host mode, `connect`'s `plugin` option. In a
   `warm` harness that the engine starts, the default export, or the export
   `plugin`, of the module that `--plugin` names (`wl.Options.Plugin`).
+- **The bundle's own.** A bundle built with a plugin (the host contract's
+  `plugin`) holds it in `plugins/`, with host-provided modules resolved to
+  their shims. The engine names it with `--plugin` when `wl` names none,
+  and `connect` loads it when its `plugin` option is absent
+  ([What connect() does](#what-connect-does)). Once this process has copied
+  a plugin, even one that fails to load, other bytes from its path are
+  refused, and an unchanged file keeps its module: restart the host for a
+  release.
+- **When it loads.** A harness loads its plugin after the runtime has
+  installed its process-wide hooks and the native realms have taken the
+  web APIs, and `connect` loads a bundle's plugin at the same point. A
+  `fetch` wrapper that such a plugin installs at load reaches ordinary
+  steps, and no native step, and stays for the rest of the process. Once
+  `connect` starts loading a bundle's plugin, even one whose load fails,
+  later native realms take the first fetch view.
 - **The declaration.** The harness sends the plugin's hooks and selectors
   to the engine in its hello. The engine refuses a host whose declaration
   it cannot use with `plugin_mismatch`: a malformed or ambiguous selector,
@@ -658,8 +694,9 @@ table below. Its `code` names the cause, and its message is
 error that has no `code`:
 
 - `connect()` rejects with an `Error` that starts `windmill-lite plugin:`
-  when the plugin has a wrong shape, such as an interception with both or
-  neither of `static` and `fn`. Fix the plugin.
+  when the `plugin` option has a wrong shape, such as an interception with
+  both or neither of `static` and `fn`. Fix the plugin. A bundle's own
+  plugin of a wrong shape rejects with a `HostError` `bundle` instead.
 - `run()` rejects with the `TypeError` of `JSON.stringify` when `args`
   does not serialise, such as a cycle or a `BigInt`. Pass JSON values.
 
@@ -668,9 +705,10 @@ error that has no `code`:
 | `workdir_not_writable` | `connect`, or the engine | `workdir` is not a directory that this process can write. | Pass a writable directory. |
 | `workdir_mismatch` | `connect`, or the engine | `workdir` is not the process's working directory. | `process.chdir(workdir)` before `connect`, or pass `process.cwd()`. |
 | `options` | `connect` | The `collect` option has an `rss` that is not above 0 (missing, 0, negative or `NaN`), a `cooldown` or a `quiet` that is negative, `NaN` or infinite, or a `policy` other than `"idle"` and `"heartbeat"`. The `rss` check compares values and does not test the type, so a numeric string such as `"1"` passes it; pass a number, as the type says. `cooldown` and `quiet` must be finite numbers, so a string is refused. | Fix the option. The message names the rule that failed. |
-| `bundle` | `connect` | The bundle's `manifest.json` does not read. | Pass the bundle directory, as an absolute path. |
+| `options` | `connect` | The bundle has a host plugin of its own, and the `plugin` option gives another. | Leave the option out, or build the bundle without the contract's `plugin`. |
+| `bundle` | `connect` | The bundle's `manifest.json` does not read. Or the bundle's own host plugin is not a module of `plugins/` that the manifest lists, does not have the manifest's digest, fails the engine's check, cannot be copied, does not load or has a wrong shape. | Pass the bundle directory, as an absolute path. Rebuild the bundle, or fix the plugin, whose message the error carries. |
 | `assets` | `connect` | The bundle's assets do not extract into `workdir`. | Check the directory's space and permissions. |
-| `engine_start` | `connect` | The engine binary does not start. | Check `engine`'s path and its execute permission. |
+| `engine_start` | `connect` | The engine binary does not start, for the check of a bundle with its own plugin or for the host command. | Check `engine`'s path and its execute permission. |
 | `version_mismatch` | The engine, or the SDK | The SDK's version is not the engine's. An unversioned engine or SDK pairs with any. | Take the SDK and the engine from the same release. |
 | `runtime_mismatch` | The engine | The host does not run on Bun 1.4.3. | Run the host on Bun 1.4.3. |
 | `engine_refused` | The engine | The bundle does not open: another engine version built it, or it does not verify. Or a file that `engineFlags` names does not open. | Build the bundle with this engine. The message gives the reason. |
@@ -678,7 +716,7 @@ error that has no `code`:
 | `bundle_mismatch` | The engine | The bundle that the host loaded is not the engine's. | Pass the same directory as `bundle`. |
 | `pid_mismatch` | The engine | The host that greets the engine is not its parent process. | Start the engine through `connect`. |
 | `proto_mismatch`, `harness_mismatch` | The engine | The SDK speaks another protocol, or is no host. | Take the SDK and the engine from the same release. |
-| `rejected` | `connect` | The connection ended before a welcome, without a code. | Read the engine's stderr. |
+| `rejected` | `connect` | The connection ended before a welcome, without a code. Or, for a bundle with its own plugin, the engine's check exited with a status other than 0 and 1, such as a usage error in `engineFlags`. | Read the engine's stderr. |
 | `refused` | `run` | The engine has no such target, the arguments are not an object, or a selector option is not a list of objects, or the engine finds a selector malformed or ambiguous. The message names the selector, such as `the run's haltAfter[0]`. | Fix the path or the options. |
 | `draining` | `run` | The host is draining. | Submit the run to the next host process. |
 
@@ -937,6 +975,22 @@ The fetch view:
   (`res.text.call(other)`) calls the native one and leaves the request
   registered.
 - A response with no body ends the request at once.
+- A request made in an invocation's context to one of the welcome's
+  `foreign_windmill_origins`, each compared as a URL's origin, under
+  `/api/w/{workspace}/jobs/run/` loses each `parent_job` and `root_job`
+  query parameter whose value is one of the invocation's own job ids. Those
+  are the values of `WM_JOB_ID` and `WM_ROOT_FLOW_JOB_ID` in its `invoke`
+  frame, which the step's writes to its environment do not change. A link
+  whose value is neither of the two stays, whichever variable it came from.
+- That edit removes only those pairs from the query, and keeps every other
+  byte of the URL. A `Request` is made again with its method, headers,
+  body and signal. A native realm's `fetch` calls this view, so a native
+  step's request gets the same edit. The welcome of every module state,
+  `fresh` included, carries the origins.
+- The runtime reads each origin with the URL parser that reads a request's
+  URL, so an internationalised name matches in either spelling. It leaves
+  out an origin that the parser refuses, with a diagnostic line: no request
+  can go to a host that the parser refuses.
 
 The timer fence:
 

@@ -1,0 +1,14 @@
+summary: A subflow whose step calls a real Windmill through the stock client
+value:
+  modules:
+    - id: s
+      value:
+        type: flow
+        path: f/foreign/client
+        input_transforms:
+          base:
+            type: javascript
+            expr: flow_input.base
+          call:
+            type: javascript
+            expr: flow_input.call

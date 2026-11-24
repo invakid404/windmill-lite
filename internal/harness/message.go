@@ -122,6 +122,14 @@ type WelcomeConfig struct {
 	// fetch requests to this origin into platform frames (ADR 0004,
 	// per-invocation identity).
 	Facade string
+	// ForeignWindmillOrigins are the origins of real Windmill instances
+	// ("https://windmill.example.com"), or none. On a step's request to
+	// one of them under /api/w/{workspace}/jobs/run/, the harness's fetch
+	// view removes each parent_job and root_job query parameter whose
+	// value is one of the invocation's own job ids, which name no job
+	// there (ADR 0007, async dispatch). Encoded only when not empty; an
+	// empty or null list decodes as none.
+	ForeignWindmillOrigins []string
 }
 
 // Reject says why the engine refused a harness. Code is one of the
@@ -590,6 +598,9 @@ func (m Welcome) appendPayload(b []byte) ([]byte, error) {
 			if c.Facade != "" {
 				e.str("facade", c.Facade)
 			}
+			if len(c.ForeignWindmillOrigins) > 0 {
+				e.strings("foreign_windmill_origins", c.ForeignWindmillOrigins)
+			}
 		})
 	} else {
 		r := m.Reject
@@ -967,6 +978,12 @@ func Decode(payload []byte) (Message, error) {
 				wm.Config = &WelcomeConfig{ModuleState: cd.str("module_state"), HeartbeatMS: cd.int("heartbeat_ms"), MaxMessage: cd.int64("max_message")}
 				if cd.present("facade") {
 					wm.Config.Facade = cd.str("facade")
+				}
+				// An empty list means none, as an absent or null one does.
+				if cd.present("foreign_windmill_origins") {
+					if o := cd.strings("foreign_windmill_origins"); len(o) > 0 {
+						wm.Config.ForeignWindmillOrigins = o
+					}
 				}
 			}
 		case reject:

@@ -174,7 +174,13 @@ remotely.
 Each deviation has an id and a conformance case that shows the difference.
 A deviation fixed at build time is listed in the bundle manifest. One that
 depends on a runtime setting the host chooses (D15, D21, D24, and D2's
-watchdog), or on what a run meets (D20), is recorded in each run's trace.
+watchdog), or on what a run meets (D20), is recorded in each run's trace
+that leaves the engine.
+
+- A run's trace leaves the engine as the trace that the runtime returns
+  for the run, and as the trace that its run-end hooks get.
+- A run that a step dispatches gives its dispatcher only its status and
+  result, so no trace of it leaves the engine.
 
 | Id | Deviation | Why | Record |
 |---|---|---|---|

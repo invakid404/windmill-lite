@@ -92,6 +92,9 @@ type Options struct {
 	ResourceStore ResourceStore
 	// Diagnostics receives the harness processes' output that no step
 	// owns, and the engine's diagnostics about them; nil means os.Stderr.
+	// With a Pool that is not zero, several processes can write at once,
+	// so the runtime serializes its writes, still calling the writer's
+	// WriteString when it has one.
 	Diagnostics io.Writer
 	// ExpressionSlots is the number of evaluation slots of the runtime's
 	// expression engine; zero means its default (ADR 0003).
@@ -117,7 +120,9 @@ type Options struct {
 	// declaration is not usable (a malformed or ambiguous selector, a
 	// provider the host contract names that neither Providers nor the
 	// plugin has). A fresh runtime takes none: its processes live for one
-	// step. In host mode the plugin is the host's.
+	// step. In host mode the plugin is the host's. A bundle built with a
+	// plugin (its host contract's plugin field) loads that plugin the same
+	// way when Plugin is empty, and Open refuses a runtime given both.
 	Plugin string
 	// PluginTimeout bounds each host_call: a hook whose reply does not come
 	// within it fails with ErrHostCallTimeout, which latches the run. Zero
@@ -142,6 +147,36 @@ type Options struct {
 	// accepts in a call's path, and the resource store's key. A run may
 	// set its own (RunOptions.Identity).
 	Identity Identity
+	// Pool sets the pool of a warm runtime's harness processes (ADR 0004
+	// §Pooling): its size, the cap per process, the lag threshold, the
+	// recycle triggers, the bound on live processes and a warm start. Its
+	// zero value is one process with no cap, which starts on the first
+	// step, or in Open to read a host plugin's declaration. A fresh
+	// runtime, which starts a process for each step, and host mode, whose
+	// one process is the host, refuse a Pool that is not zero.
+	Pool PoolOptions
+	// ForeignWindmillOrigins are the origins of real Windmill instances
+	// that steps call through their own client, such as
+	// "https://windmill.example.com" (ADR 0007, async dispatch).
+	// windmill-lite's job ids name no job there. So on a step's request
+	// to one of these origins under /api/w/{workspace}/jobs/run/, where
+	// the stock clients dispatch a script or a flow, the harness's fetch
+	// view removes each parent_job and root_job query parameter whose
+	// value is one of the invocation's own job ids: its WM_JOB_ID or
+	// WM_ROOT_FLOW_JOB_ID as the engine set them, the values that the stock
+	// clients send. Every other part of the request stays as it was, a link
+	// whose value is neither of the two included. A request
+	// to another origin, or one that the fetch view does not see, from a
+	// child process or a socket that the step opens, keeps its links.
+	// Each value is an http or https origin. Open refuses one with user
+	// information, a query, a fragment or a path other than "/", or whose
+	// host the harness's URL parser refuses or reads as another (an IPv4
+	// address it reads as the WHATWG URL Standard does), naming its
+	// position, never the value. A host outside ASCII goes to the harness
+	// whole, which maps it as that parser does, and leaves out one the
+	// parser refuses, since no request can go to it. Empty, the default,
+	// names none. In host mode they apply to the host's steps.
+	ForeignWindmillOrigins []string
 	// Host, when set, opens the runtime in host mode (ADR 0004 host mode,
 	// ADR 0009): its steps run in the host process that started it, which
 	// submits the runs. The bundle must then be a directory, which the
@@ -150,6 +185,68 @@ type Options struct {
 	// harness. Open completes the handshake with the host before it
 	// returns, and refuses the host, with the reason, when it fails.
 	Host *Host
+}
+
+// PoolOptions set the pool of a warm runtime's harness processes (ADR 0004
+// §Pooling). The zero value of each field is its default.
+type PoolOptions struct {
+	// Min is how many processes the pool keeps serving, and Max how many
+	// may serve; zero means one each. A process that is tainted (an
+	// abandoned step of its own still runs), or that leaves for a recycle
+	// trigger, does not count toward Max.
+	Min, Max int
+	// Cap bounds the steps in flight in each process; zero means no cap.
+	// A cap is one of the named deviations of ADR 0001: steps that wait
+	// on each other can then wait until their timeout. So the trace that
+	// Run returns for each flow run lists it, as "D15".
+	Cap int
+	// LagThreshold is the event-loop lag past which a process counts as
+	// busy with a CPU-bound step: new steps go to another process, which
+	// the pool starts if it is below Max. Zero means 250 ms; a negative
+	// value turns lag routing off.
+	LagThreshold time.Duration
+	// RecycleTimeout bounds the drain of a process that leaves the pool,
+	// after its last step in flight, before it is killed; zero means 5 s.
+	RecycleTimeout time.Duration
+	// Recycle are the triggers that replace a process that is still
+	// serving; zero values turn them off.
+	Recycle RecycleTriggers
+	// MaxLive bounds the processes alive at once, each counted from its
+	// start until its exit: serving, starting, tainted, leaving or
+	// draining. Zero means no bound. Open refuses a bound below Max.
+	MaxLive int
+	// WarmStart makes Open start Min processes, and return once Min
+	// serve, their handshakes done, instead of starting them on the first
+	// step. A bundle with no step has no pool, so nothing starts.
+	WarmStart bool
+}
+
+// RecycleTriggers say when the pool replaces a process that is still
+// serving. A process trips a trigger when its heartbeats report a resident
+// set of RSS bytes or more Samples times in a row, or once it has run steps
+// of more than Modules distinct scripts, whose modules it keeps loaded.
+// It then takes no new steps, a replacement starts beside it outside Max,
+// and it leaves once no step is in flight in it. One process leaves for a
+// trigger at a time; another that trips meanwhile keeps serving until the
+// first has exited. A threshold is sampled and does not cap memory.
+type RecycleTriggers struct {
+	// RSS is the resident set size, in bytes, that trips the trigger; zero
+	// turns it off.
+	RSS int64
+	// Samples is how many heartbeats in a row must reach RSS; zero means 2.
+	Samples int
+	// Modules is how many distinct scripts a process may run; the first
+	// step of one more still runs there. Zero turns it off.
+	Modules int
+}
+
+// harnessConfig is the pool's configuration in internal/harness, without
+// its key and process template.
+func (o PoolOptions) harnessConfig() harness.PoolConfig {
+	return harness.PoolConfig{
+		Min: o.Min, Max: o.Max, Cap: o.Cap, LagThreshold: o.LagThreshold, RecycleTimeout: o.RecycleTimeout, MaxLive: o.MaxLive,
+		Recycle: harness.RecycleTriggers{RSS: o.Recycle.RSS, Samples: o.Recycle.Samples, Modules: o.Recycle.Modules},
+	}
 }
 
 // Resource is a resource: its resource type, and its value as JSON, whose
@@ -289,6 +386,10 @@ type Runtime struct {
 	dispatch  *engine.Dispatcher
 	readCache bool     // Options.ReadCache
 	identity  Identity // Options.Identity
+	capped    bool     // Options.Pool.Cap is set: each flow run's trace lists "D15"
+	// foreign is Options.ForeignWindmillOrigins as the welcomes carry
+	// them (foreignOrigins).
+	foreign []string
 	// memoryStore says that the runtime's resource store keeps its entries
 	// in memory, which its runs' traces list as D24.
 	memoryStore bool
@@ -358,8 +459,12 @@ func Version() string {
 // that the runtime's engine version built it and, when it has steps, that
 // opts.HarnessRuntime is the harness runtime it was built for, reads the
 // compiled program and data/, and opens the engine. An archive is
-// extracted into the data directory first. Harness processes start
-// lazily, on the first step (a fresh runtime starts one per step).
+// extracted into the data directory first. Harness processes start on
+// the first step (a fresh runtime starts one per step), and a bundle with
+// no step starts none. In a warm runtime, Open starts them earlier in two
+// cases: a host plugin (Options.Plugin) makes it start the pool's minimum
+// and wait for the first, to read the plugin's declaration, and a warm
+// start (Options.Pool.WarmStart) makes it wait until the minimum serve.
 //
 // The runtime owns its platform services (ADR 0007): the bundle's
 // resources and variables with the host's, which a step can update through
@@ -367,7 +472,14 @@ func Version() string {
 // store under the data directory, and the default dispatcher over the
 // bundle's program. The facade serves them to its steps.
 func Open(path string, opts Options) (_ *Runtime, err error) {
-	rt := &Runtime{version: opts.EngineVersion, readCache: opts.ReadCache, identity: opts.Identity}
+	rt := &Runtime{version: opts.EngineVersion, readCache: opts.ReadCache, identity: opts.Identity, capped: opts.Pool.Cap > 0}
+	if opts.Diagnostics != nil && opts.Pool != (PoolOptions{}) {
+		// The harness processes, the pool and the host plugin's calls write
+		// to it from goroutines of their own, and the pool settings let
+		// several processes live at once. Without them the writer is called
+		// as it always has been.
+		opts.Diagnostics = &lockedWriter{w: opts.Diagnostics}
+	}
 	rt.stop, rt.cancelStop = context.WithCancelCause(context.Background())
 	if rt.version == "" {
 		rt.version = Version()
@@ -390,6 +502,12 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 		if opts.ModuleState != "" && opts.ModuleState != ModuleStateWarm {
 			return nil, fmt.Errorf("wl: host mode runs warm (ADR 0006), not %s", opts.ModuleState)
 		}
+		if opts.Pool != (PoolOptions{}) {
+			return nil, errors.New("wl: host mode has no harness pool, since the host is its one harness process: Options.Pool must be zero")
+		}
+	}
+	if rt.foreign, err = foreignOrigins(opts.ForeignWindmillOrigins); err != nil {
+		return nil, err
 	}
 	// Harness processes run in directories of their own, so every path
 	// they see is absolute.
@@ -451,6 +569,15 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	switch {
 	case opts.Plugin != "" && opts.Host != nil:
 		return nil, errors.New("wl: in host mode the host plugin is the host's, not Options.Plugin")
+	case opts.Host == nil && rt.manifest.Plugin != nil:
+		// The bundle's own host plugin (ADR 0004, host plugins) loads as
+		// the module that Options.Plugin names does, and a runtime given
+		// both refuses to open. In host mode the plugin is the host's: the
+		// Bun host SDK loads the bundle's.
+		if opts.Plugin != "" {
+			return nil, fmt.Errorf("wl: the bundle has its own host plugin, %s, and Options.Plugin names another; give one of them", rt.manifest.Plugin.Key)
+		}
+		opts.Plugin = filepath.Join(rt.dir, filepath.FromSlash(rt.manifest.Plugin.File))
 	case opts.Plugin == "" && opts.Host == nil:
 		// A plugin's providers count too, once it has declared them.
 		if err := checkProviders(prog, opts.Providers); err != nil {
@@ -469,7 +596,15 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 		return nil, fmt.Errorf("wl: module state %q is neither warm nor fresh", rt.state)
 	}
 	if opts.Plugin != "" && rt.state == engine.ModuleStateFresh {
-		return nil, errors.New("wl: a host plugin needs warm harness processes: a fresh process lives for one step (Options.Plugin)")
+		return nil, errors.New("wl: a host plugin needs warm harness processes: a fresh process lives for one step (Options.Plugin or the bundle's plugin)")
+	}
+	if opts.Pool != (PoolOptions{}) {
+		if rt.state == engine.ModuleStateFresh {
+			return nil, errors.New("wl: a fresh runtime starts a harness process for each step and has no pool to set: Options.Pool must be zero")
+		}
+		if err := opts.Pool.harnessConfig().CheckSettings(); err != nil {
+			return nil, fmt.Errorf("wl: Options.Pool: %w", err)
+		}
 	}
 
 	store, err := platform.LoadData(os.DirFS(rt.dir))
@@ -505,7 +640,9 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	switch {
 	case opts.Host != nil:
 		inner = hostExec{proc: &rt.hostProc}
-	case len(prog.Scripts) > 0:
+	case len(prog.Scripts) > 0 || opts.Plugin != "":
+		// A plugin runs in the harness processes, so a bundle with no
+		// step but a plugin has them too.
 		if rt.pool, err = rt.harness(opts); err != nil {
 			return nil, err
 		}
@@ -526,6 +663,12 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	if opts.Plugin != "" {
 		if err := rt.loadPlugin(opts); err != nil {
 			return nil, err
+		}
+	}
+	if opts.Pool.WarmStart && rt.pool != nil {
+		// Each start is bounded by the handshake's timeout.
+		if err := rt.pool.Start(context.Background()); err != nil {
+			return nil, fmt.Errorf("wl: the warm start of the harness pool: %w", err)
 		}
 	}
 	if opts.Host != nil {
@@ -574,14 +717,15 @@ func (rt *Runtime) harness(opts Options) (*harness.Pool, error) {
 		}
 		args = append(args, extra...)
 	}
-	return harness.NewPool(harness.PoolConfig{
-		Key: harness.Key{Class: string(ir.ClassBun), Runtime: harness.PinnedBun, Deps: rt.digest, ModuleState: rt.state},
-		Process: harness.ProcessConfig{
-			Path: path, Args: args, WorkRoot: work, Kind: string(ir.ClassBun), Runtime: harness.PinnedBun,
-			Bundle: rt.digest, EngineVersion: rt.version,
-			Diagnostics: opts.Diagnostics, Facade: rt.PlatformOrigin(), Platform: rt.fac.Platform(),
-		},
-	})
+	cfg := opts.Pool.harnessConfig()
+	cfg.Key = harness.Key{Class: string(ir.ClassBun), Runtime: harness.PinnedBun, Deps: rt.digest, ModuleState: rt.state}
+	cfg.Process = harness.ProcessConfig{
+		Path: path, Args: args, WorkRoot: work, Kind: string(ir.ClassBun), Runtime: harness.PinnedBun,
+		Bundle: rt.digest, EngineVersion: rt.version,
+		Diagnostics: opts.Diagnostics, Facade: rt.PlatformOrigin(), Platform: rt.fac.Platform(),
+		ForeignWindmillOrigins: rt.foreign,
+	}
+	return harness.NewPool(cfg)
 }
 
 // readProgram reads ir.json, the compiled program, which must be of the
@@ -599,6 +743,26 @@ func readProgram(path string) (*ir.Program, error) {
 		return nil, fmt.Errorf("wl: ir.json is of IR version %d, and this engine reads %d", prog.Version, ir.Version)
 	}
 	return &prog, nil
+}
+
+// lockedWriter serializes the writes to a host's diagnostics writer.
+type lockedWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (l *lockedWriter) Write(b []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.w.Write(b)
+}
+
+// WriteString passes the text on as io.WriteString does, so the host's
+// own WriteString is still the one called.
+func (l *lockedWriter) WriteString(s string) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return io.WriteString(l.w, s)
 }
 
 // noHarness is the executor of a bundle with no step: nothing reaches it.

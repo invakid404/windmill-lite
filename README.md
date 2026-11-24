@@ -12,7 +12,9 @@ TypeScript for [Bun](docs/glossary.md#bun), and
 [Windmill](docs/glossary.md#windmill)'s loops, branches, subflows, retries,
 timeouts, failure handling, [expressions](docs/glossary.md#expression),
 resources and variables. It does not run steps in other languages yet, and
-it has no network server; its go-plugin, gRPC and HTTP adapters are planned.
+it has no network server. Of its go-plugin adapter, only the host's side
+exists, [wl/plugin](wl/plugin/README.md); the engine's side and the gRPC
+and HTTP adapters are planned.
 
 ## Who it is for
 
@@ -188,6 +190,7 @@ use.
 | [wl](wl/README.md) | How to open a bundle and run flows from Go, with hooks, budgets and host mode | Go hosts |
 | [wl/storetest](wl/storetest/README.md) | How to check that a resource store of your own meets the contract | Go hosts with their own resource store |
 | [wl/redisstore](wl/redisstore/README.md) | How to keep the state that steps write in Redis, from Go | Go hosts |
+| [wl/plugin](wl/plugin/README.md) | How a Go host launches the engine as a go-plugin plugin, pins it and calls its `Runner` service; the engine's side is planned | Go hosts |
 | [docs/resource-stores.md](docs/resource-stores.md) | Which resource store to choose, memory or Redis, and how to set Redis up for it | Everyone who deploys windmill-lite |
 | [harnesses](harnesses/README.md) | How to install the npm package and test a host's process-level code | Bun hosts |
 | [harnesses/bun](harnesses/bun/README.md) | What `connect()` does, its options, host plugins, and how a step runs | Bun hosts |
@@ -210,6 +213,7 @@ use.
 | [conformance](conformance/README.md) | The shared conformance cases and their [recordings](docs/glossary.md#recording) | Contributors to conformance |
 | [internal/conformance](internal/conformance/README.md) | The case formats, the normaliser and the comparator | Contributors to conformance |
 | [internal/oracle](internal/oracle/README.md) | How the oracle records fixtures on Windmill | Contributors to conformance |
+| [proto](proto/README.md) | The `Runner` service of the go-plugin adapter, and how to generate its Go code | Contributors to the go-plugin adapter |
 | [internal/openflow](internal/openflow/README.md) | The OpenFlow types and how Windmill decodes a flow | Contributors to the compiler |
 | [internal/yamlx](internal/yamlx/README.md) | How windmill-lite parses sync-folder YAML as the `wmill` CLI does | Contributors to the compiler |
 | [internal/syncfolder](internal/syncfolder/README.md) | How windmill-lite reads a sync folder | Contributors to the compiler |
@@ -265,3 +269,9 @@ vendored files keep their own licences:
 | `internal/expr/quickjs/quickjs-ng/` | The QuickJS-ng sources | MIT | [NOTICE](internal/expr/quickjs/quickjs-ng/NOTICE) |
 | `internal/expr/quickjs/mimalloc/` | The mimalloc sources | MIT | [NOTICE](internal/expr/quickjs/mimalloc/NOTICE) |
 | `internal/jsonval/pglz.go`, `internal/jsonval/jsonb.go` | Go code ported from PostgreSQL | PostgreSQL License | [LICENSE.PostgreSQL](internal/jsonval/LICENSE.PostgreSQL) |
+
+`wl/plugin` depends on hashicorp/go-plugin and hashicorp/yamux, which are
+under the Mozilla Public License 2.0, as Go modules only: the repository
+holds none of their files. For each such module that the engine links, the
+release's `LICENSES.txt` also says where its source is
+([release helper](scripts/README.md#release-helper)).

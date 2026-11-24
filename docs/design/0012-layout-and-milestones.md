@@ -4,18 +4,17 @@
 pull-request-sized milestones to the first release, with what can run in
 parallel.
 
-The public Go packages are `wl/`, `wl/storetest`, `wl/redisstore` and the
-planned `wl/plugin`; the commands live under `cmd/`, the other Go packages
+The public Go packages are `wl/`, `wl/storetest`, `wl/redisstore` and
+`wl/plugin`; the commands live under `cmd/`, the other Go packages
 under `internal/`, and the harnesses and shared conformance cases under
 `harnesses/` and `conformance/`. The work is split into milestones, each one
 reviewed pull request, ordered by the interfaces and exit gates that each
 one needs.
 
 **Not built yet:** the packages of the milestones that have no code yet:
-`wl/plugin/` and `proto/` (the go-plugin adapter), `internal/host` (the gRPC
-and HTTP adapters), `internal/gen` (typed clients), `internal/pack` (the
-single executable and the image) and `internal/platform/remote` (hybrid
-dispatch).
+`internal/host` (the gRPC and HTTP adapters), `internal/gen` (typed
+clients), `internal/pack` (the single executable and the image) and
+`internal/platform/remote` (hybrid dispatch).
 
 ## Context
 
@@ -63,6 +62,7 @@ harnesses/                  the npm package windmill-lite (0009): package.json, 
                             and the Bun SDK's test entry; npm/ (its build and packaging test)
 harnesses/bun/              TypeScript: runtime/ (step runner), build/ (bundling, signatures),
                             host/ (Bun host SDK and its test entry), test/ (developer checks against golden frames)
+proto/                      generate.sh, which generates runner.proto's Go code into wl/plugin (0009)
 proto/windmill_lite/v1/     runner.proto (0009)
 conformance/                flows/, steps/, exprs/, openflow/, jsonb/, syncfolder/, ir/, protocol/, build/: the shared cases (0003)
 ```

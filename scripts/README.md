@@ -92,6 +92,24 @@ form: `MAJOR.MINOR.PATCH` with an optional pre-release, such as
   PostgreSQL ports, and Windmill's Apache-2.0 OpenAPI files. It adds those
   of each Go module that `./cmd/windmill-lite` links, and Go's own. It fails
   when a Go module has no licence file.
+- **The source of an MPL-2.0 module.** For each module of `MPL_MODULES`,
+  the modules under the Mozilla Public License 2.0 that windmill-lite
+  takes, `notices` puts a source line before its licence files. The line
+  names the module and its version, its archive on the Go module proxy,
+  and its upstream repository, as section 3.2 of the licence asks of a
+  work distributed in executable form.
+- **The check of each module.** A module of `MPL_MODULES` must have a
+  licence file, `LICENSE`, `LICENCE` or `COPYING`, whose first five lines
+  that are not blank hold the licence's title or the line
+  `SPDX-License-Identifier: MPL-2.0`; otherwise `notices` fails. Any other
+  module gets no source line, and its section holds its licence and notice
+  files as they are, also when they mention the MPL, such as for a
+  component that the module attributes.
+- **`MPL_MODULES`** holds `github.com/hashicorp/go-plugin` and
+  `github.com/hashicorp/yamux`.
+- **The upstream repository.** On github.com, gitlab.com and bitbucket.org
+  it is the module path's first three elements; elsewhere it is the module
+  path, where `go get` finds the repository.
 - **Errors.** A command that fails prints `release.py: <reason>` and exits
   with 1. An unknown command prints the usage and exits with 2.
 
@@ -115,6 +133,12 @@ form: `MAJOR.MINOR.PATCH` with an optional pre-release, such as
   differ;
 - another checks that `notices` covers each third-party part of the engine;
 - both skip without `go`;
+- `MPLSourceTest` checks the source line on synthetic module directories,
+  each test with its own `MPL_MODULES`. A listed MPL-2.0 module gets the
+  line, with the proxy's case encoding of its path and version, in the
+  whole output of `notices` too. A listed module under another licence
+  fails. An unlisted module gets no line and keeps its texts, also when
+  they mention the MPL;
 - `ModeTest` checks `mode` for a tag, a pull request and a dispatch, each in
   this repository and in a fork.
 

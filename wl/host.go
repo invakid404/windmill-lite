@@ -103,6 +103,9 @@ func (rt *Runtime) attachHost(h *Host, diag io.Writer, opts Options) error {
 		Facade:        rt.fac.WarmOrigin(),
 		Platform:      rt.fac.Platform(),
 		Workdir:       h.Workdir,
+		// The host's steps drop their job ids from their own dispatch to
+		// these origins, as a spawned process's do.
+		ForeignWindmillOrigins: rt.foreign,
 		// The arguments travel in the invoke frame; the file is left out
 		// only when no script of the bundle can read it and the host says
 		// its own code does not (ADR 0004 host mode item 7).

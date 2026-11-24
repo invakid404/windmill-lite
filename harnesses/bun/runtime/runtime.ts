@@ -48,6 +48,7 @@ import {
 import {
   current,
   exitProcess,
+  foreignOrigins,
   installChildProcesses,
   installEnvView,
   installExit,
@@ -61,6 +62,7 @@ import {
   InvocationLog,
   InvocationResources,
   invocations,
+  jobIdsOf,
   type PlatformAnswer,
   type PlatformCall,
   ProcessExit,
@@ -308,6 +310,10 @@ export class Runtime {
   private lagMs = 0;
   private errors = 0;
   private facade: string | undefined;
+  /** The welcome's foreign Windmill origins, each as a URL's origin: a
+   * step's dispatch there loses its links to the invocation's own job ids
+   * (installFetch). */
+  private foreign: ReadonlySet<string> = new Set();
   private platformSeq = 0;
   private platformCalls = new Map<string, PendingCall>();
   private runs = new Map<string, { resolve: (o: RunOutcome) => void; reject: (e: Error) => void }>();
@@ -347,15 +353,18 @@ export class Runtime {
     installTimers();
     installLogs();
     installChildProcesses();
-    installFetch(
+    const nativeFetch = installFetch(
       () => this.facade,
       (c, signal) => this.platformCall(c, signal),
+      () => this.foreign,
     );
     installProcessHandlers((kind, e, promise) => this.onProcessError(kind, e, promise));
     installExit((c, status) => this.onExit(c, status));
-    // Native realms get the web APIs as they are now, the wrapped fetch
-    // included, before any step module can change them.
-    this.native.capture();
+    // Native realms get the web APIs as they are now, before any step
+    // module can change them, and the fetch that installFetch returns: on a
+    // host's reconnect, the fetch view itself once the process has loaded a
+    // bundle's plugin, which may have wrapped globalThis.fetch.
+    this.native.capture(nativeFetch);
   }
 
   /** Sets the host plugin before start, for a harness that loads it once
@@ -497,6 +506,9 @@ export class Runtime {
     setChildGroups(this.mode !== "fresh");
     setChildAnnouncer((id, pid, token) => this.announceChild(id, pid, token));
     this.facade = c.facade;
+    this.foreign = foreignOrigins(c.foreign_windmill_origins ?? [], (i) =>
+      this.diag(`windmill-lite harness: foreign_windmill_origins[${i}] is not a URL that this runtime's URL parser reads, so no request can go to it; it is left out`),
+    );
     this.sender.maxMessage = c.max_message;
     this.assembler.maxMessage = c.max_message;
     this.startHeartbeat(c.heartbeat_ms);
@@ -564,7 +576,7 @@ export class Runtime {
     this.invocations.set(m.id, inv);
     const env: Record<string, string> = Object.assign(Object.create(null), m.env);
     shadow(env);
-    const ctx: InvocationContext = { id: m.id, run: m.run, env, signal: inv.controller.signal, resources, work: resources, log: inv.log };
+    const ctx: InvocationContext = { id: m.id, run: m.run, env, signal: inv.controller.signal, resources, work: resources, log: inv.log, jobIds: jobIdsOf(m.env) };
     // A step's wl.latch goes out ahead of the frame that settles it, after
     // what it wrote before the call, while the engine still waits for it.
     ctx.latch = (text) => {

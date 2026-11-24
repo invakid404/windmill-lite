@@ -52,7 +52,31 @@ export type InvocationContext = {
   /** Latches text on the invocation's run (H5, wl.latch); throws once the
    * engine no longer waits for the invocation. */
   latch?: (text: string) => void;
+  /** The invocation's own job ids, as its invoke frame set them
+   * (jobIdsOf): a request to a foreign Windmill loses each link to one of
+   * them (installFetch). A step's later writes to its environment do not
+   * change them. */
+  jobIds?: ReadonlySet<string>;
 };
+
+/** The variables of an invocation's environment whose values the stock
+ * clients send as parent_job and root_job
+ * ({@link https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-15 | WA-15}).
+ * Only these count as the invocation's own job ids: another variable, such
+ * as a dispatched script's WM_FLOW_JOB_ID, can hold a parent that its
+ * dispatcher named, which a link to a real Windmill keeps unless its value
+ * is one of these two. */
+const JOB_ID_VARIABLES = ["WM_JOB_ID", "WM_ROOT_FLOW_JOB_ID"];
+
+/** The non-empty values of WM_JOB_ID and WM_ROOT_FLOW_JOB_ID in env. */
+export function jobIdsOf(env: Record<string, unknown>): ReadonlySet<string> {
+  const ids = new Set<string>();
+  for (const k of JOB_ID_VARIABLES) {
+    const v = env[k];
+    if (typeof v === "string" && v !== "") ids.add(v);
+  }
+  return ids;
+}
 
 /** The registry that work started in the caller's context registers in,
  * if any: none outside every invocation, in a process scope, or while a
@@ -596,10 +620,27 @@ export type RequestOf = new (input: string | URL | Request, init?: RequestInit) 
 // installed them last, so a host that reconnects counts its errors and
 // sends its facade calls on its current connection.
 let fetchRoute:
-  | { origin: () => string | undefined; call: (c: PlatformCall, signal: AbortSignal) => Promise<PlatformAnswer> }
+  | {
+      origin: () => string | undefined;
+      call: (c: PlatformCall, signal: AbortSignal) => Promise<PlatformAnswer>;
+      foreign: () => ReadonlySet<string>;
+    }
   | undefined;
 let errorRoute: ((kind: string, e: unknown, promise?: unknown) => void) | undefined;
-let fetchInstalled = false;
+// The fetch view that installFetch installed first.
+let fetchView: typeof fetch | undefined;
+// Whether this process has loaded a bundle's own host plugin (the host SDK
+// notes it, noteBundledPlugin). Such a plugin may wrap globalThis.fetch,
+// and the wrapper outlives its connection.
+let bundledPluginLoaded = false;
+
+/** Notes that this process loads a bundle's own host plugin: from then on,
+ * installFetch gives a later runtime the fetch view it installed first,
+ * not globalThis.fetch, so a wrapper the plugin installs never reaches a
+ * later connection's native realms. */
+export function noteBundledPlugin(): void {
+  bundledPluginLoaded = true;
+}
 
 /** The reason a request an invocation left in flight is aborted with when
  * it settles: an AbortError, as for any aborted fetch. */
@@ -620,16 +661,25 @@ function settledAbort(): DOMException {
  *   body's transfer has ended (observeTransfer), and aborted with an
  *   AbortError if the invocation settles first, which also fails a body
  *   still being read. The response is Bun's own.
+ * - A request made in an invocation's context to one of the foreign
+ *   origins, real Windmill instances, loses the links to the invocation's
+ *   own job ids first (withoutLocalLinks): those ids name no job there
+ *   (ADR 0007, async dispatch).
  *
- * origin() is read per call, because the welcome names the facade after
- * this is installed. */
+ * origin() and foreign() are read per call, because the welcome names the
+ * facade and the foreign origins after this is installed. It returns the
+ * fetch that the runtime's native realms take: the view, when it installs
+ * it. A later call, from a host that reconnects, returns globalThis.fetch
+ * as it is then, a host's own replacement included, unless the process has
+ * loaded a bundle's own plugin (noteBundledPlugin): then it returns the
+ * view again. */
 export function installFetch(
   origin: () => string | undefined,
   call: (c: PlatformCall, signal: AbortSignal) => Promise<PlatformAnswer>,
-) {
-  fetchRoute = { origin, call };
-  if (fetchInstalled) return;
-  fetchInstalled = true;
+  foreign: () => ReadonlySet<string> = () => NO_ORIGINS,
+): typeof fetch {
+  fetchRoute = { origin, call, foreign };
+  if (fetchView !== undefined) return bundledPluginLoaded ? fetchView : globalThis.fetch;
   const inner = globalThis.fetch;
   const wrapped = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const route = fetchRoute!;
@@ -637,6 +687,7 @@ export function installFetch(
     const inv = invocations.getStore();
     const own = init?.signal ?? (input instanceof Request ? input.signal : undefined);
     if (facade === undefined || originOf(input) !== facade) {
+      if (inv?.jobIds !== undefined) input = withoutLocalLinks(input, route.foreign(), inv.jobIds) ?? input;
       const work = inv?.work;
       if (work === undefined) return inner(input, init);
       const fence = new AbortController();
@@ -673,7 +724,9 @@ export function installFetch(
       done?.();
     }
   };
-  globalThis.fetch = Object.assign(wrapped, { preconnect: inner.preconnect }) as typeof fetch;
+  fetchView = Object.assign(wrapped, { preconnect: inner.preconnect }) as typeof fetch;
+  globalThis.fetch = fetchView;
+  return fetchView;
 }
 
 /** The reason phrases Go's net/http writes on a status line
@@ -773,6 +826,83 @@ function observeReads(res: Response, end: () => void) {
       return c;
     },
   });
+}
+
+const NO_ORIGINS: ReadonlySet<string> = new Set();
+
+/** The origins of a welcome's foreign_windmill_origins, as the URL parser
+ * that reads a request's URL gives them, so that the two compare equal:
+ * the engine sends each in one form, but leaves an internationalised name
+ * such as bücher.example as it is, and this parser gives
+ * xn--bcher-kva.example. A value that this parser refuses, or that is not
+ * an http or https URL, is left out, and dropped is called with its index:
+ * no request URL can have a host that the parser refuses, so it names no
+ * origin that a request can go to. */
+export function foreignOrigins(list: readonly string[], dropped: (index: number) => void = () => {}): Set<string> {
+  const out = new Set<string>();
+  list.forEach((o, i) => {
+    let u: URL;
+    try {
+      u = new URL(o);
+    } catch {
+      dropped(i);
+      return;
+    }
+    if (u.protocol !== "http:" && u.protocol !== "https:") dropped(i);
+    else out.add(u.origin);
+  });
+  return out;
+}
+
+/** The path of Windmill's API under which the stock clients dispatch a
+ * script or a flow, with parent_job and root_job in the query
+ * ({@link https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-15 | WA-15}). */
+const DISPATCH_PATH = /^\/api\/w\/[^/]+\/jobs\/run\//;
+
+/** The query parameters that link a dispatched job to its parent and its
+ * root. */
+const LINKS = new Set(["parent_job", "root_job"]);
+
+/** The request without its links to the invocation's own job ids: when
+ * input goes to one of the foreign origins (each a URL's origin) under
+ * DISPATCH_PATH, each parent_job and root_job query parameter whose value
+ * is one of ids is removed. Only those parameters go: every other byte of
+ * the URL stays, and a Request keeps its method, headers, body and signal.
+ * undefined when nothing is removed, so the request goes out as it came. */
+function withoutLocalLinks(input: string | URL | Request, foreign: ReadonlySet<string>, ids: ReadonlySet<string>): string | URL | Request | undefined {
+  if (foreign.size === 0 || ids.size === 0) return undefined;
+  let url: URL;
+  try {
+    url = new URL(input instanceof Request ? input.url : String(input));
+  } catch {
+    return undefined;
+  }
+  if (url.search === "" || !foreign.has(url.origin) || !DISPATCH_PATH.test(url.pathname)) return undefined;
+  const pairs = url.search.slice(1).split("&");
+  const kept = pairs.filter((pair) => !isLocalLink(pair, ids));
+  if (kept.length === pairs.length) return undefined;
+  // The setter takes one leading "?" as the delimiter, so it gets its own:
+  // a kept pair that starts with "?" keeps it.
+  url.search = kept.length === 0 ? "" : "?" + kept.join("&");
+  if (input instanceof Request) return new (Request as RequestOf)(url.href, input as unknown as RequestInit);
+  return input instanceof URL ? url : url.href;
+}
+
+/** Whether one name=value pair of a query is a link to one of ids. Names
+ * and values are read as a form decodes them, as a server reads them. */
+function isLocalLink(pair: string, ids: ReadonlySet<string>): boolean {
+  const eq = pair.indexOf("=");
+  if (!LINKS.has(formDecode(eq < 0 ? pair : pair.slice(0, eq)))) return false;
+  return ids.has(eq < 0 ? "" : formDecode(pair.slice(eq + 1)));
+}
+
+function formDecode(s: string): string {
+  const spaced = s.replaceAll("+", " ");
+  try {
+    return decodeURIComponent(spaced);
+  } catch {
+    return spaced;
+  }
 }
 
 function originOf(input: string | URL | Request): string | undefined {

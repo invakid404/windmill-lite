@@ -71,7 +71,7 @@ const FIELDS: Record<string, readonly string[]> = {
 const NESTED: Record<string, readonly string[]> = {
   harness: ["kind", "version"],
   caps: ["fetch", "native", "fresh", "host"],
-  config: ["module_state", "heartbeat_ms", "max_message", "facade"],
+  config: ["module_state", "heartbeat_ms", "max_message", "facade", "foreign_windmill_origins"],
   reject: ["code", "message"],
   error: ["code", "message"],
 };
@@ -91,10 +91,23 @@ function value(v: unknown, nestedOrder?: readonly string[]): string {
     // Protocol objects use their fixed order; data objects (env, headers)
     // sort their keys by UTF-16 code units, as Go sorts them bytewise for
     // the ASCII names the cases use.
-    const keys = nestedOrder ? nestedOrder.filter((k) => o[k] !== undefined) : Object.keys(o).sort();
+    const keys = nestedOrder ? nestedOrder.filter((k) => present(k, o[k])) : Object.keys(o).sort();
     return "{" + keys.map((k) => JSON.stringify(k) + ":" + value(o[k])).join(",") + "}";
   }
   throw new ProtocolError("bad_field", `cannot encode ${typeof v}`);
+}
+
+/** Lists of a protocol object that are absent when null or empty, as Go
+ * reads and writes them: an empty list means none. */
+const ABSENT_WHEN_EMPTY = new Set(["foreign_windmill_origins"]);
+
+/** Whether field k of a protocol object, of value v, is written and kept
+ * when decoded: a field that is undefined is not, and neither is an
+ * ABSENT_WHEN_EMPTY list that is null or empty. Every other field keeps the
+ * codec's rules as they are. */
+function present(k: string, v: unknown): boolean {
+  if (ABSENT_WHEN_EMPTY.has(k)) return v != null && !(Array.isArray(v) && v.length === 0);
+  return v !== undefined;
 }
 
 /** Boolean fields written only when true, as Go writes them. */
@@ -269,6 +282,7 @@ export function decode(payload: Uint8Array): Message {
         checkField(m.t, m, "config", "object");
         checkNested(m.t, m, "config", { module_state: "string", heartbeat_ms: "int", max_message: "int" });
         if (m.config.facade != null) checkField(m.t, m.config, "facade", "string");
+        if (m.config.foreign_windmill_origins != null) checkField(m.t, m.config, "foreign_windmill_origins", "strings");
       } else if (m.reject != null) {
         checkField(m.t, m, "reject", "object");
         checkNested(m.t, m, "reject", { code: "string", message: "string" });
@@ -420,7 +434,7 @@ function own(m: Message): Message {
     const nested = Object.hasOwn(NESTED, k) ? NESTED[k] : undefined;
     if (nested && m[k] !== null) {
       const o: Record<string, unknown> = {};
-      for (const n of nested) if (m[k][n] !== undefined) o[n] = m[k][n];
+      for (const n of nested) if (present(n, m[k][n])) o[n] = m[k][n];
       out[k] = o;
     } else if (m[k] !== null || KEEP_NULL.has(`${m.t}.${k}`)) {
       out[k] = m[k];
