@@ -124,7 +124,7 @@ with `PlatformReply` as a `PlatformHandler`, and `wltest check` reads
 | `PlatformRequest`, `PlatformReply`, `PlatformHandler` | structs, func type | A `platform` frame, its `platform_reply`, and the handler that answers it |
 | `HostCall`, `HostReply`, `HostError` | structs | A host plugin's call and reply |
 | `Ping`, `Pong`, `Part`, `Drain`, `Bye` | structs | Health, part streams, and the end of a connection |
-| `TypeHello`, `TypeWelcome`, `TypeInvoke`, `TypeResult`, `TypeLate`, `TypeCancel`, `TypeLog`, `TypeWarning`, `TypeChild`, `TypePlatform`, `TypePlatformReply`, `TypeRun`, `TypeRunDone`, `TypeRunCancel`, `TypeRunSettled`, `TypeHostCall`, `TypeHostReply`, `TypePing`, `TypePong`, `TypePart`, `TypeDrain`, `TypeBye` | const | The `t` field of each message type |
+| `TypeHello`, `TypeWelcome`, `TypeInvoke`, `TypeResult`, `TypeLate`, `TypeCancel`, `TypeLog`, `TypeWarning`, `TypeChild`, `TypePlatform`, `TypePlatformReply`, `TypeRun`, `TypeRunDone`, `TypeRunCancel`, `TypeRunSettled`, `TypeHostCall`, `TypeHostReply`, `TypeRunReleased`, `TypePing`, `TypePong`, `TypePart`, `TypeDrain`, `TypeBye` | const | The `t` field of each message type |
 | `RejectProto`, `RejectHarness`, `RejectRuntime`, `RejectBundle`, `RejectPID`, `RejectWorkdirNotWritable`, `RejectWorkdirMismatch`, `RejectEngine`, `RejectPlugin`, `RejectVersion` | const | The reject codes ([The handshake](#the-handshake)) |
 | `WarningUnattributed`, `WarningLeftBehind`, `WarningNativeUntracked` | const | The warning codes |
 | `OutcomeOK`, `OutcomeError`, `OutcomeEscaped`, `OutcomeEmpty`; `LateResult`, `LateError`, `LateLog`; `OriginHarness` | const | A result's outcomes, a late frame's kinds, and the one origin a result names; `engine` spells the same values |
