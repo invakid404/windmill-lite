@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"maps"
 	"slices"
 	"sync"
@@ -514,45 +513,46 @@ func (s *Services) GetJobArgs(id string) ([]byte, error) {
 	return j.View.JobArgs(id)
 }
 
+// JobPoller is a JobView that also answers the result polls ([WA-15],
+// [WA-V2]) for the jobs of its run. The engine's runs implement it.
+//
+// [WA-15]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-15
+// [WA-V2]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-v2
+type JobPoller interface {
+	// JobPoll returns the state of the job id names: whether it has
+	// started, and once it has completed whether it succeeded and its
+	// whole result in jsonb's text output, which the record replaces once
+	// it is too large. It fails as JobRecord does for a job whose record
+	// windmill-lite does not reproduce.
+	JobPoll(id string) (JobResult, error)
+}
+
 // ResultPoll answers the result polls ([WA-15], [WA-V2]) for the job id
-// names from the record that the run holding it renders, as GetJob reads
-// it: a completed job's success and result, the record's own result in
-// jsonb's text output; or a job that has not completed, started once it
-// runs. known is false when the job registry does not know the job. A job
-// that GetJob does not serve fails as GetJob fails: ErrEndedRun for a job
-// of a run that has ended, a *NotServed for a job in a state whose record
-// windmill-lite does not reproduce, such as a canceled job.
+// names from the run that holds it (JobPoller), for every job that GetJob
+// answers for. It looks the id up once, so that one poll classifies the
+// job against one state of the registry: known is false when the registry
+// does not know it. A known job that GetJob does not serve fails as GetJob
+// fails: ErrEndedRun for a job of a run that has ended, a *NotServed for a
+// job in a state whose record windmill-lite does not reproduce, such as a
+// canceled job, or whose run answers no result polls.
 //
 // [WA-15]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-15
 // [WA-V2]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-v2
 func (s *Services) ResultPoll(id string) (r JobResult, known bool, err error) {
-	if _, _, ok := s.jobs().Job(id); !ok {
+	jobs := s.jobs()
+	j, _, ok := jobs.Job(id)
+	if !ok {
 		return JobResult{}, false, nil
 	}
-	j, err := s.liveJob(id, "Job not found at name %s")
-	if err != nil {
+	if j, err = liveOf(jobs, j, id); err != nil {
 		return JobResult{}, true, err
 	}
-	rec, err := j.View.JobRecord(id)
-	if err != nil {
-		return JobResult{}, true, err
+	p, ok := j.View.(JobPoller)
+	if !ok {
+		return JobResult{}, true, &NotServed{Reason: "the job's run answers no result polls"}
 	}
-	var v struct {
-		Type    string          `json:"type"`
-		Running bool            `json:"running"`
-		Success bool            `json:"success"`
-		Result  json.RawMessage `json:"result"`
-	}
-	if err := json.Unmarshal(rec, &v); err != nil {
-		return JobResult{}, true, fmt.Errorf("the job's record: %w", err)
-	}
-	if v.Type != "CompletedJob" {
-		return JobResult{Started: v.Running}, true, nil
-	}
-	if v.Result == nil {
-		v.Result = json.RawMessage("null")
-	}
-	return JobResult{Started: true, Completed: true, Success: v.Success, Result: v.Result}, true, nil
+	r, err = p.JobPoll(id)
+	return r, true, err
 }
 
 // liveJob returns the job id names when a run that is live holds it: an
@@ -564,6 +564,12 @@ func (s *Services) liveJob(id, format string) (Job, error) {
 	if !ok {
 		return Job{}, notFound(format, id)
 	}
+	return liveOf(jobs, j, id)
+}
+
+// liveOf returns j, which jobs knows as the job id names, when a run that
+// is live holds it, and fails with ErrEndedRun when its root has ended.
+func liveOf(jobs Jobs, j Job, id string) (Job, error) {
 	// A job of a live run is known while its root lives, running or
 	// completed; once the root has ended, the registry keeps only the ids
 	// of its tree's jobs.

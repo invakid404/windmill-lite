@@ -1,0 +1,23 @@
+summary: result polls of a child flow that its timeout canceled
+value:
+  modules:
+    - id: l
+      value:
+        type: flow
+        path: f/rp/slow
+        input_transforms: {}
+      timeout: {type: static, value: 1}
+      continue_on_error: true
+    - id: d
+      value:
+        type: script
+        path: f/rp/drive
+        input_transforms:
+          ids:
+            type: static
+            value: ["l"]
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

@@ -2,49 +2,53 @@ package facade
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
-// recordsOf renders each job's record as given, as the run that holds the
-// jobs renders them (internal/engine's job records), or fails as the run
+// pollsOf answers the result polls of each job as given, as the run that
+// holds the jobs answers them (platform.JobPoller), or fails as the run
 // fails for a job whose record windmill-lite does not reproduce.
-type recordsOf map[string]struct {
-	record string
-	err    error
+type pollsOf map[string]struct {
+	res platform.JobResult
+	err error
 }
 
-func (v recordsOf) JobRecord(id string) ([]byte, error) {
+func (v pollsOf) JobPoll(id string) (platform.JobResult, error) {
 	r, ok := v[id]
 	if !ok {
-		return nil, &platform.NotServed{Reason: "the job's run does not hold it"}
+		return platform.JobResult{}, &platform.NotServed{Reason: "the job's run does not hold it"}
 	}
-	return []byte(r.record), r.err
+	return r.res, r.err
 }
 
-func (v recordsOf) JobArgs(string) ([]byte, error) { return []byte("{}"), nil }
+func (v pollsOf) JobRecord(string) ([]byte, error) { return []byte("{}"), nil }
 
-// TestResultPollsFlowJobs checks the result polls ([WA-15], [WA-V2]) of
-// the jobs of a live flow run that no step dispatched, with
-// Config.ResultPollsForAllJobs and without it. The run holds a completed
-// step, a sub-flow's flow job that failed, a running sibling and a job
-// pushed for later, whose records are the engine's, and a canceled leaf
-// and a latched flow job, whose records it does not serve.
+func (v pollsOf) JobArgs(string) ([]byte, error) { return []byte("{}"), nil }
+
+// TestResultPollsFlowJobs checks the facade's answers to the result polls
+// ([WA-15], [WA-V2]) of the jobs of a live flow run that no step
+// dispatched, with Config.ResultPollsForAllJobs and without it, given the
+// states that the run reports: a completed step, a sub-flow's flow job
+// that failed, a running sibling, a job pushed for later, and two jobs
+// whose run refuses them. The engine's own states, a canceled leaf and a
+// canceled child flow among them, and a large result, are checked end to
+// end by wl's TestResultPollsRealStates.
 //
 //   - Without the option, today's answers stand: each job of the run
 //     answers 501 on both routes.
 //   - With it, the answers are the ones the oracle recorded (fixture
 //     conformance/flows/client-api/result-polls): a completed job's
-//     success and its result, embedded in jsonb's text output as the
-//     record holds it, and get_result's 200 with that text; the unfinished
-//     answer for a job that has not completed, started only when asked
-//     for, true once it runs, and get_result's 404.
-//   - In both, the canceled leaf and the latched flow job answer 501 (with
-//     the option, naming the reason), and so does a job of the run once
-//     the run has ended (platform.ErrEndedRun); an id with no job, and a
-//     job of the run looked up in another workspace, answer as for an id
-//     with no job row.
+//     success and its result, embedded in jsonb's text output as the run
+//     gives it, and get_result's 200 with that text; the unfinished answer
+//     for a job that has not completed, started only when asked for, true
+//     once it runs, and get_result's 404.
+//   - In both, a refused job answers 501 (with the option, naming the
+//     run's reason), and so does a job of the run once the run has ended
+//     (platform.ErrEndedRun); an id with no job, and a job of the run
+//     looked up in another workspace, answer as for an id with no job row.
 //
 // [WA-15]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-15
 // [WA-V2]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-v2
@@ -55,13 +59,13 @@ func TestResultPollsFlowJobs(t *testing.T) {
 		unfinished  = `{"started":null,"success":null,"completed":false,"result":null}`
 	)
 	run, a, c, w, s, x, l := uid("run"), uid("a"), uid("c"), uid("w"), uid("s"), uid("x"), uid("l")
-	views := recordsOf{
-		a: {record: fmt.Sprintf(`{"type":"CompletedJob","id":%q,"parent_job":%q,"canceled":false,"success":true,"result":{"k": [1, 2.5]},"resolved":false,"args":{},"is_flow_step":true}`, a, run)},
-		c: {record: fmt.Sprintf(`{"type":"CompletedJob","id":%q,"parent_job":%q,"canceled":false,"success":false,"result":{"error": {"name": "Error", "message": "e <&>", "step_id": "x"}},"resolved":false,"args":{},"script_path":"f/x/fails","is_flow_step":true,"flow_status":{}}`, c, run)},
-		w: {record: fmt.Sprintf(`{"type":"QueuedJob","id":%q,"parent_job":%q,"root_job":%q,"running":true,"flow_step_id":"w","canceled":false,"args":{},"is_flow_step":true}`, w, run, run)},
-		s: {record: fmt.Sprintf(`{"type":"QueuedJob","id":%q,"parent_job":%q,"root_job":%q,"running":false,"flow_step_id":"s","canceled":false,"args":{},"is_flow_step":true}`, s, run, run)},
+	views := pollsOf{
+		a: {res: platform.JobResult{Started: true, Completed: true, Success: true, Result: []byte(`{"k": [1, 2.5]}`)}},
+		c: {res: platform.JobResult{Started: true, Completed: true, Result: []byte(`{"error": {"name": "Error", "message": "e <&>", "step_id": "x"}}`)}},
+		w: {res: platform.JobResult{Started: true}},
+		s: {res: platform.JobResult{}},
 		x: {err: &platform.NotServed{Reason: "the job was canceled"}},
-		l: {err: &platform.NotServed{Reason: "the flow job ended latched"}},
+		l: {err: &platform.NotServed{Reason: "the flow job ended canceled"}},
 	}
 	type answer struct {
 		status int
@@ -96,10 +100,10 @@ func TestResultPollsFlowJobs(t *testing.T) {
 		{what: "a running sibling, started asked for", path: "get_result_maybe/" + w + "?get_started=true", route: maybeRoute, on: json(`{"started":true,"success":null,"completed":false,"result":null}`)},
 		{what: "a running sibling's result", path: "get_result/" + w, route: resultRoute, on: notFound(w)},
 		{what: "a job pushed for later, started asked for", path: "get_result_maybe/" + s + "?get_started=true", route: maybeRoute, on: json(`{"started":false,"success":null,"completed":false,"result":null}`)},
-		{what: "a canceled leaf", path: "get_result_maybe/" + x, route: maybeRoute, on: refused(maybeRoute, "the job was canceled")},
-		{what: "a canceled leaf's result", path: "get_result/" + x, route: resultRoute, on: refused(resultRoute, "the job was canceled")},
-		{what: "a latched flow job", path: "get_result_maybe/" + l, route: maybeRoute, on: refused(maybeRoute, "the flow job ended latched")},
-		{what: "a latched flow job's result", path: "get_result/" + l, route: resultRoute, on: refused(resultRoute, "the flow job ended latched")},
+		{what: "a job the run refuses", path: "get_result_maybe/" + x, route: maybeRoute, on: refused(maybeRoute, "the job was canceled")},
+		{what: "a job the run refuses, its result", path: "get_result/" + x, route: resultRoute, on: refused(resultRoute, "the job was canceled")},
+		{what: "a flow job the run refuses", path: "get_result_maybe/" + l, route: maybeRoute, on: refused(maybeRoute, "the flow job ended canceled")},
+		{what: "a flow job the run refuses, its result", path: "get_result/" + l, route: resultRoute, on: refused(resultRoute, "the flow job ended canceled")},
 		{what: "an id with no job", path: "get_result_maybe/" + unknown + "?get_started=true", both: true, on: json(`{"started":false,"success":null,"completed":false,"result":null}`)},
 		{what: "an id with no job's result", path: "get_result/" + unknown, both: true, on: notFound(unknown)},
 	}
@@ -152,5 +156,72 @@ func TestResultPollsFlowJobs(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// shiftingJobs is a job registry whose answer for one id changes after its
+// first lookup of that id, as the local registry's does when it forgets the
+// oldest ended job or registers a job between two lookups. Its root is
+// live and holds the job's run, which answers the polls as views does.
+type shiftingJobs struct {
+	mu           sync.Mutex
+	id, root     string
+	views        pollsOf
+	known, later bool // whether the id is known at its first lookup, and after
+	lookups      int
+}
+
+func (s *shiftingJobs) Begin(platform.Job) func() { return func() {} }
+
+func (s *shiftingJobs) Job(id string) (platform.Job, bool, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch id {
+	case s.root:
+		return platform.Job{ID: s.root, Kind: platform.JobFlow, Root: s.root, Run: s.root, View: s.views}, true, true
+	case s.id:
+		s.lookups++
+		if (s.lookups == 1 && s.known) || (s.lookups > 1 && s.later) {
+			return platform.Job{ID: s.id, Kind: platform.JobScript, Root: s.root, Run: s.root, View: s.views}, true, true
+		}
+	}
+	return platform.Job{}, false, false
+}
+
+// TestResultPollsOneLookup checks that, with Config.ResultPollsForAllJobs,
+// one poll classifies its job against one state of the job registry: the
+// registry is asked for the id once, and the answer follows that one
+// lookup.
+//
+//   - A job known at the lookup and forgotten right after answers from its
+//     run, completed with its result, and not with the job read's 404.
+//   - An id unknown at the lookup and registered right after answers as an
+//     id with no job: the unfinished answer, or get_result's 404, and not
+//     the default 501 of a known job that no step dispatched.
+func TestResultPollsOneLookup(t *testing.T) {
+	root, id := uid("run"), uid("a")
+	views := pollsOf{id: {res: platform.JobResult{Started: true, Completed: true, Success: true, Result: []byte(`{"k": [1, 2.5]}`)}}}
+	for _, c := range []struct {
+		what         string
+		known, later bool
+		path, want   string
+		status       int
+	}{
+		{"known, then forgotten", true, false, "get_result_maybe/" + id, `{"started":true,"success":true,"completed":true,"result":{"k": [1, 2.5]}}`, 200},
+		{"known, then forgotten, its result", true, false, "get_result/" + id, `{"k": [1, 2.5]}`, 200},
+		{"unknown, then registered", false, true, "get_result_maybe/" + id + "?get_started=true", `{"started":false,"success":null,"completed":false,"result":null}`, 200},
+		{"unknown, then registered, its result", false, true, "get_result/" + id, "Not found: Completed Job not found at name " + id, 404},
+	} {
+		jobs := &shiftingJobs{id: id, root: root, views: views, known: c.known, later: c.later}
+		f := newFacade(t, Config{Platform: &platform.Services{Jobs: jobs}, ResultPollsForAllJobs: true})
+		d := f.Register("inv-d", root, env("d", "run", "tok-d"))
+		rep := intercept(f, "inv-d", "GET", f.WarmOrigin()+"/api/w/ws/jobs_u/completed/"+c.path, nil, nil)
+		d.End()
+		if rep.Status != c.status || string(rep.Body) != c.want {
+			t.Errorf("%s: %d %s, want %d %s", c.what, rep.Status, rep.Body, c.status, c.want)
+		}
+		if jobs.lookups != 1 {
+			t.Errorf("%s: the registry was asked for the id %d times, want once", c.what, jobs.lookups)
+		}
 	}
 }

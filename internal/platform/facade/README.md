@@ -312,8 +312,8 @@ is `engine.Dispatcher`.
 | `getCompletedJobResult` | `GET /w/{ws}/jobs_u/completed/get_result/{id}` | A dispatched run's result once it has completed. Before that, for a UUID that names no job, and in another workspace: `404` `Not found: Completed Job not found at name <id>` ([WA-19](../../../docs/semantics/client-api.md#wa-19)) |
 
 - **What a result poll answers** with `200`, for a UUID in the caller's
-  request (an id that is not a UUID gets `400`, and a job the dispatcher did
-  not start `501`, below):
+  request (an id that is not a UUID gets `400`, and by default a job that
+  the dispatcher did not start `501`, below):
   - a completed run: `{"started":true,"success":<bool>,"completed":true,"result":<result>}`;
   - a run in progress: `started`, `success` and `result` are `null` and
     `completed` is `false`; with `get_started=true`, `started` is `true`;
@@ -333,12 +333,14 @@ is `engine.Dispatcher`.
 - **A job that the dispatcher did not start** answers the polls with a 501
   by default: windmill-lite answers them only for dispatched runs.
 - **With `Config.ResultPollsForAllJobs`**, a job of a live run that the job
-  read answers for answers the polls from its record
-  (`platform.Services.ResultPoll`), as the oracle recorded them (fixture
-  `conformance/flows/client-api/result-polls`):
-  - a completed job: the answer above, with the record's result as it is,
-    in `jsonb`'s text output (`{"k": [1, 2.5]}`); `getCompletedJobResult`
-    answers that text with `200`;
+  read answers for, and that the dispatcher did not start, answers the
+  polls from the run that holds it (`platform.Services.ResultPoll`), as
+  the oracle recorded them (fixture
+  `conformance/flows/client-api/result-polls`). One lookup of the id
+  decides the answer:
+  - a completed job: the answer above, with its whole result in `jsonb`'s
+    text output (`{"k": [1, 2.5]}`), which the job read replaces once it
+    is too large; `getCompletedJobResult` answers that text with `200`;
   - a job that has not completed: the answer of a run in progress, with
     `started` `true` once the job runs, and `getCompletedJobResult`'s `404`;
   - a job whose record the job read does not serve, such as a canceled
@@ -607,7 +609,7 @@ CI sets all three in its Go jobs
 | | — | A failed handler's 502 and bodyless replies on both transports; the enterprise restart's 400; the status and body of 14 error variants, `Generic` among them; handler registration |
 | `executor_test.go` | — | `TestSessionReporterLetsGo`: the Reporter lets go of its session once the invocation has settled, and a repeated `Settled` does nothing else |
 | `services_test.go` | — | On both transports: the root lookup and its `400`s, the workspace of a token (`TestTokenWorkspace`), and flow user state with its rejections. On the intercepted path: dispatch with a fake dispatcher, the result polls and their refusals, and the object routes |
-| `resultpolls_test.go` | — | `TestResultPollsFlowJobs`: the result polls of a live flow run's jobs that no step dispatched, without `ResultPollsForAllJobs` (each `501`) and with it (the recorded answers, the record's result as it is). Also the `501` of a canceled leaf, a latched flow job and an ended run's job, another workspace and an unknown id |
+| `resultpolls_test.go` | — | `TestResultPollsFlowJobs`: the result polls of a live flow run's jobs that no step dispatched, without `ResultPollsForAllJobs` (each `501`) and with it (the recorded answers, the run's result as it is). Also the `501` of a refused job and of an ended run's job, another workspace and an unknown id. `TestResultPollsOneLookup`: a registry that forgets or registers the id right after its lookup |
 | `jobreads_test.go` | — | `TestJobReadRoutes`: the job reads of a live run's jobs, a UUID in upper case, the 404 texts, the framework's `400`, and the 501 of an ended run's job while the root lookup still answers. `TestUnservedJobRoutes`: the `jobs_u` routes that stay unserved |
 | `providers_test.go` | — | The resource and variable reads on both transports; a facade with no services; a read's `job_id` (`TestReadWithAJobID`); the variable update and its refusals (`TestVariableUpdate`); a run's own providers next to the facade's (`TestCallerPlatform`) |
 | `resources_test.go` | — | The writes of state against the oracle's recording of `client-api/state` (`TestStateRoutes`, `TestStateValuesAndPaths`); the writes that answer 501 and the 422s (`TestStateWriteRefusals`); no store (`TestStateWritesWithoutAStore`); a failing store's 500 and warning (`TestStoreFailureAnswers`) |

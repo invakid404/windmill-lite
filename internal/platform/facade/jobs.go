@@ -192,9 +192,9 @@ func (f *Facade) resultMaybe(ctx context.Context, c *Call) Reply {
 	out.Result = json.RawMessage("null")
 	asked := c.Query.Get("get_started") == "true"
 	r, ok, err := f.dispatched(ctx, c, id)
-	record := false
+	record, classified := false, false
 	if err == nil && !ok {
-		if r, ok, refused = f.polled(c, id); refused != nil {
+		if r, ok, classified, refused = f.polled(c, id); refused != nil {
 			return *refused
 		}
 		record = ok
@@ -215,7 +215,7 @@ func (f *Facade) resultMaybe(ctx context.Context, c *Call) Reply {
 			out.Started = &r.Started
 		}
 	default:
-		if f.known(c, id) {
+		if !classified && f.known(c, id) {
 			return text(501, UnsupportedPrefix+c.Route.Name())
 		}
 		if asked {
@@ -245,8 +245,9 @@ func (f *Facade) result(ctx context.Context, c *Call) Reply {
 		return *refused
 	}
 	r, ok, err := f.dispatched(ctx, c, id)
+	classified := false
 	if err == nil && !ok {
-		if r, ok, refused = f.polled(c, id); refused != nil {
+		if r, ok, classified, refused = f.polled(c, id); refused != nil {
 			return *refused
 		}
 	}
@@ -255,7 +256,7 @@ func (f *Facade) result(ctx context.Context, c *Call) Reply {
 		return answer(nil, err)
 	case ok && r.Completed:
 		return jsonReply(200, r.Result)
-	case !ok && f.known(c, id):
+	case !ok && !classified && f.known(c, id):
 		return text(501, UnsupportedPrefix+c.Route.Name())
 	}
 	return Error{Variant: "NotFound", Message: "Completed Job not found at name " + id}.Reply()
@@ -273,29 +274,30 @@ func (f *Facade) dispatched(ctx context.Context, c *Call, id string) (platform.J
 }
 
 // polled returns the state of a job of a live run for the result polls,
-// with Config.ResultPollsForAllJobs set (platform.Services.ResultPoll): ok
-// is false when the option is off, when the path's workspace is not the
-// caller's, and when the job registry does not know the job. A job that
-// the job read does not serve refuses the poll with that read's 501, the
-// reason after the route's name: a job of a run that has ended
-// (platform.ErrEndedRun), or one in a state whose record windmill-lite
-// does not reproduce, such as a canceled job or a flow job that ended
-// canceled or latched.
-func (f *Facade) polled(c *Call, id string) (r platform.JobResult, ok bool, refused *Reply) {
+// with Config.ResultPollsForAllJobs set (platform.Services.ResultPoll):
+// classified is false when the option is off or the path's workspace is
+// not the caller's, and ok is false when the registry does not know the
+// job. A poll that classified the id answers from that one lookup alone,
+// so the registry is not asked again. A job that the job read does not
+// serve refuses the poll with that read's 501, the reason after the
+// route's name: a job of a run that has ended (platform.ErrEndedRun), or
+// one in a state whose record windmill-lite does not reproduce, such as a
+// canceled job or a flow job that ended canceled.
+func (f *Facade) polled(c *Call, id string) (r platform.JobResult, ok, classified bool, refused *Reply) {
 	if !f.allPolls || !ownWorkspace(c) {
-		return platform.JobResult{}, false, nil
+		return platform.JobResult{}, false, false, nil
 	}
 	r, ok, err := f.platform.ResultPoll(id)
 	var ns *platform.NotServed
 	switch {
 	case errors.As(err, &ns):
 		reply := text(501, UnsupportedPrefix+c.Route.Name()+": "+ns.Reason)
-		return platform.JobResult{}, false, &reply
+		return platform.JobResult{}, false, true, &reply
 	case err != nil:
 		reply := answer(nil, err)
-		return platform.JobResult{}, false, &reply
+		return platform.JobResult{}, false, true, &reply
 	}
-	return r, ok, nil
+	return r, ok, true, nil
 }
 
 // known reports whether the job registry knows the job id names, looked

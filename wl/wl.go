@@ -168,13 +168,15 @@ type Options struct {
 	// ResultPollsForAllJobs makes a step's result polls (getResultMaybe
 	// and getResult, which waitJob uses) answer for every job of a live
 	// run that its job read answers for, as Windmill answers them: a
-	// completed job with its success and its result in jsonb's text
-	// output, a job still running with the unfinished answer. A job that
-	// the job read does not serve, such as a canceled job, and a job of a
-	// run that has ended, whose record windmill-lite does not keep, still
-	// answer 501. Off, the default, the polls answer only for the runs
-	// that steps dispatched, and a job of the runtime's that no step
-	// dispatched answers 501. In host mode it applies to the host's steps.
+	// completed job with its success and its whole result in jsonb's text
+	// output, a job still running with the unfinished answer. Of the jobs
+	// that no step dispatched, one that the job read does not serve, such
+	// as a canceled job, and one of a run that has ended, whose record
+	// windmill-lite does not keep, still answer 501; a dispatched run's
+	// polls keep the dispatcher's answers. Off, the default, the polls
+	// answer only for the runs that steps dispatched, and a job of the
+	// runtime's that no step dispatched answers 501. In host mode it
+	// applies to the host's steps.
 	ResultPollsForAllJobs bool
 	// Host, when set, opens the runtime in host mode (ADR 0004 host mode,
 	// ADR 0009): its steps run in the host process that started it, which

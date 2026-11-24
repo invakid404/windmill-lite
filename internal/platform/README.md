@@ -570,12 +570,12 @@ lives, the job running or completed.
   The root lookup still answers for it.
 - **A job that no run of the runtime holds**, such as one in a host's `Jobs`
   without views, fails with a `NotServed` too.
-- **`Services.ResultPoll`** reads the same record for the result polls that
-  the facade answers with its `ResultPollsForAllJobs` option
-  ([WA-V2](../../docs/semantics/client-api.md#wa-v2)). A completed job
-  gives its success and the record's result, in jsonb's text output; any
-  other job gives whether it runs. It fails as `GetJob` fails, and reports
-  an unknown id as unknown rather than failing.
+- **`Services.ResultPoll`** answers the result polls that the facade
+  answers with its `ResultPollsForAllJobs` option
+  ([WA-V2](../../docs/semantics/client-api.md#wa-v2)) from the run's
+  `JobPoller`, the engine's run: the record's state, and a completed job's
+  whole result in jsonb's text output. It looks the id up once, fails as
+  `GetJob` fails, and reports an unknown id as unknown.
 - **`Services.FlowUserStates`** lists a live flow job's user state as its
   flow status holds it, in jsonb's key order, when the services'
   `FlowUserState` can list maps (`FlowUserStateLister`, which `UserStates`

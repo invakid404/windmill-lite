@@ -10,8 +10,9 @@ gRPC and HTTP adapters do not exist yet.
 
 This README covers `wl/`, the Go package
 `github.com/invakid404/windmill-lite/wl`, and its `testdata/`: the
-synthetic fixture of the tests of `ForeignWindmillOrigins`, which the
-host-mode test of `cmd/windmill-lite` runs too.
+synthetic fixtures of the tests of `ForeignWindmillOrigins`, which the
+host-mode test of `cmd/windmill-lite` runs too, and of
+`ResultPollsForAllJobs`.
 
 `wl` is the only exported Go package of the windmill-lite
 [engine](../docs/glossary.md#engine). A Go program, the
@@ -782,4 +783,5 @@ build helper's dependencies, and skip without them unless
 | `store_test.go` | `Options.ResourceStore` on real steps (`TestResourceStoreOnBun`): two runtimes that share a memory store, one with its own, a failing store's warning, and `D24` in the trace; a run id in flight refused (`TestRunIDInFlight`). Without Bun: `Close` releasing its own store while readers use it (`TestCloseReleasesItsOwnStore`), and a late answer kept from a later run of the same id (`TestLateAnswerAcrossIDReuse`) | Yes, but for the last two |
 | `pool_test.go` | `Options.Pool`. Without Bun: `Open`'s refusals in `fresh` and host mode (`TestPoolOptionsRefusedFresh`) and of `MaxLive` below `Max` (`TestPoolMaxLiveBelowMax`), and the cap's entry in the trace. On real steps: a second process for a step beside a CPU-bound one and under `Cap`, the module and RSS triggers (`TestWlPoolOptions`), and the warm start (`TestWarmStart`). A step reads a plugin's resource under `Cap: 1` (`TestPoolCapLeavesPluginCalls`) and while its process leaves (`TestPoolRecyclingProcessServesPluginCalls`); zero settings call the diagnostics writer as before (`TestDiagnosticsZeroSettings`) | Yes, but for the refusals and the trace |
 | `foreign_test.go` | `ForeignWindmillOrigins` in the welcome, and its refusals (`TestForeignWindmillOrigins`). The stock client's and a native step's dispatch to two loopback servers that stand in for real Windmill instances, in `warm` and `fresh`, with and without the option (`TestForeignWindmillLinks`, on the cases of `testdata/foreign/cases.json`). That test also needs `WL_WINDMILL_CLIENT`. | Yes, but for the first |
+| `resultpolls_test.go` | `ResultPollsForAllJobs` on the engine's own job states, with the option and without it (`TestResultPollsRealStates`, on the tree `testdata/resultpolls/`). A result larger than the job read shows answers whole, while the job read keeps its placeholder; a result that is the placeholder's text answers as itself. A canceled step's and a canceled child flow's polls answer 501 | Bun |
 | `example_test.go` | Compiles the README's example | No |

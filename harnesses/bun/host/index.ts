@@ -126,8 +126,10 @@ export type ConnectOptions = {
   /** Off by default. Set, a step's result polls (getResultMaybe and
    * getResult, which waitJob uses) answer for every job of a live run that
    * its job read answers for, as Windmill answers them, and not only for
-   * the runs that the host's steps dispatched; a job that the job read
-   * does not serve, and a job of a run that has ended, still answer 501.
+   * the runs that the host's steps dispatched. Of the jobs that no step
+   * dispatched, one that the job read does not serve, and one of a run
+   * that has ended, still answer 501; a dispatched run's polls keep the
+   * dispatcher's answers.
    * The engine gets it as -result-polls-for-all-jobs. */
   resultPollsForAllJobs?: boolean;
   /** Recycle triggers (none by default): health() reports the first that
