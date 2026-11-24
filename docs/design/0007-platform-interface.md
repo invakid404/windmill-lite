@@ -331,12 +331,17 @@ its run's workspace.
   another as for an unknown id, as Windmill does
   ([WA-V2](../semantics/client-api.md#wa-v2)). Each checks the workspace
   on the registry entry that it answers from.
-- **Registrations.** A flow job's user state is that of the registration
-  it was written under (`platform.Job.Gen`), so a run that ends and whose
-  id is registered again never shares its state. An id that runs of two
-  workspaces register at once, through a hook's `WM_JOB_ID` or a reused
-  run id, stays the first one's. A `root_job` that names another
-  workspace's ended job leaves that job its workspace's.
+- **Registrations.** With the services' own store, a flow job's user
+  state is that of the registration it was written under
+  (`platform.Job.Gen`), in its workspace: a run whose id is registered
+  again never shares its state. A host's store keys a job of another
+  workspace by its workspace, so two workspaces never share a map there.
+  A job read that finds the id registered again after rendering answers
+  as unknown.
+- **Colliding ids.** An id that runs of two workspaces register at once,
+  through a hook's `WM_JOB_ID` or a reused run id, stays the first one's;
+  the second run's jobs keep its view and its workspace. A `root_job` that
+  names another workspace's ended job leaves that job its workspace's.
 - **A hook's `WM_WORKSPACE`** ([H12](0008-host-hooks.md#the-hooks)) is the
   workspace of a run without a configured one, as it always was. A run
   with a configured workspace stays in it: its token is valid there only,
