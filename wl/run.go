@@ -78,8 +78,9 @@ const (
 	KindScript = "script"
 )
 
-// RunOptions configure one run. A script run reads only Kind, ID and
-// Identity; the other fields, among them the hooks, the run's own
+// RunOptions configure one run. A script run reads only Kind, ID,
+// Identity, Pin and Limits, whose MaxInFlight has no effect on its one
+// invocation; the other fields, among them the hooks, the run's own
 // providers and the pre-write deadline, configure a flow run. The zero
 // value of every field is a default.
 type RunOptions struct {
