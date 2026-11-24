@@ -814,7 +814,7 @@ step prints cannot corrupt the protocol.
 | 0 | After `bye`, when the engine's end of the socket closes, or in `fresh` mode after the result (otherwise the step's own code) |
 | 2 | The engine rejected the harness, or its welcome is unusable. |
 | 3 | The engine broke the protocol. |
-| 4 | The bundle cannot be read: its assets do not extract, or a host-provided module does not load. |
+| 4 | The harness did not start. Its arguments are not usable, such as a missing `--bundle` or a malformed `--umask`. Or the bundle's manifest cannot be read, or its assets do not extract. Or a host-provided module or the host plugin does not load. |
 | 5 | No frame that ends an invocation fits `max_message`. |
 
 An invocation stays in flight until a frame that ends it is queued, so the

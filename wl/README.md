@@ -5,8 +5,9 @@ scripts, with host hooks, providers, budgets, pool settings, host mode and
 host plugins.
 Only Bun steps run. Of the adapters of the
 [host adapters ADR](../docs/design/0009-host-adapters.md), the go-plugin
-adapter has only its host's side, [wl/plugin](plugin/README.md), and the
-gRPC and HTTP adapters do not exist yet.
+adapter has its host's side, [wl/plugin](plugin/README.md), and its
+engine's side, `windmill-lite plugin`, which has no health, drain or hooks
+on go-plugin's broker yet. The gRPC and HTTP adapters do not exist yet.
 
 This README covers `wl/`, the Go package
 `github.com/invakid404/windmill-lite/wl`, and its `testdata/`: the

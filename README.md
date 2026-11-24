@@ -77,7 +77,8 @@ flowchart LR
 - **`wl`:** the public Go package. `Open` opens a bundle, and `Run` runs a
   flow or a [root](docs/glossary.md#root) script ([wl](wl/README.md)).
 - **The `windmill-lite` command:** `build`, `verify`, `run`, `selfcheck`,
-  `host` and `version` ([cmd/windmill-lite](cmd/windmill-lite/README.md#usage)).
+  `host`, `plugin` and `version`
+  ([cmd/windmill-lite](cmd/windmill-lite/README.md#usage)).
 - **[Host mode](docs/glossary.md#host-mode):** a Bun program, the
   [host](docs/glossary.md#host), imports the host SDK. The SDK starts
   `windmill-lite host` as its engine, and runs the steps in the program's
