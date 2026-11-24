@@ -109,7 +109,7 @@ func (e *Engine) RunScript(ctx context.Context, req ScriptRequest) (res ScriptRe
 	}()
 	s := e.prog.Scripts[req.Path]
 	if s == nil || s.Kind != ir.PathScript || !slices.Contains(e.prog.Roots.Scripts, req.Path) {
-		return ScriptResult{}, fmt.Errorf("engine: no script root %q in the program", req.Path)
+		return ScriptResult{}, noTarget(fmt.Sprintf("engine: no script root %q in the program", req.Path))
 	}
 	if args := bytes.TrimSpace(req.Args.Producer()); len(args) == 0 || args[0] != '{' {
 		return ScriptResult{}, errors.New("engine: the arguments of a script run are a JSON object")
@@ -720,6 +720,16 @@ func (x *Dispatcher) sweep() {
 			delete(x.runs, id)
 		}
 	}
+}
+
+// InFlight reports whether a run that the dispatcher dispatched with the id
+// has not ended: from before Dispatch returns its id, through a delayed
+// start, until the run returns.
+func (x *Dispatcher) InFlight(id string) bool {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	rec := x.runs[id]
+	return rec != nil && !rec.done
 }
 
 // Close cancels the runs still going, as a canceled run is (FX-38), and

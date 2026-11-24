@@ -618,8 +618,8 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
 - **The settings in `wl`.** `wl.Options.Pool` sets the minimum, the
   maximum, the cap, the lag threshold, the recycle timeout, the recycle
   triggers, the bound on live processes and a warm start, with the rules
-  below. The go-plugin adapter's configuration is planned to carry them as
-  `pool`
+  below. The go-plugin adapter's configuration carries them as `pool`, and
+  refuses the bound on live processes, which it does not serve yet
   ([host adapters](0009-host-adapters.md#process-affinity-and-limits)).
 - Their zero values keep one process in service, with no cap, started on
   the first step, or when `wl.Open` reads a host plugin's declaration. A

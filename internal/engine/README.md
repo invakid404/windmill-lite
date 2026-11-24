@@ -182,7 +182,7 @@ The engine fills the trace; `wl` returns it to its host and adds the platform ca
 | Name | Kind | What it does | Who calls it |
 |---|---|---|---|
 | `Engine.RunScript`, `ScriptRequest`, `ScriptResult` | method, structs | Runs a root script as a script job. `ScriptResult` has `Failed`, `Result`, `Canceled` and `Latched` | `wl`, the dispatcher |
-| `Dispatcher`, `NewDispatcher` | struct, func | The default dispatcher: runs a dispatched root as a separate run; `Dispatch`, `Result`, `Close`, and `SetRuns`, which gives each run a host part (`DispatchRun`), prepared before `Dispatch` returns the run's id. Once `Close` has begun, a dispatch refused at its admission calls none of it; one admitted before is prepared, its context possibly canceled, then refused with its end and settlement calls made. `Close` waits for those within the context that it is given | a host's `platform.Services` |
+| `Dispatcher`, `NewDispatcher` | struct, func | The default dispatcher: runs a dispatched root as a separate run; `Dispatch`, `Result`, `Close`, `InFlight`, and `SetRuns`, which gives each run a host part (`DispatchRun`), prepared before `Dispatch` returns the run's id. Once `Close` has begun, a dispatch refused at its admission calls none of it; one admitted before is prepared, its context possibly canceled, then refused with its end and settlement calls made. `Close` waits for those within the context that it is given | a host's `platform.Services` |
 
 ## Hooks
 
@@ -408,7 +408,8 @@ call can run no more code. `Reporter.Settled` says so exactly once per
 - **`Run(ctx, RunRequest)`** runs one flow to its end and returns its
   trace. An error means that the run could not start: an unknown flow,
   arguments that are not a JSON object or that jsonb refuses, or no step
-  executor.
+  executor. `errors.Is(err, ErrNoTarget)` reports an unknown flow, and an
+  unknown root script of `RunScript`, whose error text names the path.
 - **Concurrency.** An `Engine` is safe for concurrent use. Its runs share
   the program, the expression pipeline, the step executor (unless
   `RunRequest.Exec` gives a run its own), the platform services (unless
@@ -1607,6 +1608,10 @@ root through `Run` for `jobs/run/f`.
 - **Result polls.** It answers the result polls for its runs. The record
   of a completed run is kept while the dispatching step's root lives in the
   registry, and swept after.
+- **Runs in flight.** `InFlight(id)` reports whether a run that it
+  dispatched with the id has not ended. The record exists before `Dispatch`
+  returns the id, so it covers a delayed start, and the run counts until it
+  returns.
 - **Set-up.** A host sets it as the services' `Dispatcher` before any run
   starts, over an executor that is the facade's, so that the dispatched
   runs' calls are attributed.

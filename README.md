@@ -12,9 +12,10 @@ TypeScript for [Bun](docs/glossary.md#bun), and
 [Windmill](docs/glossary.md#windmill)'s loops, branches, subflows, retries,
 timeouts, failure handling, [expressions](docs/glossary.md#expression),
 resources and variables. It does not run steps in other languages yet, and
-it has no network server. Of its go-plugin adapter, only the host's side
-exists, [wl/plugin](wl/plugin/README.md); the engine's side and the gRPC
-and HTTP adapters are planned.
+it has no network server. Its go-plugin adapter
+([wl/plugin](wl/plugin/README.md) and `windmill-lite plugin`) runs flows
+and scripts for a Go host, without the engine's `Runner` health, readiness,
+drain and broker hooks yet; the gRPC and HTTP adapters are planned.
 
 ## Who it is for
 
@@ -76,7 +77,8 @@ flowchart LR
 - **`wl`:** the public Go package. `Open` opens a bundle, and `Run` runs a
   flow or a [root](docs/glossary.md#root) script ([wl](wl/README.md)).
 - **The `windmill-lite` command:** `build`, `verify`, `run`, `selfcheck`,
-  `host` and `version` ([cmd/windmill-lite](cmd/windmill-lite/README.md#usage)).
+  `host`, `plugin` and `version`
+  ([cmd/windmill-lite](cmd/windmill-lite/README.md#usage)).
 - **[Host mode](docs/glossary.md#host-mode):** a Bun program, the
   [host](docs/glossary.md#host), imports the host SDK. The SDK starts
   `windmill-lite host` as its engine, and runs the steps in the program's
@@ -190,7 +192,7 @@ use.
 | [wl](wl/README.md) | How to open a bundle and run flows from Go, with hooks, budgets and host mode | Go hosts |
 | [wl/storetest](wl/storetest/README.md) | How to check that a resource store of your own meets the contract | Go hosts with their own resource store |
 | [wl/redisstore](wl/redisstore/README.md) | How to keep the state that steps write in Redis, from Go | Go hosts |
-| [wl/plugin](wl/plugin/README.md) | How a Go host launches the engine as a go-plugin plugin, pins it and calls its `Runner` service; the engine's side is planned | Go hosts |
+| [wl/plugin](wl/plugin/README.md) | How a Go host launches the engine as a go-plugin plugin, pins it and calls its `Runner` service | Go hosts |
 | [docs/resource-stores.md](docs/resource-stores.md) | Which resource store to choose, memory or Redis, and how to set Redis up for it | Everyone who deploys windmill-lite |
 | [harnesses](harnesses/README.md) | How to install the npm package and test a host's process-level code | Bun hosts |
 | [harnesses/bun](harnesses/bun/README.md) | What `connect()` does, its options, host plugins, and how a step runs | Bun hosts |
@@ -214,6 +216,8 @@ use.
 | [internal/conformance](internal/conformance/README.md) | The case formats, the normaliser and the comparator | Contributors to conformance |
 | [internal/oracle](internal/oracle/README.md) | How the oracle records fixtures on Windmill | Contributors to conformance |
 | [proto](proto/README.md) | The `Runner` service of the go-plugin adapter, and how to generate its Go code | Contributors to the go-plugin adapter |
+| [internal/host](internal/host/README.md) | How the engine serves the `Runner` service over `wl`: requests, results and refusals | Contributors to the go-plugin adapter |
+| [internal/wlext](internal/wlext/README.md) | What `wl` lends the engine's adapters beyond its public API | Contributors to the go-plugin adapter |
 | [internal/openflow](internal/openflow/README.md) | The OpenFlow types and how Windmill decodes a flow | Contributors to the compiler |
 | [internal/yamlx](internal/yamlx/README.md) | How windmill-lite parses sync-folder YAML as the `wmill` CLI does | Contributors to the compiler |
 | [internal/syncfolder](internal/syncfolder/README.md) | How windmill-lite reads a sync folder | Contributors to the compiler |

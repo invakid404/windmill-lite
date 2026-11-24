@@ -3,10 +3,16 @@
 **Current state:** `wl` opens a bundle and runs its flows and root
 scripts, with host hooks, providers, budgets, pool settings, host mode and
 host plugins.
-Only Bun steps run. Of the adapters of the
+Only Bun steps run.
+
+Of the adapters of the
 [host adapters ADR](../docs/design/0009-host-adapters.md), the go-plugin
-adapter has only its host's side, [wl/plugin](plugin/README.md), and the
-gRPC and HTTP adapters do not exist yet.
+adapter has its host's side, [wl/plugin](plugin/README.md), and its
+engine's side, `windmill-lite plugin`. That engine has no health of its
+own for `windmill_lite.v1.Runner`, no readiness, no drain and no hooks on
+go-plugin's broker yet; go-plugin's own health service answers for the
+empty service name and `plugin`. The gRPC and HTTP adapters do not exist
+yet.
 
 This README covers `wl/`, the Go package
 `github.com/invakid404/windmill-lite/wl`, and its `testdata/`: the
@@ -416,6 +422,7 @@ A script run uses only `Kind`, `ID`, `Identity`, `Data`, `Pin` and
 | `Warnings` | The run's warnings, such as an error that no step owns, or the work that a step left behind when it settled. Each is a `Warning` with a code and a message, and no warning changes the run's status. |
 | `Latched` | For a `latched` run, the error that was latched |
 | `CancelCause` | For a `canceled` run, why it was canceled (table below); empty otherwise |
+| `Started` | For a script run, `true` once the script's invocation was sent to a harness process, whose writes windmill-lite cannot see. `false` when the script never ran, such as on a cache hit or a deadline that passed before the send. A flow run leaves it `false`. |
 
 | Status | Constant | Meaning |
 |---|---|---|

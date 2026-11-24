@@ -163,9 +163,28 @@ const PinnedBun = "1.4.3"
 
 // BunCommand returns the Path and Args that run the Bun harness runtime at
 // runtimeMain (harnesses/bun/runtime/main.ts) with bun, on the bundle in
-// bundleDir.
+// bundleDir. After SetLaunchUmask, the harness sets that umask first
+// (main.ts --umask); otherwise it keeps the umask that it inherits.
 func BunCommand(bun, runtimeMain, bundleDir string) (string, []string) {
-	return bun, []string{runtimeMain, "--bundle", bundleDir}
+	args := []string{runtimeMain, "--bundle", bundleDir}
+	if m := launchUmask.Load(); m >= 0 {
+		args = append(args, "--umask", fmt.Sprintf("%04o", m))
+	}
+	return bun, args
+}
+
+// launchUmask is the umask of SetLaunchUmask, or -1 for none.
+var launchUmask atomic.Int32
+
+func init() { launchUmask.Store(-1) }
+
+// SetLaunchUmask makes every harness process that BunCommand starts from
+// now on set its umask to mask, its low 9 bits, before it does anything
+// else. A program that serves with a stricter umask of its own, such as
+// `windmill-lite plugin` with 0077, passes the umask that it was started
+// with, so that steps create files as they would under that umask.
+func SetLaunchUmask(mask uint32) {
+	launchUmask.Store(int32(mask & 0o777))
 }
 
 // BaseEnv returns the part of a Bun job's base environment (WR-22, WA-2)

@@ -5,7 +5,8 @@
 // its expression engine starts, and serves host mode for a host such as
 // the Bun host SDK with package wl (`windmill-lite host`).
 // It runs a bundle's flow or script with package wl and prints the outcome
-// as JSON (`windmill-lite run`, ADR 0009).
+// as JSON (`windmill-lite run`, ADR 0009), and serves a bundle to a Go host
+// as a go-plugin plugin (`windmill-lite plugin`, ADR 0009).
 package main
 
 import (
@@ -30,7 +31,8 @@ const usage = `usage: windmill-lite [version]
        windmill-lite verify <bundle> [-manifest <release manifest>] [-digest <digest>]
        windmill-lite run <path> --bundle <bundle> [--args <json|@file>] [-cpuprofile <file>] [flags]
        windmill-lite selfcheck
-       windmill-lite host --bundle <dir> --workdir <dir> [--kill-after <duration>] [-cpuprofile <file>] [flags]`
+       windmill-lite host --bundle <dir> --workdir <dir> [--kill-after <duration>] [-cpuprofile <file>] [flags]
+       windmill-lite plugin -config <file>`
 
 // run executes the command with args (without the program name) and returns
 // the process exit code.
@@ -50,6 +52,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runSelfcheck(args[1:], stdout, stderr)
 	case "host":
 		return runHost(args[1:], stderr)
+	case "plugin":
+		return runPlugin(args[1:], stderr)
 	}
 	fmt.Fprintln(stderr, usage)
 	return 2

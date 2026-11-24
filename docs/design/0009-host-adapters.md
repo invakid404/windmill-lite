@@ -19,9 +19,17 @@ and a Go host launches, pins, checks and supervises it with the package
 
 **Not built yet:**
 
-- the engine's side of the go-plugin adapter: the `windmill-lite plugin`
-  command, its configuration, its `Runner` server, and its calls of the
-  host-hooks service on the broker;
+- the plugin command's health and readiness: until they exist, it opens
+  the runtime, with its warm start, before go-plugin's handshake, and
+  go-plugin's own health service answers;
+- its drain, and the engine's memory trigger;
+- its calls of the host-hooks service on the broker: a request's `hooks`,
+  a provider set to `broker`, and `GetRun`;
+- its serving of a request's `pin`, `limits` and `run_data`, and of the
+  configuration's `pool.pin_runs`, `pool.max_live`, `bytes_total`,
+  `foreign_windmill_origins`, `engine_recycle_rss` and `drain_timeout_ms`,
+  and of a bundle whose manifest names a host plugin. Until then each of
+  them refuses the run or the start, naming the field;
 - `wl/plugin`'s supervisor, and its serving of a run's Go hooks on the
   broker;
 - the plain gRPC and HTTP adapters;
@@ -86,7 +94,8 @@ Every adapter below is a transport over these calls.
 
 ### Adapters, in order of delivery
 
-1. **go-plugin** (the engine's side is planned). The engine binary,
+1. **go-plugin** (the engine's `Runner` health and readiness, its drain and
+   broker hooks are planned). The engine binary,
    started as `windmill-lite plugin`, serves the `windmill_lite.v1.Runner`
    gRPC service to a Go host that launches it with hashicorp/go-plugin,
    and `wl/plugin` gives the host the client side and, planned, an
@@ -151,7 +160,7 @@ Every adapter below is a transport over these calls.
 ### The go-plugin adapter
 
 The go-plugin adapter has two halves. The `windmill-lite plugin` command
-is planned to serve a bundle as a go-plugin plugin over `wl`. The Go
+serves a bundle as a go-plugin plugin over `wl`. The Go
 package `wl/plugin` is what a host imports to launch, check and call that
 command, and it is planned to supervise it too. Their contract is the
 `Runner` service and standard gRPC health.
@@ -178,6 +187,7 @@ process.
 |---|---|---|
 | `bundle` | The bundle: a directory or a `.wlb` file | required |
 | `digest` | The digest that the bundle must have | any |
+| `bun`, `harness_runtime` | The Bun executable of the harness processes, and the harness runtime that the bundle was built for, as `wl.Options` names them | `bun` on the engine's `PATH`; none, which only a bundle without steps can open |
 | `data_dir` | The runtime's data directory | a temporary directory |
 | `resources`, `variables` | Host values by path, as in a bundle's `data/` ([platform interface](0007-platform-interface.md#services)) | none |
 | `resource_store` | `memory`, or Redis with its URL ([wl/redisstore](../../wl/redisstore/README.md)) | `memory` |
@@ -236,7 +246,7 @@ The engine serves `windmill_lite.v1.Runner`, which
 |---|---|
 | `GetBuildInfo` | Returns the build identity ([Build identity and pinning](#build-identity-and-pinning)) |
 | `Run` | Runs a flow or a root script of the bundle to its end, as `Runtime.Run` does, and returns its outcome: one unary call per run |
-| `Cancel` | Cancels a run in flight by its id, with a reason and a canceler, which the run's `Canceled` error names ([FX-38](../semantics/execution.md#fx-38)). Host mode's `run_cancel` carries the same two fields |
+| `Cancel` | Cancels a run in flight by its id, with a reason and a canceler, which the run's `Canceled` error names ([FX-38](../semantics/execution.md#fx-38)). Host mode's `run_cancel` carries the same two fields. An id of no run in flight answers `NOT_FOUND` |
 | `GetRun` | Says whether the engine still holds the run of a hooks registration, by its id and token: in flight, or ended and not yet released ([Hooks across the plugin boundary](#hooks-across-the-plugin-boundary)) |
 
 A `RunRequest` holds:
@@ -281,7 +291,8 @@ A `RunResult` holds:
   that classifies retries by that boundary runs a flow, not a root script.
 - **No field is ignored.** A request that sets a field which the engine
   does not serve refuses the run, naming the field, rather than running
-  without it.
+  without it. So does a field that the engine does not know, from a newer
+  host, and so does a field of the configuration, which refuses the start.
 - **Runs that do not start.** Every run that starts answers a `RunResult`,
   a failed, canceled or latched one included. A run that does not start
   answers a gRPC error, as the list below gives, with a detail
@@ -294,8 +305,8 @@ A `RunResult` holds:
 | gRPC code | When |
 |---|---|
 | `UNAVAILABLE` | The engine is not serving yet, or it drains (`draining`, as in host mode) |
-| `ALREADY_EXISTS` | A run with that id is in flight |
-| `NOT_FOUND` | No root of the bundle has that path |
+| `ALREADY_EXISTS` | A run with that id is in flight, a run that a step dispatched included |
+| `NOT_FOUND` | No flow, and no root script, of the bundle has that path. A flow that only another flow calls by path runs, as `Runtime.Run` runs it |
 | `INVALID_ARGUMENT` | The engine refuses the request, such as a malformed selector or arguments that are not a JSON object (`refused`, as in host mode) |
 
 `Cancel` is in version 1 because gRPC's own cancellation of a `Run` call

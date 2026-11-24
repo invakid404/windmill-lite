@@ -12,9 +12,10 @@ reviewed pull request, ordered by the interfaces and exit gates that each
 one needs.
 
 **Not built yet:** the packages of the milestones that have no code yet:
-`internal/host` (the gRPC and HTTP adapters), `internal/gen` (typed
-clients), `internal/pack` (the single executable and the image) and
-`internal/platform/remote` (hybrid dispatch).
+`internal/gen` (typed clients), `internal/pack` (the single executable and
+the image) and `internal/platform/remote` (hybrid dispatch). In
+`internal/host`, which serves the go-plugin adapter's `Runner` service,
+the plain gRPC and HTTP adapters.
 
 ## Context
 
@@ -52,7 +53,8 @@ internal/platform/facade/   the HTTP router behind the client and the fetch inte
 internal/platform/remote/   hybrid dispatch to a real Windmill; waits for a human decision (0007)
 internal/bundle/            bundle format, build orchestration, manifest, identity, verify (0010)
 internal/pack/              single executable and OCI image (0010)
-internal/host/              gRPC and HTTP adapters (0009)
+internal/host/              the Runner service over wl, and the plain gRPC and HTTP adapters (0009)
+internal/wlext/             what wl lends internal/host beyond its public API (0009)
 internal/gen/               typed client generation (0009)
 internal/conformance/       fixture loading, observation, comparison, identity encoding (0003, 0011)
 internal/oracle/            the oracle harness (0011)

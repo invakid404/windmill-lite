@@ -62,9 +62,11 @@ func TestMain(m *testing.M) {
 		if v := os.Getenv("WL_TEST_ENGINE_VERSION"); v != "" {
 			version = v
 		}
+		installPluginTestHooks()
 		os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 	}
 	code := m.Run()
+	cleanupPluginTests()
 	if buildDir != "" {
 		os.RemoveAll(buildDir)
 	}

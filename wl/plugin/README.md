@@ -2,11 +2,12 @@
 
 **Current state:** the package launches the engine as a go-plugin plugin,
 pins its executable by SHA-256, and calls its `Runner` service: build
-information, runs, cancellation and health. The engine's side, the
-`windmill-lite plugin` command that serves `Runner`, is planned, so no
-engine answers these calls yet; the tests launch a test plugin instead.
-The supervisor, and the serving of a run's Go hooks on the broker, are
-planned too.
+information, runs, cancellation and health. The engine's side is the
+`windmill-lite plugin` command
+([cmd/windmill-lite](../../cmd/windmill-lite/README.md#plugin)), which
+answers every call but `Health`: the engine serves no health service of
+its own yet. This package's tests launch a test plugin. The supervisor,
+and the serving of a run's Go hooks on the broker, are planned.
 
 This README covers `wl/plugin/`, the Go package
 `github.com/invakid404/windmill-lite/wl/plugin`, with its generated code and

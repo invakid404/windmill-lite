@@ -796,8 +796,14 @@ two, in `test/typecheck` and `test/typecheck/oldest`.
 The engine starts a harness (`internal/harness`'s `BunCommand`) as:
 
 ```sh
-bun harnesses/bun/runtime/main.ts --bundle <bundle dir> [--plugin <module>]
+bun harnesses/bun/runtime/main.ts --bundle <bundle dir> [--plugin <module>] [--umask <octal>]
 ```
+
+With `--umask`, such as `--umask 0022`, the harness sets that umask before
+it reads the bundle, so the files that it and its steps create get it.
+Without it, the harness keeps the umask that it inherits. An engine that
+serves with a stricter umask of its own passes the one that it was
+started with.
 
 File descriptor 3 must be one end of a stream socket pair, which carries
 every frame. Standard output and standard error carry no frames, so what a
@@ -808,7 +814,7 @@ step prints cannot corrupt the protocol.
 | 0 | After `bye`, when the engine's end of the socket closes, or in `fresh` mode after the result (otherwise the step's own code) |
 | 2 | The engine rejected the harness, or its welcome is unusable. |
 | 3 | The engine broke the protocol. |
-| 4 | The bundle cannot be read: its assets do not extract, or a host-provided module does not load. |
+| 4 | The harness did not start. Its arguments are not usable, such as a missing `--bundle` or a malformed `--umask`. Or the bundle's manifest cannot be read, or its assets do not extract. Or a host-provided module or the host plugin does not load. |
 | 5 | No frame that ends an invocation fits `max_message`. |
 
 An invocation stays in flight until a frame that ends it is queued, so the
