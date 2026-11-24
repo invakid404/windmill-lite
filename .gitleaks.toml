@@ -43,3 +43,15 @@ condition = "AND"
 paths = ['''^conformance/steps/bun/wa-31\.yaml$''']
 regexTarget = "secret"
 regexes = ['''^wl_not_this_invocations$''']
+
+# The plugin command's test of secrets by reference passes a secret
+# variable's value through an environment variable whose name has SECRET in
+# it. Where the name precedes the synthetic value on one line, the generic
+# rule reads the value as a key.
+[[allowlists]]
+description = "The synthetic secret of the plugin command's secrets-by-reference test"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^cmd/windmill-lite/plugin_test\.go$''']
+regexTarget = "secret"
+regexes = ['''^synthetic-secret-7f1c2a$''']
