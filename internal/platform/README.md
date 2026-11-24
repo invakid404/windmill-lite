@@ -119,7 +119,7 @@ Every exported name, grouped by concern. "Engine", "facade", "`wl`" and
 | `JobView` | interface | Renders a live run's job records, and answers the result polls of its jobs (`JobPoll`) | engine implements it |
 | `FlowUserState`, `FlowUserStateLister`, `UserStates`, `NewUserStates` | interfaces, struct, constructor | Flow user state and its local default | the package; hosts implement `FlowUserState` |
 | `JobLookup` | function type | Finds the job an interpolated read names | facade |
-| `Services.Registry`, `JobRegistry`, `RootJob`, `JobEnv`, `ReadJobEnv`, `GetJob`, `GetJobArgs`, `ResultPoll`, `FlowUserState`, `FlowUserStates`, `SetFlowUserState`, `JobScope`, `InScope`, `KnownIn`, and `RootJobIn`, `ReadJobEnvIn`, `GetJobIn`, `GetJobArgsIn`, `FlowUserStateIn`, `SetFlowUserStateIn` | methods | The lookups ([Lookups](#lookups)) and the job reads | engine, facade, `wltest` (`JobRegistry`); `Services.Registry` only inside the package |
+| `Services.Registry`, `JobRegistry`, `RootJob`, `JobEnv`, `ReadJobEnv`, `GetJob`, `GetJobArgs`, `ResultPoll`, `FlowUserState`, `FlowUserStates`, `SetFlowUserState`, `JobScope`, `InScope`, `KnownIn`, and `RootJobIn`, `ReadJobEnvIn`, `GetJobIn`, `GetJobArgsIn`, `ResultPollIn`, `FlowUserStateIn`, `SetFlowUserStateIn` | methods | The lookups ([Lookups](#lookups)) and the job reads | engine, facade, `wltest` (`JobRegistry`); `Services.Registry` only inside the package |
 
 ### Objects, dispatch and results
 
@@ -569,7 +569,7 @@ windmill-lite bounds the memory by count instead.
 | `Services.JobRegistry` | The registry that the engine and the facade register with: `Jobs`, or the services' own | — |
 | `Services.JobScope` | The workspace scope of a known job, live or ended: the effective workspace of its `Host` | false for an unknown id |
 | `Services.InScope`, `KnownIn` | Whether the services find a job for a caller of a workspace scope: with their own registry, the job's owner must be of that scope; with a host's registry, every job it knows is found, as before | — |
-| `Services.RootJobIn`, `ReadJobEnvIn`, `GetJobIn`, `GetJobArgsIn`, `FlowUserStateIn`, `SetFlowUserStateIn` | The lookups for a caller of one workspace scope (`""` for every scope). With the services' own registry a job of another scope is unknown, and each checks the scope on the registry entry that it answers from; a host's registry's jobs are all found, as before (`InScope`). A flow user state read looks the job up again after the read | as for an unknown id |
+| `Services.RootJobIn`, `ReadJobEnvIn`, `GetJobIn`, `GetJobArgsIn`, `ResultPollIn`, `FlowUserStateIn`, `SetFlowUserStateIn` | The lookups for a caller of one workspace scope (`""` for every scope). With the services' own registry a job of another scope is unknown, and each checks the scope on the registry entry that it answers from; a host's registry's jobs are all found, as before (`InScope`). A flow user state read looks the job up again after the read | as for an unknown id |
 
 ### Job reads of a live run
 
@@ -603,7 +603,9 @@ lives, the job running or completed.
   `JobPoll`: the record's state, and a completed job's whole result in
   jsonb's text output. One lookup of the id classifies the job, a job that
   is its own root included; it fails as `GetJob` fails, and reports an
-  unknown id as unknown.
+  unknown id as unknown. `ResultPollIn`, which the facade calls, reports
+  a job of another workspace scope as unknown too, with the services' own
+  registry (`InScope`).
 - **`Services.FlowUserStates`** lists a live flow job's user state as its
   flow status holds it, in jsonb's key order, when the services'
   `FlowUserState` can list maps (`FlowUserStateLister`, which `UserStates`
