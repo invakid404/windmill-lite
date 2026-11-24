@@ -338,8 +338,10 @@ its run's workspace.
   them: with a host's registry or store the engine refuses it.
 - **A host's registry or store** keeps the base's behaviour. An engine
   configured with one workspace (`Config.Workspace`) over a host's
-  registry or store runs as it always did. Engines that share a registry
-  through a host's `Jobs` get no isolation from this section.
+  registry or store runs as it always did, and the job lookups find every
+  job the host's registry knows, without a workspace scope. Engines that
+  share a registry through a host's `Jobs` get no isolation from this
+  section.
 - **One workspace per id.** A run whose id a job of another workspace
   holds, live or among the ended jobs kept, is refused before it starts.
   A step whose hook sets a `WM_JOB_ID` held so registers under its own

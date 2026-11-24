@@ -119,7 +119,7 @@ Every exported name, grouped by concern. "Engine", "facade", "`wl`" and
 | `JobView` | interface | Renders a live run's job records | engine implements it |
 | `FlowUserState`, `FlowUserStateLister`, `UserStates`, `NewUserStates` | interfaces, struct, constructor | Flow user state and its local default | the package; hosts implement `FlowUserState` |
 | `JobLookup` | function type | Finds the job an interpolated read names | facade |
-| `Services.Registry`, `JobRegistry`, `RootJob`, `JobEnv`, `ReadJobEnv`, `GetJob`, `GetJobArgs`, `FlowUserState`, `FlowUserStates`, `SetFlowUserState`, `JobScope`, `ScopedJob`, and `RootJobIn`, `ReadJobEnvIn`, `GetJobIn`, `GetJobArgsIn`, `FlowUserStateIn`, `SetFlowUserStateIn` | methods | The lookups ([Lookups](#lookups)) and the job reads | engine, facade, `wltest` (`JobRegistry`); `Services.Registry` only inside the package |
+| `Services.Registry`, `JobRegistry`, `RootJob`, `JobEnv`, `ReadJobEnv`, `GetJob`, `GetJobArgs`, `FlowUserState`, `FlowUserStates`, `SetFlowUserState`, `JobScope`, `InScope`, `KnownIn`, and `RootJobIn`, `ReadJobEnvIn`, `GetJobIn`, `GetJobArgsIn`, `FlowUserStateIn`, `SetFlowUserStateIn` | methods | The lookups ([Lookups](#lookups)) and the job reads | engine, facade, `wltest` (`JobRegistry`); `Services.Registry` only inside the package |
 
 ### Objects, dispatch and results
 
@@ -568,7 +568,7 @@ windmill-lite bounds the memory by count instead.
 | `Services.ReadJobEnv` | The job that a resource read's `job_id` names: a live script job of the path's workspace, whose variables the read's `$WM_*` strings resolve from (`APIEnv`), as Windmill looks it up among the queued and running jobs ([WA-12](../../docs/semantics/client-api.md#wa-12)) | `Not found: Job not found at name <id>` (404) for an unknown id, an ended job or another workspace's job; `ErrNoJobVariables` for a live flow job |
 | `Services.JobRegistry` | The registry that the engine and the facade register with: `Jobs`, or the services' own | — |
 | `Services.JobScope` | The workspace scope of a known job, live or ended: the effective workspace of its `Host` | false for an unknown id |
-| `Services.ScopedJob` | The job as the registry holds it, with the `Host` of the job its `Run` names when the registry left its own zero, as a host's `Jobs` that keeps jobs as submitted does; every lookup's workspace scope comes from it | false for an unknown id |
+| `Services.InScope`, `KnownIn` | Whether the services find a job for a caller of a workspace scope: with their own registry, the job's owner must be of that scope; with a host's registry, every job it knows is found, as before | — |
 | `Services.RootJobIn`, `ReadJobEnvIn`, `GetJobIn`, `GetJobArgsIn`, `FlowUserStateIn`, `SetFlowUserStateIn` | The lookups for a caller of one workspace scope (`""` for every scope): a job of another scope is unknown. Each checks the scope on the registry entry that it answers from, and a flow user state read looks the job up again after the read | as for an unknown id |
 
 ### Job reads of a live run
@@ -635,9 +635,10 @@ address by their effective root
   and is registered again starts with no state. The engine refuses a run
   in another workspace than its configured one with a host's `Jobs` or
   `FlowUserState`.
-- **A host's registry or store** keeps the base's behaviour: it gets each
-  job's id, an engine configured with one workspace over it runs as
-  before, and engines that share a registry through it are not kept
+- **A host's registry or store** keeps the base's behaviour. It gets each
+  job's id, and the lookups find every job it knows without a workspace
+  scope (`InScope`). An engine configured with one workspace over it runs
+  as before, and engines that share a registry through it are not kept
   apart.
 - **Faithful where a step can look.** This lifetime matches every access the
   stock helpers make during the run. A read or a write by id after the run
@@ -944,6 +945,7 @@ CI runs every package's tests with `-race` in its Go jobs
 | | `TestReadJobEnv`, `TestServicesRegistry` | The job that a read's `job_id` names; the services' one registry, shared by callers that first ask at once |
 | `workspace_test.go` | `TestUserStateBoundToItsRegistration`, `TestRegistrationNumbers`, `TestUserStateWithoutRegistrationNumbers`, `TestStateCleanupKeepsALaterRegistration` | A flow job's user state against a registry whose entry for an id changes between lookups, the next registration of an id, a registry that numbers none, and the cleanup of an ended registration |
 | | `TestExclusiveRegistration`, `TestDuplicateRegistrationAcrossWorkspaces`, `TestTrackedRootOfAnotherWorkspace`, `TestHostStoreKeepsJobIDs` | One id held by another workspace, refused; one id registered by two workspaces through `Begin`; a script job whose root is another workspace's ended job; a host store's keys, kept from before |
+| | `TestStepOwnerAfterItsRunIDIsReused`, `TestHostRegistryCompactedJob`, `TestHostRegistryJobEnvRule` | A live step keeps its owner after its run's id is reused by another workspace; with a host's registry, a compacted ended job is found through a configured workspace, and a read's `job_id` keeps the base's rule |
 | `jobreads_test.go` | `TestJobReadsDuringARun` | Each job of a run answered by its run's view, the 404 texts, and every job once the run has ended, which the root lookup still answers |
 | | `TestEndedRunIsReleased`, `TestJobReadsOfADispatchedRun` | An ended run keeps no view and no variables; a dispatched run in another run's tree answers by its own view until the root ends |
 | | `TestJobReadsOfConcurrentRuns`, `TestFlowUserStatesList` | Eight runs at once, each reading its own jobs and the others' runs; a flow job's user state listed in jsonb's key order |
