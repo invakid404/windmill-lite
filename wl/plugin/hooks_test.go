@@ -4,10 +4,14 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
+	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+	"weak"
 
 	goplugin "github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
@@ -157,16 +161,20 @@ func TestClientLookupStopsAtDrop(t *testing.T) {
 
 // TestClientHookCalls checks how the Client answers the engine's calls: a
 // call of a registered run and token goes to its handler, whose error
-// answers plugin_error; a call whose run or token names no registration
-// answers unknown_run without reaching a handler; the release call drops
-// only the registration whose token it carries.
+// answers plugin_error, and so does its reply of the code unknown_run; a
+// call whose run or token names no registration answers unknown_run
+// without reaching a handler; the release call drops only the registration
+// whose token it carries.
 func TestClientHookCalls(t *testing.T) {
 	c := newClient(nil, nil, DefaultReplyMargin)
 	var heard []string
 	c.hooks.regs["r1"] = &registration{token: "t1", done: make(chan struct{}), handler: func(_ context.Context, call *HookCall) (*HookReply, error) {
 		heard = append(heard, call.GetHook())
-		if call.GetHook() == "on_run_end" {
+		switch call.GetHook() {
+		case "on_run_end":
 			return nil, errors.New("the host failed")
+		case "before_first_write":
+			return &HookReply{Error: &HookError{Code: HookCodeUnknownRun, Message: "the handler's own"}}, nil
 		}
 		return &HookReply{Payload: []byte(`{"result": 1}`)}, nil
 	}}
@@ -185,6 +193,9 @@ func TestClientHookCalls(t *testing.T) {
 	if rep := call("on_run_end", "r1", "t1"); rep.GetError().GetCode() != HookCodePluginError || rep.GetError().GetMessage() != "the host failed" {
 		t.Errorf("a failing handler: %v, want plugin_error with its message", rep)
 	}
+	if rep := call("before_first_write", "r1", "t1"); rep.GetError().GetCode() != HookCodePluginError || rep.GetError().GetMessage() != "the handler's own" {
+		t.Errorf("a handler's reply of the code unknown_run: %v, want plugin_error with its message", rep)
+	}
 	for _, rt := range [][2]string{{"r1", "old"}, {"r2", "t1"}} {
 		if rep := call("intercept", rt[0], rt[1]); rep.GetError().GetCode() != HookCodeUnknownRun {
 			t.Errorf("a call of run %s, token %s: %v, want unknown_run", rt[0], rt[1], rep)
@@ -200,35 +211,39 @@ func TestClientHookCalls(t *testing.T) {
 	if c.Registrations() != 0 {
 		t.Error("the release call did not drop the registration")
 	}
-	if len(heard) != 2 {
-		t.Errorf("the handler heard %v, want the two calls of its run and token", heard)
+	if len(heard) != 3 {
+		t.Errorf("the handler heard %v, want the three calls of its run and token", heard)
 	}
 }
 
-// TestClientGenerationEnd checks that the end of the engine's generation,
-// the context that go-plugin gives the plugin's client, drops every
-// registration and stops its lookups, though the first lookup is an hour
-// away.
+// TestClientGenerationEnd checks that the end of the engine's generation
+// closes a Client that serves hooks, on go-plugin's test connection: the
+// run's registration is dropped, and a later run with hooks is refused. A
+// generation that ended before the first run with hooks closes the Client
+// at that run.
 func TestClientGenerationEnd(t *testing.T) {
-	ctx, end := context.WithCancel(context.Background())
-	raw, err := (&RunnerPlugin{PluginTimeout: time.Hour}).GRPCClient(ctx, nil, nil)
-	if err != nil {
-		t.Fatal(err)
+	generation, end := context.WithCancel(context.Background())
+	defer end()
+	c := echoClient(t, &echoEngine{generation: generation})
+	if res, err := c.RunWithHooks(context.Background(), &RunRequest{Path: "f/x"}, []byte(`{"on_run_end": true}`), answerEmpty); err != nil || res.GetStatus() != "success" {
+		t.Fatalf("the run: %v, %v", res, err)
 	}
-	c := raw.(*Client)
-	timers := newFakeTimers()
-	c.timer = timers.timer
-	reg := &registration{token: "t1", done: make(chan struct{})}
-	c.hooks.regs["r1"] = reg
-	go c.reconcile("r1", reg)
-	if d := within(t, "the first wait", timers.waits); d != time.Hour {
-		t.Errorf("the first wait: %v, want the plugin timeout, 1h", d)
+	if n := c.Registrations(); n != 1 {
+		t.Fatalf("%d registrations after the run, want its own", n)
 	}
 	end()
-	within(t, "the registration's drop", reg.done)
-	within(t, "the stopped wait", timers.stopped)
-	if n := c.Registrations(); n != 0 {
-		t.Errorf("%d registrations after the generation's end, want 0", n)
+	eventually(t, "the registration's drop", func() bool { return c.Registrations() == 0 })
+	if _, err := c.RunWithHooks(context.Background(), &RunRequest{Path: "f/x"}, []byte(`{"on_run_end": true}`), answerEmpty); !errors.Is(err, ErrNotStarted) {
+		t.Errorf("a run with hooks after the generation's end: %v, want ErrNotStarted", err)
+	}
+
+	ended, endNow := context.WithCancel(context.Background())
+	endNow()
+	late := echoClient(t, &echoEngine{generation: ended})
+	_, _ = late.RunWithHooks(context.Background(), &RunRequest{Path: "f/x"}, []byte(`{"on_run_end": true}`), answerEmpty)
+	eventually(t, "the first run's registration dropped", func() bool { return late.Registrations() == 0 })
+	if _, err := late.RunWithHooks(context.Background(), &RunRequest{Path: "f/x"}, []byte(`{"on_run_end": true}`), answerEmpty); !errors.Is(err, ErrNotStarted) {
+		t.Errorf("a run with hooks after a first run in an ended generation: %v, want ErrNotStarted", err)
 	}
 }
 
@@ -287,13 +302,16 @@ func TestClientRunRefusesRegisteredID(t *testing.T) {
 
 // echoEngine is a fake engine on go-plugin's test connection: its Run dials
 // the run's broker connection, keeps it, calls the run's onRunEnd on it and
-// succeeds.
+// succeeds. Its Clients get generation, when set, as the context of the
+// engine's generation.
 type echoEngine struct {
 	UnimplementedRunnerServer
 	goplugin.NetRPCUnsupportedPlugin
-	broker atomic.Pointer[goplugin.GRPCBroker]
-	mu     sync.Mutex
-	conn   HostHooksClient
+	generation context.Context
+	broker     atomic.Pointer[goplugin.GRPCBroker]
+	runs       atomic.Int32
+	mu         sync.Mutex
+	conn       HostHooksClient
 }
 
 func (e *echoEngine) GRPCServer(b *goplugin.GRPCBroker, s *grpc.Server) error {
@@ -303,10 +321,14 @@ func (e *echoEngine) GRPCServer(b *goplugin.GRPCBroker, s *grpc.Server) error {
 }
 
 func (e *echoEngine) GRPCClient(ctx context.Context, b *goplugin.GRPCBroker, cc *grpc.ClientConn) (any, error) {
+	if e.generation != nil {
+		ctx = e.generation
+	}
 	return (&RunnerPlugin{PluginTimeout: time.Hour}).GRPCClient(ctx, b, cc)
 }
 
 func (e *echoEngine) Run(ctx context.Context, req *RunRequest) (*RunResult, error) {
+	e.runs.Add(1)
 	conn, err := e.broker.Load().Dial(req.GetHooks().GetBrokerId())
 	if err != nil {
 		return nil, err
@@ -390,5 +412,119 @@ func TestClientCloseStopsLateServer(t *testing.T) {
 	go func() { served <- s.Serve(ln) }()
 	if err := within(t, "the late server's Serve", served); !errors.Is(err, grpc.ErrServerStopped) {
 		t.Errorf("the late server's Serve: %v, want grpc.ErrServerStopped", err)
+	}
+}
+
+// echoClient dispenses a Client of e on go-plugin's test connection.
+func echoClient(t *testing.T, e *echoEngine) *Client {
+	t.Helper()
+	gc, _ := goplugin.TestPluginGRPCConn(t, false, map[string]goplugin.Plugin{PluginName: e})
+	raw, err := gc.Dispense(PluginName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := raw.(*Client)
+	t.Cleanup(func() {
+		c.Close()
+		gc.Close()
+	})
+	return c
+}
+
+// answerEmpty answers every call with an empty object.
+func answerEmpty(context.Context, *HookCall) (*HookReply, error) {
+	return &HookReply{Payload: []byte(`{}`)}, nil
+}
+
+// eventually waits until cond holds, failing the test after 10 seconds.
+func eventually(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	for until := time.Now().Add(10 * time.Second); !cond(); time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(until) {
+			t.Fatalf("%s: not within 10 seconds", what)
+		}
+	}
+}
+
+// collected waits until a full collection has freed every Client of ps,
+// failing the test after 10 seconds.
+func collected(t *testing.T, what string, ps []weak.Pointer[Client]) {
+	t.Helper()
+	eventually(t, what, func() bool {
+		runtime.GC()
+		for _, p := range ps {
+			if p.Value() != nil {
+				return false
+			}
+		}
+		return true
+	})
+}
+
+// TestClientGenerationKeepsNoClient checks that the engine's generation,
+// while it goes on, keeps no Client alive: Clients dispensed and never
+// used for hooks are collected, and so is a Client closed after a run with
+// hooks on go-plugin's test connection.
+func TestClientGenerationKeepsNoClient(t *testing.T) {
+	generation, end := context.WithCancel(context.Background())
+	defer end()
+	var plain []weak.Pointer[Client]
+	for range 100 {
+		raw, err := (&RunnerPlugin{}).GRPCClient(generation, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		plain = append(plain, weak.Make(raw.(*Client)))
+	}
+	collected(t, "the Clients never used for hooks collected", plain)
+
+	gc, _ := goplugin.TestPluginGRPCConn(t, false, map[string]goplugin.Plugin{PluginName: &echoEngine{generation: generation}})
+	defer gc.Close()
+	hooked := func() weak.Pointer[Client] {
+		raw, err := gc.Dispense(PluginName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c := raw.(*Client)
+		if res, err := c.RunWithHooks(context.Background(), &RunRequest{Path: "f/x"}, []byte(`{"on_run_end": true}`), answerEmpty); err != nil || res.GetStatus() != "success" {
+			t.Fatalf("the run with hooks: %v, %v", res, err)
+		}
+		c.Close()
+		return weak.Make(c)
+	}()
+	collected(t, "the Client closed after a run with hooks collected", []weak.Pointer[Client]{hooked})
+}
+
+// TestClientListenRetry checks a first run with hooks whose broker
+// connection go-plugin cannot listen on, its socket's directory missing:
+// the run is refused without reaching the engine and leaves no
+// registration, and the next run on the same Client opens the connection
+// again and is served.
+func TestClientListenRetry(t *testing.T) {
+	engine := &echoEngine{}
+	c := echoClient(t, engine)
+	tmp := os.Getenv("TMPDIR")
+	// go-plugin makes each listener's socket in os.TempDir.
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))
+	var heard atomic.Int32
+	h := func(context.Context, *HookCall) (*HookReply, error) {
+		heard.Add(1)
+		return &HookReply{Payload: []byte(`{}`)}, nil
+	}
+	if _, err := c.RunWithHooks(context.Background(), &RunRequest{Path: "f/x"}, []byte(`{"on_run_end": true}`), h); !errors.Is(err, ErrNotStarted) {
+		t.Errorf("a run whose broker connection cannot listen: %v, want ErrNotStarted", err)
+	}
+	if n := engine.runs.Load(); n != 0 {
+		t.Errorf("the refused run reached the engine %d times", n)
+	}
+	if n := c.Registrations(); n != 0 {
+		t.Errorf("%d registrations after the refused run, want 0", n)
+	}
+	t.Setenv("TMPDIR", tmp)
+	if res, err := c.RunWithHooks(context.Background(), &RunRequest{Path: "f/x"}, []byte(`{"on_run_end": true}`), h); err != nil || res.GetStatus() != "success" {
+		t.Errorf("the next run: %v, %v; want success", res, err)
+	}
+	if n := heard.Load(); n != 1 {
+		t.Errorf("the handler heard %d calls, want the next run's onRunEnd", n)
 	}
 }

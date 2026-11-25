@@ -10,6 +10,7 @@ import (
 	goplugin "github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/status"
 
 	"github.com/invakid404/windmill-lite/internal/wlext"
@@ -161,7 +162,8 @@ func noAnswer(hook string, payload []byte) []byte {
 
 // client returns the HostHooks client of the broker connection id, which
 // it dials once, with the engine's message limit. A failed dial is not
-// kept: a later run dials again.
+// kept: a later run dials again. A connection is kept until the host's
+// listener is gone.
 func (b *brokerHooks) client(id uint32) (plugin.HostHooksClient, error) {
 	b.connMu.Lock()
 	c := b.conns[id]
@@ -186,11 +188,38 @@ func (b *brokerHooks) client(id uint32) (plugin.HostHooksClient, error) {
 			if b.wrap != nil {
 				c.client = b.wrap(c.client)
 			}
+			go b.watch(id, c, conn)
 		}
 		close(c.done)
 	}
 	<-c.done
 	return c.client, c.err
+}
+
+// watch closes the broker connection id, whose dial is c, once the host's
+// listener is gone: its Client closed, or its process ended. Only the
+// engine connects to that listener, so a connect that fails means that it
+// is gone, and go-plugin announces an id once, so it never comes back. A
+// connection that was lost is connected again to tell the two apart.
+func (b *brokerHooks) watch(id uint32, c *brokerConn, conn *grpc.ClientConn) {
+	for {
+		s := conn.GetState()
+		switch s {
+		case connectivity.Idle:
+			conn.Connect()
+		case connectivity.TransientFailure:
+			b.connMu.Lock()
+			if b.conns[id] == c {
+				delete(b.conns, id)
+			}
+			b.connMu.Unlock()
+			_ = conn.Close()
+			return
+		case connectivity.Shutdown:
+			return
+		}
+		conn.WaitForStateChange(context.Background(), s)
+	}
 }
 
 // dialled is how many broker connections the engine holds.

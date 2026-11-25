@@ -62,9 +62,14 @@ type RunnerPlugin struct {
 
 	// PluginTimeout is the engine's plugin_timeout_ms, after which
 	// Client.RunWithHooks first asks GetRun about a run's hooks
-	// registration, and which bounds each lookup. Zero means
-	// DefaultPluginTimeout; a negative timeout refuses to dispense.
+	// registration. Zero means DefaultPluginTimeout; a negative timeout
+	// refuses to dispense.
 	PluginTimeout time.Duration
+
+	// LookupTimeout bounds each GetRun lookup of a run's hooks
+	// registration. Zero means the plugin timeout; a negative bound
+	// refuses to dispense.
+	LookupTimeout time.Duration
 
 	// MaxMessageBytes is the largest message of a call of a run's hooks
 	// that the host receives or sends. Zero means DefaultMaxMessageBytes;
@@ -99,6 +104,13 @@ func (p *RunnerPlugin) GRPCClient(ctx context.Context, b *goplugin.GRPCBroker, c
 	case timeout == 0:
 		timeout = DefaultPluginTimeout
 	}
+	lookup := p.LookupTimeout
+	switch {
+	case lookup < 0:
+		return nil, fmt.Errorf("wl/plugin: negative LookupTimeout %v", lookup)
+	case lookup == 0:
+		lookup = timeout
+	}
 	limit := p.MaxMessageBytes
 	switch {
 	case limit < 0:
@@ -107,10 +119,10 @@ func (p *RunnerPlugin) GRPCClient(ctx context.Context, b *goplugin.GRPCBroker, c
 		limit = DefaultMaxMessageBytes
 	}
 	c := newClient(cc, b, margin)
-	c.hooks.timeout, c.hooks.lookupTimeout, c.hooks.limit = timeout, timeout, limit
-	// go-plugin ends ctx with the engine's generation: its process exited
-	// or its client was killed.
-	context.AfterFunc(ctx, c.Close)
+	c.hooks.timeout, c.hooks.lookupTimeout, c.hooks.limit = timeout, lookup, limit
+	// go-plugin ends ctx with the engine's generation. The Client closes
+	// with it once it serves hooks; until then nothing holds it there.
+	c.generation = ctx
 	return c, nil
 }
 

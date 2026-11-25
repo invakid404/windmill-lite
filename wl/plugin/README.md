@@ -223,7 +223,9 @@ engine refuses.
 - **One connection.** The `Client` serves `HostHooks` on one broker
   connection, opened at its first run with hooks, until `Close` or the end
   of the connection to the engine. Its messages are bounded by
-  `MaxMessageBytes` in both directions.
+  `MaxMessageBytes` in both directions. A run waits until go-plugin serves
+  the connection; a listen that fails refuses the run with `ErrNotStarted`,
+  and the next run opens the connection again.
 - **The registration.** A run without an id gets a fresh UUID. The `Client`
   registers `h` under the id with a fresh token before it sends the
   request. It refuses a run whose id is still registered with
@@ -231,16 +233,19 @@ engine refuses.
 - **Unknown calls.** A call whose run and token name no registration, such
   as a delayed call of an earlier run, answers `unknown_run`
   (`HookCodeUnknownRun`) and reaches no handler. The engine takes it as no
-  answer, which latches nothing.
+  answer, which latches nothing. A handler's reply with that code is sent
+  as `plugin_error`.
 - **Drops.** The `Client` drops a registration when the engine refuses the
   run, at the engine's call `released` once the run has settled, when
-  `GetRun` answers `gone`, and at `Close`. The end of the engine's
-  generation, which go-plugin signals, calls `Close`.
+  `GetRun` answers `gone`, and at `Close`. Once the `Client` serves hooks,
+  the end of the engine's generation, which go-plugin signals, calls
+  `Close`; `Close` detaches that call, so the generation keeps no `Client`.
 - **Lookups.** After every call, the `Client` asks `GetRun` about the
   registration: first after `PluginTimeout`, then at twice the last
   interval, at most 10 minutes apart, while the answer is `held` or the
-  lookup fails. Each lookup is bounded by `PluginTimeout`, and a drop ends
-  it. The call's own result never changes.
+  lookup fails. Each lookup is bounded by `PluginTimeout`, or by
+  `RunnerPlugin.LookupTimeout` when set, and a drop ends it. The call's own
+  result never changes.
 
 ## Handshake and versions
 
@@ -250,7 +255,7 @@ engine refuses.
 | `PluginName` | `runner` |
 | `ProtocolVersion` | 1, the major version of `windmill_lite.v1.Runner` |
 | `VersionedPlugins` | The plugin sets by `Runner` version, for the engine's side and the host's: version 1 serves a `RunnerPlugin` under `PluginName` |
-| `RunnerPlugin` | The go-plugin plugin type, gRPC only. On the engine's side its `Runner` field is the service's implementation, which it registers; on the host's side it returns a `*Client`, with its `ReplyMargin`, `PluginTimeout` and `MaxMessageBytes` |
+| `RunnerPlugin` | The go-plugin plugin type, gRPC only. On the engine's side its `Runner` field is the service's implementation, which it registers; on the host's side it returns a `*Client`, with its `ReplyMargin`, `PluginTimeout`, `LookupTimeout` and `MaxMessageBytes` |
 
 The magic cookie checks that the engine was started as a plugin; it is not
 authentication. go-plugin's handshake picks the highest version that both
@@ -292,8 +297,10 @@ working directory or `PATH`, so no test of the package runs in parallel.
 | `TestClientConfigRefusals` | The `Launch` fields that `ClientConfig` refuses |
 | `TestClientLookupSchedule` | With a fake timer and a fake `GetRun`: the lookups come after the plugin timeout, then twice the interval, at most 10 minutes, through `held` and a failed lookup, and stop at `gone`, which drops the registration |
 | `TestClientLookupStopsAtDrop` | The release call and `Close` stop a registration's wait, and no lookup follows |
-| `TestClientHookCalls` | A registered run's call reaches its handler, whose error answers `plugin_error`; another run's or another token's call, a release call included, answers `unknown_run`; the release call drops only its own token's registration |
-| `TestClientGenerationEnd` | The end of the context that go-plugin gives the client drops every registration and stops its lookups, an hour before the first |
+| `TestClientHookCalls` | A registered run's call reaches its handler, whose error answers `plugin_error`, as does its reply of the code `unknown_run`; another run's or another token's call, a release call included, answers `unknown_run`; the release call drops only its own token's registration |
+| `TestClientGenerationEnd` | On go-plugin's test connection, the end of the engine's generation closes a `Client` that serves hooks: its registration is dropped and a later run with hooks is refused. A generation that ended before the first run with hooks closes the `Client` at that run |
+| `TestClientGenerationKeepsNoClient` | While the generation goes on, 100 `Client`s never used for hooks are collected, and so is a `Client` closed after a run with hooks |
+| `TestClientListenRetry` | A first run with hooks whose broker connection cannot listen is refused without reaching the engine; the next run on the same `Client` opens the connection and is served |
 | `TestClientLookupTimeout` | A lookup that gets no reply ends at its bound and is tried again; a drop ends a waiting lookup at once, and no wait follows |
 | `TestClientRunRefusesRegisteredID` | `Run` refuses an id whose hooks are registered, without a call |
 | `TestClientCloseAtFirstUse` | On go-plugin's test connection, `Close` at the same time as a first `RunWithHooks`: the run is refused, or Close stops the broker connection that it opened |

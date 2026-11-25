@@ -240,6 +240,8 @@ type testEngine struct {
 	// the engine's process exits: the connection's server stops, and the
 	// context that go-plugin gave the Client ends.
 	endGeneration func()
+	// dispense dispenses another Client of the connection.
+	dispense func() *plugin.Client
 }
 
 // enginePlugin is the Runner plugin of the test connection: on the
@@ -309,7 +311,9 @@ func startEngine(t *testing.T, cfg engineConfig) *testEngine {
 	}
 	e := &testEngine{rt: rt, gate: NewGate()}
 	generation, end := context.WithCancel(context.Background())
-	p := &enginePlugin{runner: e.gate.Runner(), client: plugin.RunnerPlugin{PluginTimeout: lookup}, generation: generation}
+	// Each lookup has a minute, so that a lookup that a test holds still
+	// reaches its Client when the test lets it go.
+	p := &enginePlugin{runner: e.gate.Runner(), client: plugin.RunnerPlugin{PluginTimeout: lookup, LookupTimeout: time.Minute}, generation: generation}
 	if cfg.runner != nil {
 		p.runner = cfg.runner(p.runner)
 	}
@@ -329,11 +333,16 @@ func startEngine(t *testing.T, cfg engineConfig) *testEngine {
 	e.srv = New(Config{Runtime: rt, Broker: p.broker.Load, PluginTimeout: timeout, MaxMessageBytes: cfg.maxMessageBytes, TokenBound: cfg.tokenBound, OnTokenBound: e.gate.Drain})
 	e.srv.hooks.wrap = cfg.hooks
 	e.gate.Serve(e.srv)
-	raw, err := gc.Dispense(plugin.PluginName)
-	if err != nil {
-		t.Fatal(err)
+	e.dispense = func() *plugin.Client {
+		raw, err := gc.Dispense(plugin.PluginName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c := raw.(*plugin.Client)
+		t.Cleanup(c.Close)
+		return c
 	}
-	e.client = raw.(*plugin.Client)
+	e.client = e.dispense()
 	return e
 }
 

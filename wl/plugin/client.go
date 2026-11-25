@@ -49,6 +49,10 @@ type Client struct {
 	// conn is the connection, whose end stops the lookups of the runs'
 	// hooks registrations.
 	conn grpc.ClientConnInterface
+	// generation is the context that go-plugin gave the Client, which
+	// ends with the engine's generation; nil for none. Its end closes a
+	// Client that serves hooks.
+	generation context.Context
 	// hooks is the state of the runs' hooks that the Client serves.
 	hooks hooks
 	// timer returns a channel that receives after d, and the function

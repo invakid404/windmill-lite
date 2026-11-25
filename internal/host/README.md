@@ -109,7 +109,8 @@ broker ([hooks across the plugin boundary](../../docs/design/0009-host-adapters.
 - **The connection.** The engine dials each broker id once, with its
   message limit, and keeps the connection, so runs open no listener of
   their own. A dial waits on its own: a broker id that does not answer
-  stalls neither the other ids nor the tokens.
+  stalls neither the other ids nor the tokens. The engine closes a
+  connection whose listener is gone, as at the host's `Client.Close`.
 - **The run's hooks.** `wl` builds the declaration as a host plugin of the
   run alone ([internal/wlext](../wlext/README.md)). Each of its calls goes
   to `HostHooks.Call` with a `host_call`'s hook name and payload. A
@@ -203,8 +204,8 @@ connection, which has a real broker on both sides. The host is the
 | `TestBrokerNoListenerGrowth` | 1,000 runs share one broker id and one connection, and leave descriptors, goroutines and registrations as they were |
 | `TestBrokerRegistrations` | The release call drops a provider-only run's registration without a lookup; a run without an id gets one; a refused run is dropped at once; a held id is refused and a released one reused |
 | `TestBrokerLostMessages` | Each case on an engine of its own, its transports losing or delaying messages: a lost refusal, a lost release, a delayed call of an earlier run and a failed lookup. Then a request delayed past `gone`, and a plain run of an id that a lost release keeps registered |
-| `TestBrokerTokenBound` | With the bound lowered to 8: eight `gone` answers drain the engine, which keeps 8 tokens, answers the ninth lookup `UNAVAILABLE` without `RUN_NOT_STARTED`, and refuses new runs. The end of the generation drops the ninth registration |
-| `TestBrokerStaleCalls` | Calls that the host answers `unknown_run` latch nothing: a stale observer and interception leave the run to succeed, and a stale provider at a mandatory site fails closed |
+| `TestBrokerTokenBound` | With the bound lowered to 8, the nine runs' first lookups are held until all are sent, then let go together. Eight `gone` answers drain the engine, which keeps 8 tokens, answers the ninth lookup `UNAVAILABLE` without `RUN_NOT_STARTED`, and refuses new runs. The end of the generation drops the ninth registration |
+| `TestBrokerStaleCalls` | Calls that the host answers `unknown_run` latch nothing: a stale observer and interception leave the run to succeed, a stale provider at a mandatory site fails closed, and a stale first-write verdict lets the write go ahead. A registered run's handler that replies with that code fails its verdict, which latches the run before the write |
 | `TestBrokerMessageLimits` | The host takes an `onRunEnd` whose trace is over 5 MiB; an engine whose limit is 1 MiB refuses an answer of 2 MiB |
-| `TestBrokerDialStall` | While the dial of a silent broker id waits, `GetRun` answers and another run with hooks completes |
-| `TestBrokerClientClose` | `Client.Close` stops the Client's broker connection, and a run with hooks after it is refused |
+| `TestBrokerDialStall` | While the test holds the dial of a silent broker id, `GetRun` answers and another run with hooks completes; let go, the dial fails and its run is refused |
+| `TestBrokerClientClose` | With two `Client`s, `Close` of one stops its broker connection, and the engine closes the connection that it dialled for it; a run with hooks after `Close` is refused; the other `Client`'s runs are still served |

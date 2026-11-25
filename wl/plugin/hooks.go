@@ -28,7 +28,9 @@ const maxLookupInterval = 10 * time.Minute
 // plugin_error: the failure of a host plugin's hook, with that hook's
 // outcome. Before the run's outcome an interception, rewrite, observer,
 // first-write verdict or provider latches the run; a failed onRunEnd adds
-// a warning, and a failed onRunSettled is a diagnostic line.
+// a warning, and a failed onRunSettled is a diagnostic line. A
+// HookReply.Error with the code HookCodeUnknownRun is sent as
+// plugin_error, since only Client answers that code.
 //
 // [ADR 0009]: https://github.com/invakid404/windmill-lite/blob/main/docs/design/0009-host-adapters.md#hooks-across-the-plugin-boundary
 type HookHandler func(ctx context.Context, call *HookCall) (*HookReply, error)
@@ -39,7 +41,9 @@ const (
 	// registration that Client holds, the engine's release call included:
 	// the call of a run whose registration was dropped. The engine takes it
 	// as no answer, which latches nothing: an interception or a provider
-	// declines, so a mandatory provided site still fails closed.
+	// declines, so a mandatory provided site still fails closed. Only
+	// Client answers it: a HookHandler's reply with this code is sent as
+	// HookCodePluginError.
 	HookCodeUnknownRun = "unknown_run"
 	// HookCodePluginError answers a call whose HookHandler failed.
 	HookCodePluginError = "plugin_error"
@@ -65,16 +69,27 @@ type hooks struct {
 	lookupTimeout time.Duration
 	limit         int
 
-	// mu guards the rest. brokerID is the Client's broker connection,
-	// once serving; server is its HostHooks server, once go-plugin has
-	// asked for it.
-	mu       sync.Mutex
-	serving  bool
-	brokerID uint32
-	server   *grpc.Server
-	regs     map[string]*registration
-	closed   bool
-	done     chan struct{}
+	// mu guards the rest. serving is the opening of the Client's broker
+	// connection, nil before the first and after one that ended; server
+	// is its HostHooks server, once go-plugin has asked for it.
+	// stopGeneration detaches Close from the end of the engine's
+	// generation.
+	mu             sync.Mutex
+	serving        *serving
+	server         *grpc.Server
+	stopGeneration func() bool
+	regs           map[string]*registration
+	closed         bool
+	done           chan struct{}
+}
+
+// serving is one opening of the Client's broker connection id: ready
+// closes once go-plugin has asked for its HostHooks server, and ended
+// once go-plugin has stopped serving it, or failed to listen.
+type serving struct {
+	id    uint32
+	ready chan struct{}
+	ended chan struct{}
 }
 
 // RunWithHooks runs req, as Run does, with the run's hooks on go-plugin's
@@ -83,16 +98,18 @@ type hooks struct {
 // declaration's around.
 //
 // The Client serves its hooks on one broker connection, which it opens at
-// its first run with hooks and closes at Close. It gives a run without an
-// id a fresh UUID and registers h under it with a fresh token before it
-// sends req, and refuses a run whose id it holds a registration for, with
-// ErrNotStarted, as Run does. It drops the registration when the engine
-// refuses the run, when the engine says that the run has settled, when
-// GetRun answers gone, or at Close, which the end of the engine's
-// generation calls. After every call it asks GetRun about the
-// registration, at first after the plugin timeout and then with a growing
-// interval while the answer is held or the lookup fails; the call's own
-// result does not change.
+// its first run with hooks and closes at Close. A run waits until
+// go-plugin serves the connection; one whose listen fails is refused with
+// ErrNotStarted, and the next run opens the connection again. The Client
+// gives a run without an id a fresh UUID and registers h under it with a
+// fresh token before it sends req, and refuses a run whose id it holds a
+// registration for, with ErrNotStarted, as Run does. It drops the
+// registration when the engine refuses the run, when the engine says that
+// the run has settled, when GetRun answers gone, or at Close. The end of
+// the engine's generation calls Close once the Client serves hooks. After
+// every call it asks GetRun about the registration, at first after the
+// plugin timeout and then with a growing interval while the answer is held
+// or the lookup fails; the call's own result does not change.
 func (c *Client) RunWithHooks(ctx context.Context, req *RunRequest, declaration []byte, h HookHandler) (*RunResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrNotStarted, context.Cause(ctx))
@@ -120,17 +137,33 @@ func (c *Client) RunWithHooks(ctx context.Context, req *RunRequest, declaration 
 		c.hooks.mu.Unlock()
 		return nil, fmt.Errorf("%w: a run with the id %s still has its hooks registered", ErrNotStarted, id)
 	}
-	if !c.hooks.serving {
-		c.serveHooks()
+	sv := c.hooks.serving
+	if sv == nil {
+		sv = c.serveHooks()
 	}
 	reg := &registration{token: token, handler: h, done: make(chan struct{})}
 	c.hooks.regs[id] = reg
-	brokerID := c.hooks.brokerID
 	c.hooks.mu.Unlock()
 
+	select {
+	case <-sv.ready:
+	case <-sv.ended:
+		c.drop(id, token)
+		return nil, fmt.Errorf("%w: go-plugin's broker did not serve the connection of the run's hooks", ErrNotStarted)
+	case <-reg.done:
+	case <-ctx.Done():
+		c.drop(id, token)
+		return nil, fmt.Errorf("%w: %w", ErrNotStarted, context.Cause(ctx))
+	}
+	select {
+	case <-reg.done:
+		// Close dropped it while the connection opened.
+		return nil, fmt.Errorf("%w: the Client is closed", ErrNotStarted)
+	default:
+	}
 	send := withFields(req, func(r *RunRequest) {
 		r.Id = id
-		r.Hooks = &Hooks{BrokerId: brokerID, Token: token, Declaration: declaration}
+		r.Hooks = &Hooks{BrokerId: sv.id, Token: token, Declaration: declaration}
 	})
 	res, err := c.run(ctx, send)
 	if err != nil && errors.Is(err, ErrNotStarted) {
@@ -149,16 +182,20 @@ func (c *Client) Registrations() int {
 }
 
 // Close drops every registration of the Client's runs, stops asking
-// GetRun about them and stops serving its broker connection: the engine's
-// generation has ended, and go-plugin's end of it calls Close. A run with
-// hooks started after Close is refused. Other Clients of the connection
-// keep their own broker connections.
+// GetRun about them and stops serving its broker connection. The end of
+// the engine's generation calls it for a Client that serves hooks, and
+// Close detaches that call. A run with hooks started after Close is
+// refused. Other Clients of the connection keep their own broker
+// connections.
 func (c *Client) Close() {
 	c.hooks.mu.Lock()
 	defer c.hooks.mu.Unlock()
 	if !c.hooks.closed {
 		c.hooks.closed = true
 		close(c.hooks.done)
+		if c.hooks.stopGeneration != nil {
+			c.hooks.stopGeneration()
+		}
 		if c.hooks.server != nil {
 			// Stop returns at once; the server's calls end with it.
 			go c.hooks.server.Stop()
@@ -179,11 +216,34 @@ func (c *Client) registered(id string) bool {
 
 // serveHooks opens the Client's broker connection, on which it serves
 // HostHooks until Close or the connection's end; c.hooks.mu is held. A
-// server that go-plugin asks for after Close is stopped at once.
-func (c *Client) serveHooks() {
-	c.hooks.serving = true
-	c.hooks.brokerID = c.broker.NextId()
-	go c.broker.AcceptAndServe(c.hooks.brokerID, c.hooksServer)
+// server that go-plugin asks for after Close is stopped at once. Once the
+// opening has ended, the next run opens the connection again. The first
+// opening makes the end of the engine's generation close the Client.
+func (c *Client) serveHooks() *serving {
+	sv := &serving{id: c.broker.NextId(), ready: make(chan struct{}), ended: make(chan struct{})}
+	c.hooks.serving = sv
+	if c.generation != nil && c.hooks.stopGeneration == nil {
+		// go-plugin ends the context with the engine's generation: its
+		// process exited or its client was killed. A generation that has
+		// ended already closes the Client at once.
+		c.hooks.stopGeneration = context.AfterFunc(c.generation, c.Close)
+	}
+	go func() {
+		// AcceptAndServe returns without asking for the server when it
+		// cannot listen.
+		c.broker.AcceptAndServe(sv.id, func(opts []grpc.ServerOption) *grpc.Server {
+			s := c.hooksServer(opts)
+			close(sv.ready)
+			return s
+		})
+		c.hooks.mu.Lock()
+		if c.hooks.serving == sv {
+			c.hooks.serving = nil
+		}
+		c.hooks.mu.Unlock()
+		close(sv.ended)
+	}()
+	return sv
 }
 
 // hooksServer is the Client's HostHooks server, with go-plugin's options
@@ -310,6 +370,11 @@ func (s hookServer) Call(ctx context.Context, call *HookCall) (*HookReply, error
 	}
 	if rep == nil {
 		rep = &HookReply{}
+	}
+	if e := rep.GetError(); e != nil && e.GetCode() == HookCodeUnknownRun {
+		// The engine takes unknown_run as no answer, which a registered
+		// run's handler cannot give: its error stays a failure.
+		return &HookReply{Error: &HookError{Code: HookCodePluginError, Message: e.GetMessage()}}, nil
 	}
 	return rep, nil
 }

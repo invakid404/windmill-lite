@@ -893,9 +893,11 @@ func TestBrokerLostMessages(t *testing.T) {
 
 // TestBrokerTokenBound checks the engine's bound of gone tokens, lowered
 // to 8: a run held in flight keeps the draining engine up. Nine runs whose
-// release calls are lost; their lookups wait until all nine have
-// succeeded. Eight gone answers make the engine keep 8 tokens, turn health
-// NOT_SERVING and drain. While it drains, (a) the ninth run's lookup
+// release calls are lost; the test holds each one's first lookup until all
+// nine have been sent, each with a minute to get its answer, then lets
+// them go together. Eight get gone, which makes the engine keep 8 tokens,
+// turn health NOT_SERVING and drain, and their Clients drop the eight
+// registrations; the ninth gets UNAVAILABLE, from the Server too. While it drains, (a) the ninth run's lookup
 // answers UNAVAILABLE without RUN_NOT_STARTED, its success stays, and its
 // registration stays held; (b) a new run, with a fresh token or an old
 // one, is refused with RUN_NOT_STARTED, and no call reaches the host; (c)
@@ -934,24 +936,52 @@ func TestBrokerTokenBound(t *testing.T) {
 		results = append(results, res)
 	}
 	waitFor(t, "the nine release calls lost", func() bool { return hooks.droppedCount() == 9 })
+	ids := make([]string, 9)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("bound-%d", i)
+	}
+	waitFor(t, "a lookup of each of the nine runs held", func() bool {
+		for _, id := range ids {
+			if tap.lookupsOf(tap.token(id)) == 0 {
+				return false
+			}
+		}
+		return true
+	})
 	close(lookups)
+	waitFor(t, "the nine held lookups answered", func() bool {
+		for _, id := range ids {
+			if len(tap.answersOf(tap.token(id))) == 0 {
+				return false
+			}
+		}
+		return true
+	})
+	var gone int
+	var last string
+	for _, id := range ids {
+		switch err := tap.answersOf(tap.token(id))[0]; {
+		case err == nil:
+			gone++
+		case status.Code(err) == codes.Unavailable:
+			last = id
+		default:
+			t.Errorf("the held lookup of %s: %v, want gone or UNAVAILABLE", id, err)
+		}
+	}
+	if gone != 8 || last == "" {
+		t.Fatalf("%d held lookups answered gone and the UNAVAILABLE one is %q; want 8, and the ninth", gone, last)
+	}
+	// The Server behind the Gate keeps no ninth token either.
+	if _, err := e.srv.GetRun(context.Background(), &plugin.GetRunRequest{Id: last, Token: tap.token(last)}); status.Code(err) != codes.Unavailable || hasNotStarted(err) {
+		t.Errorf("the Server's own lookup of the ninth run: %v, want UNAVAILABLE without RUN_NOT_STARTED", err)
+	}
 	waitFor(t, "eight registrations dropped", func() bool { return e.client.Registrations() == 1 })
 	if n := e.srv.hooks.goneTokens(); n != 8 {
 		t.Errorf("the engine keeps %d tokens, want 8", n)
 	}
 	if s := health(t, e.gate); s != healthpb.HealthCheckResponse_NOT_SERVING {
 		t.Errorf("health %v at the bound, want NOT_SERVING", s)
-	}
-
-	var last string
-	for i := range 9 {
-		id := fmt.Sprintf("bound-%d", i)
-		if _, err := e.srv.GetRun(context.Background(), &plugin.GetRunRequest{Id: id, Token: tap.token(id)}); status.Code(err) == codes.Unavailable {
-			last = id
-		}
-	}
-	if last == "" {
-		t.Fatal("no run's lookup answers UNAVAILABLE")
 	}
 	waitFor(t, "the held registration looked up twice", func() bool { return len(tap.answersOf(tap.token(last))) >= 2 })
 	for i, err := range tap.answersOf(tap.token(last)) {
@@ -998,13 +1028,17 @@ func TestBrokerTokenBound(t *testing.T) {
 }
 
 // TestBrokerStaleCalls checks the engine's outcome of a call that the
-// host answers unknown_run, the test's transport giving it a stale token:
-// no answer, which latches nothing. A stale observer and a stale
-// interception leave the run to succeed with its step's own result; a
-// stale provider declines, so its mandatory site still fails closed.
+// host answers unknown_run, the test's transport giving the stale runs'
+// calls a stale token: no answer, which latches nothing. A stale observer
+// and a stale interception leave the run to succeed with its step's own
+// result; a stale provider declines, so its mandatory site still fails
+// closed; a stale first-write verdict lets the write go ahead, as a run
+// without that verdict. A registered run's handler that replies with the
+// code unknown_run fails its verdict, which latches the run before the
+// write.
 func TestBrokerStaleCalls(t *testing.T) {
 	hooks := &tapHooks{alter: func(c *plugin.HookCall) *plugin.HookCall {
-		if c.GetHook() == releasedHook {
+		if released(c) || !strings.HasPrefix(c.GetRun(), "stale-") {
 			return c
 		}
 		return &plugin.HookCall{Hook: c.GetHook(), Run: c.GetRun(), Token: "stale", Site: c.GetSite(), Payload: c.GetPayload()}
@@ -1012,16 +1046,35 @@ func TestBrokerStaleCalls(t *testing.T) {
 	e := startEngine(t, engineConfig{hooks: func(c plugin.HostHooksClient) plugin.HostHooksClient { hooks.HostHooksClient = c; return hooks }})
 	var rec recorder
 	decl := `{"intercept": [{"selector": {"flow": "f/broker/one", "module": "a"}}], "on_module_start": true, "on_module_end": true, "on_run_end": true}`
-	res, err := e.client.RunWithHooks(context.Background(), one(""), []byte(decl), rec.handle)
+	res, err := e.client.RunWithHooks(context.Background(), one("stale-observed"), []byte(decl), rec.handle)
 	if err != nil || res.GetStatus() != "success" || string(res.GetResult()) != `"one"` {
 		t.Errorf("a run whose calls are stale: %v, %v; want success with its step's result", res, err)
 	}
-	res, err = e.client.RunWithHooks(context.Background(), &plugin.RunRequest{Path: "f/broker/prov", Args: []byte(`{}`)}, []byte(`{"providers": ["bp"]}`), rec.handle)
+	res, err = e.client.RunWithHooks(context.Background(), &plugin.RunRequest{Id: "stale-provided", Path: "f/broker/prov", Args: []byte(`{}`)}, []byte(`{"providers": ["bp"]}`), rec.handle)
 	if err != nil || res.GetStatus() != "latched" || !strings.Contains(res.GetLatched(), "provider_declined") {
 		t.Errorf("a stale provider at a mandatory site: %v, %v; want latched, provider_declined", res, err)
 	}
+	firstWrite := `{"write_capable": [{"flow": "f/broker/one", "module": "a"}], "before_first_write": true}`
+	res, err = e.client.RunWithHooks(context.Background(), one("stale-write"), []byte(firstWrite), rec.handle)
+	if err != nil || res.GetStatus() != "success" || string(res.GetResult()) != `"one"` {
+		t.Errorf("a stale first-write verdict: %v, %v; want success with its step's result", res, err)
+	}
 	if got := rec.heard(); len(got) != 0 {
 		t.Errorf("stale calls reached a handler: %v", got)
+	}
+
+	live := recorder{answer: func(_ context.Context, c *plugin.HookCall) (*plugin.HookReply, error) {
+		if c.GetHook() == "before_first_write" {
+			return &plugin.HookReply{Error: &plugin.HookError{Code: plugin.HookCodeUnknownRun, Message: "the host's own refusal"}}, nil
+		}
+		return &plugin.HookReply{Payload: []byte(`{}`)}, nil
+	}}
+	res, err = e.client.RunWithHooks(context.Background(), one("live-write"), []byte(firstWrite), live.handle)
+	if err != nil || res.GetStatus() != "latched" || !strings.Contains(res.GetLatched(), "the host's own refusal") || string(res.GetResult()) == `"one"` {
+		t.Errorf("a registered run's verdict that replies unknown_run: %v, %v; want latched before the write, with its message", res, err)
+	}
+	if got := set(live.heard()); len(got) != 1 || got[0] != "before_first_write@m:a" {
+		t.Errorf("the registered run's host heard %v, want its verdict", got)
 	}
 }
 
@@ -1060,36 +1113,45 @@ func TestBrokerMessageLimits(t *testing.T) {
 }
 
 // TestBrokerDialStall checks that a broker id that does not answer, which
-// go-plugin's dial waits on, stalls nothing else: while its admission
-// waits in the dial, GetRun answers and a run with hooks on the host's own
-// connection completes.
+// go-plugin's dial waits on, stalls nothing else: the test holds that
+// dial, and while it waits GetRun answers and a run with hooks on the
+// host's own connection completes. Let go, the dial fails, and its run is
+// refused.
 func TestBrokerDialStall(t *testing.T) {
 	e := startEngine(t, engineConfig{})
 	var rec recorder
 	if res, err := e.client.RunWithHooks(context.Background(), one(""), []byte(`{"on_run_end": true}`), rec.handle); err != nil || res.GetStatus() != "success" {
 		t.Fatalf("the first run: %v, %v", res, err)
 	}
-	dialing := make(chan struct{})
+	dialing, hold := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	letGo := func() { once.Do(func() { close(hold) }) }
+	t.Cleanup(letGo)
 	e.srv.hooks.dialing = func(id uint32) {
 		if id == 9999 {
 			close(dialing)
+			<-hold
 		}
 	}
 	stalled := runAsync(func() (*plugin.RunResult, error) {
 		return e.gate.Runner().Run(context.Background(), &plugin.RunRequest{Id: "stalled", Path: "f/broker/one", Hooks: &plugin.Hooks{BrokerId: 9999, Token: "stall", Declaration: []byte(interceptOne)}})
 	})
 	within(t, "the dial of the silent broker id", dialing)
-	if _, err := e.gate.Runner().GetRun(context.Background(), &plugin.GetRunRequest{Id: "x", Token: "unrelated"}); err != nil {
-		t.Fatalf("GetRun during the dial: %v", err)
+	lookup := make(chan error, 1)
+	go func() {
+		_, err := e.gate.Runner().GetRun(context.Background(), &plugin.GetRunRequest{Id: "x", Token: "unrelated"})
+		lookup <- err
+	}()
+	if err := within(t, "GetRun while the dial waits", lookup); err != nil {
+		t.Fatalf("GetRun while the dial waits: %v", err)
 	}
-	if res, err := e.client.RunWithHooks(context.Background(), one(""), []byte(`{"on_run_end": true}`), rec.handle); err != nil || res.GetStatus() != "success" {
-		t.Errorf("a run during the dial: %v, %v", res, err)
+	other := runAsync(func() (*plugin.RunResult, error) {
+		return e.client.RunWithHooks(context.Background(), one(""), []byte(`{"on_run_end": true}`), rec.handle)
+	})
+	if o := within(t, "a run with hooks while the dial waits", other); o.err != nil || o.res.GetStatus() != "success" {
+		t.Errorf("a run with hooks while the dial waits: %v, %v", o.res, o.err)
 	}
-	select {
-	case o := <-stalled:
-		t.Errorf("the stalled admission ended (%v, %v) before the other calls; the dial of its id held them", o.res, o.err)
-	default:
-	}
+	letGo()
 	if o := within(t, "the stalled admission", stalled); !hasNotStarted(o.err) {
 		t.Errorf("the admission of a silent broker id: %v, want a refusal", o.err)
 	}
@@ -1109,8 +1171,11 @@ func within[T any](t *testing.T, what string, ch <-chan T) T {
 }
 
 // TestBrokerClientClose checks that Client.Close stops the Client's broker
-// connection: the engine's next call on it fails, and a run with hooks
-// after Close is refused without reaching the engine.
+// connection while another Client of the connection goes on: the engine
+// closes the connection that it dialled for the closed Client, so its next
+// call there fails and it holds only the other Client's; a run with hooks
+// after Close is refused without reaching the engine; the other Client's
+// runs with hooks are still served.
 func TestBrokerClientClose(t *testing.T) {
 	var tap *tapRunner
 	e := startEngine(t, engineConfig{runner: func(s plugin.RunnerServer) plugin.RunnerServer { tap = newTap(s); return tap }})
@@ -1132,17 +1197,33 @@ func TestBrokerClientClose(t *testing.T) {
 	if rep, err := conn.Call(context.Background(), &plugin.HookCall{Hook: "on_run_end", Run: "x", Token: "y"}); err != nil || rep.GetError().GetCode() != plugin.HookCodeUnknownRun {
 		t.Fatalf("a call before Close: %v, %v; want unknown_run from the serving Client", rep, err)
 	}
+	other := e.dispense()
+	var otherRec recorder
+	if res, err := other.RunWithHooks(context.Background(), one("other"), []byte(`{"on_run_end": true}`), otherRec.handle); err != nil || res.GetStatus() != "success" {
+		t.Fatalf("the other Client's run: %v, %v", res, err)
+	}
+	if n := e.srv.hooks.dialled(); n != 2 {
+		t.Fatalf("the engine holds %d broker connections, want the two Clients'", n)
+	}
+
 	e.client.Close()
-	waitFor(t, "the broker connection stops serving", func() bool {
+	waitFor(t, "the engine closes the closed Client's connection", func() bool {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		_, err := conn.Call(ctx, &plugin.HookCall{Hook: "on_run_end", Run: "x", Token: "y"})
-		return err != nil
+		return status.Code(err) == codes.Canceled && e.srv.hooks.dialled() == 1
 	})
 	if _, err := e.client.RunWithHooks(context.Background(), one("after"), []byte(`{"on_run_end": true}`), rec.handle); !errors.Is(err, plugin.ErrNotStarted) {
 		t.Errorf("a run with hooks after Close: %v, want ErrNotStarted", err)
 	}
 	if n := tap.runsOf("after"); n != 0 {
 		t.Errorf("a run after Close reached the engine %d times", n)
+	}
+	heard := len(otherRec.heard())
+	if res, err := other.RunWithHooks(context.Background(), one("other-again"), []byte(`{"on_run_end": true}`), otherRec.handle); err != nil || res.GetStatus() != "success" {
+		t.Errorf("the other Client's run after Close: %v, %v", res, err)
+	}
+	if n := len(otherRec.heard()) - heard; n != 1 {
+		t.Errorf("the other Client's host heard %d calls of its run after Close, want its onRunEnd", n)
 	}
 }

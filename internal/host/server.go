@@ -168,9 +168,8 @@ func (s *Server) Run(ctx context.Context, req *plugin.RunRequest) (*plugin.RunRe
 	ctx = wlext.WithExclusiveID(ctx)
 	forget := func() {}
 	if h := req.GetHooks(); h != nil {
-		// The run's hooks on the host's broker connection (ADR 0009, hooks
-		// across the plugin boundary): the engine holds the token until
-		// it has sent the run's release call.
+		// The run's hooks on the host's broker connection: the engine
+		// holds the token until it has sent the run's release call.
 		if ctx, forget, err = s.hooks.admit(ctx, id, h); err != nil {
 			return nil, err
 		}
