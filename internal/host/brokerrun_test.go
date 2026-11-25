@@ -961,26 +961,32 @@ func TestBrokerTokenBound(t *testing.T) {
 		}
 		return true
 	})
-	var gone int
+	var gone []string
 	var last string
 	for _, id := range ids {
 		switch err := tap.answersOf(tap.token(id))[0]; {
 		case err == nil:
-			gone++
+			gone = append(gone, id)
 		case status.Code(err) == codes.Unavailable:
 			last = id
 		default:
 			t.Errorf("the held lookup of %s: %v, want gone or UNAVAILABLE", id, err)
 		}
 	}
-	if gone != 8 || last == "" {
-		t.Fatalf("%d held lookups answered gone and the UNAVAILABLE one is %q; want 8, and the ninth", gone, last)
+	if len(gone) != 8 || last == "" {
+		t.Fatalf("%d held lookups answered gone and the UNAVAILABLE one is %q; want 8, and the ninth", len(gone), last)
 	}
 	// The Server behind the Gate keeps no ninth token either.
 	if _, err := e.srv.GetRun(context.Background(), &plugin.GetRunRequest{Id: last, Token: tap.token(last)}); status.Code(err) != codes.Unavailable || hasNotStarted(err) {
 		t.Errorf("the Server's own lookup of the ninth run: %v, want UNAVAILABLE without RUN_NOT_STARTED", err)
 	}
 	waitFor(t, "eight registrations dropped", func() bool { return e.client.Registrations() == 1 })
+	for _, id := range gone {
+		// Its one held lookup, which kept its caller, got gone.
+		if n := tap.lookupsOf(tap.token(id)); n != 1 {
+			t.Errorf("%s was looked up %d times, want once", id, n)
+		}
+	}
 	if n := e.srv.hooks.goneTokens(); n != 8 {
 		t.Errorf("the engine keeps %d tokens, want 8", n)
 	}
