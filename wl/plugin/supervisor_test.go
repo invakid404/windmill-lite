@@ -489,99 +489,116 @@ func TestSupervisorStalledIdentity(t *testing.T) {
 	}
 }
 
-// TestSupervisorUnresponsiveShutdown checks the stop bound on go-plugin's
-// real launch: an engine that never answers go-plugin's shutdown call
-// keeps its process until the 5 s bound, and then the supervisor kills it
-// through the launch's runner. A process that the test started from the
-// same executable keeps running. With the reap of the killed process held,
-// no next launch is scheduled, though the fake clock moves on; released,
-// the reap lets the next generation start, which sees the old process gone.
+// TestSupervisorUnresponsiveShutdown checks the stop of an engine that
+// never answers go-plugin's shutdown call, on go-plugin's real launch.
+// Without any hook, the engine's process is there until the 5 s bound,
+// and then the supervisor kills it through the launch's runner and reaps
+// it; a process that the test started from the same executable keeps
+// running. With the reap of the killed process held by a test hook, no
+// next launch is scheduled, however far the clock moves; released, the
+// next generation starts and sees the old process gone.
 func TestSupervisorUnresponsiveShutdown(t *testing.T) {
-	release := make(chan struct{})
-	var once sync.Once
-	held := make(chan struct{})
-	hook := func() {
-		// Only the first launch's reap is held.
-		first := false
-		once.Do(func() { first = true })
-		if first {
-			close(held)
-			<-release
+	t.Run("bound", func(t *testing.T) {
+		f := superviseFault(t, map[string]any{"ignore_shutdown": true}, nil)
+		sibling := exec.Command(f.exe, "sleep")
+		if err := sibling.Start(); err != nil {
+			t.Fatal(err)
 		}
-	}
-	beforeReap.Store(&hook)
-	t.Cleanup(func() {
+		siblingDone := make(chan struct{})
+		go func() {
+			sibling.Wait()
+			close(siblingDone)
+		}()
+		t.Cleanup(func() {
+			sibling.Process.Kill()
+			<-siblingDone
+		})
+
+		f.waitReady(true)
+		first := f.waitStarts(1)
+		f.write("health-"+strconv.Itoa(first), "NOT_SERVING")
+		f.waitFile("shutdown-" + strconv.Itoa(first))
+		f.clock.waitPending(t, 5*time.Second)
+		// The reap is not held here, so a process that died would be gone.
+		time.Sleep(200 * time.Millisecond)
+		if !alive(first) {
+			t.Fatal("the engine's process is gone before the stop bound")
+		}
+		if p := f.clock.pending(); len(p) != 1 || p[0] != 5*time.Second {
+			t.Fatalf("before the stop bound the pending timers are %v, want only the stop's", p)
+		}
+
+		f.clock.advance(5 * time.Second)
+		waitGoneProcess(t, first)
 		select {
-		case <-release:
+		case <-siblingDone:
+			t.Fatal("the test's own process of the same executable ended")
 		default:
-			close(release)
 		}
-		beforeReap.Store(nil)
-	})
-	f := superviseFault(t, map[string]any{"ignore_shutdown": true}, nil)
-	sibling := exec.Command(f.exe, "sleep")
-	if err := sibling.Start(); err != nil {
-		t.Fatal(err)
-	}
-	siblingDone := make(chan struct{})
-	go func() {
-		sibling.Wait()
-		close(siblingDone)
-	}()
-	t.Cleanup(func() {
-		sibling.Process.Kill()
-		<-siblingDone
+		if !alive(sibling.Process.Pid) {
+			t.Fatal("the test's own process of the same executable is gone")
+		}
+		f.clock.waitPending(t, time.Second)
 	})
 
-	f.waitReady(true)
-	first := f.waitStarts(1)
-	<-held
-	f.write("health-"+strconv.Itoa(first), "NOT_SERVING")
-	f.waitFile("shutdown-" + strconv.Itoa(first))
-	f.clock.waitPending(t, 5*time.Second)
-	time.Sleep(200 * time.Millisecond)
-	if !alive(first) {
-		t.Fatal("the engine's process is gone before the stop bound")
-	}
-	if p := f.clock.pending(); len(p) != 1 || p[0] != 5*time.Second {
-		t.Fatalf("before the stop bound the pending timers are %v, want only the stop's", p)
-	}
+	t.Run("reap before the next launch", func(t *testing.T) {
+		release := make(chan struct{})
+		var releaseOnce, firstOnce sync.Once
+		open := func() { releaseOnce.Do(func() { close(release) }) }
+		held := make(chan struct{})
+		hook := func() {
+			// Only the first launch's reap is held.
+			first := false
+			firstOnce.Do(func() { first = true })
+			if first {
+				close(held)
+				<-release
+			}
+		}
+		beforeReap.Store(&hook)
+		t.Cleanup(func() {
+			open()
+			beforeReap.Store(nil)
+		})
+		f := superviseFault(t, map[string]any{"ignore_shutdown": true}, nil)
+		// Registered after superviseFault, so it runs before the
+		// Supervisor is stopped, even when the test fails.
+		t.Cleanup(open)
 
-	f.clock.advance(5 * time.Second)
-	// SIGKILL ends the process, whose reap is held: no next launch may be
-	// scheduled, however far the clock moves.
-	time.Sleep(300 * time.Millisecond)
-	if p := f.clock.pending(); len(p) != 0 {
-		t.Fatalf("with the reap held, the pending timers are %v, want none", p)
-	}
-	f.clock.advance(time.Hour)
-	time.Sleep(300 * time.Millisecond)
-	if n := len(f.pids()); n != 1 {
-		t.Fatalf("the fake engine started %d times while the old process's reap was held, want 1", n)
-	}
-	select {
-	case <-siblingDone:
-		t.Fatal("the test's own process of the same executable ended")
-	default:
-	}
-	if !alive(sibling.Process.Pid) {
-		t.Fatal("the test's own process of the same executable is gone")
-	}
+		f.waitReady(true)
+		first := f.waitStarts(1)
+		<-held
+		f.write("health-"+strconv.Itoa(first), "NOT_SERVING")
+		f.waitFile("shutdown-" + strconv.Itoa(first))
+		f.clock.waitPending(t, 5*time.Second)
+		f.clock.advance(5 * time.Second)
+		// SIGKILL ends the process, whose reap is held: no next launch may
+		// be scheduled, however far the clock moves.
+		time.Sleep(300 * time.Millisecond)
+		if p := f.clock.pending(); len(p) != 0 {
+			t.Fatalf("with the reap held, the pending timers are %v, want none", p)
+		}
+		f.clock.advance(time.Hour)
+		time.Sleep(300 * time.Millisecond)
+		if n := len(f.pids()); n != 1 {
+			t.Fatalf("the fake engine started %d times while the old process's reap was held, want 1", n)
+		}
 
-	close(release)
-	waitGoneProcess(t, first)
-	f.clock.waitPending(t, time.Second)
-	f.clock.advance(time.Second)
-	second := f.waitStarts(2)
-	f.waitFile("seen-" + strconv.Itoa(second))
-	seen, err := os.ReadFile(f.file("seen-" + strconv.Itoa(second)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains("\n"+string(seen)+"\n", "\n"+strconv.Itoa(first)+"\n") {
-		t.Errorf("the second generation started while the first one's process %d was still there", first)
-	}
-	f.waitReady(true)
+		open()
+		waitGoneProcess(t, first)
+		f.clock.waitPending(t, time.Second)
+		f.clock.advance(time.Second)
+		second := f.waitStarts(2)
+		f.waitFile("seen-" + strconv.Itoa(second))
+		seen, err := os.ReadFile(f.file("seen-" + strconv.Itoa(second)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains("\n"+string(seen)+"\n", "\n"+strconv.Itoa(first)+"\n") {
+			t.Errorf("the second generation started while the first one's process %d was still there", first)
+		}
+		f.waitReady(true)
+	})
 }
 
 // backoffWant is the delay before a launch after retries delays, with the
@@ -751,31 +768,78 @@ func (f *fault) readMS(name string) int64 {
 	return ms
 }
 
+// healthCheck is one health check that the fake engine logged: the
+// milliseconds left until its deadline, and the status that it chose.
+type healthCheck struct {
+	ms     int64
+	status string
+}
+
+// checks returns the health checks that the fake engine of pid logged, in
+// order.
+func (f *fault) checks(pid string) []healthCheck {
+	f.t.Helper()
+	b, err := os.ReadFile(f.file("checks-" + pid))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	var cs []healthCheck
+	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		ms, status, ok := strings.Cut(line, " ")
+		n, err := strconv.ParseInt(ms, 10, 64)
+		if !ok || err != nil {
+			f.t.Fatalf("checks-%s has the line %q, not a deadline and a status", pid, line)
+		}
+		cs = append(cs, healthCheck{n, status})
+	}
+	return cs
+}
+
 // TestSupervisorAdmissionDeadlines checks that each call of an admission
 // has a deadline within what is left of its 30 s: a health check's is at
 // most the 1 s health timeout, and once 29.5 s have passed on the fake
-// clock, a health check and GetBuildInfo each get at most 0.5 s.
+// clock, the health check that answers SERVING and GetBuildInfo each get
+// at most 0.5 s. The fake engine logs every check, so the checks after
+// the admission do not hide the admission's.
 func TestSupervisorAdmissionDeadlines(t *testing.T) {
 	f := superviseFault(t, nil, func(f *fault) { f.write("health", "NOT_SERVING") })
 	pid := strconv.Itoa(f.waitStarts(1))
 	f.waitFile("answered-NOT_SERVING-" + pid)
-	if ms := f.readMS("deadline-check-" + pid); ms <= 500 || ms > 1000 {
-		t.Errorf("a health check at the admission's start had %d ms left, want at most the 1 s health timeout", ms)
+	if c := f.checks(pid)[0]; c.status != "NOT_SERVING" || c.ms <= 500 || c.ms > 1000 {
+		t.Errorf("the first health check had %d ms left and chose %s, want at most the 1 s health timeout and NOT_SERVING", c.ms, c.status)
 	}
 
 	f.clock.advance(29500 * time.Millisecond)
 	// Checks run one at a time: once one has at most 0.5 s, so do the next.
-	for until := time.Now().Add(30 * time.Second); f.readMS("deadline-check-"+pid) > 500; time.Sleep(5 * time.Millisecond) {
+	for until := time.Now().Add(30 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		cs := f.checks(pid)
+		if cs[len(cs)-1].ms <= 500 {
+			break
+		}
 		if time.Now().After(until) {
-			t.Fatalf("after 29.5 s, health checks still have %d ms left, want at most 500", f.readMS("deadline-check-"+pid))
+			t.Fatalf("after 29.5 s, health checks still have %d ms left, want at most 500", cs[len(cs)-1].ms)
 		}
 	}
 	if err := os.Remove(f.file("health")); err != nil {
 		t.Fatal(err)
 	}
 	f.waitReady(true)
-	if ms := f.readMS("deadline-check-" + pid); ms <= 0 || ms > 500 {
-		t.Errorf("the health check that answered SERVING had %d ms left, want at most 500", ms)
+	admitting := -1
+	cs := f.checks(pid)
+	for i, c := range cs {
+		if c.status == "SERVING" {
+			admitting = i
+			break
+		}
+	}
+	if admitting < 0 {
+		t.Fatalf("no logged health check chose SERVING: %v", cs)
+	}
+	if c := cs[admitting]; c.ms <= 0 || c.ms > 500 {
+		t.Errorf("the health check that admitted the engine had %d ms left, want at most 500", c.ms)
 	}
 	if b, err := os.ReadFile(f.file("deadline-buildinfo-" + pid)); err != nil || string(b) == "none" {
 		t.Fatalf("GetBuildInfo's deadline: %q, %v; want one", b, err)
@@ -871,10 +935,33 @@ func TestSupervisorStopsLaunchAndCheck(t *testing.T) {
 // not wait for its output pipes: the fake engine starts a process that
 // holds them open, as a wedged harness process could. Once the generation
 // is withdrawn and stopped, the engine's process is reaped while that
-// process still runs, and the next generation starts and serves.
+// process still runs, and the next generation starts and serves. Each such
+// process ends when the test writes its stop file, or once its directory
+// has gone, and the test waits for that.
 func TestSupervisorReapsWithDescendant(t *testing.T) {
 	f := superviseFault(t, map[string]any{"descendant": true}, nil)
-	t.Cleanup(func() { f.write("descendant-stop", "") })
+	// Registered after superviseFault, so it runs before the Supervisor is
+	// stopped and the directory removed, even when the test fails.
+	t.Cleanup(func() {
+		f.write("descendant-stop", "")
+		names, _ := filepath.Glob(f.file("descendant-[0-9]*"))
+		for _, name := range names {
+			b, err := os.ReadFile(name)
+			if err != nil {
+				continue
+			}
+			pid, err := strconv.Atoi(string(b))
+			if err != nil {
+				continue
+			}
+			for until := time.Now().Add(30 * time.Second); alive(pid); time.Sleep(10 * time.Millisecond) {
+				if time.Now().After(until) {
+					t.Errorf("the process %d that held the pipes did not end within 30 s of its stop file", pid)
+					break
+				}
+			}
+		}
+	})
 	f.waitReady(true)
 	first := f.waitStarts(1)
 	f.waitFile("descendant-" + strconv.Itoa(first))

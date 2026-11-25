@@ -758,6 +758,52 @@ func TestClientConfigRunnerWaitTwice(t *testing.T) {
 	}
 }
 
+// TestLauncherAbortBeforeStart aborts a Supervisor's launch before its
+// runner starts, once before go-plugin makes the runner and once after:
+// Start returns errLaunchAborted at once, with no SHA-256 check and no
+// process, which would have created the plugin's marker file.
+func TestLauncherAbortBeforeStart(t *testing.T) {
+	buildPlugins(t)
+	for _, early := range []bool{true, false} {
+		marker := filepath.Join(t.TempDir(), "started")
+		cfg, cleanup, proc, err := clientConfig(Launch{Path: testPlugins.v1, SHA256: testPlugins.sum1, Config: writeConfig(t, pluginConfig{Marker: marker}), Logger: quiet}, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		socketDir := filepath.Join(cfg.UnixSocketConfig.TempDir, "plugin-dir")
+		if err := os.Mkdir(socketDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if early {
+			proc.abort()
+		}
+		r, err := cfg.RunnerFunc(quiet, exec.Command(testPlugins.v1), socketDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !early {
+			proc.abort()
+		}
+		l := r.(*launcher)
+		checked, spawned := false, false
+		l.afterCheck = func() { checked = true }
+		l.afterSpawn = func(int) { spawned = true }
+		if err := l.Start(context.Background()); !errors.Is(err, errLaunchAborted) {
+			t.Errorf("abort before the runner was made: %v: Start = %v, want errLaunchAborted", early, err)
+		}
+		if checked || spawned {
+			t.Errorf("abort before the runner was made: %v: the runner checked the executable: %v, started a process: %v", early, checked, spawned)
+		}
+		if _, err := os.Stat(marker); err == nil {
+			t.Errorf("abort before the runner was made: %v: the plugin started", early)
+		}
+		if proc.exited() != nil {
+			t.Errorf("abort before the runner was made: %v: the launch reports a process", early)
+		}
+		cleanup()
+	}
+}
+
 // TestClientConfigRefusals checks the Launch fields that ClientConfig
 // refuses before it creates anything.
 func TestClientConfigRefusals(t *testing.T) {

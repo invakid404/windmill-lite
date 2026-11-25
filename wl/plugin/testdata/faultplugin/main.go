@@ -8,7 +8,7 @@
 // It starts as the engine does, `faultplugin plugin -config <file>`.
 // `faultplugin sleep` only sleeps, as a process of the test's own beside
 // it, and `faultplugin hold <pid> <file>` sleeps until the process pid has
-// gone or the file exists.
+// gone, the file exists or the file's directory has gone.
 // The configuration file is JSON:
 //
 //	{"dir": "<path>", "build_info": {...}, "stall_build_info": false,
@@ -27,25 +27,26 @@
 //   - With "descendant", it starts `faultplugin hold <its parent>
 //     <dir>/descendant-stop` with its own standard output and error, so
 //     that process holds the pipes that go-plugin reads, and writes that
-//     process's id into "descendant-<pid>".
+//     process's id into "descendant-<pid>". It reaps that process once it
+//     ends, so no zombie of it stays behind while the plugin runs.
 //   - Health of any service answers the status named in "health-<pid>",
 //     such as NOT_SERVING, or else in "health", or else SERVING, and then
 //     creates "answered-<status>-<pid>". The status STALL creates
-//     "stalled-<pid>" and answers only when the call ends. Each check
-//     writes into "deadline-check-<pid>" the milliseconds left until the
-//     call's deadline, or "none".
-//   - GetBuildInfo writes its deadline the same way into
-//     "deadline-buildinfo-<pid>", creates "buildinfo-<pid>" and answers
-//     "build_info"; with "stall_build_info" it never answers, until its
-//     call ends.
+//     "stalled-<pid>" and answers only when the call ends. Each check first
+//     appends a line to "checks-<pid>": the milliseconds left until the
+//     call's deadline, or "none", a space and the status.
+//   - GetBuildInfo writes the milliseconds left until its deadline, or
+//     "none", into "deadline-buildinfo-<pid>", creates "buildinfo-<pid>" and
+//     answers "build_info"; with "stall_build_info" it never answers, until
+//     its call ends.
 //   - With "ignore_shutdown", go-plugin's shutdown call creates
 //     "shutdown-<pid>" and never answers, and the server goes on.
 //   - Run creates "run-<pid>"; with "hold_runs" it answers only once
 //     "release" exists. Its result is {"pid": <pid>}.
 //
 // The plugin and `sleep` exit once their parent has gone, and `hold` once
-// its process has gone, so a test that fails before it stops them leaves
-// none behind.
+// its process or its file's directory has gone, so a test that fails
+// before it stops them leaves none behind.
 package main
 
 import (
@@ -116,19 +117,34 @@ func (r *runner) exists(name string) bool {
 	return err == nil
 }
 
-// deadline writes the time left until the deadline of ctx into name.
-func (r *runner) deadline(ctx context.Context, name string) {
-	s := "none"
+// left is the time left until the deadline of ctx, in milliseconds, or
+// "none".
+func left(ctx context.Context) string {
 	if dl, ok := ctx.Deadline(); ok {
-		s = strconv.FormatInt(time.Until(dl).Milliseconds(), 10)
+		return strconv.FormatInt(time.Until(dl).Milliseconds(), 10)
 	}
-	if err := r.publish(name, s); err != nil {
+	return "none"
+}
+
+// logCheck appends the deadline of a health check and its status to
+// "checks-<pid>", in one write.
+func (r *runner) logCheck(ctx context.Context, st string) {
+	f, err := os.OpenFile(filepath.Join(r.cfg.Dir, "checks-"+r.pid), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err == nil {
+		_, err = f.WriteString(left(ctx) + " " + st + "\n")
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "faultplugin:", err)
 	}
 }
 
 func (r *runner) GetBuildInfo(ctx context.Context, _ *plugin.GetBuildInfoRequest) (*plugin.BuildInfo, error) {
-	r.deadline(ctx, "deadline-buildinfo-"+r.pid)
+	if err := r.publish("deadline-buildinfo-"+r.pid, left(ctx)); err != nil {
+		fmt.Fprintln(os.Stderr, "faultplugin:", err)
+	}
 	r.touch("buildinfo-" + r.pid)
 	if r.cfg.StallBuildInfo {
 		<-ctx.Done()
@@ -174,11 +190,11 @@ func (r *runner) status() (string, error) {
 func (r *runner) intercept(ctx context.Context, req any, info *grpc.UnaryServerInfo, next grpc.UnaryHandler) (any, error) {
 	switch info.FullMethod {
 	case "/grpc.health.v1.Health/Check":
-		r.deadline(ctx, "deadline-check-"+r.pid)
 		st, err := r.status()
 		if err != nil {
 			return nil, err
 		}
+		r.logCheck(ctx, st)
 		if st == "STALL" {
 			r.touch("stalled-" + r.pid)
 			<-ctx.Done()
@@ -215,11 +231,14 @@ func orphaned() {
 	}
 }
 
-// hold sleeps until no process of id pid is left or the file stop exists,
-// then exits.
+// hold sleeps until no process of id pid is left, the file stop exists or
+// its directory has gone, then exits.
 func hold(pid int, stop string) {
 	for syscall.Kill(pid, 0) == nil {
 		if _, err := os.Stat(stop); err == nil {
+			break
+		}
+		if _, err := os.Stat(filepath.Dir(stop)); err != nil {
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -326,8 +345,10 @@ func (r *runner) record() error {
 }
 
 // descend starts `faultplugin hold <parent> <dir>/descendant-stop` on this
-// process's standard output and error, and writes its process id into
-// "descendant-<pid>".
+// process's standard output and error, writes its process id into
+// "descendant-<pid>", and reaps it once it ends. Unreaped, the ended
+// process would stay a zombie while this one runs, which a test's
+// kill(pid, 0) still finds.
 func (r *runner) descend() error {
 	exe, err := os.Executable()
 	if err != nil {
@@ -338,5 +359,6 @@ func (r *runner) descend() error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
+	go cmd.Wait()
 	return r.publish("descendant-"+r.pid, strconv.Itoa(cmd.Process.Pid))
 }

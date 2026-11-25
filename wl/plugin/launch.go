@@ -351,7 +351,14 @@ func (r *launcher) Start(ctx context.Context) (err error) {
 		}
 	}()
 	if r.supervised {
-		// An abort ends the start as an ended start context would.
+		// An abort that came before Start starts nothing; a later one ends
+		// the start as an ended start context would.
+		r.mu.Lock()
+		aborted := r.aborted
+		r.mu.Unlock()
+		if aborted {
+			return errLaunchAborted
+		}
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithCancel(ctx)
 		defer cancel()
@@ -396,14 +403,26 @@ func (r *launcher) Start(ctx context.Context) (err error) {
 	cmd := exec.Command(r.path, "plugin", "-config", r.config)
 	cmd.Env = r.env
 	cmd.Stdout, cmd.Stderr = stdoutW, stderrW
+	// The decision to start the process and its start hold the runner's
+	// lock, so an abort that has completed starts no process, and a later
+	// abort finds the process below.
+	r.mu.Lock()
+	if r.aborted {
+		r.mu.Unlock()
+		closeAll()
+		return errLaunchAborted
+	}
 	if err := ctx.Err(); err != nil {
+		r.mu.Unlock()
 		closeAll()
 		return err
 	}
 	if err := cmd.Start(); err != nil {
+		r.mu.Unlock()
 		closeAll()
 		return fmt.Errorf("wl/plugin: start %s: %w", r.path, err)
 	}
+	r.mu.Unlock()
 	// The process holds its own copies of the write ends.
 	stdoutW.Close()
 	stderrW.Close()
@@ -411,9 +430,10 @@ func (r *launcher) Start(ctx context.Context) (err error) {
 		r.afterSpawn(cmd.Process.Pid)
 	}
 	r.mu.Lock()
-	err = ctx.Err()
-	if err == nil && r.aborted {
+	if r.aborted {
 		err = errLaunchAborted
+	} else {
+		err = ctx.Err()
 	}
 	if err != nil {
 		r.mu.Unlock()
