@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -108,7 +109,7 @@ type Launch struct {
 // never removes a later directory of the same name; after a failed
 // removal, cleanup tries again. Use each configuration for one launch.
 func ClientConfig(l Launch) (cfg *goplugin.ClientConfig, cleanup func() error, err error) {
-	cfg, cleanup, _, err = clientConfig(l)
+	cfg, cleanup, _, err = clientConfig(l, false)
 	return cfg, cleanup, err
 }
 
@@ -133,10 +134,11 @@ func (l *Launch) check() ([]byte, error) {
 	return sum, nil
 }
 
-// clientConfig is ClientConfig, and also returns the launch's engine
-// process, through which a Supervisor stops the engine and learns when it
-// has exited.
-func clientConfig(l Launch) (*goplugin.ClientConfig, func() error, *engineProcess, error) {
+// clientConfig is ClientConfig. For a Supervisor's launch (supervised), it
+// also returns the launch's engine process, through which the Supervisor
+// ends the launch and learns when the engine has been reaped; otherwise
+// the engine process is nil and the runner behaves as ClientConfig's.
+func clientConfig(l Launch, supervised bool) (*goplugin.ClientConfig, func() error, *engineProcess, error) {
 	sum, err := l.check()
 	if err != nil {
 		return nil, nil, nil, err
@@ -170,7 +172,10 @@ func clientConfig(l Launch) (*goplugin.ClientConfig, func() error, *engineProces
 	}
 	env := append([]string(nil), l.Env...)
 	dir := &baseDir{path: base}
-	proc := &engineProcess{}
+	var proc *engineProcess
+	if supervised {
+		proc = &engineProcess{}
+	}
 	return &goplugin.ClientConfig{
 		HandshakeConfig:  Handshake,
 		VersionedPlugins: VersionedPlugins(&RunnerPlugin{ReplyMargin: l.ReplyMargin}),
@@ -181,8 +186,14 @@ func clientConfig(l Launch) (*goplugin.ClientConfig, func() error, *engineProces
 				dir.remove()
 				return nil, fmt.Errorf("wl/plugin: make the socket directory private: %w", err)
 			}
-			r := &launcher{path: path, sum: sum, config: l.Config, env: append(append([]string(nil), env...), cmd.Env...), base: dir, exited: make(chan struct{})}
-			proc.set(r)
+			r := &launcher{path: path, sum: sum, config: l.Config, env: append(append([]string(nil), env...), cmd.Env...), base: dir}
+			if proc != nil {
+				r.supervised = true
+				r.reaped = make(chan struct{})
+				r.waitCalled = make(chan struct{})
+				r.abortCh = make(chan struct{})
+				proc.set(r)
+			}
 			return r, nil
 		},
 		AllowedProtocols: []goplugin.Protocol{goplugin.ProtocolGRPC},
@@ -196,18 +207,33 @@ func clientConfig(l Launch) (*goplugin.ClientConfig, func() error, *engineProces
 	}, dir.remove, proc, nil
 }
 
-// engineProcess is a launch's engine process, as its runner holds it.
-// go-plugin makes the runner when its Start begins, so a launch that fails
-// before that has no runner.
+// engineProcess is a Supervisor's launch's engine process, as its runner
+// holds it. go-plugin makes the runner when its Start begins, so a launch
+// that fails before that has no runner.
 type engineProcess struct {
-	mu sync.Mutex
-	r  *launcher
+	mu      sync.Mutex
+	r       *launcher
+	aborted bool
 }
 
 func (p *engineProcess) set(r *launcher) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.r = r
+	if p.aborted {
+		r.abort()
+	}
+}
+
+// abort ends the launch: its engine never starts, or, once started, gets
+// SIGKILL. A runner that go-plugin makes later starts aborted.
+func (p *engineProcess) abort() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.aborted = true
+	if p.r != nil {
+		p.r.abort()
+	}
 }
 
 // runner returns the launch's runner, or nil before go-plugin made it.
@@ -219,7 +245,9 @@ func (p *engineProcess) runner() *launcher {
 
 // exited returns a channel that is closed once the engine's process has
 // exited and been reaped, or nil when no process started. Once go-plugin's
-// Start has returned, whether a process started no longer changes.
+// Start has returned, whether a process started no longer changes. The
+// reap does not wait for the engine's output pipes, which a process that
+// the engine started may hold open after the engine has exited.
 func (p *engineProcess) exited() <-chan struct{} {
 	r := p.runner()
 	if r == nil {
@@ -230,7 +258,7 @@ func (p *engineProcess) exited() <-chan struct{} {
 	if r.proc == nil {
 		return nil
 	}
-	return r.exited
+	return r.reaped
 }
 
 // baseDir is a launch's private base directory. The runner and the
@@ -279,9 +307,36 @@ type launcher struct {
 	stderr *os.File
 	// proc is the engine's process, through which Kill stops it.
 	proc *os.Process
-	// exited, when not nil, is closed once Wait has reaped the process.
-	exited chan struct{}
+
+	// The fields below serve a Supervisor's launch (supervised) only. Its
+	// process has one waiter, reap, which starts with the process and
+	// closes reaped once the process has been reaped, with waitErr set;
+	// Wait then only reports that. waitCalled is closed by go-plugin's
+	// first Wait. abort closes abortCh, which ends Start, and kills a
+	// process that started.
+	supervised bool
+	reaped     chan struct{}
+	waitErr    error
+	waitCalled chan struct{}
+	waitOnce   sync.Once
+	aborted    bool
+	abortCh    chan struct{}
 }
+
+// pipeGrace is how long the reaper of a Supervisor's launch waits, after
+// the engine has been reaped, for go-plugin to read the engine's output
+// pipes to their end. Past it, the reaper closes their read ends, since a
+// process that the engine started can hold the pipes open, and go-plugin's
+// Kill waits for the reads to end.
+const pipeGrace = 2 * time.Second
+
+// beforeReap, when set, is called by the reaper of a Supervisor's launch
+// before it waits for the process. Tests use it to hold the reap.
+var beforeReap atomic.Pointer[func()]
+
+// errLaunchAborted is the error of a Supervisor's launch that was ended
+// before its process started.
+var errLaunchAborted = errors.New("wl/plugin: the launch was aborted")
 
 var _ runner.Runner = (*launcher)(nil)
 
@@ -295,6 +350,19 @@ func (r *launcher) Start(ctx context.Context) (err error) {
 			r.base.remove()
 		}
 	}()
+	if r.supervised {
+		// An abort ends the start as an ended start context would.
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithCancel(ctx)
+		defer cancel()
+		go func() {
+			select {
+			case <-r.abortCh:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -342,17 +410,59 @@ func (r *launcher) Start(ctx context.Context) (err error) {
 	if r.afterSpawn != nil {
 		r.afterSpawn(cmd.Process.Pid)
 	}
-	if err := ctx.Err(); err != nil {
+	r.mu.Lock()
+	err = ctx.Err()
+	if err == nil && r.aborted {
+		err = errLaunchAborted
+	}
+	if err != nil {
+		r.mu.Unlock()
 		cmd.Process.Kill()
 		cmd.Wait()
 		stdout.Close()
 		stderr.Close()
 		return err
 	}
-	r.mu.Lock()
 	r.cmd, r.stdout, r.stderr, r.proc = cmd, stdout, stderr, cmd.Process
+	if r.supervised {
+		go r.reap(cmd, stdout, stderr)
+	}
 	r.mu.Unlock()
 	return nil
+}
+
+// abort ends a Supervisor's launch: Start returns, or its process gets
+// SIGKILL once it has started.
+func (r *launcher) abort() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.aborted {
+		return
+	}
+	r.aborted = true
+	close(r.abortCh)
+	if r.proc != nil {
+		r.proc.Kill()
+	}
+}
+
+// reap is the one waiter of a Supervisor's launch's process. It reaps the
+// process as soon as it exits, whether or not its output pipes are still
+// open, and closes reaped. Once go-plugin's Wait has been called, or
+// pipeGrace has passed, it is done; past pipeGrace it closes the pipes'
+// read ends first, which ends go-plugin's reads.
+func (r *launcher) reap(cmd *exec.Cmd, stdout, stderr *os.File) {
+	if hook := beforeReap.Load(); hook != nil {
+		(*hook)()
+	}
+	r.waitErr = cmd.Wait()
+	close(r.reaped)
+	select {
+	case <-r.waitCalled:
+	case <-time.After(pipeGrace):
+		stdout.Close()
+		stderr.Close()
+	}
 }
 
 // hashChunk is how much of the executable the runner reads between two
@@ -394,7 +504,9 @@ func fileSHA256(ctx context.Context, path string) ([]byte, error) {
 }
 
 // Wait waits for the process to exit, then closes the pipes, which
-// go-plugin has read to their end, and removes the base directory.
+// go-plugin has read to their end, and removes the base directory. In a
+// Supervisor's launch it waits for reap instead, and returns its error
+// each time it is called.
 func (r *launcher) Wait(context.Context) error {
 	r.mu.Lock()
 	cmd, stdout, stderr := r.cmd, r.stdout, r.stderr
@@ -402,13 +514,17 @@ func (r *launcher) Wait(context.Context) error {
 	if cmd == nil {
 		return errors.New("wl/plugin: the engine was not started")
 	}
-	err := cmd.Wait()
+	var err error
+	if r.supervised {
+		r.waitOnce.Do(func() { close(r.waitCalled) })
+		<-r.reaped
+		err = r.waitErr
+	} else {
+		err = cmd.Wait()
+	}
 	stdout.Close()
 	stderr.Close()
 	r.base.remove()
-	if r.exited != nil {
-		close(r.exited)
-	}
 	return err
 }
 

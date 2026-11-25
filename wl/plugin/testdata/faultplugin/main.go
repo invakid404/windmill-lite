@@ -5,31 +5,47 @@
 // for windmill_lite.v1.Runner, and that misbehaves as its test asks. The
 // tests build it with `go build` into their own temporary directory.
 //
-// It starts as the engine does, `faultplugin plugin -config <file>`, and
+// It starts as the engine does, `faultplugin plugin -config <file>`.
 // `faultplugin sleep` only sleeps, as a process of the test's own beside
-// it. The configuration file is JSON:
+// it, and `faultplugin hold <pid> <file>` sleeps until the process pid has
+// gone or the file exists.
+// The configuration file is JSON:
 //
 //	{"dir": "<path>", "build_info": {...}, "stall_build_info": false,
-//	 "ignore_shutdown": false, "hold_runs": false}
+//	 "ignore_shutdown": false, "hold_runs": false, "hold_handshake": false,
+//	 "descendant": false}
 //
-// The process talks with its test through files in "dir":
+// The process talks with its test through files in "dir". A file that it
+// writes with content appears whole, by a rename:
 //
 //   - At its start it appends its process id to "pids", after it writes
 //     into "seen-<pid>" the ids of the processes listed there before that
-//     still exist, one per line. Then, if "fail" exists, it exits with
-//     status 1 before go-plugin's handshake.
-//   - Health of any service creates "checked-<pid>" and answers the
-//     status named in "health-<pid>", such as NOT_SERVING, or else in
-//     "health", or else SERVING.
-//   - GetBuildInfo creates "buildinfo-<pid>" and answers "build_info"; with
-//     "stall_build_info" it never answers, until its call ends.
+//     still exist, one per line, and its environment into "env-<pid>",
+//     one variable per line. Then, if "fail" exists, it exits with status
+//     1 before go-plugin's handshake, and with "hold_handshake" it never
+//     writes the handshake line.
+//   - With "descendant", it starts `faultplugin hold <its parent>
+//     <dir>/descendant-stop` with its own standard output and error, so
+//     that process holds the pipes that go-plugin reads, and writes that
+//     process's id into "descendant-<pid>".
+//   - Health of any service answers the status named in "health-<pid>",
+//     such as NOT_SERVING, or else in "health", or else SERVING, and then
+//     creates "answered-<status>-<pid>". The status STALL creates
+//     "stalled-<pid>" and answers only when the call ends. Each check
+//     writes into "deadline-check-<pid>" the milliseconds left until the
+//     call's deadline, or "none".
+//   - GetBuildInfo writes its deadline the same way into
+//     "deadline-buildinfo-<pid>", creates "buildinfo-<pid>" and answers
+//     "build_info"; with "stall_build_info" it never answers, until its
+//     call ends.
 //   - With "ignore_shutdown", go-plugin's shutdown call creates
 //     "shutdown-<pid>" and never answers, and the server goes on.
 //   - Run creates "run-<pid>"; with "hold_runs" it answers only once
 //     "release" exists. Its result is {"pid": <pid>}.
 //
-// In both forms the process exits once its parent has gone, so a test
-// that fails before it stops the process leaves none behind.
+// The plugin and `sleep` exit once their parent has gone, and `hold` once
+// its process has gone, so a test that fails before it stops them leaves
+// none behind.
 package main
 
 import (
@@ -39,6 +55,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -67,6 +84,8 @@ type config struct {
 	StallBuildInfo bool      `json:"stall_build_info"`
 	IgnoreShutdown bool      `json:"ignore_shutdown"`
 	HoldRuns       bool      `json:"hold_runs"`
+	HoldHandshake  bool      `json:"hold_handshake"`
+	Descendant     bool      `json:"descendant"`
 }
 
 type runner struct {
@@ -75,11 +94,20 @@ type runner struct {
 	pid string
 }
 
-// touch creates the file name in the test's directory.
+// touch creates the empty file name in the test's directory.
 func (r *runner) touch(name string) {
 	if err := os.WriteFile(filepath.Join(r.cfg.Dir, name), nil, 0o600); err != nil {
 		fmt.Fprintln(os.Stderr, "faultplugin:", err)
 	}
+}
+
+// publish writes s into the file name of the test's directory, whole.
+func (r *runner) publish(name, s string) error {
+	path := filepath.Join(r.cfg.Dir, name)
+	if err := os.WriteFile(path+".tmp", []byte(s), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(path+".tmp", path)
 }
 
 // exists reports whether the file name exists in the test's directory.
@@ -88,7 +116,19 @@ func (r *runner) exists(name string) bool {
 	return err == nil
 }
 
+// deadline writes the time left until the deadline of ctx into name.
+func (r *runner) deadline(ctx context.Context, name string) {
+	s := "none"
+	if dl, ok := ctx.Deadline(); ok {
+		s = strconv.FormatInt(time.Until(dl).Milliseconds(), 10)
+	}
+	if err := r.publish(name, s); err != nil {
+		fmt.Fprintln(os.Stderr, "faultplugin:", err)
+	}
+}
+
 func (r *runner) GetBuildInfo(ctx context.Context, _ *plugin.GetBuildInfoRequest) (*plugin.BuildInfo, error) {
+	r.deadline(ctx, "deadline-buildinfo-"+r.pid)
 	r.touch("buildinfo-" + r.pid)
 	if r.cfg.StallBuildInfo {
 		<-ctx.Done()
@@ -113,26 +153,39 @@ func (r *runner) Run(ctx context.Context, req *plugin.RunRequest) (*plugin.RunRe
 	return &plugin.RunResult{Id: req.GetId(), Status: "success", Result: []byte(`{"pid":` + r.pid + `}`)}, nil
 }
 
+// status is the health status that the test's files name.
+func (r *runner) status() (string, error) {
+	for _, name := range []string{"health-" + r.pid, "health"} {
+		b, err := os.ReadFile(filepath.Join(r.cfg.Dir, name))
+		if err != nil {
+			continue
+		}
+		st := strings.TrimSpace(string(b))
+		if _, ok := healthpb.HealthCheckResponse_ServingStatus_value[st]; !ok && st != "STALL" {
+			return "", fmt.Errorf("%s names no status: %q", name, b)
+		}
+		return st, nil
+	}
+	return "SERVING", nil
+}
+
 // intercept answers health from the files of the test's directory, and
 // holds go-plugin's shutdown call when the configuration says so.
 func (r *runner) intercept(ctx context.Context, req any, info *grpc.UnaryServerInfo, next grpc.UnaryHandler) (any, error) {
 	switch info.FullMethod {
 	case "/grpc.health.v1.Health/Check":
-		r.touch("checked-" + r.pid)
-		st := healthpb.HealthCheckResponse_SERVING
-		for _, name := range []string{"health-" + r.pid, "health"} {
-			b, err := os.ReadFile(filepath.Join(r.cfg.Dir, name))
-			if err != nil {
-				continue
-			}
-			v, ok := healthpb.HealthCheckResponse_ServingStatus_value[strings.TrimSpace(string(b))]
-			if !ok {
-				return nil, fmt.Errorf("%s names no status: %q", name, b)
-			}
-			st = healthpb.HealthCheckResponse_ServingStatus(v)
-			break
+		r.deadline(ctx, "deadline-check-"+r.pid)
+		st, err := r.status()
+		if err != nil {
+			return nil, err
 		}
-		return &healthpb.HealthCheckResponse{Status: st}, nil
+		if st == "STALL" {
+			r.touch("stalled-" + r.pid)
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		r.touch("answered-" + st + "-" + r.pid)
+		return &healthpb.HealthCheckResponse{Status: healthpb.HealthCheckResponse_ServingStatus(healthpb.HealthCheckResponse_ServingStatus_value[st])}, nil
 	case "/plugin.GRPCController/Shutdown":
 		if r.cfg.IgnoreShutdown {
 			r.touch("shutdown-" + r.pid)
@@ -150,13 +203,6 @@ func sleep() {
 	}
 }
 
-func main() {
-	if err := run(); err != nil {
-		fmt.Fprintln(os.Stderr, "faultplugin:", err)
-		os.Exit(1)
-	}
-}
-
 // orphaned ends the process once its parent has gone, which makes the
 // parent process id change.
 func orphaned() {
@@ -169,13 +215,39 @@ func orphaned() {
 	}
 }
 
+// hold sleeps until no process of id pid is left or the file stop exists,
+// then exits.
+func hold(pid int, stop string) {
+	for syscall.Kill(pid, 0) == nil {
+		if _, err := os.Stat(stop); err == nil {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	os.Exit(0)
+}
+
+func main() {
+	if err := run(); err != nil {
+		fmt.Fprintln(os.Stderr, "faultplugin:", err)
+		os.Exit(1)
+	}
+}
+
 func run() error {
+	if len(os.Args) == 4 && os.Args[1] == "hold" {
+		pid, err := strconv.Atoi(os.Args[2])
+		if err != nil {
+			return err
+		}
+		hold(pid, os.Args[3])
+	}
 	go orphaned()
 	if len(os.Args) == 2 && os.Args[1] == "sleep" {
 		sleep()
 	}
 	if len(os.Args) < 2 || os.Args[1] != "plugin" {
-		return errors.New("usage: faultplugin plugin -config <file> | faultplugin sleep")
+		return errors.New("usage: faultplugin plugin -config <file> | faultplugin sleep | faultplugin hold <pid> <file>")
 	}
 	fs := flag.NewFlagSet("plugin", flag.ContinueOnError)
 	path := fs.String("config", "", "the configuration file")
@@ -197,6 +269,14 @@ func run() error {
 	if r.exists("fail") {
 		return errors.New("the test asked this launch to fail")
 	}
+	if cfg.Descendant {
+		if err := r.descend(); err != nil {
+			return err
+		}
+	}
+	if cfg.HoldHandshake {
+		sleep()
+	}
 	syscall.Umask(0o077)
 	goplugin.Serve(&goplugin.ServeConfig{
 		HandshakeConfig:  plugin.Handshake,
@@ -210,7 +290,8 @@ func run() error {
 }
 
 // record writes which processes of the earlier starts still exist into
-// "seen-<pid>", then appends this process's id to "pids".
+// "seen-<pid>" and the environment into "env-<pid>", then appends this
+// process's id to "pids".
 func (r *runner) record() error {
 	pids := filepath.Join(r.cfg.Dir, "pids")
 	b, err := os.ReadFile(pids)
@@ -227,11 +308,10 @@ func (r *runner) record() error {
 			alive = append(alive, f)
 		}
 	}
-	seen := filepath.Join(r.cfg.Dir, "seen-"+r.pid)
-	if err := os.WriteFile(seen+".tmp", []byte(strings.Join(alive, "\n")), 0o600); err != nil {
+	if err := r.publish("seen-"+r.pid, strings.Join(alive, "\n")); err != nil {
 		return err
 	}
-	if err := os.Rename(seen+".tmp", seen); err != nil {
+	if err := r.publish("env-"+r.pid, strings.Join(os.Environ(), "\n")); err != nil {
 		return err
 	}
 	f, err := os.OpenFile(pids, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
@@ -243,4 +323,20 @@ func (r *runner) record() error {
 		return err
 	}
 	return f.Close()
+}
+
+// descend starts `faultplugin hold <parent> <dir>/descendant-stop` on this
+// process's standard output and error, and writes its process id into
+// "descendant-<pid>".
+func (r *runner) descend() error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(exe, "hold", strconv.Itoa(os.Getppid()), filepath.Join(r.cfg.Dir, "descendant-stop"))
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	return r.publish("descendant-"+r.pid, strconv.Itoa(cmd.Process.Pid))
 }

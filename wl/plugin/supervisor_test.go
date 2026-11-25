@@ -165,10 +165,11 @@ type fault struct {
 
 // superviseFault runs a Supervisor of the fake engine with the
 // configuration cfg, to which it adds the directory of the test's files
-// and faultInfo. prepare, when not nil, runs before Run starts, to create
-// the test's first files or replace the jitter. The Supervisor stops when
-// the test ends.
-func superviseFault(t *testing.T, cfg map[string]any, prepare func(f *fault)) *fault {
+// and faultInfo. tune changes the SupervisorConfig before NewSupervisor.
+// prepare, when not nil, runs after NewSupervisor and before Run starts,
+// to create the test's first files or replace the jitter. The Supervisor
+// stops when the test ends.
+func superviseFault(t *testing.T, cfg map[string]any, prepare func(f *fault), tune ...func(*SupervisorConfig)) *fault {
 	t.Helper()
 	exe, sum := buildFault(t)
 	dir := t.TempDir()
@@ -184,11 +185,15 @@ func superviseFault(t *testing.T, cfg map[string]any, prepare func(f *fault)) *f
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	sup, err := NewSupervisor(SupervisorConfig{
+	sc := SupervisorConfig{
 		Launch:         Launch{Path: exe, SHA256: sum, Config: path, Logger: quiet},
 		Identity:       faultIdentity,
 		HealthInterval: 20 * time.Millisecond,
-	})
+	}
+	for _, f := range tune {
+		f(&sc)
+	}
+	sup, err := NewSupervisor(sc)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,10 +236,14 @@ func (f *fault) end() {
 // file returns the path of the test's file name.
 func (f *fault) file(name string) string { return filepath.Join(f.dir, name) }
 
-// write writes s into the test's file name.
+// write writes s into the test's file name whole, by a rename, so that the
+// fake engine never reads it half written.
 func (f *fault) write(name, s string) {
 	f.t.Helper()
-	if err := os.WriteFile(f.file(name), []byte(s), 0o600); err != nil {
+	if err := os.WriteFile(f.file(name)+".tmp", []byte(s), 0o600); err != nil {
+		f.t.Fatal(err)
+	}
+	if err := os.Rename(f.file(name)+".tmp", f.file(name)); err != nil {
 		f.t.Fatal(err)
 	}
 }
@@ -339,7 +348,7 @@ func (f *fault) callPid(d time.Duration) (int, error) {
 func TestSupervisorReady(t *testing.T) {
 	f := superviseFault(t, nil, func(f *fault) { f.write("health", "NOT_SERVING") })
 	first := f.waitStarts(1)
-	f.waitFile("checked-" + strconv.Itoa(first))
+	f.waitFile("answered-NOT_SERVING-" + strconv.Itoa(first))
 	if f.sup.Ready() {
 		t.Fatal("Ready while the engine answers NOT_SERVING to its admission")
 	}
@@ -372,7 +381,7 @@ func TestSupervisorReady(t *testing.T) {
 func TestSupervisorCallWaits(t *testing.T) {
 	f := superviseFault(t, nil, func(f *fault) { f.write("health", "NOT_SERVING") })
 	first := f.waitStarts(1)
-	f.waitFile("checked-" + strconv.Itoa(first))
+	f.waitFile("answered-NOT_SERVING-" + strconv.Itoa(first))
 
 	type answer struct {
 		pid int
@@ -426,7 +435,8 @@ func TestSupervisorCallWaits(t *testing.T) {
 // NOT_SERVING without an error withdraws the generation, as go-plugin's own
 // ping, which discards the status, would not: Ready turns false, the
 // engine's process exits and is reaped, and the next launch waits for its
-// backoff.
+// backoff. The status is written whole, and the fake engine answered it,
+// so no check failed.
 func TestSupervisorReadsStatus(t *testing.T) {
 	f := superviseFault(t, nil, nil)
 	f.waitReady(true)
@@ -437,6 +447,9 @@ func TestSupervisorReadsStatus(t *testing.T) {
 
 	f.write("health-"+strconv.Itoa(first), "NOT_SERVING")
 	f.waitReady(false)
+	if _, err := os.Stat(f.file("answered-NOT_SERVING-" + strconv.Itoa(first))); err != nil {
+		t.Fatalf("the generation was withdrawn without a NOT_SERVING answer: %v", err)
+	}
 	waitGoneProcess(t, first)
 	f.clock.waitPending(t, time.Second)
 	if n := len(f.pids()); n != 1 {
@@ -479,10 +492,32 @@ func TestSupervisorStalledIdentity(t *testing.T) {
 // TestSupervisorUnresponsiveShutdown checks the stop bound on go-plugin's
 // real launch: an engine that never answers go-plugin's shutdown call
 // keeps its process until the 5 s bound, and then the supervisor kills it
-// through the launch's runner and reaps it. A process that the test
-// started from the same executable keeps running, and the next generation
-// starts only after the old process has gone.
+// through the launch's runner. A process that the test started from the
+// same executable keeps running. With the reap of the killed process held,
+// no next launch is scheduled, though the fake clock moves on; released,
+// the reap lets the next generation start, which sees the old process gone.
 func TestSupervisorUnresponsiveShutdown(t *testing.T) {
+	release := make(chan struct{})
+	var once sync.Once
+	held := make(chan struct{})
+	hook := func() {
+		// Only the first launch's reap is held.
+		first := false
+		once.Do(func() { first = true })
+		if first {
+			close(held)
+			<-release
+		}
+	}
+	beforeReap.Store(&hook)
+	t.Cleanup(func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+		beforeReap.Store(nil)
+	})
 	f := superviseFault(t, map[string]any{"ignore_shutdown": true}, nil)
 	sibling := exec.Command(f.exe, "sleep")
 	if err := sibling.Start(); err != nil {
@@ -500,6 +535,7 @@ func TestSupervisorUnresponsiveShutdown(t *testing.T) {
 
 	f.waitReady(true)
 	first := f.waitStarts(1)
+	<-held
 	f.write("health-"+strconv.Itoa(first), "NOT_SERVING")
 	f.waitFile("shutdown-" + strconv.Itoa(first))
 	f.clock.waitPending(t, 5*time.Second)
@@ -512,7 +548,17 @@ func TestSupervisorUnresponsiveShutdown(t *testing.T) {
 	}
 
 	f.clock.advance(5 * time.Second)
-	waitGoneProcess(t, first)
+	// SIGKILL ends the process, whose reap is held: no next launch may be
+	// scheduled, however far the clock moves.
+	time.Sleep(300 * time.Millisecond)
+	if p := f.clock.pending(); len(p) != 0 {
+		t.Fatalf("with the reap held, the pending timers are %v, want none", p)
+	}
+	f.clock.advance(time.Hour)
+	time.Sleep(300 * time.Millisecond)
+	if n := len(f.pids()); n != 1 {
+		t.Fatalf("the fake engine started %d times while the old process's reap was held, want 1", n)
+	}
 	select {
 	case <-siblingDone:
 		t.Fatal("the test's own process of the same executable ended")
@@ -522,6 +568,8 @@ func TestSupervisorUnresponsiveShutdown(t *testing.T) {
 		t.Fatal("the test's own process of the same executable is gone")
 	}
 
+	close(release)
+	waitGoneProcess(t, first)
 	f.clock.waitPending(t, time.Second)
 	f.clock.advance(time.Second)
 	second := f.waitStarts(2)
@@ -537,20 +585,25 @@ func TestSupervisorUnresponsiveShutdown(t *testing.T) {
 }
 
 // backoffWant is the delay before a launch after retries delays, with the
-// spread that the jitter value r gives.
+// spread that the jitter value r gives to every delay but the first.
 func backoffWant(retries int, r float64) time.Duration {
+	if retries == 0 {
+		return time.Second
+	}
 	d := math.Min(float64(time.Second)*math.Pow(1.6, float64(retries)), float64(120*time.Second))
 	return time.Duration(math.Min(d*(1+0.2*(2*r-1)), float64(120*time.Second)))
 }
 
 // TestSupervisorRestartBackoff checks the delays between launches on the
-// fake clock: launches that fail wait 1 s, then 1.6 times the delay
-// before, at most 120 s, each spread by the jitter value; a generation
-// that served for 59 s does not start the delays again, and one that
-// served for 60 s does.
+// fake clock, with jitter values that spread each delay: launches that
+// fail wait 1 s, unspread, then 1.6 times the delay before, at most
+// 120 s, each spread by the jitter; a generation that served for 59 s
+// does not start the delays again, and one that served for 60 s does,
+// with an unspread 1 s.
 func TestSupervisorRestartBackoff(t *testing.T) {
-	// The kth delay's spread takes the jitter value jitters[k % 5].
-	jitters := []float64{0.5, 0, 0.999, 0.25, 0.75}
+	// The kth spread delay takes the jitter value jitters[k % 4]; none is
+	// 0.5, which would not spread it.
+	jitters := []float64{0, 0.999, 0.25, 0.75}
 	var mu sync.Mutex
 	calls := 0
 	f := superviseFault(t, nil, func(f *fault) {
@@ -563,13 +616,21 @@ func TestSupervisorRestartBackoff(t *testing.T) {
 		}
 	})
 	f.waitStarts(1)
-	k, retries := 0, 0
+	spread, retries := 0, 0
+	next := func() time.Duration {
+		if retries == 0 {
+			return backoffWant(0, 0)
+		}
+		return backoffWant(retries, jitters[spread%len(jitters)])
+	}
 	wait := func() {
 		t.Helper()
-		d := backoffWant(retries, jitters[k%len(jitters)])
+		d := next()
 		f.clock.waitPending(t, d)
 		f.clock.advance(d)
-		k++
+		if retries > 0 {
+			spread++
+		}
 		retries++
 	}
 	// 1 s, 1.6 s, … reach 120 s at the twelfth delay; three more stay there.
@@ -578,7 +639,9 @@ func TestSupervisorRestartBackoff(t *testing.T) {
 		f.waitStarts(i + 2)
 	}
 
-	// The next launch is admitted; it serves for 59 s on the fake clock.
+	// The sixteenth launch has failed once its delay is pending; only then
+	// may the next launch be admitted. It serves for 59 s on the fake clock.
+	f.clock.waitPending(t, next())
 	if err := os.Remove(f.file("fail")); err != nil {
 		t.Fatal(err)
 	}
@@ -597,18 +660,149 @@ func TestSupervisorRestartBackoff(t *testing.T) {
 	f.write("health-"+strconv.Itoa(pid), "NOT_SERVING")
 	f.waitReady(false)
 
-	// Served for 60 s: the delays start again from 1 s.
-	f.clock.waitPending(t, backoffWant(0, jitters[k%len(jitters)]))
+	// Served for 60 s: the next delay is 1 s, unspread.
+	f.clock.waitPending(t, time.Second)
+	mu.Lock()
+	defer mu.Unlock()
+	if calls != spread {
+		t.Errorf("the jitter was taken %d times, want %d, once for each delay but the first ones", calls, spread)
+	}
 }
 
 // TestSupervisorDrainBound checks the drain of a withdrawn generation: its
-// call in flight goes on until the drain timeout plus the close grace, 75 s
-// by default, and then the supervisor stops the engine, which ends the
-// call with ErrOutcomeUnknown.
+// call in flight goes on until the drain timeout plus the close grace,
+// and then the supervisor stops the engine, which ends the call with
+// ErrOutcomeUnknown. The bound is 75 s by default, 15 s for a drain
+// timeout of 0, and the longest duration when the sum would overflow.
 func TestSupervisorDrainBound(t *testing.T) {
+	longest := time.Duration(math.MaxInt64)
+	for _, c := range []struct {
+		name  string
+		drain *time.Duration
+		bound time.Duration
+	}{
+		{"default", nil, 75 * time.Second},
+		{"zero", new(time.Duration), 15 * time.Second},
+		{"overflowing", func() *time.Duration { d := longest - time.Second; return &d }(), longest},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := superviseFault(t, map[string]any{"hold_runs": true}, nil, func(sc *SupervisorConfig) { sc.DrainTimeout = c.drain })
+			f.waitReady(true)
+			first := f.waitStarts(1)
+			type answer struct {
+				pid int
+				err error
+			}
+			inFlight := make(chan answer, 1)
+			go func() {
+				pid, err := f.callPid(5 * time.Minute)
+				inFlight <- answer{pid, err}
+			}()
+			f.waitFile("run-" + strconv.Itoa(first))
+
+			f.write("health-"+strconv.Itoa(first), "NOT_SERVING")
+			f.waitReady(false)
+			f.clock.waitPending(t, c.bound)
+			f.clock.advance(c.bound - time.Millisecond)
+			time.Sleep(200 * time.Millisecond)
+			select {
+			case a := <-inFlight:
+				t.Fatalf("the call in flight ended (%d, %v) before the drain's bound", a.pid, a.err)
+			default:
+			}
+			if !alive(first) {
+				t.Fatal("the engine's process is gone before the drain's bound")
+			}
+			if c.bound == longest {
+				// No clock moves this far: the call's own end ends the drain.
+				f.write("release", "")
+				if a := <-inFlight; a.err != nil {
+					t.Errorf("the released call = (%d, %v), want success", a.pid, a.err)
+				}
+				waitGoneProcess(t, first)
+				return
+			}
+
+			f.clock.advance(time.Millisecond)
+			select {
+			case a := <-inFlight:
+				if !errors.Is(a.err, ErrOutcomeUnknown) {
+					t.Errorf("the call in flight = (%d, %v), want ErrOutcomeUnknown", a.pid, a.err)
+				}
+			case <-time.After(30 * time.Second):
+				t.Fatal("the call in flight did not end within 30 s of the drain's bound")
+			}
+			waitGoneProcess(t, first)
+		})
+	}
+}
+
+// readMS reads a deadline that the fake engine wrote, in milliseconds.
+func (f *fault) readMS(name string) int64 {
+	f.t.Helper()
+	b, err := os.ReadFile(f.file(name))
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	ms, err := strconv.ParseInt(string(b), 10, 64)
+	if err != nil {
+		f.t.Fatalf("%s holds %q, not a deadline", name, b)
+	}
+	return ms
+}
+
+// TestSupervisorAdmissionDeadlines checks that each call of an admission
+// has a deadline within what is left of its 30 s: a health check's is at
+// most the 1 s health timeout, and once 29.5 s have passed on the fake
+// clock, a health check and GetBuildInfo each get at most 0.5 s.
+func TestSupervisorAdmissionDeadlines(t *testing.T) {
+	f := superviseFault(t, nil, func(f *fault) { f.write("health", "NOT_SERVING") })
+	pid := strconv.Itoa(f.waitStarts(1))
+	f.waitFile("answered-NOT_SERVING-" + pid)
+	if ms := f.readMS("deadline-check-" + pid); ms <= 500 || ms > 1000 {
+		t.Errorf("a health check at the admission's start had %d ms left, want at most the 1 s health timeout", ms)
+	}
+
+	f.clock.advance(29500 * time.Millisecond)
+	// Checks run one at a time: once one has at most 0.5 s, so do the next.
+	for until := time.Now().Add(30 * time.Second); f.readMS("deadline-check-"+pid) > 500; time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(until) {
+			t.Fatalf("after 29.5 s, health checks still have %d ms left, want at most 500", f.readMS("deadline-check-"+pid))
+		}
+	}
+	if err := os.Remove(f.file("health")); err != nil {
+		t.Fatal(err)
+	}
+	f.waitReady(true)
+	if ms := f.readMS("deadline-check-" + pid); ms <= 0 || ms > 500 {
+		t.Errorf("the health check that answered SERVING had %d ms left, want at most 500", ms)
+	}
+	if b, err := os.ReadFile(f.file("deadline-buildinfo-" + pid)); err != nil || string(b) == "none" {
+		t.Fatalf("GetBuildInfo's deadline: %q, %v; want one", b, err)
+	}
+	if ms := f.readMS("deadline-buildinfo-" + pid); ms <= 0 || ms > 500 {
+		t.Errorf("GetBuildInfo had %d ms left, want at most 500", ms)
+	}
+}
+
+// TestSupervisorCallContexts checks Call's two cut-offs: a call whose
+// context has ended calls no function, though a generation serves, and
+// returns ErrNotServing with the context's cause; and as soon as the
+// context of Run has ended, Ready is false and a call returns
+// ErrSupervisorStopped, while Run still drains a call in flight, which
+// then completes.
+func TestSupervisorCallContexts(t *testing.T) {
 	f := superviseFault(t, map[string]any{"hold_runs": true}, nil)
 	f.waitReady(true)
 	first := f.waitStarts(1)
+	ended, cancel := context.WithCancel(context.Background())
+	cancel()
+	called := false
+	err := f.sup.Call(ended, func(*Client) error { called = true; return nil })
+	if called || !errors.Is(err, ErrNotServing) || !errors.Is(err, context.Canceled) {
+		t.Errorf("Call with an ended context = %v (function called: %v), want ErrNotServing and context.Canceled, no call", err, called)
+	}
+
 	type answer struct {
 		pid int
 		err error
@@ -619,31 +813,104 @@ func TestSupervisorDrainBound(t *testing.T) {
 		inFlight <- answer{pid, err}
 	}()
 	f.waitFile("run-" + strconv.Itoa(first))
+	f.stop()
+	if f.sup.Ready() {
+		t.Error("Ready right after the context of Run ended")
+	}
+	err = f.sup.Call(context.Background(), func(*Client) error { called = true; return nil })
+	if called || !errors.Is(err, ErrSupervisorStopped) {
+		t.Errorf("Call right after the context of Run ended = %v (function called: %v), want ErrSupervisorStopped", err, called)
+	}
+	select {
+	case <-f.done:
+		t.Fatal("Run returned with a call in flight")
+	default:
+	}
+	f.write("release", "")
+	if a := <-inFlight; a.err != nil || a.pid != first {
+		t.Errorf("the call in flight = (%d, %v), want it answered by the process %d", a.pid, a.err, first)
+	}
+}
+
+// TestSupervisorStopsLaunchAndCheck checks that the end of Run's context
+// ends a launch whose engine withholds its handshake, and a health check
+// that the engine never answers, though go-plugin's start timeout and the
+// health timeout are 10 minutes: Run returns, and the engine's process
+// has gone.
+func TestSupervisorStopsLaunchAndCheck(t *testing.T) {
+	ended := func(t *testing.T, f *fault, pid int) {
+		t.Helper()
+		f.stop()
+		select {
+		case err := <-f.done:
+			f.done <- err
+		case <-time.After(30 * time.Second):
+			t.Fatal("Run did not return within 30 s of its context's end")
+		}
+		waitGoneProcess(t, pid)
+	}
+	t.Run("handshake", func(t *testing.T) {
+		f := superviseFault(t, map[string]any{"hold_handshake": true}, nil, func(sc *SupervisorConfig) {
+			sc.Launch.StartTimeout = 10 * time.Minute
+		})
+		pid := f.waitStarts(1)
+		time.Sleep(200 * time.Millisecond)
+		ended(t, f, pid)
+	})
+	t.Run("health check", func(t *testing.T) {
+		f := superviseFault(t, nil, nil, func(sc *SupervisorConfig) { sc.HealthTimeout = 10 * time.Minute })
+		f.waitReady(true)
+		pid := f.waitStarts(1)
+		f.write("health-"+strconv.Itoa(pid), "STALL")
+		f.waitFile("stalled-" + strconv.Itoa(pid))
+		ended(t, f, pid)
+	})
+}
+
+// TestSupervisorReapsWithDescendant checks that the reap of the engine does
+// not wait for its output pipes: the fake engine starts a process that
+// holds them open, as a wedged harness process could. Once the generation
+// is withdrawn and stopped, the engine's process is reaped while that
+// process still runs, and the next generation starts and serves.
+func TestSupervisorReapsWithDescendant(t *testing.T) {
+	f := superviseFault(t, map[string]any{"descendant": true}, nil)
+	t.Cleanup(func() { f.write("descendant-stop", "") })
+	f.waitReady(true)
+	first := f.waitStarts(1)
+	f.waitFile("descendant-" + strconv.Itoa(first))
+	desc := int(f.readMS("descendant-" + strconv.Itoa(first)))
 
 	f.write("health-"+strconv.Itoa(first), "NOT_SERVING")
 	f.waitReady(false)
-	f.clock.waitPending(t, 75*time.Second)
-	f.clock.advance(75*time.Second - time.Millisecond)
-	time.Sleep(200 * time.Millisecond)
-	select {
-	case a := <-inFlight:
-		t.Fatalf("the call in flight ended (%d, %v) before the drain's bound", a.pid, a.err)
-	default:
-	}
-	if !alive(first) {
-		t.Fatal("the engine's process is gone before the drain's bound")
-	}
-
-	f.clock.advance(time.Millisecond)
-	select {
-	case a := <-inFlight:
-		if !errors.Is(a.err, ErrOutcomeUnknown) {
-			t.Errorf("the call in flight = (%d, %v), want ErrOutcomeUnknown", a.pid, a.err)
-		}
-	case <-time.After(30 * time.Second):
-		t.Fatal("the call in flight did not end within 30 s of the drain's bound")
-	}
 	waitGoneProcess(t, first)
+	if !alive(desc) {
+		t.Fatal("the process that holds the pipes has gone; the test needs it")
+	}
+	f.clock.waitPending(t, time.Second)
+	f.clock.advance(time.Second)
+	f.waitReady(true)
+	f.waitStarts(2)
+	if !alive(desc) {
+		t.Fatal("the process that holds the pipes has gone before the next generation served")
+	}
+}
+
+// TestSupervisorKeepsLaunchCopy checks that NewSupervisor keeps a copy of
+// Launch.Env: an entry that the host changes after NewSupervisor does not
+// reach the engine.
+func TestSupervisorKeepsLaunchCopy(t *testing.T) {
+	env := []string{"PROBE=before"}
+	f := superviseFault(t, nil, func(*fault) { env[0] = "PROBE=after" }, func(sc *SupervisorConfig) { sc.Launch.Env = env })
+	pid := strconv.Itoa(f.waitStarts(1))
+	f.waitFile("env-" + pid)
+	b, err := os.ReadFile(f.file("env-" + pid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	vars := strings.Split(string(b), "\n")
+	if !slices.Contains(vars, "PROBE=before") || slices.Contains(vars, "PROBE=after") {
+		t.Errorf("the engine's environment is %q, want PROBE=before, as at NewSupervisor", vars)
+	}
 }
 
 // TestSupervisorConfigRefusals checks what NewSupervisor refuses, and that
@@ -669,7 +936,7 @@ func TestSupervisorConfigRefusals(t *testing.T) {
 		{"a negative admission timeout", func(c *SupervisorConfig) { c.AdmissionTimeout = -1 }, "AdmissionTimeout"},
 		{"a negative health interval", func(c *SupervisorConfig) { c.HealthInterval = -1 }, "HealthInterval"},
 		{"a negative health timeout", func(c *SupervisorConfig) { c.HealthTimeout = -1 }, "HealthTimeout"},
-		{"a negative drain timeout", func(c *SupervisorConfig) { c.DrainTimeout = -1 }, "DrainTimeout"},
+		{"a negative drain timeout", func(c *SupervisorConfig) { d := time.Duration(-1); c.DrainTimeout = &d }, "DrainTimeout"},
 		{"a negative close grace", func(c *SupervisorConfig) { c.CloseGrace = -1 }, "CloseGrace"},
 		{"a negative stop timeout", func(c *SupervisorConfig) { c.StopTimeout = -1 }, "StopTimeout"},
 	} {

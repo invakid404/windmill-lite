@@ -123,6 +123,8 @@ func Example() {
 // engine of a release under a Supervisor until ctx ends, and runs a flow on
 // the generation that serves.
 func superviseAndRun(ctx context.Context, want release) error {
+	// The configuration's drain_timeout_ms.
+	drain := 30 * time.Second
 	sup, err := plugin.NewSupervisor(plugin.SupervisorConfig{
 		Launch: plugin.Launch{
 			Path:   "/opt/windmill-lite/windmill-lite",
@@ -137,8 +139,7 @@ func superviseAndRun(ctx context.Context, want release) error {
 			ConfigDigest:  want.ConfigDigest,
 			Labels:        want.Labels,
 		},
-		// The configuration's drain_timeout_ms.
-		DrainTimeout: 30 * time.Second,
+		DrainTimeout: &drain,
 	})
 	if err != nil {
 		return err

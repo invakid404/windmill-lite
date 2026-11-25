@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"math/rand/v2"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,9 +32,10 @@ const (
 
 // The restart backoff is gRPC's connection backoff: the first delay is
 // backoffBase, each further delay is backoffMultiplier times the one
-// before, at most backoffMax, and each is spread by up to backoffJitter of
-// itself either way, still at most backoffMax. A generation that served
-// for backoffReset or longer starts the delays again from backoffBase.
+// before, at most backoffMax, and each delay but the first is spread by up
+// to backoffJitter of itself either way, still at most backoffMax. A
+// generation that served for backoffReset or longer starts the delays
+// again from backoffBase.
 const (
 	backoffBase       = time.Second
 	backoffMultiplier = 1.6
@@ -50,9 +53,10 @@ const admissionPoll = 100 * time.Millisecond
 // the pinned one within the admission timeout.
 var ErrNotAdmitted = errors.New("wl/plugin: the engine was not admitted")
 
-// ErrNotServing is the error of a Call whose context ended while no
-// generation served. It does not start fn, so the host may retry. When a
-// launch had failed, the error wraps that launch's error too.
+// ErrNotServing is the error of a Call whose context ended before a
+// generation served the call: while no generation served, or before Call
+// was made. It does not start fn, so the host may retry. When a launch had
+// failed, the error wraps that launch's error too.
 var ErrNotServing = errors.New("wl/plugin: no generation of the engine serves")
 
 // ErrSupervisorStopped is the error of a Call made once the context of
@@ -97,7 +101,7 @@ func (id *PinnedIdentity) mismatch(info *BuildInfo) error {
 }
 
 // SupervisorConfig is what NewSupervisor needs. A zero duration means its
-// default.
+// default, except for DrainTimeout, which is nil for its default.
 type SupervisorConfig struct {
 	// Launch is the engine's launch, which each generation makes with its
 	// own ClientConfig. Its Logger also receives the supervisor's log.
@@ -115,9 +119,10 @@ type SupervisorConfig struct {
 	// HealthTimeout bounds each health check. Default 1 s.
 	HealthTimeout time.Duration
 	// DrainTimeout is the engine's drain_timeout_ms: how long a withdrawn
-	// generation's calls in flight may go on, before CloseGrace. Default
-	// 1 minute, the engine's default.
-	DrainTimeout time.Duration
+	// generation's calls in flight may go on, before CloseGrace. Nil means
+	// 1 minute, the engine's default when its configuration has no
+	// drain_timeout_ms; a configuration's 0 is a DrainTimeout of 0.
+	DrainTimeout *time.Duration
 	// CloseGrace is the time after DrainTimeout that the engine has to
 	// close its runtime, which cancels the runs left, and answer their
 	// calls. Default 15 s.
@@ -145,6 +150,9 @@ type Supervisor struct {
 	clock   clock
 	jitter  func() float64
 	running atomic.Bool
+	// drainBound is DrainTimeout plus CloseGrace, at most the longest
+	// time.Duration.
+	drainBound time.Duration
 
 	mu sync.Mutex
 	// serving is the generation that takes new calls, or nil.
@@ -153,6 +161,9 @@ type Supervisor struct {
 	// supervisor stops.
 	wake    chan struct{}
 	stopped bool
+	// runCtx is the context of Run, once Run has been called. Once it has
+	// ended, Call and Ready see the supervisor stopped at once.
+	runCtx context.Context
 	// last is the error of the last launch that failed, until a generation
 	// is admitted.
 	last error
@@ -190,8 +201,14 @@ func (realClock) AfterFunc(d time.Duration, f func()) func() bool {
 }
 
 // NewSupervisor returns a Supervisor of cfg, which starts the engine once
-// Run is called. It refuses a Launch that ClientConfig refuses, an Identity
-// with an empty string field and a negative duration.
+// Run is called. It refuses a Launch without Path or Config, with a SHA256
+// that is not a SHA-256 in hexadecimal or with a negative MaxMessageBytes
+// or ReplyMargin, as ClientConfig does; an Identity with an empty string
+// field; and a negative duration of SupervisorConfig. What ClientConfig
+// finds only when it creates a launch's base directory, such as a TempDir
+// that does not exist, fails each launch instead, which Run records and
+// retries after the backoff. NewSupervisor keeps copies of Launch.Env and
+// Identity.Labels.
 func NewSupervisor(cfg SupervisorConfig) (*Supervisor, error) {
 	if _, err := cfg.Launch.check(); err != nil {
 		return nil, err
@@ -208,6 +225,7 @@ func NewSupervisor(cfg SupervisorConfig) (*Supervisor, error) {
 		}
 	}
 	cfg.Identity.Labels = maps.Clone(id.Labels)
+	cfg.Launch.Env = slices.Clone(cfg.Launch.Env)
 	for _, d := range []struct {
 		name string
 		v    *time.Duration
@@ -216,7 +234,6 @@ func NewSupervisor(cfg SupervisorConfig) (*Supervisor, error) {
 		{"AdmissionTimeout", &cfg.AdmissionTimeout, defaultAdmissionTimeout},
 		{"HealthInterval", &cfg.HealthInterval, defaultHealthInterval},
 		{"HealthTimeout", &cfg.HealthTimeout, defaultHealthTimeout},
-		{"DrainTimeout", &cfg.DrainTimeout, defaultDrainTimeout},
 		{"CloseGrace", &cfg.CloseGrace, defaultCloseGrace},
 		{"StopTimeout", &cfg.StopTimeout, defaultStopTimeout},
 	} {
@@ -227,15 +244,29 @@ func NewSupervisor(cfg SupervisorConfig) (*Supervisor, error) {
 			*d.v = d.def
 		}
 	}
+	drain := defaultDrainTimeout
+	if cfg.DrainTimeout != nil {
+		if drain = *cfg.DrainTimeout; drain < 0 {
+			return nil, fmt.Errorf("wl/plugin: negative SupervisorConfig.DrainTimeout %v", drain)
+		}
+		cfg.DrainTimeout = &drain
+	}
+	// The sum saturates: a drain_timeout_ms near the longest duration that
+	// the engine takes would wrap it negative.
+	bound := time.Duration(math.MaxInt64)
+	if drain <= bound-cfg.CloseGrace {
+		bound = drain + cfg.CloseGrace
+	}
 	if cfg.Launch.Logger == nil {
 		cfg.Launch.Logger = hclog.New(&hclog.LoggerOptions{Name: "plugin"})
 	}
 	return &Supervisor{
-		cfg:    cfg,
-		log:    cfg.Launch.Logger.Named("supervisor"),
-		clock:  realClock{},
-		jitter: rand.Float64,
-		wake:   make(chan struct{}),
+		cfg:        cfg,
+		log:        cfg.Launch.Logger.Named("supervisor"),
+		clock:      realClock{},
+		jitter:     rand.Float64,
+		drainBound: bound,
+		wake:       make(chan struct{}),
 	}, nil
 }
 
@@ -243,17 +274,20 @@ func NewSupervisor(cfg SupervisorConfig) (*Supervisor, error) {
 // once the last generation's process has exited. The first launch starts
 // at once. After a generation's process has exited, or its launch failed,
 // the next launch waits gRPC's connection backoff: 1 s, then 1.6 times
-// the delay before, at most 120 s, each spread by up to 20 % either way
-// and still at most 120 s. A generation that served for 60 s or more
-// starts the delays again from 1 s.
+// the delay before, at most 120 s, each but the first spread by up to
+// 20 % either way and still at most 120 s. A generation that served for
+// 60 s or more makes the next delay 1 s again.
 //
-// When ctx ends, Run withdraws the generation that serves, lets its calls
-// in flight go on for up to DrainTimeout plus CloseGrace, and stops it.
-// Run may be called once.
+// When ctx ends, Run ends a launch or a health check in progress, withdraws
+// the generation that serves, lets its calls in flight go on for up to
+// DrainTimeout plus CloseGrace, and stops it. Run may be called once.
 func (s *Supervisor) Run(ctx context.Context) error {
 	if !s.running.CompareAndSwap(false, true) {
 		return errors.New("wl/plugin: Supervisor.Run was called twice")
 	}
+	s.mu.Lock()
+	s.runCtx = ctx
+	s.mu.Unlock()
 	stopWaking := context.AfterFunc(ctx, s.markStopped)
 	defer func() {
 		stopWaking()
@@ -276,9 +310,11 @@ func (s *Supervisor) Run(ctx context.Context) error {
 
 // Call runs fn with the Client of the generation that serves, and returns
 // fn's error. While no generation serves, it waits for one until ctx ends,
-// and then returns ErrNotServing without calling fn. fn must not keep the
-// Client after it returns: the generation's process may be stopped once
-// it is withdrawn and its calls have ended.
+// and then returns ErrNotServing without calling fn; a ctx that has ended
+// already calls no fn either. Once the context of Run has ended, Call
+// returns ErrSupervisorStopped. fn must not keep the Client after it
+// returns: the generation's process may be stopped once it is withdrawn
+// and its calls have ended.
 //
 // A call can reach a generation that has begun to drain before a health
 // check has withdrawn it. The engine then refuses a run with ErrNotStarted,
@@ -286,9 +322,14 @@ func (s *Supervisor) Run(ctx context.Context) error {
 func (s *Supervisor) Call(ctx context.Context, fn func(*Client) error) error {
 	for {
 		s.mu.Lock()
-		if s.stopped {
+		if s.stoppedLocked() {
 			s.mu.Unlock()
 			return ErrSupervisorStopped
+		}
+		if ctx.Err() != nil {
+			err := s.notServingLocked(ctx)
+			s.mu.Unlock()
+			return err
 		}
 		if g := s.serving; g != nil {
 			g.calls++
@@ -297,19 +338,32 @@ func (s *Supervisor) Call(ctx context.Context, fn func(*Client) error) error {
 			return fn(g.runner)
 		}
 		wake := s.wake
+		var runDone <-chan struct{}
+		if s.runCtx != nil {
+			runDone = s.runCtx.Done()
+		}
 		s.mu.Unlock()
 		select {
 		case <-wake:
+		case <-runDone:
 		case <-ctx.Done():
-			s.mu.Lock()
-			last := s.last
-			s.mu.Unlock()
-			if last != nil {
-				return fmt.Errorf("%w: %w; the last launch failed: %w", ErrNotServing, context.Cause(ctx), last)
-			}
-			return fmt.Errorf("%w: %w", ErrNotServing, context.Cause(ctx))
 		}
 	}
+}
+
+// stoppedLocked reports whether the context of Run has ended. The caller
+// holds s.mu.
+func (s *Supervisor) stoppedLocked() bool {
+	return s.stopped || (s.runCtx != nil && s.runCtx.Err() != nil)
+}
+
+// notServingLocked is the error of a Call whose ctx has ended. The caller
+// holds s.mu.
+func (s *Supervisor) notServingLocked(ctx context.Context) error {
+	if s.last != nil {
+		return fmt.Errorf("%w: %w; the last launch failed: %w", ErrNotServing, context.Cause(ctx), s.last)
+	}
+	return fmt.Errorf("%w: %w", ErrNotServing, context.Cause(ctx))
 }
 
 // Ready reports whether a generation serves: one that admission accepted
@@ -318,7 +372,7 @@ func (s *Supervisor) Call(ctx context.Context, fn func(*Client) error) error {
 func (s *Supervisor) Ready() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.serving != nil && !s.stopped
+	return s.serving != nil && !s.stoppedLocked()
 }
 
 // markStopped makes new calls fail with ErrSupervisorStopped.
@@ -348,7 +402,11 @@ func (s *Supervisor) release(g *generation) {
 }
 
 // backoff returns the delay before the next launch after retries delays.
+// The first delay is not spread, as in gRPC's connection backoff.
 func (s *Supervisor) backoff(retries int) time.Duration {
+	if retries == 0 {
+		return backoffBase
+	}
 	d := float64(backoffBase)
 	for i := 0; i < retries && d < float64(backoffMax); i++ {
 		d *= backoffMultiplier
@@ -377,7 +435,7 @@ func (s *Supervisor) sleep(ctx context.Context, d time.Duration) bool {
 // calls in flight end and stops it. It returns how long the generation
 // served, 0 when it was not admitted, once its process has exited.
 func (s *Supervisor) generation(ctx context.Context, n int) time.Duration {
-	g, err := s.launch(n)
+	g, err := s.launch(ctx, n)
 	if err == nil {
 		err = s.admit(ctx, g)
 	}
@@ -402,16 +460,37 @@ func (s *Supervisor) generation(ctx context.Context, n int) time.Duration {
 	return served
 }
 
-// launch starts the nth generation's engine and connects to it. It
-// returns the generation also with an error, once the launch has a
-// configuration, so that the caller stops it.
-func (s *Supervisor) launch(n int) (*generation, error) {
-	cfg, cleanup, proc, err := clientConfig(s.cfg.Launch)
+// launch starts the nth generation's engine and connects to it. When ctx
+// ends first, it aborts the launch: the engine does not start, or gets
+// SIGKILL, which ends go-plugin's wait for its handshake. It returns the
+// generation also with an error, once the launch has a configuration, so
+// that the caller stops it.
+func (s *Supervisor) launch(ctx context.Context, n int) (*generation, error) {
+	cfg, cleanup, proc, err := clientConfig(s.cfg.Launch, true)
 	if err != nil {
 		return nil, err
 	}
 	g := &generation{n: n, client: goplugin.NewClient(cfg), cleanup: cleanup, proc: proc, idle: make(chan struct{})}
-	rpc, err := g.client.Client()
+	type connection struct {
+		rpc goplugin.ClientProtocol
+		err error
+	}
+	connected := make(chan connection, 1)
+	go func() {
+		rpc, err := g.client.Client()
+		connected <- connection{rpc, err}
+	}()
+	var conn connection
+	select {
+	case conn = <-connected:
+	case <-ctx.Done():
+		proc.abort()
+		conn = <-connected
+		if conn.err == nil {
+			conn.err = context.Cause(ctx)
+		}
+	}
+	rpc, err := conn.rpc, conn.err
 	if err != nil {
 		return g, fmt.Errorf("start the engine: %w", err)
 	}
@@ -428,18 +507,23 @@ func (s *Supervisor) launch(n int) (*generation, error) {
 	return g, nil
 }
 
-// admit admits g within the admission timeout: health SERVING, each check
-// bounded by HealthTimeout, then a BuildInfo equal to the pinned identity.
+// admit admits g within the admission timeout: health SERVING, then a
+// BuildInfo equal to the pinned identity. Each call has a deadline within
+// what is left of the timeout: a health check's is at most HealthTimeout.
 func (s *Supervisor) admit(ctx context.Context, g *generation) error {
 	actx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
+	start := s.clock.Now()
 	stop := s.clock.AfterFunc(s.cfg.AdmissionTimeout, func() { cancel(errAdmissionTimeout) })
 	defer stop()
+	left := func() time.Duration {
+		return s.cfg.AdmissionTimeout - s.clock.Now().Sub(start)
+	}
 	exited := g.proc.exited()
 	poll := time.NewTimer(admissionPoll)
 	defer poll.Stop()
 	for {
-		st, err := s.check(actx, g)
+		st, err := s.check(actx, g, min(s.cfg.HealthTimeout, left()))
 		if err == nil && st == healthpb.HealthCheckResponse_SERVING {
 			break
 		}
@@ -452,7 +536,9 @@ func (s *Supervisor) admit(ctx context.Context, g *generation) error {
 			poll.Reset(admissionPoll)
 		}
 	}
-	info, err := g.runner.BuildInfo(actx)
+	bctx, bcancel := context.WithTimeout(actx, left())
+	info, err := g.runner.BuildInfo(bctx)
+	bcancel()
 	if err != nil {
 		if actx.Err() != nil {
 			err = context.Cause(actx)
@@ -465,16 +551,17 @@ func (s *Supervisor) admit(ctx context.Context, g *generation) error {
 	return nil
 }
 
-// check returns the health of g's engine, within HealthTimeout.
-func (s *Supervisor) check(ctx context.Context, g *generation) (healthpb.HealthCheckResponse_ServingStatus, error) {
-	cctx, cancel := context.WithTimeout(ctx, s.cfg.HealthTimeout)
+// check returns the health of g's engine, with the deadline d from now.
+func (s *Supervisor) check(ctx context.Context, g *generation, d time.Duration) (healthpb.HealthCheckResponse_ServingStatus, error) {
+	cctx, cancel := context.WithTimeout(ctx, d)
 	defer cancel()
 	return g.runner.Health(cctx)
 }
 
 // watch checks g's health every HealthInterval, one check at a time, and
 // returns why g is withdrawn: the first check that does not answer
-// SERVING, the exit of its process, or the end of ctx.
+// SERVING, the exit of its process, or the end of ctx, which also ends a
+// check in progress.
 func (s *Supervisor) watch(ctx context.Context, g *generation) string {
 	exited := g.proc.exited()
 	tick := time.NewTicker(s.cfg.HealthInterval)
@@ -487,8 +574,10 @@ func (s *Supervisor) watch(ctx context.Context, g *generation) string {
 			return "the engine exited"
 		case <-tick.C:
 		}
-		st, err := s.check(context.Background(), g)
+		st, err := s.check(ctx, g, s.cfg.HealthTimeout)
 		switch {
+		case ctx.Err() != nil:
+			return "the supervisor stops"
 		case err != nil:
 			return fmt.Sprintf("the health check failed: %v", err)
 		case st != healthpb.HealthCheckResponse_SERVING:
@@ -516,7 +605,7 @@ func (s *Supervisor) withdraw(g *generation, why string) {
 // CloseGrace.
 func (s *Supervisor) drain(g *generation) {
 	fired := make(chan struct{})
-	stop := s.clock.AfterFunc(s.cfg.DrainTimeout+s.cfg.CloseGrace, func() { close(fired) })
+	stop := s.clock.AfterFunc(s.drainBound, func() { close(fired) })
 	defer stop()
 	select {
 	case <-g.idle:

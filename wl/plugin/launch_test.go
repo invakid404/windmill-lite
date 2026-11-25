@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
 	"os"
@@ -725,6 +726,36 @@ func TestClientConfigRelativeTempDir(t *testing.T) {
 	checkGone(t, "the base directory", base)
 	checkEmpty(t, "the relative TempDir", filepath.Join(first, "rel"))
 	checkEmpty(t, "the working directory during the launch", second)
+}
+
+// TestClientConfigRunnerWaitTwice runs the runner of ClientConfig's
+// configuration directly: a second Wait returns an error, as exec.Cmd's
+// does, and does not panic.
+func TestClientConfigRunnerWaitTwice(t *testing.T) {
+	buildPlugins(t)
+	cfg, cleanup, err := ClientConfig(Launch{Path: testPlugins.v1, SHA256: testPlugins.sum1, Config: writeConfig(t, pluginConfig{}), Logger: quiet})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	socketDir := filepath.Join(cfg.UnixSocketConfig.TempDir, "plugin-dir")
+	if err := os.Mkdir(socketDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	r, err := cfg.RunnerFunc(quiet, exec.Command(testPlugins.v1), socketDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Without go-plugin's handshake variables, the plugin exits at once.
+	if err := r.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	go io.Copy(io.Discard, r.Stdout())
+	go io.Copy(io.Discard, r.Stderr())
+	r.Wait(context.Background())
+	if err := r.Wait(context.Background()); err == nil {
+		t.Error("a second Wait returned nil, want exec's error")
+	}
 }
 
 // TestClientConfigRefusals checks the Launch fields that ClientConfig
