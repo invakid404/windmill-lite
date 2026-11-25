@@ -19,6 +19,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/ir"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 	"github.com/invakid404/windmill-lite/internal/platform"
+	"github.com/invakid404/windmill-lite/internal/wlext"
 )
 
 // Host plugins (ADR 0008): hooks written in TypeScript and
@@ -726,12 +727,23 @@ func both(a, b func(context.Context, RunHandle, Site) error) func(context.Contex
 // or variables (H13): the run's own providers first (RunOptions.Platform),
 // then the plugin's, then the runtime's. own is the run's own store, or
 // nil.
-func (rt *Runtime) pluginServices(run *runBinding, own *platform.Store, resolvers []platform.ValueResolver) *platform.Services {
+func (rt *Runtime) pluginServices(run *runBinding, own *platform.Store, resolvers []platform.ValueResolver, bp *plugin) *platform.Services {
 	p := rt.plugin.Load()
 	var res platform.ResourceChain
 	var vars platform.VariableChain
 	if own != nil {
 		res, vars = append(res, own), append(vars, own)
+	}
+	if bp != nil {
+		// The run's hooks on a host's connection answer before the host
+		// plugin.
+		br, bv := bp.platform(run)
+		if br != nil {
+			res = append(res, br)
+		}
+		if bv != nil {
+			vars = append(vars, bv)
+		}
 	}
 	if p != nil {
 		pr, pv := p.platform(run)
@@ -749,6 +761,58 @@ func (rt *Runtime) pluginServices(run *runBinding, own *platform.Store, resolver
 		return rt.services.WithProviders(platform.Providers{Resources: c, Variables: c, Resolvers: resolvers})
 	}
 	return rt.services.WithProviders(platform.Providers{Resources: res, Variables: vars, Resolvers: resolvers})
+}
+
+// brokerPluginKey is the context key of a run's hooks on a host's
+// connection, as brokerPlugin builds them.
+type brokerPluginKey struct{}
+
+// brokerPlugin builds the run's hooks on a host's connection that ctx
+// carries (wlext.WithRunHooks), nil for none: a host plugin of the run
+// alone, whose calls go to the host. It refuses around, which only a host
+// plugin in the harness process runs.
+func (rt *Runtime) brokerPlugin(ctx context.Context) (*plugin, error) {
+	rh, ok := wlext.RunHooksOf(ctx)
+	if !ok {
+		return nil, nil
+	}
+	call := func(ctx context.Context, hook, run, site string, payload jsonval.Value) (jsonval.Value, error) {
+		ans, err := rh.Call(ctx, hook, run, site, payload.Producer())
+		if err != nil {
+			return jsonval.Value{}, err
+		}
+		return jsonval.FromProducer(ans), nil
+	}
+	if !json.Valid(rh.Declaration) {
+		return nil, errors.New("wl: the run's hooks: a declaration that is not JSON")
+	}
+	p, err := newPlugin(jsonval.FromProducer(rh.Declaration), rt.prog, call, rt.pluginTimeout, rt.pluginDiag)
+	if err != nil {
+		return nil, fmt.Errorf("wl: the run's hooks: %w", err)
+	}
+	if len(p.decl.Around) > 0 {
+		return nil, errors.New("wl: the run's hooks declare around, which only a host plugin in the harness process runs")
+	}
+	return p, nil
+}
+
+// brokerProvider is the named provider name answered by the hooks of the
+// run that reaches it (wlext.BrokerProviders); one whose hooks do not
+// serve it latches there.
+func brokerProvider(name string) Provider {
+	return func(ctx context.Context, c Call) (Outcome, bool, error) {
+		bp, _ := ctx.Value(brokerPluginKey{}).(*plugin)
+		if bp == nil || bp.providers[name] == nil {
+			return Outcome{}, false, fmt.Errorf("wl: the provider %q is answered by the run's hooks, and this run's hooks do not serve it", name)
+		}
+		return bp.providers[name](ctx, c)
+	}
+}
+
+// answersPlatform reports whether p, a run's hooks, answers resources or
+// variables; false for nil.
+func (p *plugin) answersPlatform() bool {
+	return p != nil && (p.decl.Resource || p.decl.Variable)
 }
 
 // answersPlatform reports whether the runtime's plugin answers resources

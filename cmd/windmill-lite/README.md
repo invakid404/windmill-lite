@@ -4,7 +4,7 @@
 [bundles](../../docs/glossary.md#bundle), checks that its expression engine
 starts, serves [host mode](../../docs/glossary.md#host-mode) for a host,
 and prints its version. It serves a bundle to a Go host as a go-plugin
-plugin, without the host's hooks on go-plugin's broker yet. The planned subcommands
+plugin, with the runs' hooks that the host answers on go-plugin's broker. The planned subcommands
 that serve a bundle over the network (`serve`), pack it (`pack`, `image`)
 or generate clients (`gen`) do not exist yet.
 
@@ -419,6 +419,10 @@ the engine drains.
   engine serves. It writes the reason to standard error. Health answers
   `NOT_SERVING`, and a new `Run` answers `UNAVAILABLE` (`draining`) with
   the `RUN_NOT_STARTED` detail.
+- **The token bound.** The engine also drains once it keeps 65,536 tokens
+  that `GetRun` answered `gone` for, so that no engine that still takes
+  runs forgets one
+  ([internal/host](../../internal/host/README.md#a-runs-hooks-on-the-broker)).
 - **The end of a drain.** The `Run` calls in flight, then the runs that
   steps dispatched, go on for up to `drain_timeout_ms` in all. The engine
   then closes the runtime: a `Run` call's run left ends `canceled` with
@@ -456,8 +460,8 @@ whose digest passed.
 | `variables` | An object of variables by path | None | The host's variables: each `value` or `value_env`, and `is_secret` and `encrypted` ([Secrets by reference](#secrets-by-reference)) |
 | `resource_store` | `{"kind": "memory"}`, or `{"kind": "redis", "url_env", "prefix", "allow_eviction"}` | `memory` | The store of the resources that steps write, as `run`'s `-resource-store` and its Redis flags |
 | `identity` | An object of optional strings | windmill-lite's placeholders | The job identity, as `host -identity` takes it |
-| `providers` | An object of `{"value": <JSON>}` by provider name | None | A static answer for each named [provider](../../docs/glossary.md#provider) of the host contract |
-| `plugin_timeout_ms` | A number from 1 to 9,223,372,036,854 | 60000 | How long a call to the bundle's host plugin waits for its reply |
+| `providers` | An object of `{"value": <JSON>}` or `"broker"` by provider name | None | A static answer for each named [provider](../../docs/glossary.md#provider) of the host contract, or `broker`: the hooks of the run that reaches it answer |
+| `plugin_timeout_ms` | A number from 1 to 9,223,372,036,854 | 60000 | How long a call to the bundle's host plugin, or to a run's hooks on the broker, waits for its reply |
 | `read_cache` | `true` or `false` | `false` | As `host -read-cache` |
 | `pool` | An object of `min`, `max`, `cap`, `lag_threshold_ms`, `recycle_timeout_ms`, `recycle` (`rss`, `samples`, `modules`), `max_live`, `pin_runs` and `warm_start` | One process, no cap | A warm runtime's pool (`Pool` in [wl](../../wl/README.md#options)), with its bound on live processes (`MaxLive`) and pinned runs for every run (`PinRuns`). Its two settings in milliseconds lie between −9,223,372,036,854 and 9,223,372,036,854, which a duration holds |
 | `result_polls_for_all_jobs` | `true` or `false` | `false` | As `host -result-polls-for-all-jobs` |
@@ -468,8 +472,10 @@ whose digest passed.
 | `engine_recycle_rss` | A number of bytes, 0 or more | 0: off | The engine's own resident set at which it drains, read on Linux from `/proc/self/status` (`VmRSS`) and on macOS with `task_info` (its current, not its peak, resident size) |
 | `drain_timeout_ms` | A number from 0 to 9,223,372,036,854 | 60000 | How long a drain lets the `Run` calls in flight go on |
 
-A provider set to `"broker"` is not served yet: it refuses the start,
-naming the provider.
+A provider set to `"broker"` is answered by the hooks of the run that
+reaches it, on go-plugin's broker, and a run whose hooks do not serve it
+latches there. One that the bundle's host plugin also declares refuses the
+start, naming the provider.
 
 ### Secrets by reference
 
@@ -589,7 +595,7 @@ gives the setup.
 | `runcmd_test.go` | `run`'s usage errors, which exit with status 2. Arguments, a bundle or a profile file that do not open exit with status 1, and print nothing on standard output. A synthetic folder's flow, run `warm` and `fresh`, reads a host's secret through its arguments. A run that succeeds exits 0 with its result, trace and CPU profile, a run that fails exits 1, and a run without the harness runtime does not start. |
 | `runcmd_test.go`, the resource store | On `-resource-store memory`, each run starts without the state the last one wrote. An unknown store, `redis` without `WL_REDIS_URL`, an unreachable Redis or Sentinel, and URLs that do not parse do not start; each runs in an engine process of its own, whose whole standard error holds no password. With `WL_TEST_REDIS_URL` ([wl/redisstore](../../wl/redisstore/README.md#tests)), two engine processes on one Redis share the state: the second's create is refused as taken, and it reads the first's value. |
 | `host_test.go`, `argsfile_test.go`, `readcache_test.go`, `tracedetail_test.go`, `foreign_test.go`, `resultpolls_test.go` | Host mode end to end, on the Bun host `testdata/host/host.ts` ([Host-mode tests](#host-mode-tests)) |
-| `plugin_test.go`, `runoptions_test.go`, `drain_test.go` | `plugin` end to end, through `wl/plugin` ([Plugin tests](#plugin-tests)) |
+| `plugin_test.go`, `runoptions_test.go`, `drain_test.go`, `broker_test.go` | `plugin` end to end, through `wl/plugin` ([Plugin tests](#plugin-tests)) |
 | `memory_test.go` | What `warm` step modules cost a host process ([Memory tests](#memory-tests)) |
 | `realm_test.go` | What native invocations leave in a long-lived Bun process ([Native realm tests](#native-realm-tests)) |
 | `retain_test.go` | `TestSettledRunLetsGoOfItsValuesOnHosts`: on the plain host and on the plugin host, a run's step results are unreachable once the run has settled, while the runtime and its host go on |
@@ -681,7 +687,7 @@ How these tests run:
 
 ### Plugin tests
 
-`plugin_test.go` and `runoptions_test.go` launch the test binary as the engine through
+`plugin_test.go`, `runoptions_test.go` and `broker_test.go` launch the test binary as the engine through
 `wl/plugin`'s `ClientConfig`, with its SHA-256 and a literal environment
 in which `WL_TEST_ENGINE` is `1`, and calls it through `plugin.Client`
 over go-plugin's connection. `supervisor_test.go` runs `wl/plugin`'s
@@ -703,7 +709,8 @@ names, and so sees its exit status and can signal it.
 | `TestPluginHealthMethods` | `Check` and `List` answer the engine's state for the three names, while it starts and once it serves. Another name answers `NOT_FOUND` to `Check` and `SERVICE_UNKNOWN` to `Watch`. A `Watch` opened while the engine starts receives `NOT_SERVING`, then `SERVING`, then `NOT_SERVING` after SIGTERM, which the test sends to the process id that the engine's test hook writes (`WL_TEST_PLUGIN_PID`). |
 | `TestPluginNonRootFlow` | A flow that only a root calls by path runs, as `wl`'s `Runtime.Run` runs it. |
 | `TestPluginRefusalDetail` | Each of those refusals, the one while the engine starts included, carries the `RUN_NOT_STARTED` detail, so `Client.Run` reports `ErrNotStarted`. A run that started and failed, or was canceled, answers its result. |
-| `TestPluginStagedFields` | A request with `hooks`, and a configuration with each field that the engine does not serve yet, are refused, naming the field. |
+| `TestPluginBrokerHooks` | A configuration with a provider set to `broker` starts. Through `RunWithHooks`, the provider's mandatory site gets the answer of the run's hooks, and so does an interception. |
+| `TestPluginTokenBoundDrains` | With the bound of gone tokens lowered to 2 (`WL_TEST_PLUGIN_TOKEN_BOUND`), the engine serves after one `gone` answer, and after the second answers health `NOT_SERVING` and names its bound on standard error. |
 | `TestPluginConfigRefusals` | Settings in milliseconds beyond what a duration holds, a negative `drain_timeout_ms` and a negative `engine_recycle_rss` refuse the start, naming the field, and a socket directory that is a file ends the engine with status 1 and no handshake. A bundle that a test hook replaces with another after its check does not open: the engine exits with status 1 after the handshake line, which a test hook delays (`WL_TEST_PLUGIN_DELAY_HANDSHAKE`) past the failing open's time. |
 | `TestPluginSecretsByReference` | A secret's value comes from `value_env` and reaches the step that reads it, but no stderr line or build information. Two variables may name one environment variable. The configuration's digest changes with the reference's name, not with the value. An unset variable, a secret `value` and a store's `url` refuse the start without the value. |
 | `TestPluginSocketPrivate` | Started under the umask `0027`, the engine serves on a socket of mode `0700`, and a step creates a file of mode `0640`. |

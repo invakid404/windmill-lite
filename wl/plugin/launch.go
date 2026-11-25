@@ -70,6 +70,9 @@ type Launch struct {
 	MaxMessageBytes int
 	// ReplyMargin is the Client's RunnerPlugin.ReplyMargin.
 	ReplyMargin time.Duration
+	// PluginTimeout is the Client's RunnerPlugin.PluginTimeout: the
+	// engine's plugin_timeout_ms.
+	PluginTimeout time.Duration
 	// StartTimeout is go-plugin's start timeout, which applies to two
 	// intervals one after the other. The first is the check of the
 	// executable's SHA-256 and the start of its process: the runner checks
@@ -128,6 +131,9 @@ func (l *Launch) check() ([]byte, error) {
 	if l.MaxMessageBytes < 0 {
 		return nil, fmt.Errorf("wl/plugin: negative Launch.MaxMessageBytes %d", l.MaxMessageBytes)
 	}
+	if l.PluginTimeout < 0 {
+		return nil, fmt.Errorf("wl/plugin: negative Launch.PluginTimeout %v", l.PluginTimeout)
+	}
 	if l.ReplyMargin < 0 {
 		return nil, fmt.Errorf("wl/plugin: negative Launch.ReplyMargin %v", l.ReplyMargin)
 	}
@@ -178,7 +184,7 @@ func clientConfig(l Launch, supervised bool) (*goplugin.ClientConfig, func() err
 	}
 	return &goplugin.ClientConfig{
 		HandshakeConfig:  Handshake,
-		VersionedPlugins: VersionedPlugins(&RunnerPlugin{ReplyMargin: l.ReplyMargin}),
+		VersionedPlugins: VersionedPlugins(&RunnerPlugin{ReplyMargin: l.ReplyMargin, PluginTimeout: l.PluginTimeout, MaxMessageBytes: limit}),
 		RunnerFunc: func(_ hclog.Logger, cmd *exec.Cmd, socketDir string) (runner.Runner, error) {
 			// go-plugin made socketDir with mode 0700 less the host's
 			// umask, which may leave the engine unable to create its socket.

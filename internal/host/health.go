@@ -320,9 +320,48 @@ func (r gatedRunner) Cancel(ctx context.Context, req *plugin.CancelRequest) (*pl
 	return nil, status.Error(codes.Unavailable, errStarting)
 }
 
+// GetRun goes to the Server while the engine serves. While it drains, a
+// lookup answers UNAVAILABLE without the RUN_NOT_STARTED detail: it says
+// nothing about a run, which may have succeeded, and the host keeps its
+// registration until the engine's generation ends.
 func (r gatedRunner) GetRun(ctx context.Context, req *plugin.GetRunRequest) (*plugin.GetRunResponse, error) {
-	if _, srv, _ := r.g.current(); srv != nil {
+	switch state, srv, _ := r.g.current(); {
+	case state == Serving:
 		return srv.GetRun(ctx, req)
+	case state == Draining:
+		return nil, status.Error(codes.Unavailable, errDrainingLookup)
 	}
 	return nil, status.Error(codes.Unavailable, errStarting)
 }
+
+// Hooks returns the HooksControl service, which serves beside Runner.
+func (g *Gate) Hooks() plugin.HooksControlServer {
+	return gatedHooks{g: g}
+}
+
+// gatedHooks is Gate.Hooks's service.
+type gatedHooks struct {
+	plugin.UnimplementedHooksControlServer
+	g *Gate
+}
+
+// ReleaseHooks goes to the Server while it serves and while it drains: a
+// host that lets a broker connection go frees the engine's side of it.
+func (h gatedHooks) ReleaseHooks(ctx context.Context, req *plugin.ReleaseHooksRequest) (*plugin.ReleaseHooksResponse, error) {
+	if _, srv, _ := h.g.current(); srv != nil {
+		if r, ok := srv.(releaser); ok {
+			return r.ReleaseHooks(ctx, req)
+		}
+		return nil, status.Error(codes.Unimplemented, "this engine's server does not release broker connections")
+	}
+	return nil, status.Error(codes.Unavailable, errStarting)
+}
+
+// releaser is the Server's side of ReleaseHooks.
+type releaser interface {
+	ReleaseHooks(context.Context, *plugin.ReleaseHooksRequest) (*plugin.ReleaseHooksResponse, error)
+}
+
+// errDrainingLookup is the message of a GetRun that the engine refuses
+// while it drains.
+const errDrainingLookup = "draining: the engine drains and answers no lookup"

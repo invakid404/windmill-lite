@@ -5,7 +5,8 @@ adapters ([internal/host](../host/README.md)) and keeps out of its public
 API. That is host mode's static interceptions of a flow run, the refusal of
 the id of a run that a step dispatched, and a run's trace in the JSON form
 of a host plugin's run-end hooks. It also reports a harness process that
-the warm pool fails to start.
+the warm pool fails to start, and carries a run's hooks on a host's
+connection.
 
 This README covers `internal/wlext`, the Go package
 `github.com/invakid404/windmill-lite/internal/wlext`.
@@ -25,12 +26,15 @@ sees none of it, and a run that does not use it runs as before.
 | `TraceJSON(trace, level)` | A flow run's trace as JSON at the level `full` or `summary`: the object that a host plugin's `onRunEnd` receives as its payload's `trace` at that level ([host plugins](../../wl/README.md#host-plugins)). Package `wl` sets it when it is initialized |
 | `OnPoolStartFailure(rt, f)` | Makes a `*wl.Runtime` that `Open` returned call `f` with the error of each harness process that its warm pool fails to start from then on, a replacement or a process that a step needs. `Close` clears `f` first, though a report that had already taken `f` may still call it; nil stops the reports. The pool logs the failure first, and the step still fails as before. `windmill-lite plugin` drains on it; package `wl` sets it when it is initialized |
 | `DispatchIdle(rt)` | A channel that is closed once no run that the runtime dispatched for a step is in flight, through a delayed start too, at once if none is (`engine.Dispatcher.Idle`). `windmill-lite plugin`'s drain waits for it. Package `wl` sets it when it is initialized |
+| `RunHooks`, `WithRunHooks(ctx, h)`, `RunHooksOf(ctx)` | A flow run's hooks on a host's connection: a host plugin's declaration as JSON, and the function that sends one call with a `host_call`'s hook name and payload. `Runtime.Run` builds them as a host plugin of that run alone, ahead of the runtime's, and refuses a declaration that is not JSON or declares `around` |
+| `WithSettled(ctx, f)`, `Settled(ctx)` | Make `Runtime.Run` call `f` once the run that it starts with that context has settled, which may be never, and is never for a run that does not start |
+| `BrokerProviders(opts, names)` | Makes a `*wl.Options` answer each named provider of `names` with the hooks of the run that reaches it; a run whose hooks do not serve it latches there. Package `wl` sets it when it is initialized |
 
 ## Files
 
 | File | Contents |
 |---|---|
-| `wlext.go` | The package comment and the seven names |
+| `wlext.go` | The package comment and the names above |
 
 ## Tests
 

@@ -19,9 +19,6 @@ and a Go host launches, pins, checks and supervises it with the package
 
 **Not built yet:**
 
-- the plugin command's calls of the host-hooks service on the broker: a request's `hooks`,
-  a provider set to `broker`, and `GetRun`;
-- `wl/plugin`'s serving of a run's Go hooks on the broker;
 - the plain gRPC and HTTP adapters;
 - typed methods (`windmill-lite gen`).
 
@@ -84,7 +81,7 @@ Every adapter below is a transport over these calls.
 
 ### Adapters, in order of delivery
 
-1. **go-plugin** (the engine's broker hooks are planned). The engine binary,
+1. **go-plugin**. The engine binary,
    started as `windmill-lite plugin`, serves the `windmill_lite.v1.Runner`
    gRPC service to a Go host that launches it with hashicorp/go-plugin,
    and `wl/plugin` gives the host the client side and an optional
@@ -238,6 +235,13 @@ The engine serves `windmill_lite.v1.Runner`, which
 | `Run` | Runs a flow or a root script of the bundle to its end, as `Runtime.Run` does, and returns its outcome: one unary call per run |
 | `Cancel` | Cancels a run in flight by its id, with a reason and a canceler, which the run's `Canceled` error names ([FX-38](../semantics/execution.md#fx-38)). Host mode's `run_cancel` carries the same two fields. An id of no run in flight answers `NOT_FOUND` |
 | `GetRun` | Says whether the engine still holds the run of a hooks registration, by its id and token: in flight, or ended and not yet released ([Hooks across the plugin boundary](#hooks-across-the-plugin-boundary)) |
+
+Beside it, on the same connection, the engine serves
+`windmill_lite.v1.HooksControl`, a service of its own so that `Runner`'s
+calls stay as they are. Its one call, `ReleaseHooks`, says that the host has
+let a broker connection of runs' hooks go, by its broker id, and the engine
+closes its side at once
+([Hooks across the plugin boundary](#hooks-across-the-plugin-boundary)).
 
 A `RunRequest` holds:
 
@@ -410,7 +414,7 @@ its own file, and the runner has already checked it.
 | `Handshake`, `PluginName` | go-plugin's handshake configuration and the plugin's name ([Handshake and versions](#handshake-and-versions)) |
 | `VersionedPlugins` | The plugin sets by `Runner` version, for both sides |
 | `RunnerPlugin` | The go-plugin plugin type. On the engine's side it registers the `Runner` server; on the host's it returns a `Client` |
-| `Client` | Typed calls: `BuildInfo`, `Run`, `Cancel` and `Health`. `Run` is planned to serve the run's Go hooks on the broker |
+| `Client` | Typed calls: `BuildInfo`, `Run`, `Cancel` and `Health`. `RunWithHooks` runs a flow with its Go hooks on the broker ([Hooks across the plugin boundary](#hooks-across-the-plugin-boundary)) |
 | `ClientConfig` | go-plugin's client configuration for one launch: the runner that checks the executable's SHA-256 and starts it with its configuration file, gRPC only, a fresh private socket directory, a literal environment with go-plugin's `SkipHostEnv` on, and the message limits |
 | `Supervisor` | The optional supervisor ([The supervisor](#the-supervisor)) |
 
@@ -497,7 +501,9 @@ A hook takes the cheapest of three routes that serves it:
   run, when the engine's release call says that the run has settled, or
   when the generation ends. The engine sends that call whatever hooks the
   run declared. A hook call that names no held registration answers an
-  error that latches nothing.
+  error that latches nothing: the engine takes it as no answer, so an
+  interception or a provider declines, and a mandatory provided site still
+  fails closed.
 - **Reconciliation.** A refusal or a release call can be lost. So after
   every `Run` call ends, whatever its outcome, `Client` asks `GetRun` for
   that registration, at first after `plugin_timeout_ms` and then with a
@@ -512,8 +518,13 @@ A hook takes the cheapest of three routes that serves it:
   so no process that still takes runs forgets a token. A delayed request of
   that process ends with its connection, and the next generation starts with
   none.
-- **One listener.** The broker connection lives as long as the `Client`,
-  so a run opens no listener of its own.
+- **One listener.** The broker connection lives until `Client.Close`,
+  which the generation's end calls, so a run opens no listener of its own.
+  go-plugin gives each broker id's address once, so the engine closes a
+  connection that cannot connect once no run uses it, and the client then
+  opens a new listener. A listener that the client lets go is stopped, and
+  the engine told with `ReleaseHooks`, sent again until it has it, answers
+  `Unimplemented`, or the generation or connection ends.
 - **Providers on the broker.** A named provider that the configuration
   marks `broker` is answered by the hooks service of the run that reaches
   it, and a run that serves none latches there. So `wl.Open` still finds

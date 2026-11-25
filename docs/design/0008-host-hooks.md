@@ -16,8 +16,7 @@ the flow could turn into data.
 
 **Not built yet:** platform calls that a plugin hook makes outside an
 [invocation](../glossary.md#invocation) are refused, not attributed to its
-site. Go callbacks over go-plugin's broker, for a host that runs the engine
-as a go-plugin plugin, are planned too.
+site.
 
 ## Context
 
@@ -120,7 +119,7 @@ declines.
   - **A bundle's own plugin.** A bundle may carry a plugin, which both
     load when the host names none
     ([harness protocol](0004-harness-protocol.md#host-plugins), item 7).
-- **Go callbacks over the go-plugin broker** (planned), for a Go host that
+- **Go callbacks over the go-plugin broker**, for a Go host that
   runs the engine as a plugin
   ([host adapters](0009-host-adapters.md#hooks-across-the-plugin-boundary)).
   The host serves a run's hooks on a broker connection with a host plugin's

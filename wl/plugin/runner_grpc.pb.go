@@ -271,6 +271,126 @@ var Runner_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	HooksControl_ReleaseHooks_FullMethodName = "/windmill_lite.v1.HooksControl/ReleaseHooks"
+)
+
+// HooksControlClient is the client API for HooksControl service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// HooksControl is the engine's service, beside Runner on the same
+// connection, for the host's broker connections of runs' hooks. It is a
+// service of its own so that Runner's calls stay as they are.
+type HooksControlClient interface {
+	// ReleaseHooks tells the engine that the host has let a broker
+	// connection of runs' hooks go. The engine closes its connection to it
+	// at once: a call already sent on it fails, and a later call of a run
+	// that named it gets no answer. A broker id that the engine holds no
+	// connection to answers the same, so the host may send it again.
+	ReleaseHooks(ctx context.Context, in *ReleaseHooksRequest, opts ...grpc.CallOption) (*ReleaseHooksResponse, error)
+}
+
+type hooksControlClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewHooksControlClient(cc grpc.ClientConnInterface) HooksControlClient {
+	return &hooksControlClient{cc}
+}
+
+func (c *hooksControlClient) ReleaseHooks(ctx context.Context, in *ReleaseHooksRequest, opts ...grpc.CallOption) (*ReleaseHooksResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReleaseHooksResponse)
+	err := c.cc.Invoke(ctx, HooksControl_ReleaseHooks_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// HooksControlServer is the server API for HooksControl service.
+// All implementations must embed UnimplementedHooksControlServer
+// for forward compatibility.
+//
+// HooksControl is the engine's service, beside Runner on the same
+// connection, for the host's broker connections of runs' hooks. It is a
+// service of its own so that Runner's calls stay as they are.
+type HooksControlServer interface {
+	// ReleaseHooks tells the engine that the host has let a broker
+	// connection of runs' hooks go. The engine closes its connection to it
+	// at once: a call already sent on it fails, and a later call of a run
+	// that named it gets no answer. A broker id that the engine holds no
+	// connection to answers the same, so the host may send it again.
+	ReleaseHooks(context.Context, *ReleaseHooksRequest) (*ReleaseHooksResponse, error)
+	mustEmbedUnimplementedHooksControlServer()
+}
+
+// UnimplementedHooksControlServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedHooksControlServer struct{}
+
+func (UnimplementedHooksControlServer) ReleaseHooks(context.Context, *ReleaseHooksRequest) (*ReleaseHooksResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReleaseHooks not implemented")
+}
+func (UnimplementedHooksControlServer) mustEmbedUnimplementedHooksControlServer() {}
+func (UnimplementedHooksControlServer) testEmbeddedByValue()                      {}
+
+// UnsafeHooksControlServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to HooksControlServer will
+// result in compilation errors.
+type UnsafeHooksControlServer interface {
+	mustEmbedUnimplementedHooksControlServer()
+}
+
+func RegisterHooksControlServer(s grpc.ServiceRegistrar, srv HooksControlServer) {
+	// If the following call panics, it indicates UnimplementedHooksControlServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&HooksControl_ServiceDesc, srv)
+}
+
+func _HooksControl_ReleaseHooks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReleaseHooksRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HooksControlServer).ReleaseHooks(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HooksControl_ReleaseHooks_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HooksControlServer).ReleaseHooks(ctx, req.(*ReleaseHooksRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// HooksControl_ServiceDesc is the grpc.ServiceDesc for HooksControl service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var HooksControl_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "windmill_lite.v1.HooksControl",
+	HandlerType: (*HooksControlServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "ReleaseHooks",
+			Handler:    _HooksControl_ReleaseHooks_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "windmill_lite/v1/runner.proto",
+}
+
+const (
 	HostHooks_Call_FullMethodName = "/windmill_lite.v1.HostHooks/Call"
 )
 

@@ -35,6 +35,18 @@ service Runner {
   rpc GetRun(GetRunRequest) returns (GetRunResponse);
 }
 
+// HooksControl is the engine's service, beside Runner on the same
+// connection, for the host's broker connections of runs' hooks. It is a
+// service of its own so that Runner's calls stay as they are.
+service HooksControl {
+  // ReleaseHooks tells the engine that the host has let a broker
+  // connection of runs' hooks go. The engine closes its connection to it
+  // at once: a call already sent on it fails, and a later call of a run
+  // that named it gets no answer. A broker id that the engine holds no
+  // connection to answers the same, so the host may send it again.
+  rpc ReleaseHooks(ReleaseHooksRequest) returns (ReleaseHooksResponse);
+}
+
 // HostHooks is the service that a host serves on a connection of
 // go-plugin's broker, so that the engine calls the host's Go hooks of a
 // run. A run names the connection and its hooks in RunRequest.hooks.
@@ -271,6 +283,17 @@ message GetRunResponse {
   // longer does or never did.
   string state = 1;
 }
+
+// ReleaseHooksRequest names a broker connection of runs' hooks that the
+// host no longer serves.
+message ReleaseHooksRequest {
+  // broker_id is the connection's go-plugin broker id, from
+  // RunRequest.hooks.
+  uint32 broker_id = 1;
+}
+
+// ReleaseHooksResponse answers a ReleaseHooksRequest. It has no fields.
+message ReleaseHooksResponse {}
 
 // HookCall is one call of a run's hook.
 message HookCall {

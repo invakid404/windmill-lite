@@ -1016,6 +1016,7 @@ func TestSupervisorConfigRefusals(t *testing.T) {
 	}{
 		{"no path", func(c *SupervisorConfig) { c.Launch.Path = "" }, "Launch.Path is empty"},
 		{"a short SHA-256", func(c *SupervisorConfig) { c.Launch.SHA256 = "00" }, "Launch.SHA256"},
+		{"a negative plugin timeout", func(c *SupervisorConfig) { c.Launch.PluginTimeout = -1 }, "Launch.PluginTimeout"},
 		{"no bundle digest", func(c *SupervisorConfig) { c.Identity.BundleDigest = "" }, "Identity.BundleDigest is empty"},
 		{"no engine version", func(c *SupervisorConfig) { c.Identity.EngineVersion = "" }, "Identity.EngineVersion is empty"},
 		{"no Bun version", func(c *SupervisorConfig) { c.Identity.BunVersion = "" }, "Identity.BunVersion is empty"},

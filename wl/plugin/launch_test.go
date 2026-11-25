@@ -832,4 +832,14 @@ func TestClientConfigRefusals(t *testing.T) {
 		})
 	}
 	checkEmpty(t, "the TempDir of the refused launch", long)
+
+	// A negative PluginTimeout is refused for that field, whatever a later
+	// step of the launch would refuse, and before anything is created in
+	// the launch's TempDir.
+	own := t.TempDir()
+	_, _, err := ClientConfig(Launch{Path: "p", SHA256: sum, Config: "c", TempDir: own, PluginTimeout: -time.Second})
+	if err == nil || !strings.Contains(err.Error(), "Launch.PluginTimeout") {
+		t.Errorf("ClientConfig of a negative plugin timeout = %v, want an error naming Launch.PluginTimeout", err)
+	}
+	checkEmpty(t, "the TempDir of the launch with a negative plugin timeout", own)
 }

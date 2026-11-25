@@ -340,10 +340,19 @@ func (rt *Runtime) Run(ctx context.Context, path string, args json.RawMessage, o
 		}
 		extra = engine.StaticIntercepts{Results: values}
 	}
-	return rt.run(ctx, path, args, opts, extra, nil)
+	return rt.run(ctx, path, args, opts, extra, wlext.Settled(ctx))
 }
 
 func init() {
+	wlext.BrokerProviders = func(o any, names []string) {
+		opts := o.(*Options)
+		if opts.Providers == nil {
+			opts.Providers = map[string]Provider{}
+		}
+		for _, name := range names {
+			opts.Providers[name] = brokerProvider(name)
+		}
+	}
 	wlext.DispatchIdle = func(r any) <-chan struct{} {
 		rt := r.(*Runtime)
 		if rt.dispatch == nil {
@@ -472,9 +481,24 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		return nil, ErrRunInFlight
 	}
 	defer rt.exec.end(id)
+	// The run's hooks on a host's connection (internal/wlext) are its own,
+	// after those of its request's settings and ahead of the host plugin's.
+	bp, err := rt.brokerPlugin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	own := opts.Hooks
+	if bp != nil {
+		ctx = context.WithValue(ctx, brokerPluginKey{}, bp)
+		if own == nil {
+			own = bp.hooks
+		} else {
+			own = mergeHooks(own, bp.hooks)
+		}
+	}
 	var rd *harness.RunData
 	ctx, rd, settled = withRunData(ctx, id, data, settled)
-	h, err := engineHooks(rt.withPlugin(opts.Hooks, rd), rt.prog)
+	h, err := engineHooks(rt.withPlugin(own, rd), rt.prog)
 	if err != nil {
 		return nil, err
 	}
@@ -489,8 +513,8 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	}
 	var services *platform.Services
 	bind := &runBinding{id: id, pin: p}
-	if opts.Platform != nil || rt.answersPlatform() || rt.readCache {
-		if services, err = rt.runServices(opts.Platform, bind); err != nil {
+	if opts.Platform != nil || rt.answersPlatform() || rt.readCache || bp.answersPlatform() {
+		if services, err = rt.runServices(opts.Platform, bind, bp); err != nil {
 			rt.forgetPin(p)
 			return nil, err
 		}
@@ -553,7 +577,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 // which reach the run through run, over the runtime's, and its
 // resolver; behind the run's read cache when the runtime has one
 // (Options.ReadCache).
-func (rt *Runtime) runServices(p *RunPlatform, run *runBinding) (*platform.Services, error) {
+func (rt *Runtime) runServices(p *RunPlatform, run *runBinding, bp *plugin) (*platform.Services, error) {
 	var store *platform.Store
 	var resolvers []platform.ValueResolver
 	if p != nil {
@@ -570,7 +594,7 @@ func (rt *Runtime) runServices(p *RunPlatform, run *runBinding) (*platform.Servi
 			resolvers = append(slices.Clone(rt.services.Resolvers), resolver(p.Resolve))
 		}
 	}
-	return rt.pluginServices(run, store, resolvers), nil
+	return rt.pluginServices(run, store, resolvers, bp), nil
 }
 
 // workspaceServices returns the services of a run whose identity sets a

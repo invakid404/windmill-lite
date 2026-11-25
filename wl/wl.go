@@ -443,6 +443,12 @@ type Runtime struct {
 	providers   atomic.Pointer[map[string]Provider]
 	goProviders map[string]Provider
 
+	// pluginTimeout and pluginDiag are Options.PluginTimeout and the
+	// diagnostic line function of Options.Diagnostics, which a run's hooks
+	// on a host's connection use (internal/wlext).
+	pluginTimeout time.Duration
+	pluginDiag    func(string)
+
 	// mu guards closed: once Close begins, Run admits no run. active counts
 	// the runs admitted, which stop's cancellation ends.
 	mu         sync.Mutex
@@ -603,6 +609,7 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	}
 	rt.prog = prog
 	rt.goProviders = maps.Clone(opts.Providers)
+	rt.pluginTimeout, rt.pluginDiag = opts.PluginTimeout, rt.diagLine(opts.Diagnostics)
 	providers := maps.Clone(opts.Providers)
 	rt.providers.Store(&providers)
 	switch {

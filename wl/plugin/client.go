@@ -8,6 +8,7 @@ import (
 
 	goplugin "github.com/hashicorp/go-plugin"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -37,13 +38,29 @@ var ErrOutcomeUnknown = errors.New("wl/plugin: the run's outcome is unknown")
 // for PluginName. Its methods are safe for concurrent use.
 type Client struct {
 	runner RunnerClient
-	health healthpb.HealthClient
+	// control is the engine's HooksControl service on the same
+	// connection.
+	control HooksControlClient
+	health  healthpb.HealthClient
 	// broker is go-plugin's broker of the connection, on which the host
 	// serves HostHooks.
 	broker *goplugin.GRPCBroker
 	margin time.Duration
 	// now is the clock of the margin; tests replace it.
 	now func() time.Time
+
+	// conn is the connection, whose end stops the lookups of the runs'
+	// hooks registrations.
+	conn grpc.ClientConnInterface
+	// generation is the context that go-plugin gave the Client, which
+	// ends with the engine's generation; nil for none. Its end closes a
+	// Client that serves hooks.
+	generation context.Context
+	// hooks is the state of the runs' hooks that the Client serves.
+	hooks hooks
+	// timer returns a channel that receives after d, and the function
+	// that stops it: the waits between GetRun lookups. Tests replace it.
+	timer func(d time.Duration) (<-chan time.Time, func() bool)
 }
 
 // BuildInfo returns the engine's build identity, which a host compares with
@@ -83,6 +100,16 @@ func (c *Client) Cancel(ctx context.Context, req *CancelRequest) (*CancelRespons
 // ErrOutcomeUnknown otherwise. The error of a call that Run made also
 // wraps the call's gRPC error, whose code status.Code reads.
 func (c *Client) Run(ctx context.Context, req *RunRequest) (*RunResult, error) {
+	if id := req.GetId(); id != "" && c.registered(id) {
+		// The engine may have freed the id while a lost release call keeps
+		// its run's hooks registered here.
+		return nil, fmt.Errorf("%w: a run with the id %s still has its hooks registered", ErrNotStarted, id)
+	}
+	return c.run(ctx, req)
+}
+
+// run is Run without the check of the Client's registrations.
+func (c *Client) run(ctx context.Context, req *RunRequest) (*RunResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrNotStarted, context.Cause(ctx))
 	}
@@ -107,6 +134,12 @@ func (c *Client) Run(ctx context.Context, req *RunRequest) (*RunResult, error) {
 // shares req's byte slices, maps and messages, which neither side changes,
 // so a large argument is not copied.
 func withDeadline(req *RunRequest, ms int64) *RunRequest {
+	return withFields(req, func(r *RunRequest) { r.DeadlineMs = &ms })
+}
+
+// withFields returns a shallow copy of req, unknown fields included, that
+// set changed.
+func withFields(req *RunRequest, set func(*RunRequest)) *RunRequest {
 	out := &RunRequest{}
 	src, dst := req.ProtoReflect(), out.ProtoReflect()
 	src.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
@@ -114,7 +147,7 @@ func withDeadline(req *RunRequest, ms int64) *RunRequest {
 		return true
 	})
 	dst.SetUnknown(src.GetUnknown())
-	out.DeadlineMs = &ms
+	set(out)
 	return out
 }
 

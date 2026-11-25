@@ -202,13 +202,13 @@ func (realClock) AfterFunc(d time.Duration, f func()) func() bool {
 
 // NewSupervisor returns a Supervisor of cfg, which starts the engine once
 // Run is called. It refuses a Launch without Path or Config, with a SHA256
-// that is not a SHA-256 in hexadecimal or with a negative MaxMessageBytes
-// or ReplyMargin, as ClientConfig does; an Identity with an empty string
-// field; and a negative duration of SupervisorConfig. What ClientConfig
-// finds only when it creates a launch's base directory, such as a TempDir
-// that does not exist, fails each launch instead, which Run records and
-// retries after the backoff. NewSupervisor keeps copies of Launch.Env and
-// Identity.Labels.
+// that is not a SHA-256 in hexadecimal or with a negative MaxMessageBytes,
+// ReplyMargin or PluginTimeout, as ClientConfig does; an Identity with an
+// empty string field; and a negative duration of SupervisorConfig. What
+// ClientConfig finds only when it creates a launch's base directory, such
+// as a TempDir that does not exist, fails each launch instead, which Run
+// records and retries after the backoff. NewSupervisor keeps copies of
+// Launch.Env and Identity.Labels.
 func NewSupervisor(cfg SupervisorConfig) (*Supervisor, error) {
 	if _, err := cfg.Launch.check(); err != nil {
 		return nil, err

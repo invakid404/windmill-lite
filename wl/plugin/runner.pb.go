@@ -1151,6 +1151,91 @@ func (x *GetRunResponse) GetState() string {
 	return ""
 }
 
+// ReleaseHooksRequest names a broker connection of runs' hooks that the
+// host no longer serves.
+type ReleaseHooksRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// broker_id is the connection's go-plugin broker id, from
+	// RunRequest.hooks.
+	BrokerId      uint32 `protobuf:"varint,1,opt,name=broker_id,json=brokerId,proto3" json:"broker_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReleaseHooksRequest) Reset() {
+	*x = ReleaseHooksRequest{}
+	mi := &file_windmill_lite_v1_runner_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReleaseHooksRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReleaseHooksRequest) ProtoMessage() {}
+
+func (x *ReleaseHooksRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_windmill_lite_v1_runner_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReleaseHooksRequest.ProtoReflect.Descriptor instead.
+func (*ReleaseHooksRequest) Descriptor() ([]byte, []int) {
+	return file_windmill_lite_v1_runner_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ReleaseHooksRequest) GetBrokerId() uint32 {
+	if x != nil {
+		return x.BrokerId
+	}
+	return 0
+}
+
+// ReleaseHooksResponse answers a ReleaseHooksRequest. It has no fields.
+type ReleaseHooksResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReleaseHooksResponse) Reset() {
+	*x = ReleaseHooksResponse{}
+	mi := &file_windmill_lite_v1_runner_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReleaseHooksResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReleaseHooksResponse) ProtoMessage() {}
+
+func (x *ReleaseHooksResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_windmill_lite_v1_runner_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReleaseHooksResponse.ProtoReflect.Descriptor instead.
+func (*ReleaseHooksResponse) Descriptor() ([]byte, []int) {
+	return file_windmill_lite_v1_runner_proto_rawDescGZIP(), []int{14}
+}
+
 // HookCall is one call of a run's hook.
 type HookCall struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1171,7 +1256,7 @@ type HookCall struct {
 
 func (x *HookCall) Reset() {
 	*x = HookCall{}
-	mi := &file_windmill_lite_v1_runner_proto_msgTypes[13]
+	mi := &file_windmill_lite_v1_runner_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1183,7 +1268,7 @@ func (x *HookCall) String() string {
 func (*HookCall) ProtoMessage() {}
 
 func (x *HookCall) ProtoReflect() protoreflect.Message {
-	mi := &file_windmill_lite_v1_runner_proto_msgTypes[13]
+	mi := &file_windmill_lite_v1_runner_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1196,7 +1281,7 @@ func (x *HookCall) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HookCall.ProtoReflect.Descriptor instead.
 func (*HookCall) Descriptor() ([]byte, []int) {
-	return file_windmill_lite_v1_runner_proto_rawDescGZIP(), []int{13}
+	return file_windmill_lite_v1_runner_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *HookCall) GetHook() string {
@@ -1248,7 +1333,7 @@ type HookReply struct {
 
 func (x *HookReply) Reset() {
 	*x = HookReply{}
-	mi := &file_windmill_lite_v1_runner_proto_msgTypes[14]
+	mi := &file_windmill_lite_v1_runner_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1260,7 +1345,7 @@ func (x *HookReply) String() string {
 func (*HookReply) ProtoMessage() {}
 
 func (x *HookReply) ProtoReflect() protoreflect.Message {
-	mi := &file_windmill_lite_v1_runner_proto_msgTypes[14]
+	mi := &file_windmill_lite_v1_runner_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1273,7 +1358,7 @@ func (x *HookReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HookReply.ProtoReflect.Descriptor instead.
 func (*HookReply) Descriptor() ([]byte, []int) {
-	return file_windmill_lite_v1_runner_proto_rawDescGZIP(), []int{14}
+	return file_windmill_lite_v1_runner_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *HookReply) GetPayload() []byte {
@@ -1304,7 +1389,7 @@ type HookError struct {
 
 func (x *HookError) Reset() {
 	*x = HookError{}
-	mi := &file_windmill_lite_v1_runner_proto_msgTypes[15]
+	mi := &file_windmill_lite_v1_runner_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1316,7 +1401,7 @@ func (x *HookError) String() string {
 func (*HookError) ProtoMessage() {}
 
 func (x *HookError) ProtoReflect() protoreflect.Message {
-	mi := &file_windmill_lite_v1_runner_proto_msgTypes[15]
+	mi := &file_windmill_lite_v1_runner_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1329,7 +1414,7 @@ func (x *HookError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HookError.ProtoReflect.Descriptor instead.
 func (*HookError) Descriptor() ([]byte, []int) {
-	return file_windmill_lite_v1_runner_proto_rawDescGZIP(), []int{15}
+	return file_windmill_lite_v1_runner_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *HookError) GetCode() string {
@@ -1457,7 +1542,10 @@ const file_windmill_lite_v1_runner_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05token\x18\x02 \x01(\tR\x05token\"&\n" +
 	"\x0eGetRunResponse\x12\x14\n" +
-	"\x05state\x18\x01 \x01(\tR\x05state\"t\n" +
+	"\x05state\x18\x01 \x01(\tR\x05state\"2\n" +
+	"\x13ReleaseHooksRequest\x12\x1b\n" +
+	"\tbroker_id\x18\x01 \x01(\rR\bbrokerId\"\x16\n" +
+	"\x14ReleaseHooksResponse\"t\n" +
 	"\bHookCall\x12\x12\n" +
 	"\x04hook\x18\x01 \x01(\tR\x04hook\x12\x10\n" +
 	"\x03run\x18\x02 \x01(\tR\x03run\x12\x14\n" +
@@ -1474,7 +1562,9 @@ const file_windmill_lite_v1_runner_proto_rawDesc = "" +
 	"\fGetBuildInfo\x12%.windmill_lite.v1.GetBuildInfoRequest\x1a\x1b.windmill_lite.v1.BuildInfo\x12@\n" +
 	"\x03Run\x12\x1c.windmill_lite.v1.RunRequest\x1a\x1b.windmill_lite.v1.RunResult\x12K\n" +
 	"\x06Cancel\x12\x1f.windmill_lite.v1.CancelRequest\x1a .windmill_lite.v1.CancelResponse\x12K\n" +
-	"\x06GetRun\x12\x1f.windmill_lite.v1.GetRunRequest\x1a .windmill_lite.v1.GetRunResponse2L\n" +
+	"\x06GetRun\x12\x1f.windmill_lite.v1.GetRunRequest\x1a .windmill_lite.v1.GetRunResponse2m\n" +
+	"\fHooksControl\x12]\n" +
+	"\fReleaseHooks\x12%.windmill_lite.v1.ReleaseHooksRequest\x1a&.windmill_lite.v1.ReleaseHooksResponse2L\n" +
 	"\tHostHooks\x12?\n" +
 	"\x04Call\x12\x1a.windmill_lite.v1.HookCall\x1a\x1b.windmill_lite.v1.HookReplyB6Z4github.com/invakid404/windmill-lite/wl/plugin;pluginb\x06proto3"
 
@@ -1490,52 +1580,56 @@ func file_windmill_lite_v1_runner_proto_rawDescGZIP() []byte {
 	return file_windmill_lite_v1_runner_proto_rawDescData
 }
 
-var file_windmill_lite_v1_runner_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
+var file_windmill_lite_v1_runner_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_windmill_lite_v1_runner_proto_goTypes = []any{
-	(*GetBuildInfoRequest)(nil), // 0: windmill_lite.v1.GetBuildInfoRequest
-	(*BuildInfo)(nil),           // 1: windmill_lite.v1.BuildInfo
-	(*RunRequest)(nil),          // 2: windmill_lite.v1.RunRequest
-	(*Identity)(nil),            // 3: windmill_lite.v1.Identity
-	(*Resource)(nil),            // 4: windmill_lite.v1.Resource
-	(*Variable)(nil),            // 5: windmill_lite.v1.Variable
-	(*Hooks)(nil),               // 6: windmill_lite.v1.Hooks
-	(*Limits)(nil),              // 7: windmill_lite.v1.Limits
-	(*RunResult)(nil),           // 8: windmill_lite.v1.RunResult
-	(*CancelRequest)(nil),       // 9: windmill_lite.v1.CancelRequest
-	(*CancelResponse)(nil),      // 10: windmill_lite.v1.CancelResponse
-	(*GetRunRequest)(nil),       // 11: windmill_lite.v1.GetRunRequest
-	(*GetRunResponse)(nil),      // 12: windmill_lite.v1.GetRunResponse
-	(*HookCall)(nil),            // 13: windmill_lite.v1.HookCall
-	(*HookReply)(nil),           // 14: windmill_lite.v1.HookReply
-	(*HookError)(nil),           // 15: windmill_lite.v1.HookError
-	nil,                         // 16: windmill_lite.v1.BuildInfo.HarnessRuntimesEntry
-	nil,                         // 17: windmill_lite.v1.BuildInfo.LabelsEntry
-	nil,                         // 18: windmill_lite.v1.RunRequest.ResourcesEntry
-	nil,                         // 19: windmill_lite.v1.RunRequest.VariablesEntry
+	(*GetBuildInfoRequest)(nil),  // 0: windmill_lite.v1.GetBuildInfoRequest
+	(*BuildInfo)(nil),            // 1: windmill_lite.v1.BuildInfo
+	(*RunRequest)(nil),           // 2: windmill_lite.v1.RunRequest
+	(*Identity)(nil),             // 3: windmill_lite.v1.Identity
+	(*Resource)(nil),             // 4: windmill_lite.v1.Resource
+	(*Variable)(nil),             // 5: windmill_lite.v1.Variable
+	(*Hooks)(nil),                // 6: windmill_lite.v1.Hooks
+	(*Limits)(nil),               // 7: windmill_lite.v1.Limits
+	(*RunResult)(nil),            // 8: windmill_lite.v1.RunResult
+	(*CancelRequest)(nil),        // 9: windmill_lite.v1.CancelRequest
+	(*CancelResponse)(nil),       // 10: windmill_lite.v1.CancelResponse
+	(*GetRunRequest)(nil),        // 11: windmill_lite.v1.GetRunRequest
+	(*GetRunResponse)(nil),       // 12: windmill_lite.v1.GetRunResponse
+	(*ReleaseHooksRequest)(nil),  // 13: windmill_lite.v1.ReleaseHooksRequest
+	(*ReleaseHooksResponse)(nil), // 14: windmill_lite.v1.ReleaseHooksResponse
+	(*HookCall)(nil),             // 15: windmill_lite.v1.HookCall
+	(*HookReply)(nil),            // 16: windmill_lite.v1.HookReply
+	(*HookError)(nil),            // 17: windmill_lite.v1.HookError
+	nil,                          // 18: windmill_lite.v1.BuildInfo.HarnessRuntimesEntry
+	nil,                          // 19: windmill_lite.v1.BuildInfo.LabelsEntry
+	nil,                          // 20: windmill_lite.v1.RunRequest.ResourcesEntry
+	nil,                          // 21: windmill_lite.v1.RunRequest.VariablesEntry
 }
 var file_windmill_lite_v1_runner_proto_depIdxs = []int32{
-	16, // 0: windmill_lite.v1.BuildInfo.harness_runtimes:type_name -> windmill_lite.v1.BuildInfo.HarnessRuntimesEntry
-	17, // 1: windmill_lite.v1.BuildInfo.labels:type_name -> windmill_lite.v1.BuildInfo.LabelsEntry
+	18, // 0: windmill_lite.v1.BuildInfo.harness_runtimes:type_name -> windmill_lite.v1.BuildInfo.HarnessRuntimesEntry
+	19, // 1: windmill_lite.v1.BuildInfo.labels:type_name -> windmill_lite.v1.BuildInfo.LabelsEntry
 	3,  // 2: windmill_lite.v1.RunRequest.identity:type_name -> windmill_lite.v1.Identity
-	18, // 3: windmill_lite.v1.RunRequest.resources:type_name -> windmill_lite.v1.RunRequest.ResourcesEntry
-	19, // 4: windmill_lite.v1.RunRequest.variables:type_name -> windmill_lite.v1.RunRequest.VariablesEntry
+	20, // 3: windmill_lite.v1.RunRequest.resources:type_name -> windmill_lite.v1.RunRequest.ResourcesEntry
+	21, // 4: windmill_lite.v1.RunRequest.variables:type_name -> windmill_lite.v1.RunRequest.VariablesEntry
 	6,  // 5: windmill_lite.v1.RunRequest.hooks:type_name -> windmill_lite.v1.Hooks
 	7,  // 6: windmill_lite.v1.RunRequest.limits:type_name -> windmill_lite.v1.Limits
-	15, // 7: windmill_lite.v1.HookReply.error:type_name -> windmill_lite.v1.HookError
+	17, // 7: windmill_lite.v1.HookReply.error:type_name -> windmill_lite.v1.HookError
 	4,  // 8: windmill_lite.v1.RunRequest.ResourcesEntry.value:type_name -> windmill_lite.v1.Resource
 	5,  // 9: windmill_lite.v1.RunRequest.VariablesEntry.value:type_name -> windmill_lite.v1.Variable
 	0,  // 10: windmill_lite.v1.Runner.GetBuildInfo:input_type -> windmill_lite.v1.GetBuildInfoRequest
 	2,  // 11: windmill_lite.v1.Runner.Run:input_type -> windmill_lite.v1.RunRequest
 	9,  // 12: windmill_lite.v1.Runner.Cancel:input_type -> windmill_lite.v1.CancelRequest
 	11, // 13: windmill_lite.v1.Runner.GetRun:input_type -> windmill_lite.v1.GetRunRequest
-	13, // 14: windmill_lite.v1.HostHooks.Call:input_type -> windmill_lite.v1.HookCall
-	1,  // 15: windmill_lite.v1.Runner.GetBuildInfo:output_type -> windmill_lite.v1.BuildInfo
-	8,  // 16: windmill_lite.v1.Runner.Run:output_type -> windmill_lite.v1.RunResult
-	10, // 17: windmill_lite.v1.Runner.Cancel:output_type -> windmill_lite.v1.CancelResponse
-	12, // 18: windmill_lite.v1.Runner.GetRun:output_type -> windmill_lite.v1.GetRunResponse
-	14, // 19: windmill_lite.v1.HostHooks.Call:output_type -> windmill_lite.v1.HookReply
-	15, // [15:20] is the sub-list for method output_type
-	10, // [10:15] is the sub-list for method input_type
+	13, // 14: windmill_lite.v1.HooksControl.ReleaseHooks:input_type -> windmill_lite.v1.ReleaseHooksRequest
+	15, // 15: windmill_lite.v1.HostHooks.Call:input_type -> windmill_lite.v1.HookCall
+	1,  // 16: windmill_lite.v1.Runner.GetBuildInfo:output_type -> windmill_lite.v1.BuildInfo
+	8,  // 17: windmill_lite.v1.Runner.Run:output_type -> windmill_lite.v1.RunResult
+	10, // 18: windmill_lite.v1.Runner.Cancel:output_type -> windmill_lite.v1.CancelResponse
+	12, // 19: windmill_lite.v1.Runner.GetRun:output_type -> windmill_lite.v1.GetRunResponse
+	14, // 20: windmill_lite.v1.HooksControl.ReleaseHooks:output_type -> windmill_lite.v1.ReleaseHooksResponse
+	16, // 21: windmill_lite.v1.HostHooks.Call:output_type -> windmill_lite.v1.HookReply
+	16, // [16:22] is the sub-list for method output_type
+	10, // [10:16] is the sub-list for method input_type
 	10, // [10:10] is the sub-list for extension type_name
 	10, // [10:10] is the sub-list for extension extendee
 	0,  // [0:10] is the sub-list for field type_name
@@ -1553,9 +1647,9 @@ func file_windmill_lite_v1_runner_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_windmill_lite_v1_runner_proto_rawDesc), len(file_windmill_lite_v1_runner_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   20,
+			NumMessages:   22,
 			NumExtensions: 0,
-			NumServices:   2,
+			NumServices:   3,
 		},
 		GoTypes:           file_windmill_lite_v1_runner_proto_goTypes,
 		DependencyIndexes: file_windmill_lite_v1_runner_proto_depIdxs,

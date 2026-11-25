@@ -3,11 +3,11 @@
 **Current state:** `windmill_lite/v1/runner.proto` defines version 1 of the
 `Runner` service of windmill-lite's
 [go-plugin adapter](../docs/design/0009-host-adapters.md#the-go-plugin-adapter),
-and the `HostHooks` service that a host serves on go-plugin's broker. Their
-Go code is generated into [wl/plugin](../wl/plugin/README.md) and
-committed. The engine serves `Runner`
-([internal/host](../internal/host/README.md)); its client of `HostHooks`
-is planned.
+the engine's `HooksControl` service beside it, and the `HostHooks` service
+that a host serves on go-plugin's broker. Their Go code is generated into
+[wl/plugin](../wl/plugin/README.md) and committed. The engine serves
+`Runner` and `HooksControl`, and calls `HostHooks`
+([internal/host](../internal/host/README.md)).
 
 This README covers `proto/`: the service definitions and the script that
 generates their Go code.
@@ -22,7 +22,7 @@ The design record gives the rules of each call and field; the comments in
 
 | File | Contents |
 |---|---|
-| `windmill_lite/v1/runner.proto` | The package `windmill_lite.v1`: the services `Runner` and `HostHooks`, and their messages |
+| `windmill_lite/v1/runner.proto` | The package `windmill_lite.v1`: the services `Runner`, `HooksControl` and `HostHooks`, and their messages |
 | `generate.sh` | The script that generates the Go code into `wl/plugin` |
 
 ## Generate the Go code
