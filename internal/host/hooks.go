@@ -112,8 +112,11 @@ func (b *brokerHooks) admit(ctx context.Context, id string, h *plugin.Hooks) (co
 	call := func(ctx context.Context, hook, run, site string, payload []byte) ([]byte, error) {
 		rep, err := client.Call(ctx, &plugin.HookCall{Hook: hook, Run: run, Token: token, Site: site, Payload: payload})
 		if err != nil {
-			if ctx.Err() != nil {
+			if ctx.Err() != nil || pastDeadline(ctx) {
 				// The plugin timeout or the run's end, as a host_call's.
+				// The host's server ends the call at its deadline, which
+				// can come a moment before ctx's own timer.
+				<-ctx.Done()
 				return nil, context.Cause(ctx)
 			}
 			return nil, fmt.Errorf("the host's hooks service: %w", err)
@@ -131,6 +134,12 @@ func (b *brokerHooks) admit(ctx context.Context, id string, h *plugin.Hooks) (co
 	ctx = wlext.WithRunHooks(ctx, wlext.RunHooks{Declaration: h.GetDeclaration(), Call: call})
 	ctx = wlext.WithSettled(ctx, func() { go b.release(client, id, token) })
 	return ctx, forget, nil
+}
+
+// pastDeadline reports whether ctx has a deadline that has passed.
+func pastDeadline(ctx context.Context) bool {
+	d, ok := ctx.Deadline()
+	return ok && !time.Now().Before(d)
 }
 
 // noAnswer is the answer of a hook that has none, as a run without that

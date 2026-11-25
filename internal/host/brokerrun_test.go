@@ -263,14 +263,18 @@ func TestBrokerAroundRefused(t *testing.T) {
 
 // TestBrokerHookTimeout checks that a run's hook whose host does not answer
 // within the plugin timeout latches the run, as a host plugin's does: the
-// host holds the interception until the engine gives the call up.
+// host holds the interception until the engine gives the call up, and
+// answers only once the run has returned, so that only the engine's own
+// timeout ends the call.
 func TestBrokerHookTimeout(t *testing.T) {
 	e := startEngine(t, engineConfig{pluginTimeout: 300 * time.Millisecond})
-	gaveUp := make(chan struct{})
+	gaveUp, returned := make(chan struct{}), make(chan struct{})
+	defer close(returned)
 	rec := recorder{answer: func(ctx context.Context, c *plugin.HookCall) (*plugin.HookReply, error) {
 		if c.GetHook() == "intercept" {
 			<-ctx.Done()
 			close(gaveUp)
+			<-returned
 			return nil, ctx.Err()
 		}
 		return &plugin.HookReply{Payload: []byte(`{}`)}, nil
