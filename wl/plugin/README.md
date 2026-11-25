@@ -107,8 +107,9 @@ res, err := engine.Run(ctx, &plugin.RunRequest{
 | `Logger` | The logger of go-plugin and of the engine's standard error | go-plugin's |
 
 `ClientConfig` refuses a `Launch` without `Path` or `Config`, with a
-`SHA256` that is not 64 hexadecimal digits, or with a negative limit or
-margin. Each configuration serves one launch.
+`SHA256` that is not 64 hexadecimal digits, or with a negative
+`MaxMessageBytes`, `ReplyMargin` or `PluginTimeout`. Each configuration
+serves one launch.
 
 - **The pin.** The launch hashes the executable just before it starts it.
   On a mismatch it starts no process, and go-plugin's `Start` returns
