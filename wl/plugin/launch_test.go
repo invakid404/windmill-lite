@@ -823,6 +823,7 @@ func TestClientConfigRefusals(t *testing.T) {
 		{"a digest that is not hexadecimal", Launch{Path: "p", SHA256: "z" + sum[1:], Config: "c"}},
 		{"a negative message limit", Launch{Path: "p", SHA256: sum, Config: "c", MaxMessageBytes: -1}},
 		{"a negative reply margin", Launch{Path: "p", SHA256: sum, Config: "c", ReplyMargin: -time.Second}},
+		{"a negative plugin timeout", Launch{Path: "p", SHA256: sum, Config: "c", PluginTimeout: -time.Second}},
 		{"socket paths over the limit", Launch{Path: "p", SHA256: sum, Config: "c", TempDir: long}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
