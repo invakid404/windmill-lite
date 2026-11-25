@@ -690,7 +690,8 @@ How these tests run:
 `plugin_test.go`, `runoptions_test.go` and `broker_test.go` launch the test binary as the engine through
 `wl/plugin`'s `ClientConfig`, with its SHA-256 and a literal environment
 in which `WL_TEST_ENGINE` is `1`, and calls it through `plugin.Client`
-over go-plugin's connection. The tests build their bundles from
+over go-plugin's connection. `supervisor_test.go` runs `wl/plugin`'s
+`Supervisor` on that engine. The tests build their bundles from
 synthetic folders that the test file holds. `drain_test.go` starts the
 engine as go-plugin would, connects to the socket that its handshake line
 names, and so sees its exit status and can signal it.
@@ -735,6 +736,9 @@ names, and so sees its exit status and can signal it.
 | `TestRunnerRunData` | The bundle's host plugin reads each concurrent run's own `run_data` in its `around` wrapper, a root script's included, and undefined for a run without it. Data that is not JSON refuses the run. |
 | `TestRunnerMaxLive` | A `pool.max_live` of 1 with a `pool.max` of 2 refuses the start, naming the bound, and a `max_live` of 2 serves runs. |
 | `TestRunnerForeignOrigins` | A step's dispatch to the loopback origin that `foreign_windmill_origins` lists loses its `parent_job` and `root_job`, and the same dispatch to another origin keeps them. An origin with the path `/api` refuses the start. |
+| `TestSupervisorAdmissionRefusesWrongBundle` | The supervisor pins the build identity of one bundle, and the configured path then holds another. Each launch is refused at its admission, naming the pinned bundle's digest, and no [generation](../../docs/glossary.md#generation) serves. With the pinned bundle back at that path, a later launch is admitted and runs a flow. |
+| `TestSupervisorAdmissionConfigMismatch` | A configuration that differs from the pinned one only in `identity.workspace` has another digest, so the supervisor refuses each launch at its admission, naming both digests. The pinned configuration is admitted. |
+| `TestSupervisorWithdrawsOnNotServing` | SIGTERM makes the engine answer `NOT_SERVING`, and the supervisor withdraws the generation. Its call in flight, held in its step by the test, completes once released. A call made after the withdrawal waits, then runs on the next generation, whose engine is a new process, once the first process has gone. |
 
 ### Memory tests
 
