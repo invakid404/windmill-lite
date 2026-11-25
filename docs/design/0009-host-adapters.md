@@ -523,9 +523,9 @@ A hook takes the cheapest of three routes that serves it:
   which the generation's end calls, so a run opens no listener of its own.
   go-plugin gives each broker id's address once, so the engine closes a
   connection that cannot connect once no run uses it, and the client then
-  opens a new listener. The client tells the engine with `ReleaseHooks`,
-  on the engine's connection, when it lets a listener go, and sends it
-  again until the engine has it.
+  opens a new listener. A listener that the client lets go is stopped, and
+  the engine told with `ReleaseHooks`, sent again until it has it, answers
+  `Unimplemented`, or the generation or connection ends.
 - **Providers on the broker.** A named provider that the configuration
   marks `broker` is answered by the hooks service of the run that reaches
   it, and a run that serves none latches there. So `wl.Open` still finds

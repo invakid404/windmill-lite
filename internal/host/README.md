@@ -121,6 +121,10 @@ broker ([hooks across the plugin boundary](../../docs/design/0009-host-adapters.
   fails, and a later call of a run that named it gets no answer. One that
   cannot connect is otherwise closed only once no held run uses it, and the
   host then serves a new broker id.
+- **A dial ends ready.** Admission's dial waits until the connection is
+  ready, at most the plugin timeout, and refuses the run when it cannot
+  connect. The host stops its listener before it sends the release, so a
+  release that overtakes a run's admission leaves that run refused.
 - **The run's hooks.** `wl` builds the declaration as a host plugin of the
   run alone ([internal/wlext](../wlext/README.md)). Each of its calls goes
   to `HostHooks.Call` with a `host_call`'s hook name and payload. A
@@ -224,3 +228,5 @@ connection, which has a real broker on both sides. The host is the
 | `TestBrokerCloseDuringVerdict` | `Close` while the host's handler of a first-write verdict still runs: the cut call fails, so the run latches and its write-capable step never runs |
 | `TestBrokerReleaseRetried` | A release call lost before it reaches the engine, at `Close` with a run held: the `Client` sends it again, and the engine closes its connection while the run is held |
 | `TestBrokerReleaseDuringDial` | A release that comes between the admission's dial and its end: the dial closes its connection as it ends, while the run is held |
+| `TestBrokerReleaseBeforeAdmission` | A release that overtakes a run's admission: the test holds the request until `Close` has stopped the listener and the engine answered the release; the run is then refused, and the engine holds no connection and no token |
+| `TestBrokerReleaseSharedDial` | Two admissions share a dial that the host lets go while it is under way: the waiting one sees it let go as it wakes, so its interception gets no answer although the host still serves |

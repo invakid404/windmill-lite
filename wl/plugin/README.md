@@ -229,11 +229,14 @@ engine refuses.
   naming it is in flight.
 - **Its end.** A replaced connection keeps serving the registrations that
   still name it. When the last of them goes, and for every connection at
-  `Close`, the `Client` calls `ReleaseHooks` on the engine's
-  `HooksControl` service, which waits at most `PluginTimeout`. Then it
-  stops the server at once, ending its handlers' calls, and sends a failed
-  release call again, with a growing interval, until the engine has it or
-  its generation ends.
+  `Close`, the `Client` stops the server at once, ending its handlers'
+  calls, and then calls `ReleaseHooks` on the engine's `HooksControl`
+  service. A call that the engine sends in between fails; after the
+  release, it gets no answer.
+- **Release retries.** Each `ReleaseHooks` call waits at most
+  `PluginTimeout`, and one that fails is sent again with a growing
+  interval. The retries stop when the engine has the call or answers
+  `Unimplemented`, and when the engine's generation or connection ends.
 - **The registration.** A run without an id gets a fresh UUID. The `Client`
   registers `h` under the id with a fresh token before it sends the
   request. It refuses a run whose id is still registered with
@@ -313,6 +316,7 @@ working directory or `PATH`, so no test of the package runs in parallel.
 | `TestClientCloseAtFirstUse` | On go-plugin's test connection, `Close` at the same time as a first `RunWithHooks`: the run is refused, or Close stops the broker connection that it opened |
 | `TestClientCloseStopsLateServer` | The `HostHooks` server that go-plugin asks for after `Close` is stopped already: its `Serve` returns at once |
 | `TestRunnerClientKeepsItsCalls` | A type with only `RunnerClient`'s four calls of version 1 still is a `RunnerClient`: the assignment compiles only so |
+| `TestClientReleaseRetryEndsWithGeneration` | With a fake timer: after a release call fails, the end of the engine's generation during the wait ends the retries at once, stopping the wait, with no further call |
 
 The broker tests of [internal/host](../../internal/host/README.md#tests)
 run `RunWithHooks` against the engine in their own process.

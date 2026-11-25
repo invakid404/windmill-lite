@@ -583,3 +583,41 @@ func TestRunnerClientKeepsItsCalls(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// failingControl is a fake transport of the HooksControl service whose
+// release calls fail.
+type failingControl struct{ calls atomic.Int32 }
+
+func (f *failingControl) ReleaseHooks(context.Context, *ReleaseHooksRequest, ...grpc.CallOption) (*ReleaseHooksResponse, error) {
+	f.calls.Add(1)
+	return nil, status.Error(codes.Unavailable, "the test's transport lost the release call")
+}
+
+// TestClientReleaseRetryEndsWithGeneration checks the retries of a release
+// call that fails, with a fake timer: the Client waits the plugin timeout
+// before the next call, and the end of the engine's generation during that
+// wait ends the retries at once, stopping the wait, with no further call.
+func TestClientReleaseRetryEndsWithGeneration(t *testing.T) {
+	generation, end := context.WithCancel(context.Background())
+	defer end()
+	c := newClient(nil, nil, DefaultReplyMargin)
+	c.generation, c.hooks.timeout = generation, time.Hour
+	control := &failingControl{}
+	c.control = control
+	timers := newFakeTimers()
+	c.timer = timers.timer
+	done := make(chan struct{})
+	go func() {
+		c.retire(grpc.NewServer(), 7)
+		close(done)
+	}()
+	if d := within(t, "the wait before the next release call", timers.waits); d != time.Hour {
+		t.Errorf("the wait: %v, want the plugin timeout, 1h", d)
+	}
+	end()
+	within(t, "the end of the retries", done)
+	within(t, "the stopped wait", timers.stopped)
+	if n := control.calls.Load(); n != 1 {
+		t.Errorf("%d release calls, want the one before the generation ended", n)
+	}
+}

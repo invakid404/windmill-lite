@@ -1563,36 +1563,49 @@ func TestBrokerTransientFailure(t *testing.T) {
 	}
 }
 
-// TestBrokerCloseDuringVerdict checks Close while the host's handler of a
-// first-write verdict still runs, its answer an approval that never
-// arrives: the engine closes its side, and the verdict's call, cut, fails
-// instead of counting as no answer. So the run latches on the verdict and
-// its write-capable step never runs. The plugin timeout is a minute, so
-// only Close can end the call.
+// TestBrokerCloseDuringVerdict checks a broker connection let go while the
+// host's handler of a first-write verdict still runs, its answer an
+// approval that never arrives. First by Close, which stops the Client's
+// listener; then by the engine's own side, a release while the host still
+// serves. Either way the verdict's call, cut, fails instead of counting as
+// no answer, so the run latches on it and its write-capable step never
+// runs. The plugin timeout is a minute, so only the letting go can end the
+// call.
 func TestBrokerCloseDuringVerdict(t *testing.T) {
-	e := startEngine(t, engineConfig{pluginTimeout: time.Minute, lookupAfter: time.Hour})
-	entered, answer := make(chan struct{}), make(chan struct{})
-	var once sync.Once
-	approve := func() { once.Do(func() { close(answer) }) }
-	t.Cleanup(approve)
-	h := func(_ context.Context, c *plugin.HookCall) (*plugin.HookReply, error) {
-		if c.GetHook() == "before_first_write" {
-			close(entered)
-			<-answer
-		}
-		return &plugin.HookReply{Payload: []byte(`{}`)}, nil
-	}
+	var tap *tapRunner
+	e := startEngine(t, engineConfig{pluginTimeout: time.Minute, lookupAfter: time.Hour, runner: func(s plugin.RunnerServer) plugin.RunnerServer { tap = newTap(s); return tap }})
 	firstWrite := `{"write_capable": [{"flow": "f/broker/one", "module": "a"}], "before_first_write": true}`
-	run := runAsync(func() (*plugin.RunResult, error) {
-		return e.client.RunWithHooks(context.Background(), one("verdict"), []byte(firstWrite), h)
-	})
-	within(t, "the verdict's handler", entered)
-	e.client.Close()
-	o := within(t, "the run whose verdict Close cut", run)
-	if o.err != nil || o.res.GetStatus() != "latched" || !strings.Contains(o.res.GetLatched(), "the host's hooks service") || string(o.res.GetResult()) == `"one"` {
-		t.Errorf("the run whose verdict Close cut: %v, %v; want latched on the cut call, its step not run", o.res, o.err)
+	cut := func(t *testing.T, c *plugin.Client, id string, letGo func()) {
+		t.Helper()
+		entered, answer := make(chan struct{}), make(chan struct{})
+		var once sync.Once
+		approve := func() { once.Do(func() { close(answer) }) }
+		t.Cleanup(approve)
+		h := func(_ context.Context, call *plugin.HookCall) (*plugin.HookReply, error) {
+			if call.GetHook() == "before_first_write" {
+				close(entered)
+				<-answer
+			}
+			return &plugin.HookReply{Payload: []byte(`{}`)}, nil
+		}
+		run := runAsync(func() (*plugin.RunResult, error) {
+			return c.RunWithHooks(context.Background(), one(id), []byte(firstWrite), h)
+		})
+		within(t, "the verdict's handler", entered)
+		letGo()
+		o := within(t, "the run whose verdict was cut", run)
+		if o.err != nil || o.res.GetStatus() != "latched" || !strings.Contains(o.res.GetLatched(), "the host's hooks service") || string(o.res.GetResult()) == `"one"` {
+			t.Errorf("the run whose verdict was cut: %v, %v; want latched on the cut call, its step not run", o.res, o.err)
+		}
+		approve()
 	}
-	approve()
+	cut(t, e.client, "by-close", e.client.Close)
+	other := e.dispense()
+	cut(t, other, "by-release", func() {
+		if _, err := e.gate.Hooks().ReleaseHooks(context.Background(), &plugin.ReleaseHooksRequest{BrokerId: tap.broker("by-release")}); err != nil {
+			t.Fatalf("the engine's release: %v", err)
+		}
+	})
 }
 
 // lossyControl is a fake transport of the HooksControl service that loses
@@ -1687,5 +1700,126 @@ func TestBrokerReleaseDuringDial(t *testing.T) {
 	}
 	if got := rec.heard(); len(got) != 0 {
 		t.Errorf("the host heard %v", got)
+	}
+}
+
+// countingControl is a fake transport of the HooksControl service that
+// counts the release calls that the engine answered.
+type countingControl struct {
+	plugin.HooksControlServer
+	answered atomic.Int32
+}
+
+func (c *countingControl) ReleaseHooks(ctx context.Context, req *plugin.ReleaseHooksRequest) (*plugin.ReleaseHooksResponse, error) {
+	res, err := c.HooksControlServer.ReleaseHooks(ctx, req)
+	if err == nil {
+		c.answered.Add(1)
+	}
+	return res, err
+}
+
+// TestBrokerReleaseBeforeAdmission checks a release that overtakes the
+// first admission of its broker id: the test holds a run's request before
+// the engine admits it, and Close stops the Client's listener and gets the
+// engine's answer to the release before the request goes on. The
+// admission's dial cannot connect, so the run is refused before it
+// starts, and the engine holds no connection and no token.
+func TestBrokerReleaseBeforeAdmission(t *testing.T) {
+	var tap *tapRunner
+	reached, goOn := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	letGo := func() { once.Do(func() { close(goOn) }) }
+	t.Cleanup(letGo)
+	control := &countingControl{}
+	e := startEngine(t, engineConfig{
+		lookupAfter: time.Hour,
+		runner: func(s plugin.RunnerServer) plugin.RunnerServer {
+			tap = newTap(s)
+			tap.run = func(_ context.Context, req *plugin.RunRequest) (*plugin.RunResult, error, bool) {
+				if req.GetId() == "overtaken" {
+					close(reached)
+					<-goOn
+				}
+				return nil, nil, false
+			}
+			return tap
+		},
+		control: func(s plugin.HooksControlServer) plugin.HooksControlServer {
+			control.HooksControlServer = s
+			return control
+		},
+	})
+	var rec recorder
+	run := runAsync(func() (*plugin.RunResult, error) {
+		return e.client.RunWithHooks(context.Background(), one("overtaken"), []byte(`{"on_run_end": true}`), rec.handle)
+	})
+	within(t, "the run's request at the engine", reached)
+	e.client.Close()
+	waitFor(t, "the engine's answer to the release", func() bool { return control.answered.Load() >= 1 })
+	letGo()
+	if o := within(t, "the overtaken run", run); !errors.Is(o.err, plugin.ErrNotStarted) {
+		t.Errorf("the run whose release came first: %v, %v; want ErrNotStarted", o.res, o.err)
+	}
+	if n := e.srv.hooks.dialled(); n != 0 {
+		t.Errorf("the engine holds %d broker connections, want none", n)
+	}
+	if n := e.srv.hooks.heldTokens(); n != 0 {
+		t.Errorf("the engine holds %d tokens, want none", n)
+	}
+	if got := rec.heard(); len(got) != 0 {
+		t.Errorf("the host heard %v", got)
+	}
+}
+
+// TestBrokerReleaseSharedDial checks two runs whose admissions share one
+// dial, with the host's release while that dial is under way: the first
+// admission holds its new connection, and the second waits on it. The
+// dial ends with the connection let go, and the test holds the first
+// admission there: the second run, woken, sees it let go at once, so its
+// interception gets no answer although the host still serves, and it
+// succeeds with its step's own result. So does the first, and the host
+// hears nothing.
+func TestBrokerReleaseSharedDial(t *testing.T) {
+	var tap *tapRunner
+	e := startEngine(t, engineConfig{lookupAfter: time.Hour, runner: func(s plugin.RunnerServer) plugin.RunnerServer { tap = newTap(s); return tap }})
+	atDial, dialGo := make(chan struct{}), make(chan struct{})
+	atEnd, endGo := make(chan struct{}), make(chan struct{})
+	joined := make(chan struct{}, 1)
+	var onceDial, onceEnd sync.Once
+	letDial := func() { onceDial.Do(func() { close(dialGo) }) }
+	letEnd := func() { onceEnd.Do(func() { close(endGo) }) }
+	t.Cleanup(func() { letDial(); letEnd() })
+	e.srv.hooks.dialed = func(uint32, *grpc.ClientConn) {
+		close(atDial)
+		<-dialGo
+	}
+	e.srv.hooks.joined = func(uint32) { joined <- struct{}{} }
+	e.srv.hooks.published = func(uint32) {
+		close(atEnd)
+		<-endGo
+	}
+	rec := recorder{answer: answerWith(`"host"`)}
+	first := runAsync(func() (*plugin.RunResult, error) {
+		return e.client.RunWithHooks(context.Background(), one("first"), []byte(interceptOne), rec.handle)
+	})
+	within(t, "the first admission's dial", atDial)
+	second := runAsync(func() (*plugin.RunResult, error) {
+		return e.client.RunWithHooks(context.Background(), one("second"), []byte(interceptOne), rec.handle)
+	})
+	within(t, "the second admission waiting on the dial", joined)
+	if _, err := e.gate.Hooks().ReleaseHooks(context.Background(), &plugin.ReleaseHooksRequest{BrokerId: tap.broker("first")}); err != nil {
+		t.Fatalf("the release during the dial: %v", err)
+	}
+	letDial()
+	within(t, "the dial's end", atEnd)
+	if o := within(t, "the second run", second); o.err != nil || o.res.GetStatus() != "success" || string(o.res.GetResult()) != `"one"` {
+		t.Errorf("the run that waited on the let-go dial: %v, %v; want success with its step's own result", o.res, o.err)
+	}
+	letEnd()
+	if o := within(t, "the first run", first); o.err != nil || o.res.GetStatus() != "success" || string(o.res.GetResult()) != `"one"` {
+		t.Errorf("the run that dialled: %v, %v; want success with its step's own result", o.res, o.err)
+	}
+	if got := rec.heard(); len(got) != 0 {
+		t.Errorf("the host heard %v after the release", got)
 	}
 }

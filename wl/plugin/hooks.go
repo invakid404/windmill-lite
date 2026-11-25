@@ -272,30 +272,41 @@ func (c *Client) retireLocked(sv *serving) {
 	}
 }
 
-// retire tells the engine with ReleaseHooks that the Client has let the
-// broker connection id go, and stops its server s. The first call waits
-// at most the plugin timeout; then s stops at once, ending the calls that
-// its handlers still run. The engine closes its side before that, so a
-// call that starts after it gets no answer instead of a broken
-// connection. A call that fails is sent again, at first after the plugin
-// timeout and then with a doubling interval, until the engine has it,
-// does not serve it, or its generation or connection has ended.
+// retire stops the server s of the broker connection id at once, ending
+// the calls that its handlers still run, and then tells the engine with
+// ReleaseHooks that the Client has let the connection go. The listener
+// is gone first, so an admission that the engine has not dialled yet
+// cannot connect and refuses its run. A call that the engine sends before
+// it has the release fails, as a call to a stopped server does; once it
+// has the release, a call gets no answer. Each ReleaseHooks call waits at
+// most the plugin timeout. One that fails is sent again, at first after
+// the plugin timeout and then with a doubling interval, until the engine
+// has it or answers that it does not serve it, or until the generation
+// or the connection to the engine ends. The end of the generation also
+// ends a call and a wait in progress.
 func (c *Client) retire(s *grpc.Server, id uint32) {
+	s.Stop()
+	base, ended := context.Background(), (<-chan struct{})(nil)
+	if c.generation != nil {
+		base, ended = c.generation, c.generation.Done()
+	}
 	release := func() bool {
-		ctx, cancel := context.WithTimeout(context.Background(), c.hooks.timeout)
+		ctx, cancel := context.WithTimeout(base, c.hooks.timeout)
 		defer cancel()
 		_, err := c.control.ReleaseHooks(ctx, &ReleaseHooksRequest{BrokerId: id})
 		return err == nil || status.Code(err) == codes.Unimplemented
 	}
-	done := release()
-	s.Stop()
-	for wait := c.hooks.timeout; !done; wait = min(2*wait, maxLookupInterval) {
-		if (c.generation != nil && c.generation.Err() != nil) || c.shutdown() {
+	for wait := c.hooks.timeout; base.Err() == nil && !c.shutdown(); wait = min(2*wait, maxLookupInterval) {
+		if release() {
 			return
 		}
-		fired, _ := c.timer(wait)
-		<-fired
-		done = release()
+		fired, stop := c.timer(wait)
+		select {
+		case <-fired:
+		case <-ended:
+			stop()
+			return
+		}
 	}
 }
 

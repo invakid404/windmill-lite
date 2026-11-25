@@ -50,10 +50,14 @@ type brokerHooks struct {
 	// transport of the engine's calls. Tests set it.
 	wrap func(plugin.HostHooksClient) plugin.HostHooksClient
 	// dialing, when set, is called with each broker id just before its
-	// dial, and dialed with each connection that a dial returned, before
-	// the dial ends; dialOptions are added to each dial. Tests set them.
+	// dial; dialed with each connection that a dial made ready, before the
+	// dial ends; joined when an admission waits on another's dial; and
+	// published once a dial has ended. dialOptions are added to each dial.
+	// Tests set them.
 	dialing     func(id uint32)
 	dialed      func(id uint32, conn *grpc.ClientConn)
+	joined      func(id uint32)
+	published   func(id uint32)
 	dialOptions []grpc.DialOption
 
 	// connMu guards conns: the dial of each broker connection, made once.
@@ -196,7 +200,10 @@ func noAnswer(hook string, payload []byte) []byte {
 
 // client returns the dial of the broker connection id, which it dials
 // once, with the engine's message limit and no idle timeout, so that the
-// connection stays up while the host's listener serves. A failed dial is
+// connection stays up while the host's listener serves. The dial ends
+// once the connection is ready; one that cannot connect within the plugin
+// timeout fails, so a listener that the host has stopped refuses the run
+// instead of leaving a connection that only tries again. A failed dial is
 // not kept: a later run dials again.
 func (b *brokerHooks) client(id uint32) (*brokerConn, error) {
 	b.connMu.Lock()
@@ -213,8 +220,12 @@ func (b *brokerHooks) client(id uint32) (*brokerConn, error) {
 		}
 		opts := append([]grpc.DialOption{grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(b.limit), grpc.MaxCallSendMsgSize(b.limit)), grpc.WithIdleTimeout(0)}, b.dialOptions...)
 		conn, err := b.broker().DialWithOptions(id, opts...)
-		if err == nil && b.dialed != nil {
-			b.dialed(id, conn)
+		if err == nil {
+			if err = b.ready(conn); err != nil {
+				_ = conn.Close()
+			} else if b.dialed != nil {
+				b.dialed(id, conn)
+			}
 		}
 		b.connMu.Lock()
 		if err != nil {
@@ -229,18 +240,26 @@ func (b *brokerHooks) client(id uint32) (*brokerConn, error) {
 				c.client = b.wrap(c.client)
 			}
 		}
-		released := c.released
+		released := c.released && err == nil
+		if released {
+			// The host let it go while it was dialled: an admission
+			// that waits on this dial sees it closed when it wakes.
+			c.closed.Store(true)
+		}
 		close(c.done)
 		b.connMu.Unlock()
+		if b.published != nil {
+			b.published(id)
+		}
 		switch {
 		case err != nil:
 		case released:
-			// The host let it go while it was dialled.
-			c.closed.Store(true)
 			_ = conn.Close()
 		default:
 			go b.watch(id, c, conn)
 		}
+	} else if b.joined != nil {
+		b.joined(id)
 	}
 	<-c.done
 	if c.err != nil {
@@ -277,6 +296,26 @@ func (b *brokerHooks) letGo(id uint32) {
 	if ended {
 		c.closed.Store(true)
 		_ = c.conn.Close()
+	}
+}
+
+// ready waits until conn, a dial's new connection, is ready, at most the
+// plugin timeout. A connect that fails ends the wait at once.
+func (b *brokerHooks) ready(conn *grpc.ClientConn) error {
+	ctx, cancel := context.WithTimeout(context.Background(), b.timeout)
+	defer cancel()
+	conn.Connect()
+	for {
+		switch s := conn.GetState(); s {
+		case connectivity.Ready:
+			return nil
+		case connectivity.TransientFailure, connectivity.Shutdown:
+			return fmt.Errorf("the connection is %v", s)
+		default:
+			if !conn.WaitForStateChange(ctx, s) {
+				return fmt.Errorf("the connection did not get ready: %w", context.Cause(ctx))
+			}
+		}
 	}
 }
 
