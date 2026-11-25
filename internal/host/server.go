@@ -170,7 +170,8 @@ func (s *Server) Run(ctx context.Context, req *plugin.RunRequest) (*plugin.RunRe
 	if h := req.GetHooks(); h != nil {
 		// The run's hooks on the host's broker connection: the engine
 		// holds the token until it has sent the run's release call.
-		if ctx, forget, err = s.hooks.admit(ctx, id, h); err != nil {
+		arrivedEnded := r.deadline != nil && !r.deadline.After(receipt)
+		if ctx, forget, err = s.hooks.admit(ctx, id, h, arrivedEnded); err != nil {
 			return nil, err
 		}
 	}

@@ -54,11 +54,13 @@ type brokerHooks struct {
 	// transport of the engine's calls. Tests set it.
 	wrap func(plugin.HostHooksClient) plugin.HostHooksClient
 	// dialing, when set, is called with each broker id just before its
-	// dial; dialed with each connection that a dial got from go-plugin,
+	// dial; dialBroker, when set, gives the dial its connection in place of
+	// go-plugin's broker; dialed with each connection that a dial got,
 	// before it waits for it to be ready; joined when an admission waits
-	// on another's dial; and published once a dial has ended. dialOptions are added to each dial.
-	// Tests set them.
+	// on another's dial; and published once a dial has ended. dialOptions
+	// are added to each dial. Tests set them.
 	dialing     func(id uint32)
+	dialBroker  func(id uint32, opts ...grpc.DialOption) (*grpc.ClientConn, error)
 	dialed      func(id uint32, conn *grpc.ClientConn)
 	joined      func(id uint32)
 	published   func(id uint32)
@@ -99,9 +101,11 @@ type brokerConn struct {
 
 // admit admits the hooks h of the run id: it refuses a token that is held
 // or gone, holds the token, and dials the broker connection that h names.
-// It returns ctx carrying the run's hooks and its settlement callback, and
-// the function that forgets the token of a run that did not start.
-func (b *brokerHooks) admit(ctx context.Context, id string, h *plugin.Hooks) (context.Context, func(), error) {
+// arrivedEnded says that the run's deadline had passed when its request
+// arrived. It returns ctx carrying the run's hooks and its settlement
+// callback, and the function that forgets the token of a run that did not
+// start.
+func (b *brokerHooks) admit(ctx context.Context, id string, h *plugin.Hooks, arrivedEnded bool) (context.Context, func(), error) {
 	token := h.GetToken()
 	switch {
 	case b == nil || b.broker == nil || b.broker() == nil:
@@ -130,7 +134,7 @@ func (b *brokerHooks) admit(ctx context.Context, id string, h *plugin.Hooks) (co
 		b.mu.Unlock()
 		b.dropUnused(h.GetBrokerId())
 	}
-	bc, err := b.client(ctx, h.GetBrokerId())
+	bc, err := b.client(ctx, h.GetBrokerId(), !arrivedEnded)
 	if err != nil {
 		forget()
 		if ctx.Err() != nil && !errors.Is(err, errDial) {
@@ -212,12 +216,13 @@ func noAnswer(hook string, payload []byte) []byte {
 }
 
 // client returns the dial of the broker connection id, which a goroutine
-// of its own makes once (dial). An admission waits for that dial, or for
-// the end of its run's ctx, a Cancel or the run's deadline, which leaves
-// the dial to the admissions that still wait on it. A run that arrives
-// ended already waits for the dial, and the runtime then ends it
-// canceled, as a run without hooks.
-func (b *brokerHooks) client(ctx context.Context, id uint32) (*brokerConn, error) {
+// of its own makes once (dial). An admission waits for that dial, and,
+// when ends is set, for the end of its run's ctx, a Cancel or the run's
+// deadline, which leaves the dial to the admissions that still wait on
+// it. A run whose deadline had passed when its request arrived waits for
+// the dial alone, and the runtime then ends it canceled, as a run without
+// hooks. A dial that has ended already is taken.
+func (b *brokerHooks) client(ctx context.Context, id uint32, ends bool) (*brokerConn, error) {
 	b.connMu.Lock()
 	c := b.conns[id]
 	first := c == nil
@@ -231,14 +236,18 @@ func (b *brokerHooks) client(ctx context.Context, id uint32) (*brokerConn, error
 	} else if b.joined != nil {
 		b.joined(id)
 	}
-	var ends <-chan struct{}
-	if ctx.Err() == nil {
-		ends = ctx.Done()
+	var end <-chan struct{}
+	if ends {
+		end = ctx.Done()
 	}
 	select {
 	case <-c.done:
-	case <-ends:
-		return nil, context.Cause(ctx)
+	default:
+		select {
+		case <-c.done:
+		case <-end:
+			return nil, context.Cause(ctx)
+		}
 	}
 	if c.err != nil {
 		return nil, c.err
@@ -259,7 +268,11 @@ func (b *brokerHooks) dial(id uint32, c *brokerConn) {
 		b.dialing(id)
 	}
 	opts := append([]grpc.DialOption{grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(b.limit), grpc.MaxCallSendMsgSize(b.limit)), grpc.WithIdleTimeout(0)}, b.dialOptions...)
-	conn, err := b.broker().DialWithOptions(id, opts...)
+	dialBroker := b.broker().DialWithOptions
+	if b.dialBroker != nil {
+		dialBroker = b.dialBroker
+	}
+	conn, err := dialBroker(id, opts...)
 	if err == nil {
 		if b.dialed != nil {
 			b.dialed(id, conn)
