@@ -50,6 +50,10 @@ type Config struct {
 	// PluginTimeout bounds the release call of a run's hooks; zero means
 	// wl.DefaultPluginTimeout.
 	PluginTimeout time.Duration
+	// MaxMessageBytes is the largest message of a call of a run's hooks
+	// that the engine sends or receives; zero means
+	// plugin.DefaultMaxMessageBytes.
+	MaxMessageBytes int
 	// TokenBound is how many tokens that GetRun answered gone for the
 	// Server keeps before it calls OnTokenBound; zero means
 	// DefaultTokenBound.
@@ -95,11 +99,15 @@ func New(cfg Config) *Server {
 	if bound <= 0 {
 		bound = DefaultTokenBound
 	}
+	limit := cfg.MaxMessageBytes
+	if limit <= 0 {
+		limit = plugin.DefaultMaxMessageBytes
+	}
 	return &Server{
 		rt:  cfg.Runtime,
 		now: now,
-		hooks: &brokerHooks{broker: cfg.Broker, timeout: timeout, bound: bound, onBound: cfg.OnTokenBound,
-			conns: map[uint32]plugin.HostHooksClient{}, held: map[string]string{}, gone: map[string]struct{}{}},
+		hooks: &brokerHooks{broker: cfg.Broker, timeout: timeout, limit: limit, bound: bound, onBound: cfg.OnTokenBound,
+			conns: map[uint32]*brokerConn{}, held: map[string]string{}, gone: map[string]struct{}{}},
 		info: &plugin.BuildInfo{
 			BundleDigest:         bi.BundleDigest,
 			EngineVersion:        bi.EngineVersion,

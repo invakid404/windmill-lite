@@ -93,6 +93,16 @@ func (c *Client) Cancel(ctx context.Context, req *CancelRequest) (*CancelRespons
 // ErrOutcomeUnknown otherwise. The error of a call that Run made also
 // wraps the call's gRPC error, whose code status.Code reads.
 func (c *Client) Run(ctx context.Context, req *RunRequest) (*RunResult, error) {
+	if id := req.GetId(); id != "" && c.registered(id) {
+		// The engine may have freed the id while a lost release call keeps
+		// its run's hooks registered here.
+		return nil, fmt.Errorf("%w: a run with the id %s still has its hooks registered", ErrNotStarted, id)
+	}
+	return c.run(ctx, req)
+}
+
+// run is Run without the check of the Client's registrations.
+func (c *Client) run(ctx context.Context, req *RunRequest) (*RunResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrNotStarted, context.Cause(ctx))
 	}

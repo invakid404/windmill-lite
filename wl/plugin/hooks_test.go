@@ -3,9 +3,12 @@ package plugin
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	goplugin "github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -19,14 +22,27 @@ type lookupRunner struct {
 	asked   chan *GetRunRequest
 }
 
-func (r *lookupRunner) GetRun(_ context.Context, req *GetRunRequest, _ ...grpc.CallOption) (*GetRunResponse, error) {
+// blockLookup is the answer that holds a lookup until its context ends,
+// whose error ended reports.
+type blockLookup struct{ ended chan error }
+
+func (r *lookupRunner) GetRun(ctx context.Context, req *GetRunRequest, _ ...grpc.CallOption) (*GetRunResponse, error) {
 	r.asked <- req
 	switch a := (<-r.answers).(type) {
+	case blockLookup:
+		<-ctx.Done()
+		a.ended <- ctx.Err()
+		return nil, ctx.Err()
 	case error:
 		return nil, a
 	default:
 		return &GetRunResponse{State: a.(string)}, nil
 	}
+}
+
+// Run fails the test's expectations: no run reaches the engine.
+func (r *lookupRunner) Run(context.Context, *RunRequest, ...grpc.CallOption) (*RunResult, error) {
+	return nil, errors.New("a run reached the engine")
 }
 
 // fakeTimers is the Client's timer hook: each wait is sent on waits, and
@@ -173,7 +189,9 @@ func TestClientHookCalls(t *testing.T) {
 			t.Errorf("a call of run %s, token %s: %v, want unknown_run", rt[0], rt[1], rep)
 		}
 	}
-	call(releasedHook, "r1", "old")
+	if rep := call(releasedHook, "r1", "old"); rep.GetError().GetCode() != HookCodeUnknownRun {
+		t.Errorf("a release call with another token: %v, want unknown_run", rep)
+	}
 	if c.Registrations() != 1 {
 		t.Error("a release call with another token dropped the registration")
 	}
@@ -183,5 +201,174 @@ func TestClientHookCalls(t *testing.T) {
 	}
 	if len(heard) != 2 {
 		t.Errorf("the handler heard %v, want the two calls of its run and token", heard)
+	}
+}
+
+// TestClientGenerationEnd checks that the end of the engine's generation,
+// the context that go-plugin gives the plugin's client, drops every
+// registration and stops its lookups, though the first lookup is an hour
+// away.
+func TestClientGenerationEnd(t *testing.T) {
+	ctx, end := context.WithCancel(context.Background())
+	raw, err := (&RunnerPlugin{PluginTimeout: time.Hour}).GRPCClient(ctx, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := raw.(*Client)
+	timers := newFakeTimers()
+	c.timer = timers.timer
+	reg := &registration{token: "t1", done: make(chan struct{})}
+	c.hooks.regs["r1"] = reg
+	go c.reconcile("r1", reg)
+	if d := within(t, "the first wait", timers.waits); d != time.Hour {
+		t.Errorf("the first wait: %v, want the plugin timeout, 1h", d)
+	}
+	end()
+	within(t, "the registration's drop", reg.done)
+	within(t, "the stopped wait", timers.stopped)
+	if n := c.Registrations(); n != 0 {
+		t.Errorf("%d registrations after the generation's end, want 0", n)
+	}
+}
+
+// TestClientLookupTimeout checks that a lookup that gets no reply ends at
+// the lookup's bound and is tried again later, and that a registration
+// dropped while its lookup waits ends that lookup at once.
+func TestClientLookupTimeout(t *testing.T) {
+	c, runner, timers, reg := lookupClient(time.Minute)
+	c.hooks.lookupTimeout = 20 * time.Millisecond
+	go c.reconcile("r1", reg)
+	within(t, "the first wait", timers.waits)
+	timers.fire <- struct{}{}
+	within(t, "the first lookup", runner.asked)
+	ended := make(chan error, 1)
+	runner.answers <- blockLookup{ended}
+	if err := within(t, "the end of the silent lookup", ended); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("the silent lookup ended with %v, want its bound", err)
+	}
+	if d := within(t, "the retry's wait", timers.waits); d != 2*time.Minute {
+		t.Errorf("the retry's wait: %v, want 2m", d)
+	}
+	timers.fire <- struct{}{}
+	within(t, "the second lookup", runner.asked)
+	runner.answers <- "gone"
+	within(t, "the drop at gone", reg.done)
+
+	c, runner, timers, reg = lookupClient(time.Minute)
+	c.hooks.lookupTimeout = time.Hour
+	go c.reconcile("r1", reg)
+	within(t, "the first wait", timers.waits)
+	timers.fire <- struct{}{}
+	within(t, "the lookup", runner.asked)
+	ended = make(chan error, 1)
+	runner.answers <- blockLookup{ended}
+	if _, err := (hookServer{c: c}).Call(context.Background(), &HookCall{Hook: releasedHook, Run: "r1", Token: "t1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := within(t, "the end of the waiting lookup", ended); !errors.Is(err, context.Canceled) {
+		t.Errorf("the waiting lookup of a dropped registration ended with %v, want canceled", err)
+	}
+	select {
+	case d := <-timers.waits:
+		t.Errorf("a wait of %v after the drop", d)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// TestClientRunRefusesRegisteredID checks that a plain Run with the id of
+// a run whose hooks are still registered is refused, without a call.
+func TestClientRunRefusesRegisteredID(t *testing.T) {
+	c, _, _, _ := lookupClient(time.Minute)
+	if _, err := c.Run(context.Background(), &RunRequest{Id: "r1", Path: "f/x"}); !errors.Is(err, ErrNotStarted) {
+		t.Errorf("a run with a registered id: %v, want ErrNotStarted", err)
+	}
+}
+
+// echoEngine is a fake engine on go-plugin's test connection: its Run dials
+// the run's broker connection, keeps it, calls the run's onRunEnd on it and
+// succeeds.
+type echoEngine struct {
+	UnimplementedRunnerServer
+	goplugin.NetRPCUnsupportedPlugin
+	broker atomic.Pointer[goplugin.GRPCBroker]
+	mu     sync.Mutex
+	conn   HostHooksClient
+}
+
+func (e *echoEngine) GRPCServer(b *goplugin.GRPCBroker, s *grpc.Server) error {
+	e.broker.Store(b)
+	RegisterRunnerServer(s, e)
+	return nil
+}
+
+func (e *echoEngine) GRPCClient(ctx context.Context, b *goplugin.GRPCBroker, cc *grpc.ClientConn) (any, error) {
+	return (&RunnerPlugin{PluginTimeout: time.Hour}).GRPCClient(ctx, b, cc)
+}
+
+func (e *echoEngine) Run(ctx context.Context, req *RunRequest) (*RunResult, error) {
+	conn, err := e.broker.Load().Dial(req.GetHooks().GetBrokerId())
+	if err != nil {
+		return nil, err
+	}
+	c := NewHostHooksClient(conn)
+	e.mu.Lock()
+	e.conn = c
+	e.mu.Unlock()
+	_, _ = c.Call(ctx, &HookCall{Hook: "on_run_end", Run: req.GetId(), Token: req.GetHooks().GetToken()})
+	return &RunResult{Id: req.GetId(), Status: "success"}, nil
+}
+
+// TestClientCloseAtFirstUse checks Close against a first RunWithHooks
+// that runs at the same time, on go-plugin's test connection with a real
+// broker: either the run is refused, or it ran and Close then stopped the
+// broker connection that it opened, so the engine's next call fails.
+// Neither leaves a registration.
+func TestClientCloseAtFirstUse(t *testing.T) {
+	for i := range 10 {
+		engine := &echoEngine{}
+		gc, _ := goplugin.TestPluginGRPCConn(t, false, map[string]goplugin.Plugin{PluginName: engine})
+		raw, err := gc.Dispense(PluginName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c := raw.(*Client)
+		var wg sync.WaitGroup
+		var runErr error
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_, runErr = c.RunWithHooks(context.Background(), &RunRequest{Path: "f/x"}, []byte(`{"on_run_end": true}`), func(context.Context, *HookCall) (*HookReply, error) {
+				return &HookReply{Payload: []byte(`{}`)}, nil
+			})
+		}()
+		go func() {
+			defer wg.Done()
+			c.Close()
+		}()
+		wg.Wait()
+		switch {
+		case errors.Is(runErr, ErrNotStarted):
+		case runErr != nil:
+			t.Fatalf("round %d: %v", i, runErr)
+		default:
+			engine.mu.Lock()
+			conn := engine.conn
+			engine.mu.Unlock()
+			for until := time.Now().Add(30 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				_, err := conn.Call(ctx, &HookCall{Hook: "on_run_end", Run: "x", Token: "y"})
+				cancel()
+				if err != nil {
+					break
+				}
+				if time.Now().After(until) {
+					t.Fatalf("round %d: the broker connection still serves after Close", i)
+				}
+			}
+		}
+		if n := c.Registrations(); n != 0 {
+			t.Errorf("round %d: %d registrations after Close", i, n)
+		}
+		gc.Close()
 	}
 }

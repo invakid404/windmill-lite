@@ -495,7 +495,9 @@ A hook takes the cheapest of three routes that serves it:
   run, when the engine's release call says that the run has settled, or
   when the generation ends. The engine sends that call whatever hooks the
   run declared. A hook call that names no held registration answers an
-  error that latches nothing.
+  error that latches nothing: the engine takes it as no answer, so an
+  interception or a provider declines, and a mandatory provided site still
+  fails closed.
 - **Reconciliation.** A refusal or a release call can be lost. So after
   every `Run` call ends, whatever its outcome, `Client` asks `GetRun` for
   that registration, at first after `plugin_timeout_ms` and then with a
@@ -510,8 +512,8 @@ A hook takes the cheapest of three routes that serves it:
   so no process that still takes runs forgets a token. A delayed request of
   that process ends with its connection, and the next generation starts with
   none.
-- **One listener.** The broker connection lives as long as the `Client`,
-  so a run opens no listener of its own.
+- **One listener.** The broker connection lives until `Client.Close`,
+  which the generation's end calls, so a run opens no listener of its own.
 - **Providers on the broker.** A named provider that the configuration
   marks `broker` is answered by the hooks service of the run that reaches
   it, and a run that serves none latches there. So `wl.Open` still finds

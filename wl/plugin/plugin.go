@@ -62,9 +62,14 @@ type RunnerPlugin struct {
 
 	// PluginTimeout is the engine's plugin_timeout_ms, after which
 	// Client.RunWithHooks first asks GetRun about a run's hooks
-	// registration. Zero means DefaultPluginTimeout; a negative timeout
-	// refuses to dispense.
+	// registration, and which bounds each lookup. Zero means
+	// DefaultPluginTimeout; a negative timeout refuses to dispense.
 	PluginTimeout time.Duration
+
+	// MaxMessageBytes is the largest message of a call of a run's hooks
+	// that the host receives or sends. Zero means DefaultMaxMessageBytes;
+	// a negative limit refuses to dispense.
+	MaxMessageBytes int
 }
 
 var _ goplugin.GRPCPlugin = (*RunnerPlugin)(nil)
@@ -79,7 +84,7 @@ func (p *RunnerPlugin) GRPCServer(_ *goplugin.GRPCBroker, s *grpc.Server) error 
 }
 
 // GRPCClient returns the *Client of a connection to the engine.
-func (p *RunnerPlugin) GRPCClient(_ context.Context, b *goplugin.GRPCBroker, cc *grpc.ClientConn) (any, error) {
+func (p *RunnerPlugin) GRPCClient(ctx context.Context, b *goplugin.GRPCBroker, cc *grpc.ClientConn) (any, error) {
 	margin := p.ReplyMargin
 	switch {
 	case margin < 0:
@@ -94,8 +99,18 @@ func (p *RunnerPlugin) GRPCClient(_ context.Context, b *goplugin.GRPCBroker, cc 
 	case timeout == 0:
 		timeout = DefaultPluginTimeout
 	}
+	limit := p.MaxMessageBytes
+	switch {
+	case limit < 0:
+		return nil, fmt.Errorf("wl/plugin: negative MaxMessageBytes %d", limit)
+	case limit == 0:
+		limit = DefaultMaxMessageBytes
+	}
 	c := newClient(cc, b, margin)
-	c.hooks.timeout = timeout
+	c.hooks.timeout, c.hooks.lookupTimeout, c.hooks.limit = timeout, timeout, limit
+	// go-plugin ends ctx with the engine's generation: its process exited
+	// or its client was killed.
+	context.AfterFunc(ctx, c.Close)
 	return c, nil
 }
 
@@ -108,7 +123,8 @@ func newClient(cc grpc.ClientConnInterface, b *goplugin.GRPCBroker, margin time.
 		margin: margin,
 		now:    time.Now,
 		conn:   cc,
-		hooks:  hooks{timeout: DefaultPluginTimeout, regs: map[string]*registration{}, done: make(chan struct{})},
+		hooks: hooks{timeout: DefaultPluginTimeout, lookupTimeout: DefaultPluginTimeout, limit: DefaultMaxMessageBytes,
+			regs: map[string]*registration{}, done: make(chan struct{})},
 		timer: func(d time.Duration) (<-chan time.Time, func() bool) {
 			t := time.NewTimer(d)
 			return t.C, t.Stop

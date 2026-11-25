@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -91,14 +92,31 @@ func TestPluginBrokerHooks(t *testing.T) {
 
 // TestPluginTokenBoundDrains checks that the engine drains once it keeps
 // its bound of tokens that GetRun answered gone for, lowered to 2 by a
-// test hook: it serves after the first gone answer, and after the second
-// it says why on standard error and answers health NOT_SERVING.
+// test hook. A run with hooks waits in its step meanwhile, which keeps the
+// draining engine up: after one gone answer the engine serves; after the
+// second it names its bound on standard error, answers health NOT_SERVING
+// and refuses a new run. Released, the waiting run succeeds, the engine
+// exits, and the Client holds no registration.
 func TestPluginTokenBoundDrains(t *testing.T) {
 	bun, out := pluginBundle(t)
 	e := launchPlugin(t, pluginConfigOf(t, bun, out), tokenBoundEnv+"=2")
 	runner := plugin.NewRunnerClient(e.conn)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
+	dir, args := newGate(t)
+	hooks := func(context.Context, *plugin.HookCall) (*plugin.HookReply, error) {
+		return &plugin.HookReply{Payload: []byte(`{}`)}, nil
+	}
+	type outcome struct {
+		res *plugin.RunResult
+		err error
+	}
+	held := make(chan outcome, 1)
+	go func() {
+		res, err := e.runner.RunWithHooks(ctx, &plugin.RunRequest{Id: "held", Path: "f/plugin/gate", Args: args}, []byte(`{"on_run_end": true}`), hooks)
+		held <- outcome{res, err}
+	}()
+	waitFile(t, dir, "entered")
 	lookup := func(token string) {
 		t.Helper()
 		res, err := runner.GetRun(ctx, &plugin.GetRunRequest{Id: "r-" + token, Token: token})
@@ -123,5 +141,24 @@ func TestPluginTokenBoundDrains(t *testing.T) {
 	}
 	if s := e.stderr.String(); !strings.Contains(s, "bound of tokens") {
 		t.Errorf("the engine's standard error does not name its bound:\n%s", s)
+	}
+	if _, err := e.runner.RunWithHooks(ctx, &plugin.RunRequest{Path: "f/plugin/echo", Args: []byte(`{"x": 1}`)}, []byte(`{"on_run_end": true}`), hooks); !errors.Is(err, plugin.ErrNotStarted) {
+		t.Errorf("a new run while draining: %v, want ErrNotStarted", err)
+	}
+	release(t, dir)
+	if o := <-held; o.err != nil || o.res.GetStatus() != "success" {
+		t.Errorf("the run that waited through the drain: %v, %v; want success", o.res, o.err)
+	}
+	for !e.client.Exited() {
+		if ctx.Err() != nil {
+			t.Fatalf("the drained engine did not exit\nits standard error:\n%s", e.stderr)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	for e.runner.Registrations() != 0 {
+		if ctx.Err() != nil {
+			t.Fatalf("%d registrations after the engine exited", e.runner.Registrations())
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

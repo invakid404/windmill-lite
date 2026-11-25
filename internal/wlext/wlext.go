@@ -71,11 +71,13 @@ var TraceJSON func(t *engine.Trace, level string) ([]byte, error)
 // sets it when it is initialized.
 var OnPoolStartFailure func(rt any, f func(error))
 
-// RunHooks are a run's hooks on a host's connection (ADR 0009, hooks
+// RunHooks are a run's hooks on a host's connection ([ADR 0009], hooks
 // across the plugin boundary): a host plugin's declaration, as JSON, and
 // the function that sends one call of them and returns its answer. The
 // calls have a host plugin's host_call hook names and payloads, and a hook
 // that the host failed returns a *wl.HostCallError.
+//
+// [ADR 0009]: https://github.com/invakid404/windmill-lite/blob/main/docs/design/0009-host-adapters.md#hooks-across-the-plugin-boundary
 type RunHooks struct {
 	Declaration []byte
 	Call        func(ctx context.Context, hook, run, site string, payload []byte) ([]byte, error)

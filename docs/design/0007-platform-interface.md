@@ -116,8 +116,8 @@ first answer of these sources, in this order:
 
 1. the run's own values: a Go host's `RunPlatform` ([H13](0008-host-hooks.md#the-hooks)), or the
    `resources` and `variables` of a go-plugin `RunRequest`;
-2. the run's own providers on a go-plugin host's broker (planned), which
-   are the run's hooks and so come before the plugin's;
+2. the run's own providers on a go-plugin host's broker, which are the
+   run's hooks and so come before the plugin's;
 3. the host plugin's `resource` and `variable` providers;
 4. the runtime's host values, `wl`'s `Options.Resources` and `Variables`,
    which the go-plugin adapter's configuration fills;

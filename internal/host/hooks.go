@@ -2,11 +2,13 @@ package host
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
 
 	goplugin "github.com/hashicorp/go-plugin"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -16,8 +18,10 @@ import (
 )
 
 // DefaultTokenBound is how many tokens that GetRun answered gone for the
-// engine keeps, at most, before it stops serving (ADR 0009, hooks across
+// engine keeps, at most, before it stops serving ([ADR 0009], hooks across
 // the plugin boundary).
+//
+// [ADR 0009]: https://github.com/invakid404/windmill-lite/blob/main/docs/design/0009-host-adapters.md#hooks-across-the-plugin-boundary
 const DefaultTokenBound = 65536
 
 // releasedHook is the name of the internal call that tells the host that a
@@ -37,17 +41,34 @@ const (
 type brokerHooks struct {
 	broker  func() *goplugin.GRPCBroker
 	timeout time.Duration
+	limit   int
 	bound   int
 	onBound func()
 	// wrap, when set, wraps each HostHooks client that it dials: a fake
 	// transport of the engine's calls. Tests set it.
 	wrap func(plugin.HostHooksClient) plugin.HostHooksClient
+	// dialing, when set, is called with each broker id just before its
+	// dial. Tests set it.
+	dialing func(id uint32)
 
-	mu    sync.Mutex
-	conns map[uint32]plugin.HostHooksClient
-	held  map[string]string // token → run id
-	gone  map[string]struct{}
-	full  bool
+	// connMu guards conns: the dial of each broker connection, made once.
+	// A dial waits without it, so one broker id that does not answer
+	// stalls neither the other ids nor the tokens.
+	connMu sync.Mutex
+	conns  map[uint32]*brokerConn
+
+	mu   sync.Mutex
+	held map[string]string // token → run id
+	gone map[string]struct{}
+	full bool
+}
+
+// brokerConn is the dial of one broker connection: done closes once client
+// or err is set.
+type brokerConn struct {
+	done   chan struct{}
+	client plugin.HostHooksClient
+	err    error
 }
 
 // admit admits the hooks h of the run id: it refuses a token that is held
@@ -97,6 +118,11 @@ func (b *brokerHooks) admit(ctx context.Context, id string, h *plugin.Hooks) (co
 			return nil, fmt.Errorf("the host's hooks service: %w", err)
 		}
 		if e := rep.GetError(); e != nil {
+			if e.GetCode() == plugin.HookCodeUnknownRun {
+				// The host holds no registration of the run: no answer,
+				// which latches nothing.
+				return noAnswer(hook, payload), nil
+			}
 			return nil, &wl.HostCallError{Hook: hook, Code: e.GetCode(), Message: e.GetMessage()}
 		}
 		return rep.GetPayload(), nil
@@ -106,24 +132,72 @@ func (b *brokerHooks) admit(ctx context.Context, id string, h *plugin.Hooks) (co
 	return ctx, forget, nil
 }
 
+// noAnswer is the answer of a hook that has none, as a run without that
+// hook has it: an interception or a provider declines, a rewrite keeps
+// the arguments, the environment stays, a resource or variable is not
+// found, and every other hook answers nothing.
+func noAnswer(hook string, payload []byte) []byte {
+	var p struct {
+		Args json.RawMessage `json:"args"`
+		Env  json.RawMessage `json:"env"`
+	}
+	_ = json.Unmarshal(payload, &p)
+	var a any
+	switch hook {
+	case "intercept", "provide":
+		a = map[string]any{"decline": true}
+	case "rewrite_args":
+		a = map[string]any{"args": p.Args}
+	case "invocation_env":
+		a = map[string]any{"env": p.Env}
+	case "resource", "variable":
+		a = map[string]any{"found": false}
+	default:
+		a = map[string]any{}
+	}
+	b, _ := json.Marshal(a)
+	return b
+}
+
 // client returns the HostHooks client of the broker connection id, which
-// it dials once.
+// it dials once, with the engine's message limit. A failed dial is not
+// kept: a later run dials again.
 func (b *brokerHooks) client(id uint32) (plugin.HostHooksClient, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if c := b.conns[id]; c != nil {
-		return c, nil
+	b.connMu.Lock()
+	c := b.conns[id]
+	first := c == nil
+	if first {
+		c = &brokerConn{done: make(chan struct{})}
+		b.conns[id] = c
 	}
-	conn, err := b.broker().Dial(id)
-	if err != nil {
-		return nil, fmt.Errorf("dial the host's hooks service: %w", err)
+	b.connMu.Unlock()
+	if first {
+		if b.dialing != nil {
+			b.dialing(id)
+		}
+		conn, err := b.broker().DialWithOptions(id, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(b.limit), grpc.MaxCallSendMsgSize(b.limit)))
+		if err != nil {
+			c.err = fmt.Errorf("dial the host's hooks service: %w", err)
+			b.connMu.Lock()
+			delete(b.conns, id)
+			b.connMu.Unlock()
+		} else {
+			c.client = plugin.NewHostHooksClient(conn)
+			if b.wrap != nil {
+				c.client = b.wrap(c.client)
+			}
+		}
+		close(c.done)
 	}
-	c := plugin.NewHostHooksClient(conn)
-	if b.wrap != nil {
-		c = b.wrap(c)
-	}
-	b.conns[id] = c
-	return c, nil
+	<-c.done
+	return c.client, c.err
+}
+
+// dialled is how many broker connections the engine holds.
+func (b *brokerHooks) dialled() int {
+	b.connMu.Lock()
+	defer b.connMu.Unlock()
+	return len(b.conns)
 }
 
 // release sends the release call of the run id, whose token is token, once

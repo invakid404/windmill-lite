@@ -43,6 +43,11 @@ export async function main(dir: string) {
   return "released";
 }
 `,
+	// Returns a text of n bytes.
+	"f/broker/big.ts": `export async function main(n: number) {
+  return "x".repeat(n);
+}
+`,
 	// Returns its argument with the value of the resource u/broker/r, read
 	// through the job API.
 	"f/broker/getres.ts": `export async function main(prev: unknown) {
@@ -68,6 +73,16 @@ var brokerFlows = map[string]string{
 	// a waits for its directory's go file.
 	"f/broker/hold": `{"summary": "hold", "value": {"modules": [
   {"id": "a", "value": {"type": "script", "path": "f/broker/hold", "input_transforms": {"dir": {"type": "javascript", "expr": "flow_input.dir"}}}}
+]}}`,
+	// a returns 5 MiB, which the full trace holds; b returns a label.
+	"f/broker/big": `{"summary": "big", "value": {"modules": [
+  {"id": "a", "value": {"type": "script", "path": "f/broker/big", "input_transforms": {"n": {"type": "static", "value": 5242880}}}},
+  {"id": "b", "value": {"type": "script", "path": "f/plugins/label", "input_transforms": {"label": {"type": "static", "value": "small"}}}}
+]}}`,
+	// a waits for its directory's go file; b is a mandatory site of bp.
+	"f/broker/holdprov": `{"summary": "holdprov", "value": {"modules": [
+  {"id": "a", "value": {"type": "script", "path": "f/broker/hold", "input_transforms": {"dir": {"type": "javascript", "expr": "flow_input.dir"}}}},
+  {"id": "b", "value": {"type": "script", "path": "f/plugins/label", "input_transforms": {"label": {"type": "static", "value": "step"}}}}
 ]}}`,
 	// One step.
 	"f/broker/one": `{"summary": "one", "value": {"modules": [
@@ -163,7 +178,9 @@ func brokerBundle(t *testing.T) (bun, out, runtimeDir string, cases *conformance
 		for p := range brokerFlows {
 			contract.Roots = append(contract.Roots, map[string]any{"flow": p})
 		}
-		contract.Provided = append(contract.Provided, map[string]any{"selector": map[string]any{"flow": "f/broker/prov", "module": "a"}, "provider": "bp", "mandatory": true})
+		contract.Provided = append(contract.Provided,
+			map[string]any{"selector": map[string]any{"flow": "f/broker/prov", "module": "a"}, "provider": "bp", "mandatory": true},
+			map[string]any{"selector": map[string]any{"flow": "f/broker/holdprov", "module": "b"}, "provider": "bp", "mandatory": true})
 		c, err := json.Marshal(contract)
 		if err != nil {
 			bundleErr = err
@@ -205,6 +222,11 @@ type engineConfig struct {
 	providers map[string]wl.Provider
 	// diagnostics receives the runtime's diagnostics.
 	diagnostics io.Writer
+	// pool is the runtime's pool.
+	pool wl.PoolOptions
+	// maxMessageBytes is the Server's message limit of the hooks' calls;
+	// zero, the default.
+	maxMessageBytes int
 }
 
 // testEngine is an engine in-process and the host's Client of it.
@@ -214,6 +236,10 @@ type testEngine struct {
 	gate   *Gate
 	client *plugin.Client
 	server *goplugin.GRPCServer
+	// endGeneration ends the engine's generation as go-plugin does when
+	// the engine's process exits: the connection's server stops, and the
+	// context that go-plugin gave the Client ends.
+	endGeneration func()
 }
 
 // enginePlugin is the Runner plugin of the test connection: on the
@@ -224,6 +250,9 @@ type enginePlugin struct {
 	runner plugin.RunnerServer
 	broker atomic.Pointer[goplugin.GRPCBroker]
 	client plugin.RunnerPlugin
+	// generation is the context that the Client gets, as go-plugin's
+	// own, which ends with the engine's process.
+	generation context.Context
 }
 
 func (p *enginePlugin) GRPCServer(b *goplugin.GRPCBroker, s *grpc.Server) error {
@@ -233,7 +262,7 @@ func (p *enginePlugin) GRPCServer(b *goplugin.GRPCBroker, s *grpc.Server) error 
 }
 
 func (p *enginePlugin) GRPCClient(ctx context.Context, b *goplugin.GRPCBroker, cc *grpc.ClientConn) (any, error) {
-	return p.client.GRPCClient(ctx, b, cc)
+	return p.client.GRPCClient(p.generation, b, cc)
 }
 
 // openRuntime opens the broker tests' bundle with cfg's plugin, timeout
@@ -245,7 +274,7 @@ func openRuntime(t *testing.T, cfg engineConfig) (*wl.Runtime, error) {
 	if timeout == 0 {
 		timeout = time.Second
 	}
-	opts := wl.Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: cfg.plugin, PluginTimeout: timeout, Diagnostics: cfg.diagnostics}
+	opts := wl.Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: cfg.plugin, PluginTimeout: timeout, Diagnostics: cfg.diagnostics, Pool: cfg.pool}
 	for name, p := range cfg.providers {
 		if opts.Providers == nil {
 			opts.Providers = map[string]wl.Provider{}
@@ -279,7 +308,8 @@ func startEngine(t *testing.T, cfg engineConfig) *testEngine {
 		lookup = timeout
 	}
 	e := &testEngine{rt: rt, gate: NewGate()}
-	p := &enginePlugin{runner: e.gate.Runner(), client: plugin.RunnerPlugin{PluginTimeout: lookup}}
+	generation, end := context.WithCancel(context.Background())
+	p := &enginePlugin{runner: e.gate.Runner(), client: plugin.RunnerPlugin{PluginTimeout: lookup}, generation: generation}
 	if cfg.runner != nil {
 		p.runner = cfg.runner(p.runner)
 	}
@@ -290,8 +320,13 @@ func startEngine(t *testing.T, cfg engineConfig) *testEngine {
 	t.Cleanup(func() {
 		e.client.Close()
 		gc.Close()
+		end()
 	})
-	e.srv = New(Config{Runtime: rt, Broker: p.broker.Load, PluginTimeout: timeout, TokenBound: cfg.tokenBound, OnTokenBound: e.gate.Drain})
+	e.endGeneration = func() {
+		gs.Stop()
+		end()
+	}
+	e.srv = New(Config{Runtime: rt, Broker: p.broker.Load, PluginTimeout: timeout, MaxMessageBytes: cfg.maxMessageBytes, TokenBound: cfg.tokenBound, OnTokenBound: e.gate.Drain})
 	e.srv.hooks.wrap = cfg.hooks
 	e.gate.Serve(e.srv)
 	raw, err := gc.Dispense(plugin.PluginName)
@@ -378,12 +413,14 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 
 // caseHost is a case's declarative plugin as a run's hooks on the broker:
 // its declaration, and the answers of the TypeScript case plugin
-// (harnesses/bun/test/caseplugin.ts) for the case's flow.
+// (harnesses/bun/test/caseplugin.ts) for the case's flow. Its state is the
+// run's count of state: true.
 type caseHost struct {
-	spec conformance.PluginSpec
-	rec  recorder
-	mu   sync.Mutex
-	log  []string
+	spec  conformance.PluginSpec
+	rec   recorder
+	mu    sync.Mutex
+	log   []string
+	state int
 }
 
 // declaration is the case's plugin as a host plugin's declaration: its
@@ -427,6 +464,9 @@ func (h *caseHost) declaration(flow string) map[string]any {
 	}
 	if s.Observe {
 		d["on_module_start"], d["on_module_end"] = true, true
+	}
+	if s.State {
+		d["on_module_start"] = true
 	}
 	if len(s.Env) > 0 {
 		d["invocation_env"] = true
@@ -508,7 +548,13 @@ func (h *caseHost) answer(ctx context.Context, c *plugin.HookCall) (*plugin.Hook
 		}
 	case "on_module_start":
 		h.mu.Lock()
-		h.log = append(h.log, "start:"+p.Site.Path)
+		if s.Observe {
+			h.log = append(h.log, "start:"+p.Site.Path)
+		}
+		if s.State {
+			h.state++
+			h.log = append(h.log, fmt.Sprintf("state:%s:%d", p.Site.Path, h.state))
+		}
 		h.mu.Unlock()
 	case "on_module_end":
 		h.mu.Lock()
@@ -548,7 +594,6 @@ var brokerExcluded = map[string]string{
 	"around_throw": "around runs only in the harness process: TestBrokerAroundRefused",
 	"step_latch":   "step code, no hook",
 	"step_signal":  "step code, no hook",
-	"pinned_state": "a pool of its own and per-process state, TypeScript only",
 }
 
 // brokerRuns reports whether the broker runs case c: not one excluded, nor
@@ -622,6 +667,9 @@ func expectedCalls(c conformance.PluginCase, r conformance.PluginRun, steps map[
 		ran = true
 		if s.Observe {
 			out = append(out, call{"on_module_start", st}, call{"on_module_end", st})
+		}
+		if s.State {
+			out = append(out, call{"on_module_start", st})
 		}
 		if len(s.Env) > 0 {
 			out = append(out, call{"invocation_env", st})
@@ -711,14 +759,20 @@ func outcomeOf(t *testing.T, res *plugin.RunResult, steps map[string]bool) confo
 // broker. Each run must meet its case's expectations, which a go: false
 // case takes from the TypeScript plugin's run, and the host must hear
 // exactly the calls that the case's fixture gives (expectedCalls): no
-// call of the run's hooks is lost, none is extra.
+// call of the run's hooks is lost, none is extra. A case with a pool of
+// its own runs on an engine with that pool.
 func TestBrokerCases(t *testing.T) {
 	_, _, _, f := brokerBundle(t)
-	e := startEngine(t, engineConfig{pluginTimeout: time.Duration(f.TimeoutMS) * time.Millisecond})
+	timeout := time.Duration(f.TimeoutMS) * time.Millisecond
+	shared := startEngine(t, engineConfig{pluginTimeout: timeout})
 	for _, c := range f.Cases {
 		t.Run(c.ID, func(t *testing.T) {
 			if ok, why := brokerRuns(c); !ok {
 				t.Skip("not through the broker: " + why)
+			}
+			e := shared
+			if p := c.Pool; p != nil {
+				e = startEngine(t, engineConfig{pluginTimeout: timeout, pool: wl.PoolOptions{Max: p.Max, LagThreshold: time.Duration(p.LagThresholdMS) * time.Millisecond, PinRuns: p.PinRuns}})
 			}
 			for i, r := range append([]conformance.PluginThen{{Run: c.Run, Expect: c.Expect}}, c.Then...) {
 				h := &caseHost{spec: c.Hooks}

@@ -29,8 +29,9 @@ The rest of `Config` serves the runs' hooks
 ([A run's hooks on the broker](#a-runs-hooks-on-the-broker)).
 `Config.Broker` returns go-plugin's broker of the connection; without one,
 a request with `hooks` is refused. `Config.PluginTimeout` bounds the
-release call, 60 s when zero. `Config.TokenBound`, 65,536 when zero, is the
-bound of gone tokens, and `Config.OnTokenBound` is called once at it.
+release call, 60 s when zero, and `Config.MaxMessageBytes`, 512 MiB when
+zero, each hook call's messages. `Config.TokenBound`, 65,536 when zero, is
+the bound of gone tokens, and `Config.OnTokenBound` is called once at it.
 
 | Call | What it does |
 |---|---|
@@ -105,15 +106,23 @@ broker ([hooks across the plugin boundary](../../docs/design/0009-host-adapters.
   holds refuses the run with `ALREADY_EXISTS`, and one that `GetRun`
   answered `gone` for with `INVALID_ARGUMENT`. Both carry the
   `RUN_NOT_STARTED` detail, and neither reaches the host.
-- **The connection.** The engine dials each broker id once and keeps the
-  connection, so runs open no listener of their own.
+- **The connection.** The engine dials each broker id once, with its
+  message limit, and keeps the connection, so runs open no listener of
+  their own. A dial waits on its own: a broker id that does not answer
+  stalls neither the other ids nor the tokens.
 - **The run's hooks.** `wl` builds the declaration as a host plugin of the
   run alone ([internal/wlext](../wlext/README.md)). Each of its calls goes
   to `HostHooks.Call` with a `host_call`'s hook name and payload. A
   `HookError` reply is the hook's failure, a `wl.HostCallError`.
+- **No registration.** The host answers `unknown_run` when it holds no
+  registration of the run. The engine takes that as no answer, which
+  latches nothing: an interception or a provider declines, so a mandatory
+  provided site still fails closed, and a rewrite keeps the arguments.
 - **Release.** Once the run has settled, the engine sends the call
   `released` with the run's id and token, and then no longer holds the
-  token. A run that does not start never holds it.
+  token. The engine holds a token from admission, before the runtime checks
+  the run, so a lookup in between answers `held`. A run that the runtime
+  then refuses gives the token up at once, and sends no release call.
 - **`GetRun`** answers `held` while the engine holds the token for that run
   id, and `gone` otherwise. The engine keeps each `gone` token for the life
   of the process, and refuses a later run that carries it.
@@ -183,15 +192,19 @@ connection, which has a real broker on both sides. The host is the
 
 | Test | What it shows |
 |---|---|
-| `TestBrokerCases` | The plugin cases (`conformance/plugins/hooks.yaml`) with each run's hooks on the broker: each meets its expectations, and the host hears exactly the calls that the case's fixture and the run's trace give. The cases of `around`, of step code, of a pool of their own and of the TypeScript plugin's failure options are left out, each with its reason |
+| `TestBrokerCases` | The plugin cases (`conformance/plugins/hooks.yaml`) with each run's hooks on the broker, a case with a pool of its own on an engine with that pool. Each meets its expectations, and the host hears exactly the calls that the case's fixture and the run's trace give. The cases of `around`, of step code and of the TypeScript plugin's failure options are left out, each with its reason |
 | `TestBrokerAroundRefused` | A declaration with `around` does not start its run, reaches no host, and leaves no registration |
 | `TestBrokerHookTimeout` | A hook whose host holds its answer latches the run with the `host_call` timeout |
 | `TestBrokerProviderMissing` | A provider set to broker answers from the run's hooks; a run whose hooks do not serve it, or that has none, latches there |
 | `TestBrokerPhaseFailures` | A failing `onRunEnd` is a warning, a failing `onRunSettled` a diagnostic, a failing observer a latch |
 | `TestBrokerOrderWithPlugin` | Where the run's hooks and a host plugin both intercept a step and answer a resource, the run's hooks answer. A provider that both serve refuses `wl.Open` |
-| `TestBrokerLateCallback` | A step that outlives its canceled run holds the settlement: `Run` returns, then `onRunSettled` reaches the host and is served, then the registration goes |
+| `TestBrokerLateCallback` | `Cancel` ends a run once its step has started, and the step, which runs on, holds the settlement: `Run` returns, then `onRunSettled` reaches the host and is served, then the registration goes |
 | `TestBrokerIsolationNextRun` | The next run, with other hooks or none, never reaches a run's hooks |
 | `TestBrokerNoListenerGrowth` | 1,000 runs share one broker id and one connection, and leave descriptors, goroutines and registrations as they were |
 | `TestBrokerRegistrations` | The release call drops a provider-only run's registration without a lookup; a run without an id gets one; a refused run is dropped at once; a held id is refused and a released one reused |
-| `TestBrokerLostMessages` | With the test's transports losing or delaying messages: a lost refusal, a lost release, a delayed call of an earlier run, a failed lookup and a request delayed past `gone` |
-| `TestBrokerTokenBound` | With the bound lowered to 8: eight `gone` answers drain the engine, which keeps 8 tokens, answers the ninth lookup `UNAVAILABLE` without `RUN_NOT_STARTED`, and refuses new runs |
+| `TestBrokerLostMessages` | Each case on an engine of its own, its transports losing or delaying messages: a lost refusal, a lost release, a delayed call of an earlier run and a failed lookup. Then a request delayed past `gone`, and a plain run of an id that a lost release keeps registered |
+| `TestBrokerTokenBound` | With the bound lowered to 8: eight `gone` answers drain the engine, which keeps 8 tokens, answers the ninth lookup `UNAVAILABLE` without `RUN_NOT_STARTED`, and refuses new runs. The end of the generation drops the ninth registration |
+| `TestBrokerStaleCalls` | Calls that the host answers `unknown_run` latch nothing: a stale observer and interception leave the run to succeed, and a stale provider at a mandatory site fails closed |
+| `TestBrokerMessageLimits` | The host takes an `onRunEnd` whose trace is over 5 MiB; an engine whose limit is 1 MiB refuses an answer of 2 MiB |
+| `TestBrokerDialStall` | While the dial of a silent broker id waits, `GetRun` answers and another run with hooks completes |
+| `TestBrokerClientClose` | `Client.Close` stops the Client's broker connection, and a run with hooks after it is refused |

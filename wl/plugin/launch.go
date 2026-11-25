@@ -162,7 +162,7 @@ func ClientConfig(l Launch) (cfg *goplugin.ClientConfig, cleanup func() error, e
 	cleanup = dir.remove
 	return &goplugin.ClientConfig{
 		HandshakeConfig:  Handshake,
-		VersionedPlugins: VersionedPlugins(&RunnerPlugin{ReplyMargin: l.ReplyMargin, PluginTimeout: l.PluginTimeout}),
+		VersionedPlugins: VersionedPlugins(&RunnerPlugin{ReplyMargin: l.ReplyMargin, PluginTimeout: l.PluginTimeout, MaxMessageBytes: limit}),
 		RunnerFunc: func(_ hclog.Logger, cmd *exec.Cmd, socketDir string) (runner.Runner, error) {
 			// go-plugin made socketDir with mode 0700 less the host's
 			// umask, which may leave the engine unable to create its socket.

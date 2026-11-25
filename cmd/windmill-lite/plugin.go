@@ -240,7 +240,7 @@ func runPlugin(args []string, stderr io.Writer) int {
 		})
 		var runner plugin.RunnerServer = host.New(host.Config{
 			Runtime: r.rt, Labels: cfg.Labels, ConfigDigest: digest,
-			Broker: srv.broker.Load, PluginTimeout: opts.PluginTimeout, TokenBound: tokenBound,
+			Broker: srv.broker.Load, PluginTimeout: opts.PluginTimeout, MaxMessageBytes: limit, TokenBound: tokenBound,
 			OnTokenBound: func() { drain("the engine keeps its bound of tokens that GetRun answered gone for") },
 		})
 		if wrapRunner != nil {
