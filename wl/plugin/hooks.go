@@ -10,6 +10,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
+	"google.golang.org/grpc/stats"
 )
 
 // DefaultPluginTimeout is the engine's default plugin_timeout_ms, after
@@ -53,11 +54,13 @@ const (
 // settled.
 const releasedHook = "released"
 
-// registration is the hooks of one run that Client serves. done closes
-// when the Client drops it.
+// registration is the hooks of one run that Client serves, on the opening
+// sv whose broker id the run's request names. done closes when the Client
+// drops it.
 type registration struct {
 	token   string
 	handler HookHandler
+	sv      *serving
 	done    chan struct{}
 }
 
@@ -70,13 +73,11 @@ type hooks struct {
 	limit         int
 
 	// mu guards the rest. serving is the opening of the Client's broker
-	// connection, nil before the first and after one that ended; server
-	// is its HostHooks server, once go-plugin has asked for it.
-	// stopGeneration detaches Close from the end of the engine's
-	// generation.
+	// connection that runs use, nil before the first and after one that
+	// ended or was replaced. stopGeneration detaches Close from the end of
+	// the engine's generation.
 	mu             sync.Mutex
 	serving        *serving
-	server         *grpc.Server
 	stopGeneration func() bool
 	regs           map[string]*registration
 	closed         bool
@@ -85,11 +86,24 @@ type hooks struct {
 
 // serving is one opening of the Client's broker connection id: ready
 // closes once go-plugin has asked for its HostHooks server, and ended
-// once go-plugin has stopped serving it, or failed to listen.
+// once go-plugin has stopped serving it, or failed to listen. Under
+// hooks.mu, server is that server, conns counts the engine's connections
+// to it, and runs the registrations whose requests name id.
 type serving struct {
-	id    uint32
-	ready chan struct{}
-	ended chan struct{}
+	id     uint32
+	ready  chan struct{}
+	ended  chan struct{}
+	server *grpc.Server
+	conns  int
+	runs   int
+}
+
+// unused reports whether the opening serves, while the engine holds no
+// connection to it and no registration names it: the engine never took
+// its address, which go-plugin drops after a while, or dropped its
+// connection, and go-plugin gives the address once. hooks.mu is held.
+func (sv *serving) unused() bool {
+	return sv.server != nil && sv.conns == 0 && sv.runs == 0
 }
 
 // RunWithHooks runs req, as Run does, with the run's hooks on go-plugin's
@@ -100,7 +114,10 @@ type serving struct {
 // The Client serves its hooks on one broker connection, which it opens at
 // its first run with hooks and closes at Close. A run waits until
 // go-plugin serves the connection; one whose listen fails is refused with
-// ErrNotStarted, and the next run opens the connection again. The Client
+// ErrNotStarted, and the next run opens the connection again, as it does
+// when the engine holds no connection to it and no run names it. The
+// Client refuses a run with hooks once the engine's generation has ended.
+// The Client
 // gives a run without an id a fresh UUID and registers h under it with a
 // fresh token before it sends req, and refuses a run whose id it holds a
 // registration for, with ErrNotStarted, as Run does. It drops the
@@ -133,16 +150,26 @@ func (c *Client) RunWithHooks(ctx context.Context, req *RunRequest, declaration 
 	case c.hooks.closed:
 		c.hooks.mu.Unlock()
 		return nil, fmt.Errorf("%w: the Client is closed", ErrNotStarted)
+	case c.generation != nil && c.generation.Err() != nil:
+		c.hooks.mu.Unlock()
+		return nil, fmt.Errorf("%w: the engine's generation has ended", ErrNotStarted)
 	case c.hooks.regs[id] != nil:
 		c.hooks.mu.Unlock()
 		return nil, fmt.Errorf("%w: a run with the id %s still has its hooks registered", ErrNotStarted, id)
 	}
 	sv := c.hooks.serving
+	if sv != nil && sv.unused() {
+		// The engine could not dial its id again: serve a new one.
+		c.hooks.serving = nil
+		go sv.server.Stop()
+		sv = nil
+	}
 	if sv == nil {
 		sv = c.serveHooks()
 	}
-	reg := &registration{token: token, handler: h, done: make(chan struct{})}
+	reg := &registration{token: token, handler: h, sv: sv, done: make(chan struct{})}
 	c.hooks.regs[id] = reg
+	sv.runs++
 	c.hooks.mu.Unlock()
 
 	select {
@@ -196,9 +223,9 @@ func (c *Client) Close() {
 		if c.hooks.stopGeneration != nil {
 			c.hooks.stopGeneration()
 		}
-		if c.hooks.server != nil {
+		if sv := c.hooks.serving; sv != nil && sv.server != nil {
 			// Stop returns at once; the server's calls end with it.
-			go c.hooks.server.Stop()
+			go sv.server.Stop()
 		}
 	}
 	for id := range c.hooks.regs {
@@ -215,24 +242,18 @@ func (c *Client) registered(id string) bool {
 }
 
 // serveHooks opens the Client's broker connection, on which it serves
-// HostHooks until Close or the connection's end; c.hooks.mu is held. A
-// server that go-plugin asks for after Close is stopped at once. Once the
-// opening has ended, the next run opens the connection again. The first
-// opening makes the end of the engine's generation close the Client.
+// HostHooks until Close, the connection's end or the next opening;
+// c.hooks.mu is held. A server that go-plugin asks for after Close is
+// stopped at once. Once the opening has ended, the next run opens the
+// connection again.
 func (c *Client) serveHooks() *serving {
 	sv := &serving{id: c.broker.NextId(), ready: make(chan struct{}), ended: make(chan struct{})}
 	c.hooks.serving = sv
-	if c.generation != nil && c.hooks.stopGeneration == nil {
-		// go-plugin ends the context with the engine's generation: its
-		// process exited or its client was killed. A generation that has
-		// ended already closes the Client at once.
-		c.hooks.stopGeneration = context.AfterFunc(c.generation, c.Close)
-	}
 	go func() {
 		// AcceptAndServe returns without asking for the server when it
 		// cannot listen.
 		c.broker.AcceptAndServe(sv.id, func(opts []grpc.ServerOption) *grpc.Server {
-			s := c.hooksServer(opts)
+			s := c.hooksServer(sv, opts)
 			close(sv.ready)
 			return s
 		})
@@ -246,21 +267,54 @@ func (c *Client) serveHooks() *serving {
 	return sv
 }
 
-// hooksServer is the Client's HostHooks server, with go-plugin's options
-// opts and the Client's message limit. One that go-plugin asks for after
-// Close is stopped already, so its Serve returns at once.
-func (c *Client) hooksServer(opts []grpc.ServerOption) *grpc.Server {
-	opts = append(opts, grpc.MaxRecvMsgSize(c.hooks.limit), grpc.MaxSendMsgSize(c.hooks.limit))
+// hooksServer is the HostHooks server of the opening sv, with go-plugin's
+// options opts and the Client's message limit, which counts the engine's
+// connections to it. One that go-plugin asks for after Close is stopped
+// already, so its Serve returns at once. The first server makes the end
+// of the engine's generation close the Client; a listen that failed
+// leaves nothing there.
+func (c *Client) hooksServer(sv *serving, opts []grpc.ServerOption) *grpc.Server {
+	opts = append(opts, grpc.MaxRecvMsgSize(c.hooks.limit), grpc.MaxSendMsgSize(c.hooks.limit), grpc.StatsHandler(engineConns{c: c, sv: sv}))
 	s := grpc.NewServer(opts...)
 	RegisterHostHooksServer(s, hookServer{c: c})
 	c.hooks.mu.Lock()
-	c.hooks.server = s
+	sv.server = s
 	closed := c.hooks.closed
+	if !closed && c.generation != nil && c.hooks.stopGeneration == nil {
+		// go-plugin ends the context with the engine's generation: its
+		// process exited or its client was killed. A generation that has
+		// ended already closes the Client at once.
+		c.hooks.stopGeneration = context.AfterFunc(c.generation, c.Close)
+	}
 	c.hooks.mu.Unlock()
 	if closed {
 		s.Stop()
 	}
 	return s
+}
+
+// engineConns counts the engine's connections to the HostHooks server of
+// the opening sv: only the engine connects to it.
+type engineConns struct {
+	c  *Client
+	sv *serving
+}
+
+func (e engineConns) TagRPC(ctx context.Context, _ *stats.RPCTagInfo) context.Context { return ctx }
+
+func (e engineConns) HandleRPC(context.Context, stats.RPCStats) {}
+
+func (e engineConns) TagConn(ctx context.Context, _ *stats.ConnTagInfo) context.Context { return ctx }
+
+func (e engineConns) HandleConn(_ context.Context, s stats.ConnStats) {
+	e.c.hooks.mu.Lock()
+	defer e.c.hooks.mu.Unlock()
+	switch s.(type) {
+	case *stats.ConnBegin:
+		e.sv.conns++
+	case *stats.ConnEnd:
+		e.sv.conns--
+	}
 }
 
 // drop drops the registration of the run id when its token is token.
@@ -276,6 +330,7 @@ func (c *Client) drop(id, token string) {
 func (c *Client) dropLocked(id string) {
 	if r := c.hooks.regs[id]; r != nil {
 		delete(c.hooks.regs, id)
+		r.sv.runs--
 		close(r.done)
 	}
 }

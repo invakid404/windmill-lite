@@ -227,6 +227,9 @@ type engineConfig struct {
 	// maxMessageBytes is the Server's message limit of the hooks' calls;
 	// zero, the default.
 	maxMessageBytes int
+	// dialOptions are added to the Server's dials of the host's hooks: a
+	// fake transport of the connection.
+	dialOptions []grpc.DialOption
 }
 
 // testEngine is an engine in-process and the host's Client of it.
@@ -311,9 +314,7 @@ func startEngine(t *testing.T, cfg engineConfig) *testEngine {
 	}
 	e := &testEngine{rt: rt, gate: NewGate()}
 	generation, end := context.WithCancel(context.Background())
-	// Each lookup has a minute, so that a lookup that a test holds still
-	// reaches its Client when the test lets it go.
-	p := &enginePlugin{runner: e.gate.Runner(), client: plugin.RunnerPlugin{PluginTimeout: lookup, LookupTimeout: time.Minute}, generation: generation}
+	p := &enginePlugin{runner: e.gate.Runner(), client: plugin.RunnerPlugin{PluginTimeout: lookup}, generation: generation}
 	if cfg.runner != nil {
 		p.runner = cfg.runner(p.runner)
 	}
@@ -332,6 +333,7 @@ func startEngine(t *testing.T, cfg engineConfig) *testEngine {
 	}
 	e.srv = New(Config{Runtime: rt, Broker: p.broker.Load, PluginTimeout: timeout, MaxMessageBytes: cfg.maxMessageBytes, TokenBound: cfg.tokenBound, OnTokenBound: e.gate.Drain})
 	e.srv.hooks.wrap = cfg.hooks
+	e.srv.hooks.dialOptions = cfg.dialOptions
 	e.gate.Serve(e.srv)
 	e.dispense = func() *plugin.Client {
 		raw, err := gc.Dispense(plugin.PluginName)

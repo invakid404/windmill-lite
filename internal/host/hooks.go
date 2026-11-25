@@ -49,8 +49,9 @@ type brokerHooks struct {
 	// transport of the engine's calls. Tests set it.
 	wrap func(plugin.HostHooksClient) plugin.HostHooksClient
 	// dialing, when set, is called with each broker id just before its
-	// dial. Tests set it.
-	dialing func(id uint32)
+	// dial; dialOptions are added to each dial. Tests set them.
+	dialing     func(id uint32)
+	dialOptions []grpc.DialOption
 
 	// connMu guards conns: the dial of each broker connection, made once.
 	// A dial waits without it, so one broker id that does not answer
@@ -59,15 +60,23 @@ type brokerHooks struct {
 	conns  map[uint32]*brokerConn
 
 	mu   sync.Mutex
-	held map[string]string // token → run id
+	held map[string]heldToken
 	gone map[string]struct{}
 	full bool
 }
 
-// brokerConn is the dial of one broker connection: done closes once client
-// or err is set.
+// heldToken is the run that holds a token, and the broker connection that
+// its hooks use.
+type heldToken struct {
+	run    string
+	broker uint32
+}
+
+// brokerConn is the dial of one broker connection: done closes once conn
+// and client, or err, are set.
 type brokerConn struct {
 	done   chan struct{}
+	conn   *grpc.ClientConn
 	client plugin.HostHooksClient
 	err    error
 }
@@ -88,7 +97,7 @@ func (b *brokerHooks) admit(ctx context.Context, id string, h *plugin.Hooks) (co
 	_, held := b.held[token]
 	_, gone := b.gone[token]
 	if !held && !gone {
-		b.held[token] = id
+		b.held[token] = heldToken{run: id, broker: h.GetBrokerId()}
 	}
 	b.mu.Unlock()
 	switch {
@@ -101,8 +110,9 @@ func (b *brokerHooks) admit(ctx context.Context, id string, h *plugin.Hooks) (co
 	}
 	forget := func() {
 		b.mu.Lock()
-		defer b.mu.Unlock()
 		delete(b.held, token)
+		b.mu.Unlock()
+		b.dropUnused(h.GetBrokerId())
 	}
 	client, err := b.client(h.GetBrokerId())
 	if err != nil {
@@ -132,7 +142,7 @@ func (b *brokerHooks) admit(ctx context.Context, id string, h *plugin.Hooks) (co
 		return rep.GetPayload(), nil
 	}
 	ctx = wlext.WithRunHooks(ctx, wlext.RunHooks{Declaration: h.GetDeclaration(), Call: call})
-	ctx = wlext.WithSettled(ctx, func() { go b.release(client, id, token) })
+	ctx = wlext.WithSettled(ctx, func() { go b.release(client, h.GetBrokerId(), id, token) })
 	return ctx, forget, nil
 }
 
@@ -170,9 +180,9 @@ func noAnswer(hook string, payload []byte) []byte {
 }
 
 // client returns the HostHooks client of the broker connection id, which
-// it dials once, with the engine's message limit. A failed dial is not
-// kept: a later run dials again. A connection is kept until the host's
-// listener is gone.
+// it dials once, with the engine's message limit and no idle timeout, so
+// that the connection stays up while the host's listener serves. A failed
+// dial is not kept: a later run dials again.
 func (b *brokerHooks) client(id uint32) (plugin.HostHooksClient, error) {
 	b.connMu.Lock()
 	c := b.conns[id]
@@ -186,13 +196,15 @@ func (b *brokerHooks) client(id uint32) (plugin.HostHooksClient, error) {
 		if b.dialing != nil {
 			b.dialing(id)
 		}
-		conn, err := b.broker().DialWithOptions(id, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(b.limit), grpc.MaxCallSendMsgSize(b.limit)))
+		opts := append([]grpc.DialOption{grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(b.limit), grpc.MaxCallSendMsgSize(b.limit)), grpc.WithIdleTimeout(0)}, b.dialOptions...)
+		conn, err := b.broker().DialWithOptions(id, opts...)
 		if err != nil {
 			c.err = fmt.Errorf("dial the host's hooks service: %w", err)
 			b.connMu.Lock()
 			delete(b.conns, id)
 			b.connMu.Unlock()
 		} else {
+			c.conn = conn
 			c.client = plugin.NewHostHooksClient(conn)
 			if b.wrap != nil {
 				c.client = b.wrap(c.client)
@@ -205,11 +217,9 @@ func (b *brokerHooks) client(id uint32) (plugin.HostHooksClient, error) {
 	return c.client, c.err
 }
 
-// watch closes the broker connection id, whose dial is c, once the host's
-// listener is gone: its Client closed, or its process ended. Only the
-// engine connects to that listener, so a connect that fails means that it
-// is gone, and go-plugin announces an id once, so it never comes back. A
-// connection that was lost is connected again to tell the two apart.
+// watch follows the broker connection id, whose dial is c: a connection
+// that was lost connects again, and one that cannot connect is closed
+// once no run that the engine holds uses it (dropUnused).
 func (b *brokerHooks) watch(id uint32, c *brokerConn, conn *grpc.ClientConn) {
 	for {
 		s := conn.GetState()
@@ -217,18 +227,59 @@ func (b *brokerHooks) watch(id uint32, c *brokerConn, conn *grpc.ClientConn) {
 		case connectivity.Idle:
 			conn.Connect()
 		case connectivity.TransientFailure:
-			b.connMu.Lock()
-			if b.conns[id] == c {
-				delete(b.conns, id)
+			if b.dropUnused(id) {
+				return
 			}
-			b.connMu.Unlock()
-			_ = conn.Close()
-			return
 		case connectivity.Shutdown:
 			return
 		}
 		conn.WaitForStateChange(context.Background(), s)
 	}
+}
+
+// dropUnused closes the broker connection id, and forgets its dial, when
+// it cannot connect and no run that the engine holds uses it, and
+// reports whether it did. gRPC would connect again, and a run in flight
+// keeps that chance. Without one, the engine no longer holds a connection
+// to the host's listener, so the host serves a new broker id at its next
+// run with hooks: go-plugin gives an id's address once, so this one is
+// never dialled again. The host's Close, which stops its listener, ends
+// here too.
+func (b *brokerHooks) dropUnused(id uint32) bool {
+	b.connMu.Lock()
+	c := b.conns[id]
+	if c == nil {
+		b.connMu.Unlock()
+		return false
+	}
+	select {
+	case <-c.done:
+	default:
+		// Still dialling.
+		b.connMu.Unlock()
+		return false
+	}
+	if c.conn == nil || c.conn.GetState() != connectivity.TransientFailure || b.inUse(id) {
+		b.connMu.Unlock()
+		return false
+	}
+	delete(b.conns, id)
+	b.connMu.Unlock()
+	_ = c.conn.Close()
+	return true
+}
+
+// inUse reports whether a token that the engine holds names the broker
+// connection id.
+func (b *brokerHooks) inUse(id uint32) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, t := range b.held {
+		if t.broker == id {
+			return true
+		}
+	}
+	return false
 }
 
 // dialled is how many broker connections the engine holds.
@@ -238,16 +289,18 @@ func (b *brokerHooks) dialled() int {
 	return len(b.conns)
 }
 
-// release sends the release call of the run id, whose token is token, once
-// it has settled, then stops holding the token. A call that fails is the
-// host's to reconcile (GetRun).
-func (b *brokerHooks) release(client plugin.HostHooksClient, id, token string) {
+// release sends the release call of the run id, whose token is token, on
+// the broker connection broker once the run has settled, then stops
+// holding the token. A call that fails is the host's to reconcile
+// (GetRun).
+func (b *brokerHooks) release(client plugin.HostHooksClient, broker uint32, id, token string) {
 	ctx, cancel := context.WithTimeout(context.Background(), b.timeout)
 	defer cancel()
 	_, _ = client.Call(ctx, &plugin.HookCall{Hook: releasedHook, Run: id, Token: token})
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	delete(b.held, token)
+	b.mu.Unlock()
+	b.dropUnused(broker)
 }
 
 // lookup answers GetRun: held while the engine holds the token for the run
@@ -263,7 +316,7 @@ func (b *brokerHooks) lookup(id, token string) (string, error) {
 		return "", invalidLookup("token: required")
 	}
 	b.mu.Lock()
-	if run, ok := b.held[token]; ok && run == id {
+	if t, ok := b.held[token]; ok && t.run == id {
 		b.mu.Unlock()
 		return runHeld, nil
 	}

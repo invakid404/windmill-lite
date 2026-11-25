@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -93,7 +94,7 @@ func lookupClient(timeout time.Duration) (*Client, *lookupRunner, *fakeTimers, *
 	runner := &lookupRunner{answers: make(chan any, 16), asked: make(chan *GetRunRequest, 16)}
 	timers := newFakeTimers()
 	c.runner, c.timer, c.hooks.timeout = runner, timers.timer, timeout
-	reg := &registration{token: "t1", done: make(chan struct{})}
+	reg := &registration{token: "t1", sv: &serving{runs: 1}, done: make(chan struct{})}
 	c.hooks.regs["r1"] = reg
 	return c, runner, timers, reg
 }
@@ -168,7 +169,7 @@ func TestClientLookupStopsAtDrop(t *testing.T) {
 func TestClientHookCalls(t *testing.T) {
 	c := newClient(nil, nil, DefaultReplyMargin)
 	var heard []string
-	c.hooks.regs["r1"] = &registration{token: "t1", done: make(chan struct{}), handler: func(_ context.Context, call *HookCall) (*HookReply, error) {
+	c.hooks.regs["r1"] = &registration{token: "t1", sv: &serving{runs: 1}, done: make(chan struct{}), handler: func(_ context.Context, call *HookCall) (*HookReply, error) {
 		heard = append(heard, call.GetHook())
 		switch call.GetHook() {
 		case "on_run_end":
@@ -218,9 +219,9 @@ func TestClientHookCalls(t *testing.T) {
 
 // TestClientGenerationEnd checks that the end of the engine's generation
 // closes a Client that serves hooks, on go-plugin's test connection: the
-// run's registration is dropped, and a later run with hooks is refused. A
-// generation that ended before the first run with hooks closes the Client
-// at that run.
+// run's registration is dropped, and a later run with hooks is refused. In
+// a generation that has ended, a first run with hooks is refused without
+// reaching the engine.
 func TestClientGenerationEnd(t *testing.T) {
 	generation, end := context.WithCancel(context.Background())
 	defer end()
@@ -239,11 +240,16 @@ func TestClientGenerationEnd(t *testing.T) {
 
 	ended, endNow := context.WithCancel(context.Background())
 	endNow()
-	late := echoClient(t, &echoEngine{generation: ended})
-	_, _ = late.RunWithHooks(context.Background(), &RunRequest{Path: "f/x"}, []byte(`{"on_run_end": true}`), answerEmpty)
-	eventually(t, "the first run's registration dropped", func() bool { return late.Registrations() == 0 })
-	if _, err := late.RunWithHooks(context.Background(), &RunRequest{Path: "f/x"}, []byte(`{"on_run_end": true}`), answerEmpty); !errors.Is(err, ErrNotStarted) {
-		t.Errorf("a run with hooks after a first run in an ended generation: %v, want ErrNotStarted", err)
+	engine := &echoEngine{generation: ended}
+	late := echoClient(t, engine)
+	if _, err := late.RunWithHooks(context.Background(), &RunRequest{Path: "f/x"}, []byte(`{"on_run_end": true}`), answerEmpty); !errors.Is(err, ErrNotStarted) || !strings.Contains(err.Error(), "generation has ended") {
+		t.Errorf("a first run with hooks in an ended generation: %v, want ErrNotStarted for the generation's end", err)
+	}
+	if n := engine.runs.Load(); n != 0 {
+		t.Errorf("the first run in an ended generation reached the engine %d times", n)
+	}
+	if n := late.Registrations(); n != 0 {
+		t.Errorf("%d registrations after the refused run, want 0", n)
 	}
 }
 
@@ -403,7 +409,7 @@ func TestClientCloseAtFirstUse(t *testing.T) {
 func TestClientCloseStopsLateServer(t *testing.T) {
 	c := newClient(nil, nil, DefaultReplyMargin)
 	c.Close()
-	s := c.hooksServer(nil)
+	s := c.hooksServer(&serving{}, nil)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -463,8 +469,9 @@ func collected(t *testing.T, what string, ps []weak.Pointer[Client]) {
 
 // TestClientGenerationKeepsNoClient checks that the engine's generation,
 // while it goes on, keeps no Client alive: Clients dispensed and never
-// used for hooks are collected, and so is a Client closed after a run with
-// hooks on go-plugin's test connection.
+// used for hooks are collected, and so are, on go-plugin's test
+// connection, a Client closed after a run with hooks and a Client whose
+// first listen failed.
 func TestClientGenerationKeepsNoClient(t *testing.T) {
 	generation, end := context.WithCancel(context.Background())
 	defer end()
@@ -493,6 +500,23 @@ func TestClientGenerationKeepsNoClient(t *testing.T) {
 		return weak.Make(c)
 	}()
 	collected(t, "the Client closed after a run with hooks collected", []weak.Pointer[Client]{hooked})
+
+	tmp, missing := os.Getenv("TMPDIR"), filepath.Join(t.TempDir(), "missing")
+	failed := func() weak.Pointer[Client] {
+		raw, err := gc.Dispense(PluginName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c := raw.(*Client)
+		// go-plugin makes each listener's socket in os.TempDir.
+		t.Setenv("TMPDIR", missing)
+		defer t.Setenv("TMPDIR", tmp)
+		if _, err := c.RunWithHooks(context.Background(), &RunRequest{Path: "f/x"}, []byte(`{"on_run_end": true}`), answerEmpty); !errors.Is(err, ErrNotStarted) {
+			t.Fatalf("a run whose broker connection cannot listen: %v, want ErrNotStarted", err)
+		}
+		return weak.Make(c)
+	}()
+	collected(t, "the Client whose first listen failed collected", []weak.Pointer[Client]{failed})
 }
 
 // TestClientListenRetry checks a first run with hooks whose broker

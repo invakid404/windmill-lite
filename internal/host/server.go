@@ -107,7 +107,7 @@ func New(cfg Config) *Server {
 		rt:  cfg.Runtime,
 		now: now,
 		hooks: &brokerHooks{broker: cfg.Broker, timeout: timeout, limit: limit, bound: bound, onBound: cfg.OnTokenBound,
-			conns: map[uint32]*brokerConn{}, held: map[string]string{}, gone: map[string]struct{}{}},
+			conns: map[uint32]*brokerConn{}, held: map[string]heldToken{}, gone: map[string]struct{}{}},
 		info: &plugin.BuildInfo{
 			BundleDigest:         bi.BundleDigest,
 			EngineVersion:        bi.EngineVersion,
