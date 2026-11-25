@@ -57,8 +57,8 @@ flowchart LR
 ```
 
 The Bun host mode and the CLI are built, and so is the go-plugin adapter,
-but for the engine's hooks on the broker; the gRPC and HTTP adapters are
-planned ([host adapters](0009-host-adapters.md)).
+whose host answers a run's hooks over go-plugin's broker; the gRPC and HTTP
+adapters are planned ([host adapters](0009-host-adapters.md)).
 
 ## Decision records
 
