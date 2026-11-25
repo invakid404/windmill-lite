@@ -1,13 +1,12 @@
 # wl/plugin
 
 **Current state:** the package launches the engine as a go-plugin plugin,
-pins its executable by SHA-256, and calls its `Runner` service: build
-information, runs, cancellation and health. The engine's side is the
+pins its executable by SHA-256, calls its `Runner` service and, if the
+host wants, supervises it. The engine's side is the
 `windmill-lite plugin` command
 ([cmd/windmill-lite](../../cmd/windmill-lite/README.md#plugin)), which
-answers every call, `Health` included, from its own state. This
-package's tests launch a test plugin. The supervisor,
-and the serving of a run's Go hooks on the broker, are planned.
+answers every call, `Health` included, from its own state. The serving of
+a run's Go hooks on the broker is planned.
 
 This README covers `wl/plugin/`, the Go package
 `github.com/invakid404/windmill-lite/wl/plugin`, with its generated code and
@@ -205,6 +204,146 @@ The error of a call that `Run` made also wraps the call's gRPC error, so
 `status.Code(err)` gives its code, such as `ALREADY_EXISTS` for an id that
 a run in flight has.
 
+## Supervise the engine
+
+`Supervisor` runs the engine one process at a time, a
+[generation](../../docs/glossary.md#generation), and routes the host's
+calls to the generation that serves
+([the supervisor](../../docs/design/0009-host-adapters.md#the-supervisor)).
+It is optional: a host can launch and call the engine itself, as
+[Launch the engine](#launch-the-engine) shows.
+
+1. Make a `Supervisor` with `NewSupervisor`, from a `SupervisorConfig`
+   with the `Launch` and the pinned build identity of the release record.
+2. Run its `Run` in a goroutine of its own, with a context that ends when
+   the host stops.
+3. Make each call with `Call`, which passes the `Client` of the
+   generation that serves to a function.
+4. Answer the host's own readiness probe with `Ready`.
+
+This example, from `example_test.go`, does the first three steps:
+
+```go
+// The configuration's drain_timeout_ms.
+drain := 30 * time.Second
+sup, err := plugin.NewSupervisor(plugin.SupervisorConfig{
+	Launch: plugin.Launch{
+		Path:   "/opt/windmill-lite/windmill-lite",
+		SHA256: want.EngineSHA256,
+		Config: "/etc/windmill-lite/plugin.json",
+		Env:    []string{"PATH=/usr/local/bin:/usr/bin:/bin"},
+	},
+	Identity: plugin.PinnedIdentity{
+		BundleDigest:  want.Bundle,
+		EngineVersion: want.Engine,
+		BunVersion:    want.Bun,
+		ConfigDigest:  want.ConfigDigest,
+		Labels:        want.Labels,
+	},
+	DrainTimeout: &drain,
+})
+if err != nil {
+	return err
+}
+done := make(chan error, 1)
+go func() { done <- sup.Run(ctx) }()
+
+err = sup.Call(ctx, func(engine *plugin.Client) error {
+	res, err := engine.Run(ctx, &plugin.RunRequest{
+		Path: "f/app/main",
+		Args: []byte(`{"name": "lite"}`),
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s: %s\n", res.GetStatus(), res.GetResult())
+	return nil
+})
+<-done
+return err
+```
+
+### A generation's life
+
+| Phase | What the supervisor does | Default |
+|---|---|---|
+| Launch | Makes a configuration with `ClientConfig` from `Launch`, starts the engine with go-plugin and connects to it. When the context of `Run` ends first, the engine does not start, or gets `SIGKILL`, which ends go-plugin's wait for its handshake | go-plugin's start timeout, 1 minute |
+| Admission | Within `AdmissionTimeout` of the connection, health must answer `SERVING`, then `BuildInfo` must equal the pinned identity. Health is checked every 100 ms. Each call has a deadline within what is left of the timeout: a health check's is at most `HealthTimeout`. Otherwise the launch fails with `ErrNotAdmitted`, and the supervisor stops the engine | 30 s |
+| Serving | New calls reach the generation, and `Ready` reports true. Every `HealthInterval` one health check runs, bounded by `HealthTimeout`. The first check that fails, times out or answers a status other than `SERVING` withdraws the generation for good. So do the exit of the engine and the end of the context of `Run`, which also ends a check in progress | 1 s, 1 s |
+| Drain | The withdrawn generation takes no new call. Its calls in flight go on for up to `DrainTimeout` plus `CloseGrace` | 1 minute plus 15 s |
+| Stop | go-plugin's `Kill`, bounded by `StopTimeout`. Past it, the supervisor sends the engine's process `SIGKILL` through the launch's runner. It then waits until that process has exited and been reaped, and removes the launch's base directory. The reap does not wait for the engine's output pipes, which a process that the engine started can hold open | 5 s |
+| Restart | The next launch waits gRPC's connection backoff, then starts the next generation | see below |
+
+The first launch starts at once. After a generation's stop, or a launch
+that failed, the next launch waits a delay of gRPC's connection backoff,
+whose values are fixed:
+
+- the first delay is 1 s, and each later one is 1.6 times the delay
+  before, at most 120 s;
+- each delay but the first is spread by up to 20 % either way, and is
+  still at most 120 s;
+- a generation that served for 60 s or more makes the next delay 1 s
+  again.
+
+Once the engine drains, health answers `NOT_SERVING`, so the next check
+withdraws the generation: a `SIGTERM` to the engine, or one of the
+engine's own recycle triggers, replaces it. go-plugin's `Kill` sends a
+shutdown call that the engine answers by stopping at once, so the
+supervisor sends it only after the drain.
+
+The stop bounds the engine's process, not the harness processes that it
+started. A harness process exits with its connection to the engine only
+while its event loop runs, so a host that needs a bound on them gives each
+generation a cgroup of its own, on Linux
+([the supervisor](../../docs/design/0009-host-adapters.md#the-supervisor)).
+
+### The configuration
+
+| `SupervisorConfig` field | What it sets | Default |
+|---|---|---|
+| `Launch` | The launch of every generation ([The launch](#the-launch)). Its `Logger` also receives the supervisor's log | required |
+| `Identity` | The pinned build identity, a `PinnedIdentity`: `BundleDigest`, `EngineVersion`, `BunVersion` and `ConfigDigest`, each required, and `Labels`. `BuildInfo` must have the same values, and the same labels, no label meaning the same as none | required |
+| `AdmissionTimeout` | The bound on a generation's admission, from go-plugin's connection | 30 s |
+| `HealthInterval` | How often the supervisor checks the health of the generation that serves | 1 s |
+| `HealthTimeout` | The bound on each health check | 1 s |
+| `DrainTimeout` | A pointer to the engine's `drain_timeout_ms`: how long a withdrawn generation's calls in flight go on, before `CloseGrace`. Set it to the configuration's value, 0 included. Nil means the engine's default, for a configuration without the field | nil: 1 minute |
+| `CloseGrace` | The time after `DrainTimeout` that the engine has to close its runtime, which cancels the runs left, and answer their calls | 15 s |
+| `StopTimeout` | The bound on go-plugin's `Kill` of a generation | 5 s |
+
+A zero duration other than `DrainTimeout` means its default. The drain's
+bound, `DrainTimeout` plus `CloseGrace`, is at most the longest
+`time.Duration`. `NewSupervisor` keeps copies of `Launch.Env` and of the
+labels. It refuses:
+
+- a `Launch` without `Path` or `Config`, with a `SHA256` that is not 64
+  hexadecimal digits, or with a negative `MaxMessageBytes` or
+  `ReplyMargin`, as `ClientConfig` does;
+- an empty string field of `Identity`;
+- a negative duration of `SupervisorConfig`.
+
+What `ClientConfig` finds only when it creates a launch's base directory,
+such as a `TempDir` that does not exist or one too long for the socket
+paths, fails each launch instead. `Run` records the failure, which a
+`Call` error wraps, and launches again after the backoff.
+
+### Calls and errors
+
+| Method | What it does |
+|---|---|
+| `Run` | Launches generations until its context ends. It then ends a launch or a health check in progress, withdraws the generation that serves, drains and stops it, and returns nil once its process has exited. It may be called once |
+| `Call` | Runs a function with the `Client` of the generation that serves, and returns the function's error. While no generation serves, it waits until its context ends. A context that has ended calls no function. The function must not keep the `Client`: its generation may be stopped after the call |
+| `Ready` | Reports whether a generation takes new calls: false before the first admission, from a withdrawal until the next admission, and once the context of `Run` has ended |
+
+| Error | When |
+|---|---|
+| `ErrNotServing` | `Call`'s context ended before a generation served the call: while it waited, or before `Call` was made. The error wraps the context's cause and, when a launch failed, that launch's error. `Call` did not call the function, so the host may retry |
+| `ErrNotAdmitted` | The error of a launch that admission refused, which a `Call` error wraps |
+| `ErrSupervisorStopped` | `Call` was made once the context of `Run` had ended, even while `Run` still drains. It did not call the function |
+
+A call can reach a generation that has begun to drain before a check has
+withdrawn it. The engine then refuses a run with `ErrNotStarted`, and the
+host may call again.
+
 ## Handshake and versions
 
 | Name | Value |
@@ -237,6 +376,13 @@ version 1 and once only version 2. They run on Linux and macOS, and fail
 instead of skipping when the build fails. Some change the process's umask,
 working directory or `PATH`, so no test of the package runs in parallel.
 
+The supervisor's tests build `testdata/faultplugin` into each test's
+temporary directory. It is a stand-in for the engine that misbehaves as
+its test asks, through files in a directory that the test names. A fake
+clock times the admission, the drain, the stop and the backoff, so each
+test moves that time itself. The supervisor's tests on the real engine
+are in [cmd/windmill-lite](../../cmd/windmill-lite/README.md#plugin-tests).
+
 | Test | What it checks |
 |---|---|
 | `TestRunnerRoundTrip` | `Run`, `Cancel` and `BuildInfo` over a real gRPC connection to a fake server: JSON values arrive as the same bytes, an absent deadline stays absent, and a deadline of 0 stays 0 |
@@ -252,7 +398,22 @@ working directory or `PATH`, so no test of the package runs in parallel.
 | `TestLauncherStartEndsBeforeTheSpawn` | A start context canceled after the SHA-256 check has passed: the runner starts no process |
 | `TestLauncherStartEndsAsTheProcessStarts` | A start context canceled right after the process started: the runner kills and reaps it |
 | `TestClientConfigRelativeTempDir` | A relative `TempDir` gives an absolute base directory, which is gone after `Kill` though the working directory changed during the launch |
+| `TestClientConfigRunnerWaitTwice` | A second `Wait` on the runner of `ClientConfig`'s configuration returns an error, as `exec.Cmd`'s does |
+| `TestLauncherAbortBeforeStart` | A supervisor's launch aborted before its runner starts, whether or not go-plugin has made the runner yet: `Start` checks no executable and starts no process |
 | `TestClientConfigRefusals` | The `Launch` fields that `ClientConfig` refuses |
+| `TestSupervisorReady` | `Ready` is false while the first generation's engine answers `NOT_SERVING`, and true once it is admitted. It is false once a check withdraws it and while the next launch waits for its backoff, true when the next serves, and false once `Run`'s context ends |
+| `TestSupervisorCallWaits` | While no generation serves, a call waits, and one whose context ends returns `ErrNotServing` without calling its function. The waiting call runs on the generation that is admitted next. After `Run`'s context ends, a call returns `ErrSupervisorStopped` |
+| `TestSupervisorReadsStatus` | A health check that answers `NOT_SERVING` without an error withdraws the generation, whose process then exits and is reaped, and the next launch waits for its backoff. The fake engine reads each status whole, and answered it |
+| `TestSupervisorStalledIdentity` | An engine that answers `SERVING` but never `BuildInfo` is still in its admission just before 30 s. At 30 s the launch fails with `ErrNotAdmitted`, the engine's process exits, and the next launch waits for its backoff |
+| `TestSupervisorUnresponsiveShutdown` | An engine that never answers go-plugin's shutdown call keeps its process until the bound of 5 s, then gets `SIGKILL` and is reaped, and a process that the test started from the same executable keeps running. In a second case, while a test hook holds the killed process's reap, no next launch is scheduled; released, the next generation starts and sees the old process gone |
+| `TestSupervisorRestartBackoff` | Failed launches wait 1 s, unspread, then 1.6 times the delay before, up to 120 s, each spread by the jitter. A generation that served for 59 s does not make the next delay 1 s, and one that served for 60 s does |
+| `TestSupervisorDrainBound` | A withdrawn generation's call in flight goes on until the drain's bound, the drain timeout plus the close grace. At 75 s by default, and at 15 s for a drain timeout of 0, the supervisor stops the engine, and the call returns `ErrOutcomeUnknown`. When the sum would overflow, the bound is the longest duration: the call stays in flight until the test releases it, and then succeeds |
+| `TestSupervisorAdmissionDeadlines` | A health check of an admission has a deadline of at most 1 s. Once 29.5 s have passed, the check that answers `SERVING` and `BuildInfo` each have one of at most 0.5 s, which the fake engine logs as it receives each call |
+| `TestSupervisorCallContexts` | A call whose context has ended calls no function, though a generation serves. Right after the context of `Run` ends, `Ready` is false and a call returns `ErrSupervisorStopped`, while a call in flight goes on and completes |
+| `TestSupervisorStopsLaunchAndCheck` | The end of `Run`'s context ends a launch whose engine withholds its handshake, and a health check that is never answered, though both timeouts are 10 minutes |
+| `TestSupervisorReapsWithDescendant` | A process that the fake engine started holds its output pipes open. The stopped engine's process is reaped all the same, and the next generation starts and serves. The test then ends each such process through a stop file, and waits for it |
+| `TestSupervisorKeepsLaunchCopy` | An entry of `Launch.Env` that the host changes after `NewSupervisor` does not reach the engine |
+| `TestSupervisorConfigRefusals` | What `NewSupervisor` refuses, and that `Run` runs once |
 
 Run them with `go test -race ./wl/plugin`.
 
@@ -264,6 +425,8 @@ Run them with `go test -race ./wl/plugin`.
 | `plugin.go` | `PluginName`, `ProtocolVersion`, `Handshake`, `DefaultReplyMargin`, `VersionedPlugins`, `RunnerPlugin` |
 | `client.go` | `Client` and its calls, `ErrNotStarted`, `ErrOutcomeUnknown`, `ErrorDomain`, `ReasonRunNotStarted` |
 | `launch.go` | `Launch`, `ClientConfig` and its cleanup, `ErrChecksumMismatch`, `DefaultMaxMessageBytes`, and the runner that pins and starts the executable |
+| `supervisor.go` | `Supervisor`, `NewSupervisor`, `SupervisorConfig`, `PinnedIdentity`, `ErrNotAdmitted`, `ErrNotServing`, `ErrSupervisorStopped` |
 | `runner.pb.go`, `runner_grpc.pb.go` | Generated from `runner.proto`; do not edit |
-| `example_test.go` | The example above, compiled by `go test` |
-| `testdata/runnerplugin/` | The test plugin |
+| `example_test.go` | The examples above, compiled by `go test` |
+| `testdata/runnerplugin/` | The test plugin of the launch tests |
+| `testdata/faultplugin/` | The fake engine of the supervisor's tests |

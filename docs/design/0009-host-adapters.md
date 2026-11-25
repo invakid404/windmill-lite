@@ -21,8 +21,7 @@ and a Go host launches, pins, checks and supervises it with the package
 
 - the plugin command's calls of the host-hooks service on the broker: a request's `hooks`,
   a provider set to `broker`, and `GetRun`;
-- `wl/plugin`'s supervisor, and its serving of a run's Go hooks on the
-  broker;
+- `wl/plugin`'s serving of a run's Go hooks on the broker;
 - the plain gRPC and HTTP adapters;
 - typed methods (`windmill-lite gen`).
 
@@ -88,8 +87,8 @@ Every adapter below is a transport over these calls.
 1. **go-plugin** (the engine's broker hooks are planned). The engine binary,
    started as `windmill-lite plugin`, serves the `windmill_lite.v1.Runner`
    gRPC service to a Go host that launches it with hashicorp/go-plugin,
-   and `wl/plugin` gives the host the client side and, planned, an
-   optional supervisor ([The go-plugin adapter](#the-go-plugin-adapter)).
+   and `wl/plugin` gives the host the client side and an optional
+   supervisor ([The go-plugin adapter](#the-go-plugin-adapter)).
 2. **Bun host SDK** (host mode). A TypeScript package for hosts that are
    themselves Bun programs: the host process is also the Bun harness. It
    starts the engine binary the host names as a child on a socketpair
@@ -151,8 +150,8 @@ Every adapter below is a transport over these calls.
 
 The go-plugin adapter has two halves. The `windmill-lite plugin` command
 serves a bundle as a go-plugin plugin over `wl`. The Go
-package `wl/plugin` is what a host imports to launch, check and call that
-command, and it is planned to supervise it too. Their contract is the
+package `wl/plugin` is what a host imports to launch, check, call and
+supervise that command. Their contract is the
 `Runner` service and standard gRPC health.
 
 Which process starts which, and who calls whom:
@@ -413,7 +412,7 @@ its own file, and the runner has already checked it.
 | `RunnerPlugin` | The go-plugin plugin type. On the engine's side it registers the `Runner` server; on the host's it returns a `Client` |
 | `Client` | Typed calls: `BuildInfo`, `Run`, `Cancel` and `Health`. `Run` is planned to serve the run's Go hooks on the broker |
 | `ClientConfig` | go-plugin's client configuration for one launch: the runner that checks the executable's SHA-256 and starts it with its configuration file, gRPC only, a fresh private socket directory, a literal environment with go-plugin's `SkipHostEnv` on, and the message limits |
-| `Supervisor` | The optional supervisor, which is planned ([The supervisor](#the-supervisor)) |
+| `Supervisor` | The optional supervisor ([The supervisor](#the-supervisor)) |
 
 `Client.Run` gives the run the earlier of two hard deadlines: the
 request's own, and the context's deadline less a margin for the reply (1 s

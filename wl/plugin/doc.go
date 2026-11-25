@@ -16,6 +16,11 @@
 //     compares with the release record that it ships.
 //  4. The Client's calls run flows and scripts, and Kill stops the engine.
 //
+// Supervisor does these steps for each generation, one engine process at a
+// time: it admits a generation against a pinned build identity, sends it
+// the host's calls while its health answers SERVING, and then drains,
+// stops and replaces it.
+//
 // The engine's command `windmill-lite plugin` serves this plugin.
 //
 // [hashicorp/go-plugin]: https://github.com/hashicorp/go-plugin
