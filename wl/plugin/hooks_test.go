@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"errors"
+	"net"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -370,5 +371,24 @@ func TestClientCloseAtFirstUse(t *testing.T) {
 			t.Errorf("round %d: %d registrations after Close", i, n)
 		}
 		gc.Close()
+	}
+}
+
+// TestClientCloseStopsLateServer checks the HostHooks server that go-plugin
+// asks for after Close, which a Close during a first RunWithHooks can
+// leave to come: it is stopped already, so its Serve returns at once
+// instead of serving.
+func TestClientCloseStopsLateServer(t *testing.T) {
+	c := newClient(nil, nil, DefaultReplyMargin)
+	c.Close()
+	s := c.hooksServer(nil)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	served := make(chan error, 1)
+	go func() { served <- s.Serve(ln) }()
+	if err := within(t, "the late server's Serve", served); !errors.Is(err, grpc.ErrServerStopped) {
+		t.Errorf("the late server's Serve: %v, want grpc.ErrServerStopped", err)
 	}
 }

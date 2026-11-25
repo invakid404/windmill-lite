@@ -297,6 +297,7 @@ working directory or `PATH`, so no test of the package runs in parallel.
 | `TestClientLookupTimeout` | A lookup that gets no reply ends at its bound and is tried again; a drop ends a waiting lookup at once, and no wait follows |
 | `TestClientRunRefusesRegisteredID` | `Run` refuses an id whose hooks are registered, without a call |
 | `TestClientCloseAtFirstUse` | On go-plugin's test connection, `Close` at the same time as a first `RunWithHooks`: the run is refused, or Close stops the broker connection that it opened |
+| `TestClientCloseStopsLateServer` | The `HostHooks` server that go-plugin asks for after `Close` is stopped already: its `Serve` returns at once |
 
 The broker tests of [internal/host](../../internal/host/README.md#tests)
 run `RunWithHooks` against the engine in their own process.

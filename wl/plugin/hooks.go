@@ -183,19 +183,24 @@ func (c *Client) registered(id string) bool {
 func (c *Client) serveHooks() {
 	c.hooks.serving = true
 	c.hooks.brokerID = c.broker.NextId()
-	go c.broker.AcceptAndServe(c.hooks.brokerID, func(opts []grpc.ServerOption) *grpc.Server {
-		opts = append(opts, grpc.MaxRecvMsgSize(c.hooks.limit), grpc.MaxSendMsgSize(c.hooks.limit))
-		s := grpc.NewServer(opts...)
-		RegisterHostHooksServer(s, hookServer{c: c})
-		c.hooks.mu.Lock()
-		c.hooks.server = s
-		closed := c.hooks.closed
-		c.hooks.mu.Unlock()
-		if closed {
-			s.Stop()
-		}
-		return s
-	})
+	go c.broker.AcceptAndServe(c.hooks.brokerID, c.hooksServer)
+}
+
+// hooksServer is the Client's HostHooks server, with go-plugin's options
+// opts and the Client's message limit. One that go-plugin asks for after
+// Close is stopped already, so its Serve returns at once.
+func (c *Client) hooksServer(opts []grpc.ServerOption) *grpc.Server {
+	opts = append(opts, grpc.MaxRecvMsgSize(c.hooks.limit), grpc.MaxSendMsgSize(c.hooks.limit))
+	s := grpc.NewServer(opts...)
+	RegisterHostHooksServer(s, hookServer{c: c})
+	c.hooks.mu.Lock()
+	c.hooks.server = s
+	closed := c.hooks.closed
+	c.hooks.mu.Unlock()
+	if closed {
+		s.Stop()
+	}
+	return s
 }
 
 // drop drops the registration of the run id when its token is token.
