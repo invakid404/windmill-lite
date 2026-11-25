@@ -199,7 +199,7 @@ connection, which has a real broker on both sides. The host is the
 | `TestBrokerPhaseFailures` | A failing `onRunEnd` is a warning, a failing `onRunSettled` a diagnostic, a failing observer a latch |
 | `TestBrokerOrderWithPlugin` | Where the run's hooks and a host plugin both intercept a step and answer a resource, the run's hooks answer. A provider that both serve refuses `wl.Open` |
 | `TestBrokerLateCallback` | `Cancel` ends a run once its step has started, and the step, which runs on, holds the settlement: `Run` returns, then `onRunSettled` reaches the host and is served, then the registration goes |
-| `TestBrokerIsolationNextRun` | The next run, with other hooks or none, never reaches a run's hooks |
+| `TestBrokerIsolationNextRun` | The next run, with other hooks or none, never reaches a run's hooks: a run without hooks sends no hook call, and no call of the next run carries the first run's token |
 | `TestBrokerNoListenerGrowth` | 1,000 runs share one broker id and one connection, and leave descriptors, goroutines and registrations as they were |
 | `TestBrokerRegistrations` | The release call drops a provider-only run's registration without a lookup; a run without an id gets one; a refused run is dropped at once; a held id is refused and a released one reused |
 | `TestBrokerLostMessages` | Each case on an engine of its own, its transports losing or delaying messages: a lost refusal, a lost release, a delayed call of an earlier run and a failed lookup. Then a request delayed past `gone`, and a plain run of an id that a lost release keeps registered |

@@ -176,6 +176,13 @@ func (h *tapHooks) droppedCount() int {
 	return len(h.dropped)
 }
 
+// copied returns the calls that the copy filter kept so far.
+func (h *tapHooks) copied() []*plugin.HookCall {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]*plugin.HookCall(nil), h.copies...)
+}
+
 // released reports whether c is the engine's release call.
 func released(c *plugin.HookCall) bool { return c.GetHook() == releasedHook }
 
@@ -498,19 +505,31 @@ func TestBrokerLateCallback(t *testing.T) {
 }
 
 // TestBrokerIsolationNextRun checks that a run's hooks are its own: the
-// next run, with other hooks or none, never reaches them.
+// next run, with other hooks or none, never reaches them. A test transport
+// records each hook call that the engine sends, since a call that reached
+// a released run would only be answered unknown_run, which is no answer.
 func TestBrokerIsolationNextRun(t *testing.T) {
-	e := startEngine(t, engineConfig{})
+	hooks := &tapHooks{copy: func(c *plugin.HookCall) bool { return !released(c) }}
+	e := startEngine(t, engineConfig{hooks: func(c plugin.HostHooksClient) plugin.HostHooksClient { hooks.HostHooksClient = c; return hooks }})
 	first := recorder{answer: answerWith(`"first"`)}
 	res, err := e.client.RunWithHooks(context.Background(), one(""), []byte(interceptOne), first.handle)
 	if err != nil || string(res.GetResult()) != `"first"` {
 		t.Fatalf("the first run: %v, %v", res, err)
 	}
+	sent := hooks.copied()
+	if len(sent) == 0 {
+		t.Fatal("the first run sent no hook call")
+	}
+	token := sent[0].GetToken()
 	heard := len(first.heard())
 	res, err = e.client.Run(context.Background(), one(""))
 	if err != nil || string(res.GetResult()) != `"one"` {
 		t.Errorf("the next run without hooks: %v, %v; want its step's own result", res, err)
 	}
+	if after := hooks.copied(); len(after) != len(sent) {
+		t.Errorf("the next run without hooks sent %d hook calls, want none", len(after)-len(sent))
+	}
+	n := len(hooks.copied())
 	var second recorder
 	res, err = e.client.RunWithHooks(context.Background(), one(""), []byte(`{"on_module_start": true}`), second.handle)
 	if err != nil || string(res.GetResult()) != `"one"` {
@@ -519,8 +538,13 @@ func TestBrokerIsolationNextRun(t *testing.T) {
 	if got := set(second.heard()); len(got) != 1 || got[0] != "on_module_start@m:a" {
 		t.Errorf("the second run's host heard %v, want its observer alone", got)
 	}
-	if n := len(first.heard()); n != heard {
-		t.Errorf("the first run's host heard %d more calls after its run", n-heard)
+	for _, c := range hooks.copied()[n:] {
+		if c.GetToken() == token {
+			t.Errorf("the next run with an observer sent %s with the first run's token", c.GetHook())
+		}
+	}
+	if more := len(first.heard()) - heard; more != 0 {
+		t.Errorf("the first run's host heard %d more calls after its run", more)
 	}
 }
 
