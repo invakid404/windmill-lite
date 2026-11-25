@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -25,6 +26,9 @@ import (
 //
 // [ADR 0009]: https://github.com/invakid404/windmill-lite/blob/main/docs/design/0009-host-adapters.md#hooks-across-the-plugin-boundary
 const DefaultTokenBound = 65536
+
+// errDial is the error of a dial of the host's hooks service that failed.
+var errDial = errors.New("dial the host's hooks service")
 
 // releasedHook is the name of the internal call that tells the host that a
 // run has settled, so that it drops the run's registration.
@@ -50,9 +54,9 @@ type brokerHooks struct {
 	// transport of the engine's calls. Tests set it.
 	wrap func(plugin.HostHooksClient) plugin.HostHooksClient
 	// dialing, when set, is called with each broker id just before its
-	// dial; dialed with each connection that a dial made ready, before the
-	// dial ends; joined when an admission waits on another's dial; and
-	// published once a dial has ended. dialOptions are added to each dial.
+	// dial; dialed with each connection that a dial got from go-plugin,
+	// before it waits for it to be ready; joined when an admission waits
+	// on another's dial; and published once a dial has ended. dialOptions are added to each dial.
 	// Tests set them.
 	dialing     func(id uint32)
 	dialed      func(id uint32, conn *grpc.ClientConn)
@@ -126,9 +130,18 @@ func (b *brokerHooks) admit(ctx context.Context, id string, h *plugin.Hooks) (co
 		b.mu.Unlock()
 		b.dropUnused(h.GetBrokerId())
 	}
-	bc, err := b.client(h.GetBrokerId())
+	bc, err := b.client(ctx, h.GetBrokerId())
 	if err != nil {
 		forget()
+		if ctx.Err() != nil && !errors.Is(err, errDial) {
+			// The run's own end, a Cancel or its deadline, came while
+			// its dial waited: the run did not start.
+			code := codes.Canceled
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				code = codes.DeadlineExceeded
+			}
+			return nil, nil, refusal(code, fmt.Sprintf("the run ended before the host's hooks service answered: %v", err))
+		}
 		return nil, nil, invalid("hooks.broker_id", err.Error())
 	}
 	call := func(ctx context.Context, hook, run, site string, payload []byte) ([]byte, error) {
@@ -198,14 +211,13 @@ func noAnswer(hook string, payload []byte) []byte {
 	return b
 }
 
-// client returns the dial of the broker connection id, which it dials
-// once, with the engine's message limit and no idle timeout, so that the
-// connection stays up while the host's listener serves. The dial ends
-// once the connection is ready; one that cannot connect within the plugin
-// timeout fails, so a listener that the host has stopped refuses the run
-// instead of leaving a connection that only tries again. A failed dial is
-// not kept: a later run dials again.
-func (b *brokerHooks) client(id uint32) (*brokerConn, error) {
+// client returns the dial of the broker connection id, which a goroutine
+// of its own makes once (dial). An admission waits for that dial, or for
+// the end of its run's ctx, a Cancel or the run's deadline, which leaves
+// the dial to the admissions that still wait on it. A run that arrives
+// ended already waits for the dial, and the runtime then ends it
+// canceled, as a run without hooks.
+func (b *brokerHooks) client(ctx context.Context, id uint32) (*brokerConn, error) {
 	b.connMu.Lock()
 	c := b.conns[id]
 	first := c == nil
@@ -215,57 +227,78 @@ func (b *brokerHooks) client(id uint32) (*brokerConn, error) {
 	}
 	b.connMu.Unlock()
 	if first {
-		if b.dialing != nil {
-			b.dialing(id)
-		}
-		opts := append([]grpc.DialOption{grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(b.limit), grpc.MaxCallSendMsgSize(b.limit)), grpc.WithIdleTimeout(0)}, b.dialOptions...)
-		conn, err := b.broker().DialWithOptions(id, opts...)
-		if err == nil {
-			if err = b.ready(conn); err != nil {
-				_ = conn.Close()
-			} else if b.dialed != nil {
-				b.dialed(id, conn)
-			}
-		}
-		b.connMu.Lock()
-		if err != nil {
-			c.err = fmt.Errorf("dial the host's hooks service: %w", err)
-			if b.conns[id] == c {
-				delete(b.conns, id)
-			}
-		} else {
-			c.conn = conn
-			c.client = plugin.NewHostHooksClient(conn)
-			if b.wrap != nil {
-				c.client = b.wrap(c.client)
-			}
-		}
-		released := c.released && err == nil
-		if released {
-			// The host let it go while it was dialled: an admission
-			// that waits on this dial sees it closed when it wakes.
-			c.closed.Store(true)
-		}
-		close(c.done)
-		b.connMu.Unlock()
-		if b.published != nil {
-			b.published(id)
-		}
-		switch {
-		case err != nil:
-		case released:
-			_ = conn.Close()
-		default:
-			go b.watch(id, c, conn)
-		}
+		go b.dial(id, c)
 	} else if b.joined != nil {
 		b.joined(id)
 	}
-	<-c.done
+	var ends <-chan struct{}
+	if ctx.Err() == nil {
+		ends = ctx.Done()
+	}
+	select {
+	case <-c.done:
+	case <-ends:
+		return nil, context.Cause(ctx)
+	}
 	if c.err != nil {
 		return nil, c.err
 	}
 	return c, nil
+}
+
+// dial makes the dial c of the broker connection id, with the engine's
+// message limit and no idle timeout, so that the connection stays up while
+// the host's listener serves. It has two waits: go-plugin's for the
+// host's address, which takes up to 5 seconds on the default broker, and
+// then one until the connection is ready, at most the plugin timeout. A
+// connection that cannot connect fails the dial, so a listener that the
+// host has stopped refuses the run instead of leaving a connection that
+// only tries again. A failed dial is not kept: a later run dials again.
+func (b *brokerHooks) dial(id uint32, c *brokerConn) {
+	if b.dialing != nil {
+		b.dialing(id)
+	}
+	opts := append([]grpc.DialOption{grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(b.limit), grpc.MaxCallSendMsgSize(b.limit)), grpc.WithIdleTimeout(0)}, b.dialOptions...)
+	conn, err := b.broker().DialWithOptions(id, opts...)
+	if err == nil {
+		if b.dialed != nil {
+			b.dialed(id, conn)
+		}
+		if err = b.ready(conn); err != nil {
+			_ = conn.Close()
+		}
+	}
+	b.connMu.Lock()
+	if err != nil {
+		c.err = fmt.Errorf("%w: %w", errDial, err)
+		if b.conns[id] == c {
+			delete(b.conns, id)
+		}
+	} else {
+		c.conn = conn
+		c.client = plugin.NewHostHooksClient(conn)
+		if b.wrap != nil {
+			c.client = b.wrap(c.client)
+		}
+	}
+	released := c.released && err == nil
+	if released {
+		// The host let it go while it was dialled: an admission that
+		// waits on this dial sees it closed when it wakes.
+		c.closed.Store(true)
+	}
+	close(c.done)
+	b.connMu.Unlock()
+	if b.published != nil {
+		b.published(id)
+	}
+	switch {
+	case err != nil:
+	case released:
+		_ = conn.Close()
+	default:
+		go b.watch(id, c, conn)
+	}
 }
 
 // letGo closes the broker connection id at once, which the host says it

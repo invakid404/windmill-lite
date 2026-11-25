@@ -121,10 +121,15 @@ broker ([hooks across the plugin boundary](../../docs/design/0009-host-adapters.
   fails, and a later call of a run that named it gets no answer. One that
   cannot connect is otherwise closed only once no held run uses it, and the
   host then serves a new broker id.
-- **A dial ends ready.** Admission's dial waits until the connection is
-  ready, at most the plugin timeout, and refuses the run when it cannot
-  connect. The host stops its listener before it sends the release, so a
-  release that overtakes a run's admission leaves that run refused.
+- **A dial ends ready.** A broker id's dial waits twice: for go-plugin to
+  give the host's address, up to its 5 seconds, and then until the
+  connection is ready, at most the plugin timeout. A connection that
+  cannot connect refuses the run; the host stops its listener before it
+  sends the release, so a release that overtakes an admission refuses it.
+- **An admission ends with its run.** A Cancel or deadline while it waits
+  refuses the run with `CANCELLED` or `DEADLINE_EXCEEDED`, and lets its
+  token go. Other admissions keep the dial. A run that arrives ended waits
+  for the dial and ends canceled.
 - **The run's hooks.** `wl` builds the declaration as a host plugin of the
   run alone ([internal/wlext](../wlext/README.md)). Each of its calls goes
   to `HostHooks.Call` with a `host_call`'s hook name and payload. A
@@ -228,5 +233,6 @@ connection, which has a real broker on both sides. The host is the
 | `TestBrokerCloseDuringVerdict` | `Close` while the host's handler of a first-write verdict still runs: the cut call fails, so the run latches and its write-capable step never runs |
 | `TestBrokerReleaseRetried` | A release call lost before it reaches the engine, at `Close` with a run held: the `Client` sends it again, and the engine closes its connection while the run is held |
 | `TestBrokerReleaseDuringDial` | A release that comes between the admission's dial and its end: the dial closes its connection as it ends, while the run is held |
-| `TestBrokerReleaseBeforeAdmission` | A release that overtakes a run's admission: the test holds the request until `Close` has stopped the listener and the engine answered the release; the run is then refused, and the engine holds no connection and no token |
+| `TestBrokerReleaseBeforeAdmission` | A release that overtakes a run's admission: the test holds the request until `Close` has stopped the listener and the engine answered the release. The dial gets go-plugin's connection, which cannot get ready; the run is refused on readiness, that connection is closed, and the engine holds no connection and no token |
 | `TestBrokerReleaseSharedDial` | Two admissions share a dial that the host lets go while it is under way: the waiting one sees it let go as it wakes, so its interception gets no answer although the host still serves |
+| `TestBrokerCancelDuringDial` | Two admissions wait on a dial that the test holds: Cancel of one refuses it with `CANCELLED` and lets its token go while the dial is held; the other is then served |

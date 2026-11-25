@@ -1261,7 +1261,7 @@ func TestBrokerClientClose(t *testing.T) {
 		return e.client.RunWithHooks(context.Background(), &plugin.RunRequest{Id: "held", Path: "f/broker/hold", Args: jsonOf(t, map[string]string{"dir": dir})}, []byte(`{"on_run_end": true}`), rec.handle)
 	})
 	waitStarted(t, dir)
-	bc, err := e.srv.hooks.client(tap.broker("held"))
+	bc, err := e.srv.hooks.client(context.Background(), tap.broker("held"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1491,7 +1491,7 @@ func TestBrokerTransientFailure(t *testing.T) {
 	}
 
 	waitFor(t, "the run's token let go", func() bool { return e.srv.hooks.heldTokens() == 0 })
-	bc, err := e.srv.hooks.client(tap.broker("held"))
+	bc, err := e.srv.hooks.client(context.Background(), tap.broker("held"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1540,7 +1540,7 @@ func TestBrokerTransientFailure(t *testing.T) {
 	})
 	waitStarted(t, hold2)
 	waitFor(t, "the closing run's connection", inState(connectivity.Ready))
-	bc2, err := e.srv.hooks.client(tap.broker("closing"))
+	bc2, err := e.srv.hooks.client(context.Background(), tap.broker("closing"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1644,7 +1644,7 @@ func TestBrokerReleaseRetried(t *testing.T) {
 		return e.client.RunWithHooks(context.Background(), &plugin.RunRequest{Id: "held", Path: "f/broker/hold", Args: jsonOf(t, map[string]string{"dir": dir})}, []byte(`{"on_run_end": true}`), rec.handle)
 	})
 	waitStarted(t, dir)
-	bc, err := e.srv.hooks.client(tap.broker("held"))
+	bc, err := e.srv.hooks.client(context.Background(), tap.broker("held"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1722,8 +1722,10 @@ func (c *countingControl) ReleaseHooks(ctx context.Context, req *plugin.ReleaseH
 // first admission of its broker id: the test holds a run's request before
 // the engine admits it, and Close stops the Client's listener and gets the
 // engine's answer to the release before the request goes on. The
-// admission's dial cannot connect, so the run is refused before it
-// starts, and the engine holds no connection and no token.
+// admission's dial gets a connection from go-plugin, which cannot connect
+// to the stopped listener, so the dial fails on readiness: the run is
+// refused before it starts, that connection is closed, and the engine
+// holds no connection and no token.
 func TestBrokerReleaseBeforeAdmission(t *testing.T) {
 	var tap *tapRunner
 	reached, goOn := make(chan struct{}), make(chan struct{})
@@ -1749,6 +1751,8 @@ func TestBrokerReleaseBeforeAdmission(t *testing.T) {
 			return control
 		},
 	})
+	acquired := make(chan *grpc.ClientConn, 1)
+	e.srv.hooks.dialed = func(_ uint32, conn *grpc.ClientConn) { acquired <- conn }
 	var rec recorder
 	run := runAsync(func() (*plugin.RunResult, error) {
 		return e.client.RunWithHooks(context.Background(), one("overtaken"), []byte(`{"on_run_end": true}`), rec.handle)
@@ -1757,8 +1761,13 @@ func TestBrokerReleaseBeforeAdmission(t *testing.T) {
 	e.client.Close()
 	waitFor(t, "the engine's answer to the release", func() bool { return control.answered.Load() >= 1 })
 	letGo()
-	if o := within(t, "the overtaken run", run); !errors.Is(o.err, plugin.ErrNotStarted) {
-		t.Errorf("the run whose release came first: %v, %v; want ErrNotStarted", o.res, o.err)
+	o := within(t, "the overtaken run", run)
+	conn := within(t, "the dial's connection from go-plugin", acquired)
+	if !errors.Is(o.err, plugin.ErrNotStarted) || !strings.Contains(o.err.Error(), "the connection is") {
+		t.Errorf("the run whose release came first: %v, %v; want ErrNotStarted for a connection that did not get ready", o.res, o.err)
+	}
+	if s := conn.GetState(); s != connectivity.Shutdown {
+		t.Errorf("the dial's connection is %v, want closed", s)
 	}
 	if n := e.srv.hooks.dialled(); n != 0 {
 		t.Errorf("the engine holds %d broker connections, want none", n)
@@ -1821,5 +1830,52 @@ func TestBrokerReleaseSharedDial(t *testing.T) {
 	}
 	if got := rec.heard(); len(got) != 0 {
 		t.Errorf("the host heard %v after the release", got)
+	}
+}
+
+// TestBrokerCancelDuringDial checks two runs whose admissions wait on one
+// dial, which the test holds once go-plugin has given its connection:
+// Cancel of one ends its admission at once with a refusal of code
+// Canceled, and the engine lets that run's token go while the dial is
+// still held; let go, the dial connects and the other run is served.
+func TestBrokerCancelDuringDial(t *testing.T) {
+	var tap *tapRunner
+	e := startEngine(t, engineConfig{lookupAfter: time.Hour, runner: func(s plugin.RunnerServer) plugin.RunnerServer { tap = newTap(s); return tap }})
+	atDial, dialGo := make(chan struct{}), make(chan struct{})
+	joined := make(chan struct{}, 1)
+	var once sync.Once
+	letDial := func() { once.Do(func() { close(dialGo) }) }
+	t.Cleanup(letDial)
+	e.srv.hooks.dialed = func(uint32, *grpc.ClientConn) {
+		close(atDial)
+		<-dialGo
+	}
+	e.srv.hooks.joined = func(uint32) { joined <- struct{}{} }
+	var rec recorder
+	canceled := runAsync(func() (*plugin.RunResult, error) {
+		return e.client.RunWithHooks(context.Background(), one("canceled"), []byte(`{"on_run_end": true}`), rec.handle)
+	})
+	within(t, "the dial held", atDial)
+	other := runAsync(func() (*plugin.RunResult, error) {
+		return e.client.RunWithHooks(context.Background(), one("other"), []byte(`{"on_run_end": true}`), rec.handle)
+	})
+	within(t, "the other admission waiting on the dial", joined)
+	waitFor(t, "both tokens held", func() bool { return e.srv.hooks.heldTokens() == 2 })
+	if _, err := e.gate.Runner().Cancel(context.Background(), &plugin.CancelRequest{Id: "canceled", Reason: "the test", Canceler: "the test"}); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	if o := within(t, "the canceled run, the dial still held", canceled); !errors.Is(o.err, plugin.ErrNotStarted) || status.Code(o.err) != codes.Canceled {
+		t.Errorf("the run canceled while its dial waited: %v, %v; want ErrNotStarted with code Canceled", o.res, o.err)
+	}
+	waitFor(t, "the canceled run's token let go, the dial still held", func() bool { return e.srv.hooks.heldTokens() == 1 })
+	letDial()
+	if o := within(t, "the other run", other); o.err != nil || o.res.GetStatus() != "success" {
+		t.Errorf("the run that waited on: %v, %v; want success", o.res, o.err)
+	}
+	if got := set(rec.heard()); len(got) != 1 || got[0] != "on_run_end@" {
+		t.Errorf("the host heard %v, want the other run's onRunEnd", got)
+	}
+	if n := tap.runsOf("canceled"); n != 1 {
+		t.Errorf("the canceled run reached the engine %d times, want once", n)
 	}
 }
