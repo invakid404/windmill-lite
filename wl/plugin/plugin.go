@@ -124,7 +124,7 @@ func newClient(cc grpc.ClientConnInterface, b *goplugin.GRPCBroker, margin time.
 		now:    time.Now,
 		conn:   cc,
 		hooks: hooks{timeout: DefaultPluginTimeout, lookupTimeout: DefaultPluginTimeout, limit: DefaultMaxMessageBytes,
-			regs: map[string]*registration{}, done: make(chan struct{})},
+			regs: map[string]*registration{}, old: map[*serving]bool{}, done: make(chan struct{})},
 		timer: func(d time.Duration) (<-chan time.Time, func() bool) {
 			t := time.NewTimer(d)
 			return t.C, t.Stop

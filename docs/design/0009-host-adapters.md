@@ -514,9 +514,10 @@ A hook takes the cheapest of three routes that serves it:
   none.
 - **One listener.** The broker connection lives until `Client.Close`,
   which the generation's end calls, so a run opens no listener of its own.
-  go-plugin gives each broker id's address once. So the engine closes a
+  go-plugin gives each broker id's address once, so the engine closes a
   connection that cannot connect once no run uses it, and the client then
-  opens a new listener.
+  opens a new listener. The client tells the engine that it let a listener
+  go through that listener's gRPC health, `NOT_SERVING`.
 - **Providers on the broker.** A named provider that the configuration
   marks `broker` is answered by the hooks service of the run that reaches
   it, and a run that serves none latches there. So `wl.Open` still finds

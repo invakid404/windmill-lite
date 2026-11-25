@@ -22,6 +22,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
+	"google.golang.org/grpc/credentials/insecure"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 
@@ -60,13 +61,14 @@ type tapRunner struct {
 	tokens   map[string]string // run id → token
 	lookups  map[string]int    // token → lookups
 	answers  map[string][]error
+	states   map[string][]string // token → each lookup's state, "" for an error
 	brokers  map[uint32]bool
 	brokerOf map[string]uint32 // run id → broker id
 	runs     map[string]int    // run id → requests
 }
 
 func newTap(s plugin.RunnerServer) *tapRunner {
-	return &tapRunner{RunnerServer: s, tokens: map[string]string{}, lookups: map[string]int{}, answers: map[string][]error{}, brokers: map[uint32]bool{}, brokerOf: map[string]uint32{}, runs: map[string]int{}}
+	return &tapRunner{RunnerServer: s, tokens: map[string]string{}, lookups: map[string]int{}, answers: map[string][]error{}, states: map[string][]string{}, brokers: map[uint32]bool{}, brokerOf: map[string]uint32{}, runs: map[string]int{}}
 }
 
 // broker returns the broker id of the run id's request.
@@ -126,6 +128,7 @@ func (r *tapRunner) GetRun(ctx context.Context, req *plugin.GetRunRequest) (*plu
 	}
 	r.mu.Lock()
 	r.answers[req.GetToken()] = append(r.answers[req.GetToken()], err)
+	r.states[req.GetToken()] = append(r.states[req.GetToken()], res.GetState())
 	r.mu.Unlock()
 	return res, err
 }
@@ -908,31 +911,68 @@ func TestBrokerLostMessages(t *testing.T) {
 }
 
 // TestBrokerTokenBound checks the engine's bound of gone tokens, lowered
-// to 8: a run held in flight keeps the draining engine up. Nine runs whose
-// release calls are lost; their Client asks GetRun about none of them
-// within the test, so the test asks, once the engine has let every token
-// go. Eight gone answers make the engine keep 8 tokens, turn health
-// NOT_SERVING and drain. While it drains, (a) the ninth run's lookup
-// answers UNAVAILABLE without RUN_NOT_STARTED, from the Gate and from the
-// Server behind it, its success stays, and its registration stays held;
-// (b) a new run, with a fresh token or an old one, is refused with
-// RUN_NOT_STARTED, and no call reaches the host; (c) the engine keeps 8
-// tokens throughout. Released, the held run succeeds, and the generation's
-// end drops the remaining registrations.
+// to 8, and the Client's answer to it: a run held in flight keeps the
+// draining engine up. Nine runs whose release calls are lost. The test
+// holds each one's first lookup until the engine has let all nine tokens
+// go, through a transport that keeps a lookup's deadline off the wire, so
+// that a held lookup still answers its Client. Let go, eight lookups
+// answer gone, which makes the engine keep 8 tokens, turn health
+// NOT_SERVING and drain, and the Client drops their eight registrations.
+// While it drains, (a) the ninth run's lookups answer UNAVAILABLE without
+// RUN_NOT_STARTED, also from the Server behind the Gate, and the Client
+// keeps its registration; (b) a new run, with a fresh token or an old
+// one, is refused with RUN_NOT_STARTED, and no call reaches the host; (c)
+// the engine keeps 8 tokens throughout. Released, the held run succeeds,
+// the generation's end drops the ninth registration, and every caller's
+// result stays success.
 func TestBrokerTokenBound(t *testing.T) {
+	brokerBundle(t)
+	dir, err := os.MkdirTemp("", "wlt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	// go-plugin makes the test connection's socket in os.TempDir.
+	t.Setenv("TMPDIR", dir)
 	var tap *tapRunner
 	hooks := &tapHooks{drop: released}
+	lookups := make(chan struct{})
 	e := startEngine(t, engineConfig{
 		tokenBound:  8,
-		lookupAfter: time.Hour,
-		runner:      func(s plugin.RunnerServer) plugin.RunnerServer { tap = newTap(s); return tap },
-		hooks:       func(c plugin.HostHooksClient) plugin.HostHooksClient { hooks.HostHooksClient = c; return hooks },
+		lookupAfter: 10 * time.Millisecond,
+		runnerConn: func() *grpc.ClientConn {
+			socks, err := socketsIn(dir)
+			if err != nil || len(socks) != 1 {
+				t.Fatalf("the test connection's socket: %v, %v", socks, err)
+			}
+			noDeadline := func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+				if method == plugin.Runner_GetRun_FullMethodName {
+					ctx = context.WithoutCancel(ctx)
+				}
+				return invoker(ctx, method, req, reply, cc, opts...)
+			}
+			cc, err := grpc.NewClient("unix://"+socks[0], grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithChainUnaryInterceptor(noDeadline))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { cc.Close() })
+			return cc
+		},
+		runner: func(s plugin.RunnerServer) plugin.RunnerServer {
+			tap = newTap(s)
+			tap.lookup = func(context.Context, *plugin.GetRunRequest) (*plugin.GetRunResponse, error, bool) {
+				<-lookups
+				return nil, nil, false
+			}
+			return tap
+		},
+		hooks: func(c plugin.HostHooksClient) plugin.HostHooksClient { hooks.HostHooksClient = c; return hooks },
 	})
-	dir, release := holdDir(t)
+	dirHeld, release := holdDir(t)
 	held := runAsync(func() (*plugin.RunResult, error) {
-		return e.client.Run(context.Background(), &plugin.RunRequest{Path: "f/broker/hold", Args: jsonOf(t, map[string]string{"dir": dir})})
+		return e.client.Run(context.Background(), &plugin.RunRequest{Path: "f/broker/hold", Args: jsonOf(t, map[string]string{"dir": dirHeld})})
 	})
-	waitStarted(t, dir)
+	waitStarted(t, dirHeld)
 
 	var rec recorder
 	ids := make([]string, 9)
@@ -945,15 +985,46 @@ func TestBrokerTokenBound(t *testing.T) {
 		}
 		results = append(results, res)
 	}
-	waitFor(t, "the nine release calls lost and their tokens let go", func() bool {
-		return hooks.droppedCount() == 9 && e.srv.hooks.heldTokens() == 0
+	waitFor(t, "the nine release calls lost, their tokens let go, and a lookup of each held", func() bool {
+		if hooks.droppedCount() != 9 || e.srv.hooks.heldTokens() != 0 {
+			return false
+		}
+		for _, id := range ids {
+			if tap.lookupsOf(tap.token(id)) == 0 {
+				return false
+			}
+		}
+		return true
 	})
-	lookup := func(id string) (*plugin.GetRunResponse, error) {
-		return e.gate.Runner().GetRun(context.Background(), &plugin.GetRunRequest{Id: id, Token: tap.token(id)})
+	close(lookups)
+	waitFor(t, "the nine held lookups answered", func() bool {
+		for _, id := range ids {
+			if len(tap.answersOf(tap.token(id))) == 0 {
+				return false
+			}
+		}
+		return true
+	})
+	var gone []string
+	var last string
+	for _, id := range ids {
+		state, err := tap.stateOf(tap.token(id), 0)
+		switch {
+		case err == nil && state == "gone":
+			gone = append(gone, id)
+		case status.Code(err) == codes.Unavailable && !hasNotStarted(err):
+			last = id
+		default:
+			t.Errorf("the held lookup of %s: %q, %v; want gone, or UNAVAILABLE without RUN_NOT_STARTED", id, state, err)
+		}
 	}
-	for _, id := range ids[:8] {
-		if res, err := lookup(id); err != nil || res.GetState() != "gone" {
-			t.Fatalf("the lookup of %s: %v, %v; want gone", id, res, err)
+	if len(gone) != 8 || last == "" {
+		t.Fatalf("%d held lookups answered gone and the UNAVAILABLE one is %q; want 8, and the ninth", len(gone), last)
+	}
+	waitFor(t, "the Client drops the eight registrations", func() bool { return e.client.Registrations() == 1 })
+	for _, id := range gone {
+		if n := tap.lookupsOf(tap.token(id)); n != 1 {
+			t.Errorf("%s was looked up %d times, want once", id, n)
 		}
 	}
 	if n := e.srv.hooks.goneTokens(); n != 8 {
@@ -962,16 +1033,17 @@ func TestBrokerTokenBound(t *testing.T) {
 	if s := health(t, e.gate); s != healthpb.HealthCheckResponse_NOT_SERVING {
 		t.Errorf("health %v at the bound, want NOT_SERVING", s)
 	}
-
-	last := ids[8]
-	if _, err := lookup(last); status.Code(err) != codes.Unavailable || hasNotStarted(err) {
-		t.Errorf("the ninth run's lookup while draining: %v, want UNAVAILABLE without RUN_NOT_STARTED", err)
-	}
 	if _, err := e.srv.GetRun(context.Background(), &plugin.GetRunRequest{Id: last, Token: tap.token(last)}); status.Code(err) != codes.Unavailable || hasNotStarted(err) {
 		t.Errorf("the Server's own lookup of the ninth run: %v, want UNAVAILABLE without RUN_NOT_STARTED", err)
 	}
-	if n := e.client.Registrations(); n != 9 {
-		t.Errorf("%d registrations while draining, want the nine runs'", n)
+	waitFor(t, "the Client's next lookup of the ninth run", func() bool { return len(tap.answersOf(tap.token(last))) >= 2 })
+	for i, err := range tap.answersOf(tap.token(last)) {
+		if status.Code(err) != codes.Unavailable || hasNotStarted(err) {
+			t.Errorf("lookup %d of the ninth run while draining: %v, want UNAVAILABLE without RUN_NOT_STARTED", i, err)
+		}
+	}
+	if n := e.client.Registrations(); n != 1 {
+		t.Errorf("%d registrations while draining, want the ninth run's", n)
 	}
 
 	heard := len(rec.heard())
@@ -979,7 +1051,7 @@ func TestBrokerTokenBound(t *testing.T) {
 		t.Errorf("a new run while draining: %v, want ErrNotStarted", err)
 	}
 	old := tap.token("bound-0")
-	_, err := e.gate.Runner().Run(context.Background(), &plugin.RunRequest{Id: "old", Path: "f/broker/one", Hooks: &plugin.Hooks{Token: old, Declaration: []byte(interceptOne)}})
+	_, err = e.gate.Runner().Run(context.Background(), &plugin.RunRequest{Id: "old", Path: "f/broker/one", Hooks: &plugin.Hooks{Token: old, Declaration: []byte(interceptOne)}})
 	if !hasNotStarted(err) {
 		t.Errorf("a run with an old token while draining: %v, want RUN_NOT_STARTED", err)
 	}
@@ -995,9 +1067,9 @@ func TestBrokerTokenBound(t *testing.T) {
 		t.Fatalf("the held run: %v, %v", o.res, o.err)
 	}
 	// The engine exits once it has drained: go-plugin ends the
-	// generation, and the Client drops the remaining registrations.
+	// generation, and the Client drops the ninth run's registration.
 	e.endGeneration()
-	waitFor(t, "the generation's end drops the remaining registrations", func() bool { return e.client.Registrations() == 0 })
+	waitFor(t, "the generation's end drops the ninth registration", func() bool { return e.client.Registrations() == 0 })
 	for i, res := range results {
 		if res.GetStatus() != "success" {
 			t.Errorf("run %d's result became %s", i, res.GetStatus())
@@ -1006,6 +1078,19 @@ func TestBrokerTokenBound(t *testing.T) {
 	if n := e.srv.hooks.goneTokens(); n != 8 {
 		t.Errorf("the engine keeps %d tokens at the end, want 8", n)
 	}
+}
+
+// stateOf returns the state and error of lookup i of token.
+func (r *tapRunner) stateOf(token string, i int) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.states[token][i], r.answers[token][i]
+}
+
+// noWarnings reports whether a run's warnings, as JSON, hold none.
+func noWarnings(w []byte) bool {
+	var ws []json.RawMessage
+	return len(bytes.TrimSpace(w)) == 0 || (json.Unmarshal(w, &ws) == nil && len(ws) == 0)
 }
 
 // heldTokens is how many tokens the engine holds.
@@ -1159,29 +1244,27 @@ func within[T any](t *testing.T, what string, ch <-chan T) T {
 }
 
 // TestBrokerClientClose checks that Client.Close stops the Client's broker
-// connection while another Client of the connection goes on: the engine
-// closes the connection that it dialled for the closed Client, so its next
-// call there fails and it holds only the other Client's; a run with hooks
-// after Close is refused without reaching the engine; the other Client's
-// runs with hooks are still served.
+// connection while another Client of the connection goes on, with a run
+// of the closed Client held in flight. The host's health tells the engine
+// that the Client let the connection go, so the engine closes it at once
+// and holds only the other Client's; a run with hooks after Close is
+// refused without reaching the engine; the other Client's runs are still
+// served. Released, the held run succeeds, its onRunEnd answered by no
+// one, and the engine lets its token go.
 func TestBrokerClientClose(t *testing.T) {
 	var tap *tapRunner
-	e := startEngine(t, engineConfig{runner: func(s plugin.RunnerServer) plugin.RunnerServer { tap = newTap(s); return tap }})
+	e := startEngine(t, engineConfig{lookupAfter: time.Hour, runner: func(s plugin.RunnerServer) plugin.RunnerServer { tap = newTap(s); return tap }})
+	dir, letGo := holdDir(t)
 	var rec recorder
-	res, err := e.client.RunWithHooks(context.Background(), one("open"), []byte(`{"on_run_end": true}`), rec.handle)
-	if err != nil || res.GetStatus() != "success" {
-		t.Fatalf("the run: %v, %v", res, err)
-	}
-	tap.mu.Lock()
-	var id uint32
-	for b := range tap.brokers {
-		id = b
-	}
-	tap.mu.Unlock()
-	conn, err := e.srv.hooks.client(id)
+	held := runAsync(func() (*plugin.RunResult, error) {
+		return e.client.RunWithHooks(context.Background(), &plugin.RunRequest{Id: "held", Path: "f/broker/hold", Args: jsonOf(t, map[string]string{"dir": dir})}, []byte(`{"on_run_end": true}`), rec.handle)
+	})
+	waitStarted(t, dir)
+	bc, err := e.srv.hooks.client(tap.broker("held"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	conn := bc.client
 	if rep, err := conn.Call(context.Background(), &plugin.HookCall{Hook: "on_run_end", Run: "x", Token: "y"}); err != nil || rep.GetError().GetCode() != plugin.HookCodeUnknownRun {
 		t.Fatalf("a call before Close: %v, %v; want unknown_run from the serving Client", rep, err)
 	}
@@ -1195,12 +1278,15 @@ func TestBrokerClientClose(t *testing.T) {
 	}
 
 	e.client.Close()
-	waitFor(t, "the engine closes the closed Client's connection", func() bool {
+	waitFor(t, "the engine closes the closed Client's connection, its run still held", func() bool {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		_, err := conn.Call(ctx, &plugin.HookCall{Hook: "on_run_end", Run: "x", Token: "y"})
 		return status.Code(err) == codes.Canceled && e.srv.hooks.dialled() == 1
 	})
+	if n := e.srv.hooks.heldTokens(); n != 1 {
+		t.Errorf("the engine holds %d tokens, want the held run's", n)
+	}
 	if _, err := e.client.RunWithHooks(context.Background(), one("after"), []byte(`{"on_run_end": true}`), rec.handle); !errors.Is(err, plugin.ErrNotStarted) {
 		t.Errorf("a run with hooks after Close: %v, want ErrNotStarted", err)
 	}
@@ -1214,6 +1300,15 @@ func TestBrokerClientClose(t *testing.T) {
 	if n := len(otherRec.heard()) - heard; n != 1 {
 		t.Errorf("the other Client's host heard %d calls of its run after Close, want its onRunEnd", n)
 	}
+
+	letGo()
+	if o := within(t, "the held run", held); o.err != nil || o.res.GetStatus() != "success" || !noWarnings(o.res.GetWarnings()) {
+		t.Errorf("the held run of the closed Client: %v, %v; want success without warnings", o.res, o.err)
+	}
+	if got := rec.heard(); len(got) != 0 {
+		t.Errorf("the closed Client's host heard %v", got)
+	}
+	waitFor(t, "the held run's token let go", func() bool { return e.srv.hooks.heldTokens() == 0 })
 }
 
 // TestBrokerFirstRunRefused checks a first run with hooks that the engine
@@ -1301,7 +1396,9 @@ func (b *brokerHooks) connStates() []connectivity.State {
 // connects again, so the run's onRunEnd reaches the host. With no run in
 // flight, the engine closes a connection that cannot connect, and the next
 // run with hooks on the same Client opens a new broker connection and is
-// served.
+// served. The same holds while the Client still holds the registration of
+// a run whose release call was lost: the next run is served on a new
+// broker id before that registration is reconciled.
 func TestBrokerTransientFailure(t *testing.T) {
 	brokerBundle(t)
 	dir, err := os.MkdirTemp("", "wlb")
@@ -1346,7 +1443,14 @@ func TestBrokerTransientFailure(t *testing.T) {
 		}
 		live = nil
 	}
-	e := startEngine(t, engineConfig{lookupAfter: time.Hour, dialOptions: []grpc.DialOption{grpc.WithContextDialer(dial)}})
+	hooks := &tapHooks{drop: firstReleaseOf("lost")}
+	var tap *tapRunner
+	e := startEngine(t, engineConfig{
+		lookupAfter: time.Hour,
+		dialOptions: []grpc.DialOption{grpc.WithContextDialer(dial)},
+		runner:      func(s plugin.RunnerServer) plugin.RunnerServer { tap = newTap(s); return tap },
+		hooks:       func(c plugin.HostHooksClient) plugin.HostHooksClient { hooks.HostHooksClient = c; return hooks },
+	})
 	socks, err := socketsIn(dir)
 	if err != nil || len(socks) != 1 {
 		t.Fatalf("the sockets before any run: %v, %v; want the connection's own", socks, err)
@@ -1383,8 +1487,15 @@ func TestBrokerTransientFailure(t *testing.T) {
 	}
 
 	waitFor(t, "the run's token let go", func() bool { return e.srv.hooks.heldTokens() == 0 })
+	bc, err := e.srv.hooks.client(tap.broker("held"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	fail()
 	waitFor(t, "the engine closes the connection that cannot connect", func() bool { return e.srv.hooks.dialled() == 0 })
+	if s := bc.conn.GetState(); s != connectivity.Shutdown {
+		t.Errorf("the forgotten connection is %v, want closed", s)
+	}
 	broken.Store(false)
 	var next recorder
 	res, err := e.client.RunWithHooks(context.Background(), one("next"), []byte(`{"on_run_end": true}`), next.handle)
@@ -1394,4 +1505,28 @@ func TestBrokerTransientFailure(t *testing.T) {
 	if got := set(next.heard()); len(got) != 1 || got[0] != "on_run_end@" {
 		t.Errorf("the next run's host heard %v, want its onRunEnd", got)
 	}
+
+	if res, err := e.client.RunWithHooks(context.Background(), one("lost"), []byte(`{"on_run_end": true}`), next.handle); err != nil || res.GetStatus() != "success" {
+		t.Fatalf("the run whose release is lost: %v, %v", res, err)
+	}
+	waitFor(t, "the lost release, and its token let go", func() bool { return hooks.droppedCount() == 1 && e.srv.hooks.heldTokens() == 0 })
+	if n := e.client.Registrations(); n != 1 {
+		t.Fatalf("%d registrations after the lost release, want its run's", n)
+	}
+	fail()
+	waitFor(t, "the engine closes the connection that cannot connect", func() bool { return e.srv.hooks.dialled() == 0 })
+	broken.Store(false)
+	var fresh recorder
+	if res, err := e.client.RunWithHooks(context.Background(), one("fresh"), []byte(`{"on_run_end": true}`), fresh.handle); err != nil || res.GetStatus() != "success" {
+		t.Fatalf("a run while the lost release's registration is held: %v, %v", res, err)
+	}
+	if got := set(fresh.heard()); len(got) != 1 || got[0] != "on_run_end@" {
+		t.Errorf("that run's host heard %v, want its onRunEnd", got)
+	}
+	if tap.broker("fresh") == tap.broker("lost") {
+		t.Errorf("the run named the broker id %d, whose connection the engine closed", tap.broker("fresh"))
+	}
+	// The run's own release drops its registration; the lost release's
+	// stays, not yet reconciled.
+	waitFor(t, "the run's release, the lost release's registration kept", func() bool { return e.client.Registrations() == 1 })
 }

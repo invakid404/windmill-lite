@@ -222,11 +222,15 @@ engine refuses.
   `h` returns answers `plugin_error`, the failure of a host plugin's hook.
 - **One connection.** The `Client` serves `HostHooks` on one broker
   connection, opened at its first run with hooks, until `Close` or the end
-  of the connection to the engine, with messages bounded by
-  `MaxMessageBytes` in both directions. A run waits until go-plugin serves
+  of the engine's connection, with messages bounded by `MaxMessageBytes`
+  both ways. A run waits until go-plugin serves
   the connection; a listen that fails refuses the run with `ErrNotStarted`.
   The next run opens a new connection when the last one ended, or when the
-  engine holds no connection to it and no run names it.
+  engine holds no connection to it and no request naming it is in flight.
+- **Its end.** A connection that registrations still name serves them
+  until they go. A connection that nothing uses any more turns its gRPC
+  health `NOT_SERVING`, which tells the engine that it may close it, and
+  then stops gracefully, at the latest after `PluginTimeout`.
 - **The registration.** A run without an id gets a fresh UUID. The `Client`
   registers `h` under the id with a fresh token before it sends the
   request. It refuses a run whose id is still registered with

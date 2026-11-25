@@ -230,6 +230,10 @@ type engineConfig struct {
 	// dialOptions are added to the Server's dials of the host's hooks: a
 	// fake transport of the connection.
 	dialOptions []grpc.DialOption
+	// runnerConn, when set, gives the Client its connection to the
+	// engine, once the test connection serves: a fake transport of the
+	// Client's Runner calls.
+	runnerConn func() *grpc.ClientConn
 }
 
 // testEngine is an engine in-process and the host's Client of it.
@@ -256,8 +260,10 @@ type enginePlugin struct {
 	broker atomic.Pointer[goplugin.GRPCBroker]
 	client plugin.RunnerPlugin
 	// generation is the context that the Client gets, as go-plugin's
-	// own, which ends with the engine's process.
+	// own, which ends with the engine's process. conn, when set, is the
+	// Client's connection in place of go-plugin's.
 	generation context.Context
+	conn       *grpc.ClientConn
 }
 
 func (p *enginePlugin) GRPCServer(b *goplugin.GRPCBroker, s *grpc.Server) error {
@@ -267,6 +273,9 @@ func (p *enginePlugin) GRPCServer(b *goplugin.GRPCBroker, s *grpc.Server) error 
 }
 
 func (p *enginePlugin) GRPCClient(ctx context.Context, b *goplugin.GRPCBroker, cc *grpc.ClientConn) (any, error) {
+	if p.conn != nil {
+		cc = p.conn
+	}
 	return p.client.GRPCClient(p.generation, b, cc)
 }
 
@@ -320,6 +329,9 @@ func startEngine(t *testing.T, cfg engineConfig) *testEngine {
 	}
 	gc, gs := goplugin.TestPluginGRPCConn(t, false, map[string]goplugin.Plugin{plugin.PluginName: p})
 	e.server = gs
+	if cfg.runnerConn != nil {
+		p.conn = cfg.runnerConn()
+	}
 	// The connection's Close stops the server too, through go-plugin's
 	// controller.
 	t.Cleanup(func() {

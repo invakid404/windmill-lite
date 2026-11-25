@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	goplugin "github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 
 	"github.com/invakid404/windmill-lite/internal/wlext"
@@ -73,12 +75,14 @@ type heldToken struct {
 }
 
 // brokerConn is the dial of one broker connection: done closes once conn
-// and client, or err, are set.
+// and client, or err, are set. closed is set once the host has let the
+// connection go; a call on it then gets no answer.
 type brokerConn struct {
 	done   chan struct{}
 	conn   *grpc.ClientConn
 	client plugin.HostHooksClient
 	err    error
+	closed atomic.Bool
 }
 
 // admit admits the hooks h of the run id: it refuses a token that is held
@@ -114,13 +118,18 @@ func (b *brokerHooks) admit(ctx context.Context, id string, h *plugin.Hooks) (co
 		b.mu.Unlock()
 		b.dropUnused(h.GetBrokerId())
 	}
-	client, err := b.client(h.GetBrokerId())
+	bc, err := b.client(h.GetBrokerId())
 	if err != nil {
 		forget()
 		return nil, nil, invalid("hooks.broker_id", err.Error())
 	}
 	call := func(ctx context.Context, hook, run, site string, payload []byte) ([]byte, error) {
-		rep, err := client.Call(ctx, &plugin.HookCall{Hook: hook, Run: run, Token: token, Site: site, Payload: payload})
+		if bc.closed.Load() {
+			// The host's Client let the connection go, and with it
+			// every registration: no answer, which latches nothing.
+			return noAnswer(hook, payload), nil
+		}
+		rep, err := bc.client.Call(ctx, &plugin.HookCall{Hook: hook, Run: run, Token: token, Site: site, Payload: payload})
 		if err != nil {
 			if ctx.Err() != nil || pastDeadline(ctx) {
 				// The plugin timeout or the run's end, as a host_call's.
@@ -128,6 +137,9 @@ func (b *brokerHooks) admit(ctx context.Context, id string, h *plugin.Hooks) (co
 				// can come a moment before ctx's own timer.
 				<-ctx.Done()
 				return nil, context.Cause(ctx)
+			}
+			if bc.closed.Load() {
+				return noAnswer(hook, payload), nil
 			}
 			return nil, fmt.Errorf("the host's hooks service: %w", err)
 		}
@@ -142,7 +154,7 @@ func (b *brokerHooks) admit(ctx context.Context, id string, h *plugin.Hooks) (co
 		return rep.GetPayload(), nil
 	}
 	ctx = wlext.WithRunHooks(ctx, wlext.RunHooks{Declaration: h.GetDeclaration(), Call: call})
-	ctx = wlext.WithSettled(ctx, func() { go b.release(client, h.GetBrokerId(), id, token) })
+	ctx = wlext.WithSettled(ctx, func() { go b.release(bc, h.GetBrokerId(), id, token) })
 	return ctx, forget, nil
 }
 
@@ -179,11 +191,11 @@ func noAnswer(hook string, payload []byte) []byte {
 	return b
 }
 
-// client returns the HostHooks client of the broker connection id, which
-// it dials once, with the engine's message limit and no idle timeout, so
-// that the connection stays up while the host's listener serves. A failed
-// dial is not kept: a later run dials again.
-func (b *brokerHooks) client(id uint32) (plugin.HostHooksClient, error) {
+// client returns the dial of the broker connection id, which it dials
+// once, with the engine's message limit and no idle timeout, so that the
+// connection stays up while the host's listener serves. A failed dial is
+// not kept: a later run dials again.
+func (b *brokerHooks) client(id uint32) (*brokerConn, error) {
 	b.connMu.Lock()
 	c := b.conns[id]
 	first := c == nil
@@ -210,11 +222,57 @@ func (b *brokerHooks) client(id uint32) (plugin.HostHooksClient, error) {
 				c.client = b.wrap(c.client)
 			}
 			go b.watch(id, c, conn)
+			go b.watchHost(id, c)
 		}
 		close(c.done)
 	}
 	<-c.done
-	return c.client, c.err
+	if c.err != nil {
+		return nil, c.err
+	}
+	return c, nil
+}
+
+// watchHost follows the host's health on the broker connection id, whose
+// dial is c. NOT_SERVING says that the host's Client has let the
+// connection go, which go-plugin does not tell. The engine then closes it
+// at once, even while a run in flight uses it: that run's later calls get
+// no answer, as calls for a dropped registration do. A host that serves
+// no health is not followed.
+func (b *brokerHooks) watchHost(id uint32, c *brokerConn) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	hc := healthpb.NewHealthClient(c.conn)
+	for {
+		stream, err := hc.Watch(ctx, &healthpb.HealthCheckRequest{Service: plugin.HostHooks_ServiceDesc.ServiceName}, grpc.WaitForReady(true))
+		for err == nil {
+			var res *healthpb.HealthCheckResponse
+			if res, err = stream.Recv(); err == nil && res.GetStatus() == healthpb.HealthCheckResponse_NOT_SERVING {
+				b.dispose(id, c)
+				return
+			}
+		}
+		if status.Code(err) == codes.Unimplemented || c.conn.GetState() == connectivity.Shutdown {
+			return
+		}
+		// Watch again once the connection is back, without spinning on
+		// one that stays ready.
+		if s := c.conn.GetState(); s == connectivity.Ready {
+			c.conn.WaitForStateChange(ctx, s)
+		}
+	}
+}
+
+// dispose closes the broker connection id, whose dial is c, which the
+// host has let go, and forgets its dial.
+func (b *brokerHooks) dispose(id uint32, c *brokerConn) {
+	c.closed.Store(true)
+	b.connMu.Lock()
+	if b.conns[id] == c {
+		delete(b.conns, id)
+	}
+	b.connMu.Unlock()
+	_ = c.conn.Close()
 }
 
 // watch follows the broker connection id, whose dial is c: a connection
@@ -293,10 +351,12 @@ func (b *brokerHooks) dialled() int {
 // the broker connection broker once the run has settled, then stops
 // holding the token. A call that fails is the host's to reconcile
 // (GetRun).
-func (b *brokerHooks) release(client plugin.HostHooksClient, broker uint32, id, token string) {
-	ctx, cancel := context.WithTimeout(context.Background(), b.timeout)
-	defer cancel()
-	_, _ = client.Call(ctx, &plugin.HookCall{Hook: releasedHook, Run: id, Token: token})
+func (b *brokerHooks) release(bc *brokerConn, broker uint32, id, token string) {
+	if !bc.closed.Load() {
+		ctx, cancel := context.WithTimeout(context.Background(), b.timeout)
+		defer cancel()
+		_, _ = bc.client.Call(ctx, &plugin.HookCall{Hook: releasedHook, Run: id, Token: token})
+	}
 	b.mu.Lock()
 	delete(b.held, token)
 	b.mu.Unlock()
