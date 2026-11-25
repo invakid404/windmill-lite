@@ -1245,9 +1245,10 @@ func within[T any](t *testing.T, what string, ch <-chan T) T {
 
 // TestBrokerClientClose checks that Client.Close stops the Client's broker
 // connection while another Client of the connection goes on, with a run
-// of the closed Client held in flight. The host's health tells the engine
-// that the Client let the connection go, so the engine closes it at once
-// and holds only the other Client's; a run with hooks after Close is
+// of the closed Client held in flight. The Client's ReleaseHooks call, on
+// the engine's HooksControl service, tells the engine that it let the
+// connection go, so the engine closes it at once and holds only the other
+// Client's; a run with hooks after Close is
 // refused without reaching the engine; the other Client's runs are still
 // served. Released, the held run succeeds, its onRunEnd answered by no
 // one, and the engine lets its token go.
@@ -1592,4 +1593,99 @@ func TestBrokerCloseDuringVerdict(t *testing.T) {
 		t.Errorf("the run whose verdict Close cut: %v, %v; want latched on the cut call, its step not run", o.res, o.err)
 	}
 	approve()
+}
+
+// lossyControl is a fake transport of the HooksControl service that loses
+// the first release call before it reaches the engine.
+type lossyControl struct {
+	plugin.HooksControlServer
+	calls atomic.Int32
+}
+
+func (l *lossyControl) ReleaseHooks(ctx context.Context, req *plugin.ReleaseHooksRequest) (*plugin.ReleaseHooksResponse, error) {
+	if l.calls.Add(1) == 1 {
+		return nil, status.Error(codes.Unavailable, "the test's transport lost the release call")
+	}
+	return l.HooksControlServer.ReleaseHooks(ctx, req)
+}
+
+// TestBrokerReleaseRetried checks a release call lost before it reaches
+// the engine, at Close with a run of the Client held in flight: the
+// Client stops its listener and sends the call again, and the engine
+// closes its connection while the run is still held. The run then
+// succeeds, its onRunEnd answered by no one.
+func TestBrokerReleaseRetried(t *testing.T) {
+	var tap *tapRunner
+	lossy := &lossyControl{}
+	e := startEngine(t, engineConfig{
+		lookupAfter: 10 * time.Millisecond,
+		runner:      func(s plugin.RunnerServer) plugin.RunnerServer { tap = newTap(s); return tap },
+		control: func(s plugin.HooksControlServer) plugin.HooksControlServer {
+			lossy.HooksControlServer = s
+			return lossy
+		},
+	})
+	dir, letGo := holdDir(t)
+	var rec recorder
+	held := runAsync(func() (*plugin.RunResult, error) {
+		return e.client.RunWithHooks(context.Background(), &plugin.RunRequest{Id: "held", Path: "f/broker/hold", Args: jsonOf(t, map[string]string{"dir": dir})}, []byte(`{"on_run_end": true}`), rec.handle)
+	})
+	waitStarted(t, dir)
+	bc, err := e.srv.hooks.client(tap.broker("held"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.client.Close()
+	waitFor(t, "the engine closes the closed Client's connection, its run still held", func() bool {
+		return e.srv.hooks.dialled() == 0 && bc.conn.GetState() == connectivity.Shutdown && e.srv.hooks.heldTokens() == 1
+	})
+	if n := lossy.calls.Load(); n < 2 {
+		t.Errorf("%d release calls, want the lost one and the one sent again", n)
+	}
+	letGo()
+	if o := within(t, "the held run", held); o.err != nil || o.res.GetStatus() != "success" || !noWarnings(o.res.GetWarnings()) {
+		t.Errorf("the held run of the closed Client: %v, %v; want success without warnings", o.res, o.err)
+	}
+	if got := rec.heard(); len(got) != 0 {
+		t.Errorf("the closed Client's host heard %v", got)
+	}
+}
+
+// TestBrokerReleaseDuringDial checks a release that comes while the
+// engine's admission still dials the run's broker id, between the dial's
+// connection and the dial's end: the dial closes that connection as it
+// ends, so the engine holds no connection while the run is held, and the
+// run's later onRunEnd gets no answer.
+func TestBrokerReleaseDuringDial(t *testing.T) {
+	var tap *tapRunner
+	e := startEngine(t, engineConfig{lookupAfter: time.Hour, runner: func(s plugin.RunnerServer) plugin.RunnerServer { tap = newTap(s); return tap }})
+	atDial, proceed := make(chan *grpc.ClientConn, 1), make(chan struct{})
+	var once sync.Once
+	goOn := func() { once.Do(func() { close(proceed) }) }
+	t.Cleanup(goOn)
+	e.srv.hooks.dialed = func(_ uint32, conn *grpc.ClientConn) {
+		atDial <- conn
+		<-proceed
+	}
+	dir, letGo := holdDir(t)
+	var rec recorder
+	held := runAsync(func() (*plugin.RunResult, error) {
+		return e.client.RunWithHooks(context.Background(), &plugin.RunRequest{Id: "dialled", Path: "f/broker/hold", Args: jsonOf(t, map[string]string{"dir": dir})}, []byte(`{"on_run_end": true}`), rec.handle)
+	})
+	conn := within(t, "the dial of the run's broker id", atDial)
+	if _, err := e.gate.Hooks().ReleaseHooks(context.Background(), &plugin.ReleaseHooksRequest{BrokerId: tap.broker("dialled")}); err != nil {
+		t.Fatalf("the release during the dial: %v", err)
+	}
+	goOn()
+	waitStarted(t, dir)
+	waitFor(t, "the dial closes its connection, the run held", func() bool {
+		return e.srv.hooks.dialled() == 0 && conn.GetState() == connectivity.Shutdown && e.srv.hooks.heldTokens() == 1
+	})
+	letGo()
+	if o := within(t, "the held run", held); o.err != nil || o.res.GetStatus() != "success" || !noWarnings(o.res.GetWarnings()) {
+		t.Errorf("the run whose connection was let go during its dial: %v, %v; want success without warnings", o.res, o.err)
+	}
+	if got := rec.heard(); len(got) != 0 {
+		t.Errorf("the host heard %v", got)
+	}
 }

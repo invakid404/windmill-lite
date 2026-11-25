@@ -50,8 +50,10 @@ type brokerHooks struct {
 	// transport of the engine's calls. Tests set it.
 	wrap func(plugin.HostHooksClient) plugin.HostHooksClient
 	// dialing, when set, is called with each broker id just before its
-	// dial; dialOptions are added to each dial. Tests set them.
+	// dial, and dialed with each connection that a dial returned, before
+	// the dial ends; dialOptions are added to each dial. Tests set them.
 	dialing     func(id uint32)
+	dialed      func(id uint32, conn *grpc.ClientConn)
 	dialOptions []grpc.DialOption
 
 	// connMu guards conns: the dial of each broker connection, made once.
@@ -73,15 +75,18 @@ type heldToken struct {
 	broker uint32
 }
 
-// brokerConn is the dial of one broker connection: done closes once conn
-// and client, or err, are set. closed is set once the host has let the
-// connection go; a call that starts on it then gets no answer.
+// brokerConn is the dial of one broker connection: done closes, under
+// brokerHooks.connMu, once conn and client, or err, are set; released,
+// under connMu too, says that the host let the connection go. closed is
+// set once its connection is closed for that; a call that starts on it
+// then gets no answer.
 type brokerConn struct {
-	done   chan struct{}
-	conn   *grpc.ClientConn
-	client plugin.HostHooksClient
-	err    error
-	closed atomic.Bool
+	done     chan struct{}
+	conn     *grpc.ClientConn
+	client   plugin.HostHooksClient
+	err      error
+	released bool
+	closed   atomic.Bool
 }
 
 // admit admits the hooks h of the run id: it refuses a token that is held
@@ -208,20 +213,34 @@ func (b *brokerHooks) client(id uint32) (*brokerConn, error) {
 		}
 		opts := append([]grpc.DialOption{grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(b.limit), grpc.MaxCallSendMsgSize(b.limit)), grpc.WithIdleTimeout(0)}, b.dialOptions...)
 		conn, err := b.broker().DialWithOptions(id, opts...)
+		if err == nil && b.dialed != nil {
+			b.dialed(id, conn)
+		}
+		b.connMu.Lock()
 		if err != nil {
 			c.err = fmt.Errorf("dial the host's hooks service: %w", err)
-			b.connMu.Lock()
-			delete(b.conns, id)
-			b.connMu.Unlock()
+			if b.conns[id] == c {
+				delete(b.conns, id)
+			}
 		} else {
 			c.conn = conn
 			c.client = plugin.NewHostHooksClient(conn)
 			if b.wrap != nil {
 				c.client = b.wrap(c.client)
 			}
+		}
+		released := c.released
+		close(c.done)
+		b.connMu.Unlock()
+		switch {
+		case err != nil:
+		case released:
+			// The host let it go while it was dialled.
+			c.closed.Store(true)
+			_ = conn.Close()
+		default:
 			go b.watch(id, c, conn)
 		}
-		close(c.done)
 	}
 	<-c.done
 	if c.err != nil {
@@ -234,35 +253,31 @@ func (b *brokerHooks) client(id uint32) (*brokerConn, error) {
 // has let go (ReleaseHooks), even while a run in flight uses it: a call
 // already sent on it fails, and a later call of a run that named it gets
 // no answer, as a call of a dropped registration does. go-plugin gives
-// no such word, and the word comes on the Runner connection, so it
-// arrives also while the broker connection is down. An id that the engine
-// holds no connection to is ignored.
+// no such word, and the word comes on the HooksControl service, so it
+// arrives also while the broker connection is down. A dial of id still
+// under way closes its connection as it ends. An id that the engine
+// holds no connection to is ignored, so the word may come again.
 func (b *brokerHooks) letGo(id uint32) {
 	if b == nil {
 		return
 	}
 	b.connMu.Lock()
 	c := b.conns[id]
+	ended := false
 	if c != nil {
+		delete(b.conns, id)
+		c.released = true
 		select {
 		case <-c.done:
-			if c.err == nil {
-				delete(b.conns, id)
-			} else {
-				c = nil
-			}
+			ended = c.err == nil
 		default:
-			// Still dialling: the dial's own failure or the host's
-			// stopped listener ends it.
-			c = nil
 		}
 	}
 	b.connMu.Unlock()
-	if c == nil {
-		return
+	if ended {
+		c.closed.Store(true)
+		_ = c.conn.Close()
 	}
-	c.closed.Store(true)
-	_ = c.conn.Close()
 }
 
 // watch follows the broker connection id, whose dial is c: a connection

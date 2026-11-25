@@ -1,8 +1,8 @@
 # internal/host
 
 **Current state:** the `windmill_lite.v1.Runner` gRPC service over one
-[wl](../../wl/README.md) runtime: `Run`, `Cancel`, `GetBuildInfo`,
-`GetRun` and `ReleaseHooks`, and a flow run's hooks, which the host answers on go-plugin's
+[wl](../../wl/README.md) runtime: `Run`, `Cancel`, `GetBuildInfo` and
+`GetRun`; `HooksControl`'s `ReleaseHooks`; and a flow run's hooks, which the host answers on go-plugin's
 broker. A `Gate`
 answers gRPC health from the engine's state, Starting, Serving or
 Draining, and refuses the calls while the engine starts, and new runs
@@ -39,7 +39,11 @@ the bound of gone tokens, and `Config.OnTokenBound` is called once at it.
 | `Run` | Maps the request to `Runtime.Run`, and answers the run's `RunResult` or a refusal |
 | `Cancel` | Cancels the run in flight with the id, with a `wl.Cancellation` of the request's reason and canceler. An id of no run in flight answers `NOT_FOUND` |
 | `GetRun` | Says whether the engine still holds the run of a hooks registration, by its id and token: `held` or `gone` |
-| `ReleaseHooks` | Closes the engine's connection to a broker id that the host let go, at once, even while a run uses it |
+
+`Gate.Hooks()` is the `windmill_lite.v1.HooksControl` service, which serves
+beside `Runner`. Its one call, `ReleaseHooks`, closes the engine's
+connection to a broker id that the host let go, at once, even while a run
+uses it.
 
 ## How a request maps to a run
 
@@ -111,12 +115,12 @@ broker ([hooks across the plugin boundary](../../docs/design/0009-host-adapters.
   message limit, and keeps the connection, so runs open no listener of
   their own. A dial waits on its own: a broker id that does not answer
   stalls neither the other ids nor the tokens.
-- **Its end.** `ReleaseHooks` says that the host let a connection go; it
-  comes on the Runner connection, so also while the broker connection is
-  down. The engine closes the connection at once: a call already sent on it
-  fails, and a later call of a run that named it gets no answer. A
-  connection that cannot connect is otherwise closed only once no run that
-  the engine holds uses it, and the host then serves a new broker id.
+- **Its end.** `ReleaseHooks`, on the engine's connection, says that the
+  host let a connection go, so it arrives also while that one is down. The
+  engine closes it at once, or as its dial ends: a call already sent on it
+  fails, and a later call of a run that named it gets no answer. One that
+  cannot connect is otherwise closed only once no held run uses it, and the
+  host then serves a new broker id.
 - **The run's hooks.** `wl` builds the declaration as a host plugin of the
   run alone ([internal/wlext](../wlext/README.md)). Each of its calls goes
   to `HostHooks.Call` with a `host_call`'s hook name and payload. A
@@ -218,3 +222,5 @@ connection, which has a real broker on both sides. The host is the
 | `TestBrokerFirstRunRefused` | A first run with hooks refused before the engine dials the host; after go-plugin has dropped that broker id's address, the next run on the same `Client` gets a new broker id and is served |
 | `TestBrokerTransientFailure` | The test's dialer drops the connection and fails dials while the host's listener serves. A run in flight keeps the connection, which connects again; with no run in flight the engine closes it, and the next run on the same `Client` is served, also while a lost release's registration is not yet reconciled. `Close` during a failure, with a run held, closes the engine's side before the run ends |
 | `TestBrokerCloseDuringVerdict` | `Close` while the host's handler of a first-write verdict still runs: the cut call fails, so the run latches and its write-capable step never runs |
+| `TestBrokerReleaseRetried` | A release call lost before it reaches the engine, at `Close` with a run held: the `Client` sends it again, and the engine closes its connection while the run is held |
+| `TestBrokerReleaseDuringDial` | A release that comes between the admission's dial and its end: the dial closes its connection as it ends, while the run is held |

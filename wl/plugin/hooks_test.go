@@ -552,3 +552,34 @@ func TestClientListenRetry(t *testing.T) {
 		t.Errorf("the handler heard %d calls, want the next run's onRunEnd", n)
 	}
 }
+
+// fourCalls has only the Runner client's four calls of version 1, as a
+// host's own adapter or test double of the service may.
+type fourCalls struct{}
+
+func (fourCalls) GetBuildInfo(context.Context, *GetBuildInfoRequest, ...grpc.CallOption) (*BuildInfo, error) {
+	return nil, nil
+}
+
+func (fourCalls) Run(context.Context, *RunRequest, ...grpc.CallOption) (*RunResult, error) {
+	return nil, nil
+}
+
+func (fourCalls) Cancel(context.Context, *CancelRequest, ...grpc.CallOption) (*CancelResponse, error) {
+	return nil, nil
+}
+
+func (fourCalls) GetRun(context.Context, *GetRunRequest, ...grpc.CallOption) (*GetRunResponse, error) {
+	return nil, nil
+}
+
+// TestRunnerClientKeepsItsCalls checks that RunnerClient still has the four
+// calls of version 1, so that a type with only those still is one: the
+// release of a broker connection is a service of its own. The check is
+// the assignment, which does not compile otherwise.
+func TestRunnerClientKeepsItsCalls(t *testing.T) {
+	var c RunnerClient = fourCalls{}
+	if _, err := c.GetRun(context.Background(), &GetRunRequest{}); err != nil {
+		t.Fatal(err)
+	}
+}

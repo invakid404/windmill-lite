@@ -229,9 +229,11 @@ engine refuses.
   naming it is in flight.
 - **Its end.** A replaced connection keeps serving the registrations that
   still name it. When the last of them goes, and for every connection at
-  `Close`, the `Client` calls `ReleaseHooks`, which waits at most
-  `PluginTimeout`, and then stops the server at once, ending the calls
-  that its handlers still run.
+  `Close`, the `Client` calls `ReleaseHooks` on the engine's
+  `HooksControl` service, which waits at most `PluginTimeout`. Then it
+  stops the server at once, ending its handlers' calls, and sends a failed
+  release call again, with a growing interval, until the engine has it or
+  its generation ends.
 - **The registration.** A run without an id gets a fresh UUID. The `Client`
   registers `h` under the id with a fresh token before it sends the
   request. It refuses a run whose id is still registered with
@@ -260,7 +262,7 @@ engine refuses.
 | `PluginName` | `runner` |
 | `ProtocolVersion` | 1, the major version of `windmill_lite.v1.Runner` |
 | `VersionedPlugins` | The plugin sets by `Runner` version, for the engine's side and the host's: version 1 serves a `RunnerPlugin` under `PluginName` |
-| `RunnerPlugin` | The go-plugin plugin type, gRPC only. On the engine's side its `Runner` field is the service's implementation, which it registers; on the host's side it returns a `*Client`, with its `ReplyMargin`, `PluginTimeout` and `MaxMessageBytes` |
+| `RunnerPlugin` | The go-plugin plugin type, gRPC only. On the engine's side its `Runner` field is the service's implementation, which it registers, as it registers `Hooks`, the `HooksControl` service, when set; on the host's side it returns a `*Client`, with its `ReplyMargin`, `PluginTimeout` and `MaxMessageBytes` |
 
 The magic cookie checks that the engine was started as a plugin; it is not
 authentication. go-plugin's handshake picks the highest version that both
@@ -310,6 +312,7 @@ working directory or `PATH`, so no test of the package runs in parallel.
 | `TestClientRunRefusesRegisteredID` | `Run` refuses an id whose hooks are registered, without a call |
 | `TestClientCloseAtFirstUse` | On go-plugin's test connection, `Close` at the same time as a first `RunWithHooks`: the run is refused, or Close stops the broker connection that it opened |
 | `TestClientCloseStopsLateServer` | The `HostHooks` server that go-plugin asks for after `Close` is stopped already: its `Serve` returns at once |
+| `TestRunnerClientKeepsItsCalls` | A type with only `RunnerClient`'s four calls of version 1 still is a `RunnerClient`: the assignment compiles only so |
 
 The broker tests of [internal/host](../../internal/host/README.md#tests)
 run `RunWithHooks` against the engine in their own process.

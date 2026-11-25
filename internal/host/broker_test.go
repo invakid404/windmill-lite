@@ -234,6 +234,9 @@ type engineConfig struct {
 	// engine, once the test connection serves: a fake transport of the
 	// Client's Runner calls.
 	runnerConn func() *grpc.ClientConn
+	// control wraps the Gate's HooksControl service as the connection
+	// serves it: a fake transport of the Client's release calls.
+	control func(plugin.HooksControlServer) plugin.HooksControlServer
 }
 
 // testEngine is an engine in-process and the host's Client of it.
@@ -257,6 +260,7 @@ type testEngine struct {
 type enginePlugin struct {
 	goplugin.NetRPCUnsupportedPlugin
 	runner plugin.RunnerServer
+	hooks  plugin.HooksControlServer
 	broker atomic.Pointer[goplugin.GRPCBroker]
 	client plugin.RunnerPlugin
 	// generation is the context that the Client gets, as go-plugin's
@@ -269,6 +273,7 @@ type enginePlugin struct {
 func (p *enginePlugin) GRPCServer(b *goplugin.GRPCBroker, s *grpc.Server) error {
 	p.broker.Store(b)
 	plugin.RegisterRunnerServer(s, p.runner)
+	plugin.RegisterHooksControlServer(s, p.hooks)
 	return nil
 }
 
@@ -323,9 +328,12 @@ func startEngine(t *testing.T, cfg engineConfig) *testEngine {
 	}
 	e := &testEngine{rt: rt, gate: NewGate()}
 	generation, end := context.WithCancel(context.Background())
-	p := &enginePlugin{runner: e.gate.Runner(), client: plugin.RunnerPlugin{PluginTimeout: lookup}, generation: generation}
+	p := &enginePlugin{runner: e.gate.Runner(), hooks: e.gate.Hooks(), client: plugin.RunnerPlugin{PluginTimeout: lookup}, generation: generation}
 	if cfg.runner != nil {
 		p.runner = cfg.runner(p.runner)
+	}
+	if cfg.control != nil {
+		p.hooks = cfg.control(p.hooks)
 	}
 	gc, gs := goplugin.TestPluginGRPCConn(t, false, map[string]goplugin.Plugin{plugin.PluginName: p})
 	e.server = gs

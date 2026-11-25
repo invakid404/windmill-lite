@@ -9,8 +9,10 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/stats"
+	"google.golang.org/grpc/status"
 )
 
 // DefaultPluginTimeout is the engine's default plugin_timeout_ms, after
@@ -257,29 +259,44 @@ func (c *Client) Close() {
 }
 
 // retireLocked lets the opening sv go: at Close, or once a replaced
-// opening's last registration has gone. It tells the engine with
-// ReleaseHooks, which waits at most the plugin timeout, and then stops the
-// server at once, ending the calls that its handlers still run. A server
-// that go-plugin has not asked for yet is stopped when it does.
-// c.hooks.mu is held.
+// opening's last registration has gone (retire). A server that go-plugin
+// has not asked for yet is stopped when it does. c.hooks.mu is held.
 func (c *Client) retireLocked(sv *serving) {
 	if sv.retired {
 		return
 	}
 	sv.retired = true
 	delete(c.hooks.old, sv)
-	if sv.server == nil {
-		return
+	if sv.server != nil {
+		go c.retire(sv.server, sv.id)
 	}
-	s, id, timeout := sv.server, sv.id, c.hooks.timeout
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+}
+
+// retire tells the engine with ReleaseHooks that the Client has let the
+// broker connection id go, and stops its server s. The first call waits
+// at most the plugin timeout; then s stops at once, ending the calls that
+// its handlers still run. The engine closes its side before that, so a
+// call that starts after it gets no answer instead of a broken
+// connection. A call that fails is sent again, at first after the plugin
+// timeout and then with a doubling interval, until the engine has it,
+// does not serve it, or its generation or connection has ended.
+func (c *Client) retire(s *grpc.Server, id uint32) {
+	release := func() bool {
+		ctx, cancel := context.WithTimeout(context.Background(), c.hooks.timeout)
 		defer cancel()
-		// The engine closes its side first, so that a call that starts
-		// after it gets no answer instead of a broken connection.
-		_, _ = c.runner.ReleaseHooks(ctx, &ReleaseHooksRequest{BrokerId: id})
-		s.Stop()
-	}()
+		_, err := c.control.ReleaseHooks(ctx, &ReleaseHooksRequest{BrokerId: id})
+		return err == nil || status.Code(err) == codes.Unimplemented
+	}
+	done := release()
+	s.Stop()
+	for wait := c.hooks.timeout; !done; wait = min(2*wait, maxLookupInterval) {
+		if (c.generation != nil && c.generation.Err() != nil) || c.shutdown() {
+			return
+		}
+		fired, _ := c.timer(wait)
+		<-fired
+		done = release()
+	}
 }
 
 // registered reports whether the Client holds a registration of the run

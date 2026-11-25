@@ -38,7 +38,10 @@ var ErrOutcomeUnknown = errors.New("wl/plugin: the run's outcome is unknown")
 // for PluginName. Its methods are safe for concurrent use.
 type Client struct {
 	runner RunnerClient
-	health healthpb.HealthClient
+	// control is the engine's HooksControl service on the same
+	// connection.
+	control HooksControlClient
+	health  healthpb.HealthClient
 	// broker is go-plugin's broker of the connection, on which the host
 	// serves HostHooks.
 	broker *goplugin.GRPCBroker

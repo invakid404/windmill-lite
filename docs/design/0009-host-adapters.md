@@ -228,7 +228,7 @@ the configuration names no plugin of its own.
 #### The Runner service
 
 The engine serves `windmill_lite.v1.Runner`, which
-`proto/windmill_lite/v1/runner.proto` defines. Version 1 has five calls:
+`proto/windmill_lite/v1/runner.proto` defines. Version 1 has four calls:
 
 | Call | What it does |
 |---|---|
@@ -236,7 +236,13 @@ The engine serves `windmill_lite.v1.Runner`, which
 | `Run` | Runs a flow or a root script of the bundle to its end, as `Runtime.Run` does, and returns its outcome: one unary call per run |
 | `Cancel` | Cancels a run in flight by its id, with a reason and a canceler, which the run's `Canceled` error names ([FX-38](../semantics/execution.md#fx-38)). Host mode's `run_cancel` carries the same two fields. An id of no run in flight answers `NOT_FOUND` |
 | `GetRun` | Says whether the engine still holds the run of a hooks registration, by its id and token: in flight, or ended and not yet released ([Hooks across the plugin boundary](#hooks-across-the-plugin-boundary)) |
-| `ReleaseHooks` | Says that the host has let a broker connection of runs' hooks go, by its broker id; the engine closes its side at once ([Hooks across the plugin boundary](#hooks-across-the-plugin-boundary)) |
+
+Beside it, on the same connection, the engine serves
+`windmill_lite.v1.HooksControl`, a service of its own so that `Runner`'s
+calls stay as they are. Its one call, `ReleaseHooks`, says that the host has
+let a broker connection of runs' hooks go, by its broker id, and the engine
+closes its side at once
+([Hooks across the plugin boundary](#hooks-across-the-plugin-boundary)).
 
 A `RunRequest` holds:
 
@@ -518,7 +524,8 @@ A hook takes the cheapest of three routes that serves it:
   go-plugin gives each broker id's address once, so the engine closes a
   connection that cannot connect once no run uses it, and the client then
   opens a new listener. The client tells the engine with `ReleaseHooks`,
-  on the Runner connection, when it lets a listener go.
+  on the engine's connection, when it lets a listener go, and sends it
+  again until the engine has it.
 - **Providers on the broker.** A named provider that the configuration
   marks `broker` is answered by the hooks service of the run that reaches
   it, and a run that serves none latches there. So `wl.Open` still finds

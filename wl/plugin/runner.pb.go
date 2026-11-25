@@ -1557,12 +1557,13 @@ const file_windmill_lite_v1_runner_proto_rawDesc = "" +
 	"\x05error\x18\x02 \x01(\v2\x1b.windmill_lite.v1.HookErrorR\x05error\"9\n" +
 	"\tHookError\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage2\x97\x03\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage2\xb8\x02\n" +
 	"\x06Runner\x12R\n" +
 	"\fGetBuildInfo\x12%.windmill_lite.v1.GetBuildInfoRequest\x1a\x1b.windmill_lite.v1.BuildInfo\x12@\n" +
 	"\x03Run\x12\x1c.windmill_lite.v1.RunRequest\x1a\x1b.windmill_lite.v1.RunResult\x12K\n" +
 	"\x06Cancel\x12\x1f.windmill_lite.v1.CancelRequest\x1a .windmill_lite.v1.CancelResponse\x12K\n" +
-	"\x06GetRun\x12\x1f.windmill_lite.v1.GetRunRequest\x1a .windmill_lite.v1.GetRunResponse\x12]\n" +
+	"\x06GetRun\x12\x1f.windmill_lite.v1.GetRunRequest\x1a .windmill_lite.v1.GetRunResponse2m\n" +
+	"\fHooksControl\x12]\n" +
 	"\fReleaseHooks\x12%.windmill_lite.v1.ReleaseHooksRequest\x1a&.windmill_lite.v1.ReleaseHooksResponse2L\n" +
 	"\tHostHooks\x12?\n" +
 	"\x04Call\x12\x1a.windmill_lite.v1.HookCall\x1a\x1b.windmill_lite.v1.HookReplyB6Z4github.com/invakid404/windmill-lite/wl/plugin;pluginb\x06proto3"
@@ -1619,13 +1620,13 @@ var file_windmill_lite_v1_runner_proto_depIdxs = []int32{
 	2,  // 11: windmill_lite.v1.Runner.Run:input_type -> windmill_lite.v1.RunRequest
 	9,  // 12: windmill_lite.v1.Runner.Cancel:input_type -> windmill_lite.v1.CancelRequest
 	11, // 13: windmill_lite.v1.Runner.GetRun:input_type -> windmill_lite.v1.GetRunRequest
-	13, // 14: windmill_lite.v1.Runner.ReleaseHooks:input_type -> windmill_lite.v1.ReleaseHooksRequest
+	13, // 14: windmill_lite.v1.HooksControl.ReleaseHooks:input_type -> windmill_lite.v1.ReleaseHooksRequest
 	15, // 15: windmill_lite.v1.HostHooks.Call:input_type -> windmill_lite.v1.HookCall
 	1,  // 16: windmill_lite.v1.Runner.GetBuildInfo:output_type -> windmill_lite.v1.BuildInfo
 	8,  // 17: windmill_lite.v1.Runner.Run:output_type -> windmill_lite.v1.RunResult
 	10, // 18: windmill_lite.v1.Runner.Cancel:output_type -> windmill_lite.v1.CancelResponse
 	12, // 19: windmill_lite.v1.Runner.GetRun:output_type -> windmill_lite.v1.GetRunResponse
-	14, // 20: windmill_lite.v1.Runner.ReleaseHooks:output_type -> windmill_lite.v1.ReleaseHooksResponse
+	14, // 20: windmill_lite.v1.HooksControl.ReleaseHooks:output_type -> windmill_lite.v1.ReleaseHooksResponse
 	16, // 21: windmill_lite.v1.HostHooks.Call:output_type -> windmill_lite.v1.HookReply
 	16, // [16:22] is the sub-list for method output_type
 	10, // [10:16] is the sub-list for method input_type
@@ -1648,7 +1649,7 @@ func file_windmill_lite_v1_runner_proto_init() {
 			NumEnums:      0,
 			NumMessages:   22,
 			NumExtensions: 0,
-			NumServices:   2,
+			NumServices:   3,
 		},
 		GoTypes:           file_windmill_lite_v1_runner_proto_goTypes,
 		DependencyIndexes: file_windmill_lite_v1_runner_proto_depIdxs,

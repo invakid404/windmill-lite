@@ -119,7 +119,7 @@ func runPlugin(args []string, stderr io.Writer) int {
 	}
 	gate := host.NewGate()
 	limit := cfg.maxMessageBytes()
-	srv := &servedRunner{RunnerPlugin: plugin.RunnerPlugin{Runner: gate.Runner()}}
+	srv := &servedRunner{RunnerPlugin: plugin.RunnerPlugin{Runner: gate.Runner(), Hooks: gate.Hooks()}}
 	var grpcServer atomic.Pointer[grpc.Server]
 	// A drain (ADR 0009, health, readiness and drain) starts on SIGTERM,
 	// on the engine's memory trigger, or when the warm pool fails to start
