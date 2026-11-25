@@ -334,6 +334,15 @@ func (r gatedRunner) GetRun(ctx context.Context, req *plugin.GetRunRequest) (*pl
 	return nil, status.Error(codes.Unavailable, errStarting)
 }
 
+// ReleaseHooks goes to the Server while it serves and while it drains: a
+// host that lets a broker connection go frees the engine's side of it.
+func (r gatedRunner) ReleaseHooks(ctx context.Context, req *plugin.ReleaseHooksRequest) (*plugin.ReleaseHooksResponse, error) {
+	if _, srv, _ := r.g.current(); srv != nil {
+		return srv.ReleaseHooks(ctx, req)
+	}
+	return nil, status.Error(codes.Unavailable, errStarting)
+}
+
 // errDrainingLookup is the message of a GetRun that the engine refuses
 // while it drains.
 const errDrainingLookup = "draining: the engine drains and answers no lookup"

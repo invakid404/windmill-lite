@@ -196,6 +196,14 @@ func (s *Server) GetRun(_ context.Context, req *plugin.GetRunRequest) (*plugin.G
 	return &plugin.GetRunResponse{State: state}, nil
 }
 
+// ReleaseHooks closes the engine's connection to the host's broker
+// connection req.broker_id, which the host has let go, even while a run
+// uses it.
+func (s *Server) ReleaseHooks(_ context.Context, req *plugin.ReleaseHooksRequest) (*plugin.ReleaseHooksResponse, error) {
+	s.hooks.letGo(req.GetBrokerId())
+	return &plugin.ReleaseHooksResponse{}, nil
+}
+
 // Cancel cancels a run in flight by its id, with the reason and the
 // canceler that the run's Canceled error names. An id of no run in flight
 // answers NOT_FOUND.

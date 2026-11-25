@@ -12,7 +12,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
-	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 
 	"github.com/invakid404/windmill-lite/internal/wlext"
@@ -76,7 +75,7 @@ type heldToken struct {
 
 // brokerConn is the dial of one broker connection: done closes once conn
 // and client, or err, are set. closed is set once the host has let the
-// connection go; a call on it then gets no answer.
+// connection go; a call that starts on it then gets no answer.
 type brokerConn struct {
 	done   chan struct{}
 	conn   *grpc.ClientConn
@@ -138,9 +137,8 @@ func (b *brokerHooks) admit(ctx context.Context, id string, h *plugin.Hooks) (co
 				<-ctx.Done()
 				return nil, context.Cause(ctx)
 			}
-			if bc.closed.Load() {
-				return noAnswer(hook, payload), nil
-			}
+			// A call that the host's letting go cut fails too: its
+			// answer, a first-write veto say, may have been on its way.
 			return nil, fmt.Errorf("the host's hooks service: %w", err)
 		}
 		if e := rep.GetError(); e != nil {
@@ -222,7 +220,6 @@ func (b *brokerHooks) client(id uint32) (*brokerConn, error) {
 				c.client = b.wrap(c.client)
 			}
 			go b.watch(id, c, conn)
-			go b.watchHost(id, c)
 		}
 		close(c.done)
 	}
@@ -233,45 +230,38 @@ func (b *brokerHooks) client(id uint32) (*brokerConn, error) {
 	return c, nil
 }
 
-// watchHost follows the host's health on the broker connection id, whose
-// dial is c. NOT_SERVING says that the host's Client has let the
-// connection go, which go-plugin does not tell. The engine then closes it
-// at once, even while a run in flight uses it: that run's later calls get
-// no answer, as calls for a dropped registration do. A host that serves
-// no health is not followed.
-func (b *brokerHooks) watchHost(id uint32, c *brokerConn) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	hc := healthpb.NewHealthClient(c.conn)
-	for {
-		stream, err := hc.Watch(ctx, &healthpb.HealthCheckRequest{Service: plugin.HostHooks_ServiceDesc.ServiceName}, grpc.WaitForReady(true))
-		for err == nil {
-			var res *healthpb.HealthCheckResponse
-			if res, err = stream.Recv(); err == nil && res.GetStatus() == healthpb.HealthCheckResponse_NOT_SERVING {
-				b.dispose(id, c)
-				return
-			}
-		}
-		if status.Code(err) == codes.Unimplemented || c.conn.GetState() == connectivity.Shutdown {
-			return
-		}
-		// Watch again once the connection is back, without spinning on
-		// one that stays ready.
-		if s := c.conn.GetState(); s == connectivity.Ready {
-			c.conn.WaitForStateChange(ctx, s)
-		}
+// letGo closes the broker connection id at once, which the host says it
+// has let go (ReleaseHooks), even while a run in flight uses it: a call
+// already sent on it fails, and a later call of a run that named it gets
+// no answer, as a call of a dropped registration does. go-plugin gives
+// no such word, and the word comes on the Runner connection, so it
+// arrives also while the broker connection is down. An id that the engine
+// holds no connection to is ignored.
+func (b *brokerHooks) letGo(id uint32) {
+	if b == nil {
+		return
 	}
-}
-
-// dispose closes the broker connection id, whose dial is c, which the
-// host has let go, and forgets its dial.
-func (b *brokerHooks) dispose(id uint32, c *brokerConn) {
-	c.closed.Store(true)
 	b.connMu.Lock()
-	if b.conns[id] == c {
-		delete(b.conns, id)
+	c := b.conns[id]
+	if c != nil {
+		select {
+		case <-c.done:
+			if c.err == nil {
+				delete(b.conns, id)
+			} else {
+				c = nil
+			}
+		default:
+			// Still dialling: the dial's own failure or the host's
+			// stopped listener ends it.
+			c = nil
+		}
 	}
 	b.connMu.Unlock()
+	if c == nil {
+		return
+	}
+	c.closed.Store(true)
 	_ = c.conn.Close()
 }
 

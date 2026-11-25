@@ -1,8 +1,8 @@
 # internal/host
 
 **Current state:** the `windmill_lite.v1.Runner` gRPC service over one
-[wl](../../wl/README.md) runtime: `Run`, `Cancel`, `GetBuildInfo` and
-`GetRun`, and a flow run's hooks, which the host answers on go-plugin's
+[wl](../../wl/README.md) runtime: `Run`, `Cancel`, `GetBuildInfo`,
+`GetRun` and `ReleaseHooks`, and a flow run's hooks, which the host answers on go-plugin's
 broker. A `Gate`
 answers gRPC health from the engine's state, Starting, Serving or
 Draining, and refuses the calls while the engine starts, and new runs
@@ -39,6 +39,7 @@ the bound of gone tokens, and `Config.OnTokenBound` is called once at it.
 | `Run` | Maps the request to `Runtime.Run`, and answers the run's `RunResult` or a refusal |
 | `Cancel` | Cancels the run in flight with the id, with a `wl.Cancellation` of the request's reason and canceler. An id of no run in flight answers `NOT_FOUND` |
 | `GetRun` | Says whether the engine still holds the run of a hooks registration, by its id and token: `held` or `gone` |
+| `ReleaseHooks` | Closes the engine's connection to a broker id that the host let go, at once, even while a run uses it |
 
 ## How a request maps to a run
 
@@ -110,12 +111,12 @@ broker ([hooks across the plugin boundary](../../docs/design/0009-host-adapters.
   message limit, and keeps the connection, so runs open no listener of
   their own. A dial waits on its own: a broker id that does not answer
   stalls neither the other ids nor the tokens.
-- **Its end.** The engine follows the host's gRPC health on each
-  connection. `NOT_SERVING` means that the host let it go, so the engine
-  closes it at once, and a run in flight on it gets no answer to its later
-  calls. A connection that cannot connect is closed once no run that the
-  engine holds uses it; go-plugin gives an id's address once, so the host
-  then serves a new broker id.
+- **Its end.** `ReleaseHooks` says that the host let a connection go; it
+  comes on the Runner connection, so also while the broker connection is
+  down. The engine closes the connection at once: a call already sent on it
+  fails, and a later call of a run that named it gets no answer. A
+  connection that cannot connect is otherwise closed only once no run that
+  the engine holds uses it, and the host then serves a new broker id.
 - **The run's hooks.** `wl` builds the declaration as a host plugin of the
   run alone ([internal/wlext](../wlext/README.md)). Each of its calls goes
   to `HostHooks.Call` with a `host_call`'s hook name and payload. A
@@ -142,11 +143,11 @@ broker ([hooks across the plugin boundary](../../docs/design/0009-host-adapters.
 opens, and can drain, so the engine serves in three states, which a `Gate` holds
 ([health, readiness and drain](../../docs/design/0009-host-adapters.md#health-readiness-and-drain)).
 
-| State | Health | `Run` | `GetBuildInfo`, `Cancel`, `GetRun` |
+| State | Health | `Run` | `GetBuildInfo`, `Cancel`, `GetRun`, `ReleaseHooks` |
 |---|---|---|---|
 | `Starting`: the runtime opens, with its warm start | `NOT_SERVING` | `UNAVAILABLE` with the `RUN_NOT_STARTED` detail | `UNAVAILABLE` |
 | `Serving`: after `Gate.Serve` | `SERVING` | the `Server` | the `Server` |
-| `Draining`, for good: after `Gate.Drain` | `NOT_SERVING` | `UNAVAILABLE` (`draining`) with the `RUN_NOT_STARTED` detail; the runs in flight go on | the `Server`, or `UNAVAILABLE` if the drain began while the engine started; `GetRun` `UNAVAILABLE` without the detail |
+| `Draining`, for good: after `Gate.Drain` | `NOT_SERVING` | `UNAVAILABLE` (`draining`) with the `RUN_NOT_STARTED` detail; the runs in flight go on | the `Server`, or `UNAVAILABLE` if the drain began while the engine started; `GetRun` `UNAVAILABLE` without the detail; `ReleaseHooks` the `Server` |
 
 - **`NewGate()`** returns a `Gate` in `Starting`. `Gate.Serve(srv)` moves it
   to `Serving` once, with the `Server` of the opened runtime.
@@ -213,6 +214,7 @@ connection, which has a real broker on both sides. The host is the
 | `TestBrokerStaleCalls` | Calls that the host answers `unknown_run` latch nothing: a stale observer and interception leave the run to succeed, a stale provider at a mandatory site fails closed, and a stale first-write verdict lets the write go ahead. A registered run's handler that replies with that code fails its verdict, which latches the run before the write |
 | `TestBrokerMessageLimits` | The host takes an `onRunEnd` whose trace is over 5 MiB; an engine whose limit is 1 MiB refuses an answer of 2 MiB |
 | `TestBrokerDialStall` | While the test holds the dial of a silent broker id, `GetRun` answers and another run with hooks completes; let go, the dial fails and its run is refused |
-| `TestBrokerClientClose` | With two `Client`s and a run of one held in flight, `Close` of that one makes the engine close its connection at once; a run with hooks after `Close` is refused; the other `Client`'s runs are still served. The held run then succeeds, and its token goes |
+| `TestBrokerClientClose` | With two `Client`s and a run of one held in flight, `Close` of that one makes the engine close its connection at once (`ReleaseHooks`); a run with hooks after `Close` is refused; the other `Client`'s runs are still served. The held run then succeeds without warnings, and its token goes |
 | `TestBrokerFirstRunRefused` | A first run with hooks refused before the engine dials the host; after go-plugin has dropped that broker id's address, the next run on the same `Client` gets a new broker id and is served |
-| `TestBrokerTransientFailure` | The test's dialer drops the connection and fails dials while the host's listener serves. A run in flight keeps the connection, which connects again; with no run in flight the engine closes it, and the next run on the same `Client` is served, also while a lost release's registration is not yet reconciled |
+| `TestBrokerTransientFailure` | The test's dialer drops the connection and fails dials while the host's listener serves. A run in flight keeps the connection, which connects again; with no run in flight the engine closes it, and the next run on the same `Client` is served, also while a lost release's registration is not yet reconciled. `Close` during a failure, with a run held, closes the engine's side before the run ends |
+| `TestBrokerCloseDuringVerdict` | `Close` while the host's handler of a first-write verdict still runs: the cut call fails, so the run latches and its write-capable step never runs |

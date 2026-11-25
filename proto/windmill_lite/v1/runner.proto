@@ -33,6 +33,12 @@ service Runner {
   // GetRun says whether the engine still holds the run of a hooks
   // registration: in flight, or ended and not yet released.
   rpc GetRun(GetRunRequest) returns (GetRunResponse);
+
+  // ReleaseHooks tells the engine that the host has let a broker
+  // connection of runs' hooks go. The engine closes its connection to it
+  // at once: a call already sent on it fails, and a later call of a run
+  // that named it gets no answer.
+  rpc ReleaseHooks(ReleaseHooksRequest) returns (ReleaseHooksResponse);
 }
 
 // HostHooks is the service that a host serves on a connection of
@@ -271,6 +277,17 @@ message GetRunResponse {
   // longer does or never did.
   string state = 1;
 }
+
+// ReleaseHooksRequest names a broker connection of runs' hooks that the
+// host no longer serves.
+message ReleaseHooksRequest {
+  // broker_id is the connection's go-plugin broker id, from
+  // RunRequest.hooks.
+  uint32 broker_id = 1;
+}
+
+// ReleaseHooksResponse answers a ReleaseHooksRequest. It has no fields.
+message ReleaseHooksResponse {}
 
 // HookCall is one call of a run's hook.
 message HookCall {

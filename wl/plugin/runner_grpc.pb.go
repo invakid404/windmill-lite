@@ -31,6 +31,7 @@ const (
 	Runner_Run_FullMethodName          = "/windmill_lite.v1.Runner/Run"
 	Runner_Cancel_FullMethodName       = "/windmill_lite.v1.Runner/Cancel"
 	Runner_GetRun_FullMethodName       = "/windmill_lite.v1.Runner/GetRun"
+	Runner_ReleaseHooks_FullMethodName = "/windmill_lite.v1.Runner/ReleaseHooks"
 )
 
 // RunnerClient is the client API for Runner service.
@@ -55,6 +56,11 @@ type RunnerClient interface {
 	// GetRun says whether the engine still holds the run of a hooks
 	// registration: in flight, or ended and not yet released.
 	GetRun(ctx context.Context, in *GetRunRequest, opts ...grpc.CallOption) (*GetRunResponse, error)
+	// ReleaseHooks tells the engine that the host has let a broker
+	// connection of runs' hooks go. The engine closes its connection to it
+	// at once: a call already sent on it fails, and a later call of a run
+	// that named it gets no answer.
+	ReleaseHooks(ctx context.Context, in *ReleaseHooksRequest, opts ...grpc.CallOption) (*ReleaseHooksResponse, error)
 }
 
 type runnerClient struct {
@@ -105,6 +111,16 @@ func (c *runnerClient) GetRun(ctx context.Context, in *GetRunRequest, opts ...gr
 	return out, nil
 }
 
+func (c *runnerClient) ReleaseHooks(ctx context.Context, in *ReleaseHooksRequest, opts ...grpc.CallOption) (*ReleaseHooksResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReleaseHooksResponse)
+	err := c.cc.Invoke(ctx, Runner_ReleaseHooks_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RunnerServer is the server API for Runner service.
 // All implementations must embed UnimplementedRunnerServer
 // for forward compatibility.
@@ -127,6 +143,11 @@ type RunnerServer interface {
 	// GetRun says whether the engine still holds the run of a hooks
 	// registration: in flight, or ended and not yet released.
 	GetRun(context.Context, *GetRunRequest) (*GetRunResponse, error)
+	// ReleaseHooks tells the engine that the host has let a broker
+	// connection of runs' hooks go. The engine closes its connection to it
+	// at once: a call already sent on it fails, and a later call of a run
+	// that named it gets no answer.
+	ReleaseHooks(context.Context, *ReleaseHooksRequest) (*ReleaseHooksResponse, error)
 	mustEmbedUnimplementedRunnerServer()
 }
 
@@ -148,6 +169,9 @@ func (UnimplementedRunnerServer) Cancel(context.Context, *CancelRequest) (*Cance
 }
 func (UnimplementedRunnerServer) GetRun(context.Context, *GetRunRequest) (*GetRunResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetRun not implemented")
+}
+func (UnimplementedRunnerServer) ReleaseHooks(context.Context, *ReleaseHooksRequest) (*ReleaseHooksResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReleaseHooks not implemented")
 }
 func (UnimplementedRunnerServer) mustEmbedUnimplementedRunnerServer() {}
 func (UnimplementedRunnerServer) testEmbeddedByValue()                {}
@@ -242,6 +266,24 @@ func _Runner_GetRun_Handler(srv interface{}, ctx context.Context, dec func(inter
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Runner_ReleaseHooks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReleaseHooksRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RunnerServer).ReleaseHooks(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Runner_ReleaseHooks_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RunnerServer).ReleaseHooks(ctx, req.(*ReleaseHooksRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Runner_ServiceDesc is the grpc.ServiceDesc for Runner service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -264,6 +306,10 @@ var Runner_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetRun",
 			Handler:    _Runner_GetRun_Handler,
+		},
+		{
+			MethodName: "ReleaseHooks",
+			Handler:    _Runner_ReleaseHooks_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

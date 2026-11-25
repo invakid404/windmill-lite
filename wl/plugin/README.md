@@ -220,17 +220,18 @@ engine refuses.
   hook name and payload, the run's id and the site. `h` answers a
   `HookReply`: a JSON object in `Payload`, or a `HookError`. An error that
   `h` returns answers `plugin_error`, the failure of a host plugin's hook.
-- **One connection.** The `Client` serves `HostHooks` on one broker
-  connection, opened at its first run with hooks, until `Close` or the end
-  of the engine's connection, with messages bounded by `MaxMessageBytes`
-  both ways. A run waits until go-plugin serves
-  the connection; a listen that fails refuses the run with `ErrNotStarted`.
-  The next run opens a new connection when the last one ended, or when the
-  engine holds no connection to it and no request naming it is in flight.
-- **Its end.** A connection that registrations still name serves them
-  until they go. A connection that nothing uses any more turns its gRPC
-  health `NOT_SERVING`, which tells the engine that it may close it, and
-  then stops gracefully, at the latest after `PluginTimeout`.
+- **One connection.** The `Client` serves `HostHooks` on a broker
+  connection, opened at its first run with hooks and reused by later runs,
+  with messages bounded by `MaxMessageBytes` both ways. A run waits until
+  go-plugin serves the connection; a listen that fails refuses the run
+  with `ErrNotStarted`. The next run opens a new connection when the last
+  one ended, or when the engine holds no connection to it and no request
+  naming it is in flight.
+- **Its end.** A replaced connection keeps serving the registrations that
+  still name it. When the last of them goes, and for every connection at
+  `Close`, the `Client` calls `ReleaseHooks`, which waits at most
+  `PluginTimeout`, and then stops the server at once, ending the calls
+  that its handlers still run.
 - **The registration.** A run without an id gets a fresh UUID. The `Client`
   registers `h` under the id with a fresh token before it sends the
   request. It refuses a run whose id is still registered with

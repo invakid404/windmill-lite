@@ -1398,7 +1398,10 @@ func (b *brokerHooks) connStates() []connectivity.State {
 // run with hooks on the same Client opens a new broker connection and is
 // served. The same holds while the Client still holds the registration of
 // a run whose release call was lost: the next run is served on a new
-// broker id before that registration is reconciled.
+// broker id before that registration is reconciled. Last, Close during a
+// failure, with a run held in flight: the engine hears of it on the Runner
+// connection and closes its side before the run ends, and the run's later
+// onRunEnd gets no answer.
 func TestBrokerTransientFailure(t *testing.T) {
 	brokerBundle(t)
 	dir, err := os.MkdirTemp("", "wlb")
@@ -1492,10 +1495,9 @@ func TestBrokerTransientFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	fail()
-	waitFor(t, "the engine closes the connection that cannot connect", func() bool { return e.srv.hooks.dialled() == 0 })
-	if s := bc.conn.GetState(); s != connectivity.Shutdown {
-		t.Errorf("the forgotten connection is %v, want closed", s)
-	}
+	waitFor(t, "the engine forgets and closes the connection that cannot connect", func() bool {
+		return e.srv.hooks.dialled() == 0 && bc.conn.GetState() == connectivity.Shutdown
+	})
 	broken.Store(false)
 	var next recorder
 	res, err := e.client.RunWithHooks(context.Background(), one("next"), []byte(`{"on_run_end": true}`), next.handle)
@@ -1529,4 +1531,65 @@ func TestBrokerTransientFailure(t *testing.T) {
 	// The run's own release drops its registration; the lost release's
 	// stays, not yet reconciled.
 	waitFor(t, "the run's release, the lost release's registration kept", func() bool { return e.client.Registrations() == 1 })
+
+	hold2, letGo2 := holdDir(t)
+	var closing recorder
+	inFlight2 := runAsync(func() (*plugin.RunResult, error) {
+		return e.client.RunWithHooks(context.Background(), &plugin.RunRequest{Id: "closing", Path: "f/broker/hold", Args: jsonOf(t, map[string]string{"dir": hold2})}, []byte(`{"on_run_end": true}`), closing.handle)
+	})
+	waitStarted(t, hold2)
+	waitFor(t, "the closing run's connection", inState(connectivity.Ready))
+	bc2, err := e.srv.hooks.client(tap.broker("closing"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fail()
+	waitFor(t, "the closing run's connection failing", inState(connectivity.TransientFailure))
+	e.client.Close()
+	waitFor(t, "the engine closes the closed Client's connection, its run still held", func() bool {
+		return e.srv.hooks.dialled() == 0 && bc2.conn.GetState() == connectivity.Shutdown
+	})
+	if n := e.srv.hooks.heldTokens(); n != 1 {
+		t.Errorf("the engine holds %d tokens, want the closing run's", n)
+	}
+	broken.Store(false)
+	letGo2()
+	if o := within(t, "the closing run", inFlight2); o.err != nil || o.res.GetStatus() != "success" || !noWarnings(o.res.GetWarnings()) {
+		t.Errorf("the run held through Close: %v, %v; want success without warnings", o.res, o.err)
+	}
+	if got := closing.heard(); len(got) != 0 {
+		t.Errorf("the closed Client's host heard %v", got)
+	}
+}
+
+// TestBrokerCloseDuringVerdict checks Close while the host's handler of a
+// first-write verdict still runs, its answer an approval that never
+// arrives: the engine closes its side, and the verdict's call, cut, fails
+// instead of counting as no answer. So the run latches on the verdict and
+// its write-capable step never runs. The plugin timeout is a minute, so
+// only Close can end the call.
+func TestBrokerCloseDuringVerdict(t *testing.T) {
+	e := startEngine(t, engineConfig{pluginTimeout: time.Minute, lookupAfter: time.Hour})
+	entered, answer := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	approve := func() { once.Do(func() { close(answer) }) }
+	t.Cleanup(approve)
+	h := func(_ context.Context, c *plugin.HookCall) (*plugin.HookReply, error) {
+		if c.GetHook() == "before_first_write" {
+			close(entered)
+			<-answer
+		}
+		return &plugin.HookReply{Payload: []byte(`{}`)}, nil
+	}
+	firstWrite := `{"write_capable": [{"flow": "f/broker/one", "module": "a"}], "before_first_write": true}`
+	run := runAsync(func() (*plugin.RunResult, error) {
+		return e.client.RunWithHooks(context.Background(), one("verdict"), []byte(firstWrite), h)
+	})
+	within(t, "the verdict's handler", entered)
+	e.client.Close()
+	o := within(t, "the run whose verdict Close cut", run)
+	if o.err != nil || o.res.GetStatus() != "latched" || !strings.Contains(o.res.GetLatched(), "the host's hooks service") || string(o.res.GetResult()) == `"one"` {
+		t.Errorf("the run whose verdict Close cut: %v, %v; want latched on the cut call, its step not run", o.res, o.err)
+	}
+	approve()
 }

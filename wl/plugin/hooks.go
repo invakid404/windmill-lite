@@ -10,8 +10,6 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
-	"google.golang.org/grpc/health"
-	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/stats"
 )
 
@@ -91,15 +89,14 @@ type hooks struct {
 // serving is one opening of the Client's broker connection id: ready
 // closes once go-plugin has asked for its HostHooks server, and ended
 // once go-plugin has stopped serving it, or failed to listen. Under
-// hooks.mu, server is that server and health its health service; conns
-// counts the engine's connections to it, runs the registrations whose
-// requests name id, and pending those whose requests are still in flight.
+// hooks.mu, server is that server; conns counts the engine's connections
+// to it, runs the registrations whose requests name id, and pending those
+// whose requests are still in flight.
 type serving struct {
 	id      uint32
 	ready   chan struct{}
 	ended   chan struct{}
 	server  *grpc.Server
-	health  *health.Server
 	conns   int
 	runs    int
 	pending int
@@ -119,16 +116,21 @@ func (sv *serving) stale() bool {
 // hooks the run has, and h answers their calls. The engine refuses
 // declaration's around.
 //
-// The Client serves its hooks on one broker connection, which it opens at
-// its first run with hooks and closes at Close. A run waits until
+// The Client serves its hooks on a broker connection, which it opens at
+// its first run with hooks and reuses for later runs. A run waits until
 // go-plugin serves the connection; one whose listen fails is refused with
-// ErrNotStarted, and the next run opens the connection again, as it does
-// when the engine holds no connection to it and no run names it. The
-// Client refuses a run with hooks once the engine's generation has ended.
-// The Client
-// gives a run without an id a fresh UUID and registers h under it with a
-// fresh token before it sends req, and refuses a run whose id it holds a
-// registration for, with ErrNotStarted, as Run does. It drops the
+// ErrNotStarted, and the next run opens a new connection. So does a run
+// that finds the engine holding no connection to the current one while no
+// request naming it is in flight: go-plugin gives a broker id's address
+// once. The registrations that still name a replaced connection keep it
+// serving; when the last of them goes, and for every connection at Close,
+// the Client tells the engine (ReleaseHooks) and stops the connection's
+// server. The Client refuses a run with hooks once the engine's generation
+// has ended.
+//
+// The Client gives a run without an id a fresh UUID and registers h under
+// it with a fresh token before it sends req, and refuses a run whose id it
+// holds a registration for, with ErrNotStarted, as Run does. It drops the
 // registration when the engine refuses the run, when the engine says that
 // the run has settled, when GetRun answers gone, or at Close. The end of
 // the engine's generation calls Close once the Client serves hooks. After
@@ -254,11 +256,12 @@ func (c *Client) Close() {
 	}
 }
 
-// retireLocked stops the opening sv, which no run uses any more: its
-// health turns NOT_SERVING, which tells the engine that the Client has
-// let the connection go, and its server stops gracefully, at the latest
-// after the plugin timeout. A server that go-plugin has not asked for yet
-// is stopped when it does. c.hooks.mu is held.
+// retireLocked lets the opening sv go: at Close, or once a replaced
+// opening's last registration has gone. It tells the engine with
+// ReleaseHooks, which waits at most the plugin timeout, and then stops the
+// server at once, ending the calls that its handlers still run. A server
+// that go-plugin has not asked for yet is stopped when it does.
+// c.hooks.mu is held.
 func (c *Client) retireLocked(sv *serving) {
 	if sv.retired {
 		return
@@ -268,12 +271,14 @@ func (c *Client) retireLocked(sv *serving) {
 	if sv.server == nil {
 		return
 	}
-	sv.health.Shutdown()
-	s, timeout := sv.server, c.hooks.timeout
+	s, id, timeout := sv.server, sv.id, c.hooks.timeout
 	go func() {
-		t := time.AfterFunc(timeout, s.Stop)
-		s.GracefulStop()
-		t.Stop()
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		// The engine closes its side first, so that a call that starts
+		// after it gets no answer instead of a broken connection.
+		_, _ = c.runner.ReleaseHooks(ctx, &ReleaseHooksRequest{BrokerId: id})
+		s.Stop()
 	}()
 }
 
@@ -314,20 +319,16 @@ func (c *Client) serveHooks() *serving {
 
 // hooksServer is the HostHooks server of the opening sv, with go-plugin's
 // options opts and the Client's message limit, which counts the engine's
-// connections to it. It serves gRPC health for HostHooks, SERVING until
-// the opening is retired. One that go-plugin asks for after Close is
-// stopped already, so its Serve returns at once. The first server makes
+// connections to it. One that go-plugin asks for after Close is stopped
+// already, so its Serve returns at once. The first server makes
 // the end of the engine's generation close the Client; a listen that
 // failed leaves nothing there.
 func (c *Client) hooksServer(sv *serving, opts []grpc.ServerOption) *grpc.Server {
 	opts = append(opts, grpc.MaxRecvMsgSize(c.hooks.limit), grpc.MaxSendMsgSize(c.hooks.limit), grpc.StatsHandler(engineConns{c: c, sv: sv}))
 	s := grpc.NewServer(opts...)
 	RegisterHostHooksServer(s, hookServer{c: c})
-	hs := health.NewServer()
-	hs.SetServingStatus(HostHooks_ServiceDesc.ServiceName, healthpb.HealthCheckResponse_SERVING)
-	healthpb.RegisterHealthServer(s, hs)
 	c.hooks.mu.Lock()
-	sv.server, sv.health = s, hs
+	sv.server = s
 	closed := c.hooks.closed || sv.retired
 	if !closed && c.generation != nil && c.hooks.stopGeneration == nil {
 		// go-plugin ends the context with the engine's generation: its
