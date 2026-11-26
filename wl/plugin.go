@@ -340,6 +340,11 @@ func (p *plugin) goHooks() *Hooks {
 				// beside their warnings, and only the runtime's own plugin
 				// reads it.
 				AnswerBytes json.RawMessage `json:"answer_bytes"`
+				// Dropped is, in place of Warnings, the hook's warnings in
+				// a reply whose answer the harness left out because not
+				// even its size fit beside them. It stays raw for the same
+				// reason as AnswerBytes.
+				Dropped json.RawMessage `json:"dropped"`
 			}
 			// A run its context ended, canceled or past a deadline, still
 			// reports its end: the call has the plugin timeout alone.
@@ -354,6 +359,16 @@ func (p *plugin) goHooks() *Hooks {
 			}
 			if !p.answers {
 				return ws
+			}
+			var dropped []struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			}
+			if r.Dropped != nil && json.Unmarshal(r.Dropped, &dropped) == nil {
+				for _, w := range dropped {
+					ws = append(ws, Warning{Code: w.Code, Message: w.Message})
+				}
+				return append(ws, Warning{Code: harness.HostErrorPlugin, Message: "the host plugin's onRunEnd: an answer whose size did not fit beside its warnings in a message of the harness protocol, so the run has no answer"})
 			}
 			size := int64(len(r.Answer))
 			if r.Answer == nil && json.Unmarshal(r.AnswerBytes, &size) != nil {

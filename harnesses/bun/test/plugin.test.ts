@@ -136,7 +136,8 @@ describe("dispatch", () => {
 
   test("a reply too large for max_message goes without its answer, with its size in UTF-8 bytes", async () => {
     const payload = await dispatch({ onRunEnd: () => ({ warnings: [w], answer: "é".repeat(3) }) }, "on_run_end", "r", { trace: {} });
-    expect(replyText(payload, true)).toBe('{"warnings":[{"code":"c","message":"m"}],"answer_bytes":8}');
+    expect(replyText(payload, "size")).toBe('{"warnings":[{"code":"c","message":"m"}],"answer_bytes":8}');
+    expect(replyText(payload, "dropped")).toBe('{"dropped":[{"code":"c","message":"m"}]}');
   });
 
   test("onRunEnd's answer that JSON cannot carry, a value outside the forms, or bad warnings answer plugin_error", async () => {
@@ -230,18 +231,55 @@ describe("the runtime", () => {
     runtime.onClose();
   });
 
-  test("a run-end reply whose size does not fit beside its warnings sends the warnings alone, when they fit", async () => {
+  test("a run-end reply whose size does not fit beside its warnings sends them as dropped, which fits whenever they would alone", async () => {
+    const frameOf = (payload: string) => encode({ t: "host_reply", id: "hc1", payload: new Raw(payload) }).length;
+    const sent = async (w: { code: string; message: string }) => {
+      const { runtime, send, messages } = hostRuntime({ onRunEnd: () => ({ warnings: [w], answer: "x".repeat(1048576) }) }, 4096);
+      send({ t: "host_call", id: "hc1", hook: "on_run_end", run: "r", site: "", payload: { trace: { run: "r", status: "success" } } });
+      await Bun.sleep(5);
+      const replies = messages().filter((m) => m.t === "host_reply");
+      runtime.onClose();
+      return replies;
+    };
     // One warning of 4,010 characters: the reply with it alone fits 4,096
     // bytes, and the same reply with answer_bytes does not.
     const w = { code: "c", message: "w".repeat(4010) };
-    const frameOf = (payload: string) => encode({ t: "host_reply", id: "hc1", payload: new Raw(payload) }).length;
     expect(frameOf(JSON.stringify({ warnings: [w] }))).toBeLessThanOrEqual(4096);
     expect(frameOf(JSON.stringify({ warnings: [w], answer_bytes: 1048578 }))).toBeGreaterThan(4096);
-    const { runtime, send, messages } = hostRuntime({ onRunEnd: () => ({ warnings: [w], answer: "x".repeat(1048576) }) }, 4096);
-    send({ t: "host_call", id: "hc1", hook: "on_run_end", run: "r", site: "", payload: { trace: { run: "r", status: "success" } } });
-    await Bun.sleep(5);
-    expect(messages().find((m) => m.t === "host_reply")).toEqual({ t: "host_reply", id: "hc1", payload: { warnings: [w] } });
-    runtime.onClose();
+    expect(await sent(w)).toEqual([{ t: "host_reply", id: "hc1", payload: { dropped: [w] } }]);
+    // At the edge: under dropped the reply is exactly 4,096 bytes, and under
+    // warnings it would be one byte over.
+    const edge = { code: "c", message: "w".repeat(4096 - frameOf(JSON.stringify({ dropped: [{ code: "c", message: "" }] }))) };
+    expect(frameOf(JSON.stringify({ dropped: [edge] }))).toBe(4096);
+    expect(frameOf(JSON.stringify({ warnings: [edge] }))).toBe(4097);
+    expect(await sent(edge)).toEqual([{ t: "host_reply", id: "hc1", payload: { dropped: [edge] } }]);
+  });
+
+  test("a run-end reply that cannot be written goes as one error reply, whichever form fails", async () => {
+    // Warnings whose toJSON throws on every call; only after a first call
+    // that wrote a reply too large for max_message; or only on the first
+    // call, which a smaller form must not paper over: only a reply too
+    // large for max_message tries the next form.
+    const brittle = (throws: (call: number) => boolean) => {
+      let calls = 0;
+      class Brittle extends Array<{ code: string; message: string }> {
+        toJSON() {
+          if (throws(++calls)) throw new Error("the warnings cannot be written");
+          return [...this];
+        }
+      }
+      return Brittle.from([{ code: "c", message: "m" }]);
+    };
+    for (const throws of [(_: number) => true, (call: number) => call >= 2, (call: number) => call === 1]) {
+      const { runtime, send, messages } = hostRuntime({ onRunEnd: () => ({ warnings: brittle(throws), answer: "x".repeat(10000) }) }, 4096);
+      send({ t: "host_call", id: "hc1", hook: "on_run_end", run: "r", site: "", payload: { trace: { run: "r", status: "success" } } });
+      await Bun.sleep(5);
+      const replies = messages().filter((m) => m.t === "host_reply");
+      expect(replies.length).toBe(1);
+      expect(replies[0].error?.code).toBe("plugin_error");
+      expect(replies[0].error?.message).toContain("the warnings cannot be written");
+      runtime.onClose();
+    }
   });
 
   test("a run's outcome carries run_done's answer as JSON text: null is an answer, an absent one none", async () => {

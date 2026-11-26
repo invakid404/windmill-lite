@@ -742,11 +742,10 @@ A root script's run calls no run-end hook.
   sizes.
 - **A reply too large to send.** When the reply with its answer does not
   fit the harness protocol's message limit, the runtime sends the hook's
-  warnings and the answer's size without the answer. The run keeps those
-  warnings and gets a `plugin_error` warning that names the size. When the
-  size does not fit beside the warnings either, the warnings go alone,
-  with no such warning; only warnings too large by themselves fail the
-  reply.
+  warnings and the answer's size, and the run gets a `plugin_error` warning
+  that names the size. When even the size does not fit, the warnings go
+  alone, and that warning says that the answer did not fit. Only warnings
+  too large by themselves fail the reply.
 - **The type.** `RunEnd` is a type that `windmill-lite/bun` exports.
 
 ## Errors and refusals
@@ -1293,11 +1292,11 @@ The registry:
   `unknown_hook` to every call.
 - **The run-end reply** (`runEnd`, `replyText`). What `onRunEnd` returns
   becomes the reply `{ warnings, answer? }`, its answer an `AnswerText`
-  that holds the one serialisation, written into the payload as it is.
-  When that payload is over `max_message`, the runtime sends
-  `{ warnings, answer_bytes }` instead, and `{ warnings }` when that is
-  over too. The engine, not the harness, checks the answer's size against
-  its bound.
+  that holds the one serialisation, written into the payload as it is. A
+  reply over `max_message` goes as `{ warnings, answer_bytes }`, or as
+  `{ dropped }`, the warnings under a key one byte shorter. Only that error
+  tries a smaller form, each built and sent inside one guard, so a reply
+  always goes; the engine checks the answer's size against its bound.
 - **`around`** (`runAround`). The runtime runs the step inside the
   matching wrappers, outermost first, in the invocation's context. A
   failed wrapper is reported in a `plugin_error` warning before the

@@ -724,7 +724,8 @@ to write one.
     its answer arrives without it, with the answer's size. The run keeps
     the hook's warnings and gets a `plugin_error` warning that names the
     size. When the size does not fit beside the warnings either, the
-    warnings arrive alone, with no such warning.
+    warnings arrive alone, and the run gets a `plugin_error` warning that
+    its answer did not fit.
   - A Go host's hooks, `RunOptions.Hooks` and a run's hooks on a host's
     connection, give no answer: they run in the host's own process, which
     holds their state already.
@@ -886,12 +887,13 @@ with the engine's side of the protocol in
   engine returns. Only the runtime's own plugin fills it (`plugin.answers`,
   set by `usePlugin`). A run's hooks on a host's connection take the same
   decoding, and their answer is ignored.
-  - A reply with `answer_bytes` and no `answer` comes from a harness that
-    could not send the answer within `max_message`; the run gets the
-    warning of an answer over the bound, or of one too large to send. Only
-    the runtime's own plugin reads it, and a value that is not an integer
-    counts as none, so a broker hook's other members never fail its
-    reply.
+  - A reply with `answer_bytes` and no `answer`, or with `dropped` in
+    place of `warnings`, comes from a harness that could not send the
+    answer within `max_message`. The run keeps the warnings and gets the
+    warning of an answer over the bound, too large to send, or not fitting
+    beside them. Only the runtime's own plugin reads these members,
+    and an `answer_bytes` that is not an integer counts as none, so a
+    broker hook's other members never fail its reply.
 - **Settlement.** Every `host_call` of a run holds the run's settlement
   (`doHeld`, `engine.HoldSettlement`) until its reply, or until its late
   reply or the harness's exit when the runtime stopped waiting first. So

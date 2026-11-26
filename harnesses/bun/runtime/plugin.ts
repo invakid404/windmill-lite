@@ -339,13 +339,20 @@ function runEnd(out: unknown): Record<string, unknown> {
   return reply;
 }
 
+/** The forms of an on_run_end reply that carries an answer, smallest last:
+ * with the answer; with its size in UTF-8 bytes as answer_bytes instead;
+ * and with the warnings alone under dropped, a key one byte shorter than
+ * warnings, which tells the engine that an answer was left out. */
+export type ReplyForm = "answer" | "size" | "dropped";
+
 /** A host_reply payload as JSON text: JSON.stringify's, with an on_run_end
- * reply's AnswerText written last as the raw answer. Without the answer,
- * withoutAnswer gives its size in UTF-8 bytes as answer_bytes instead. */
-export function replyText(payload: Record<string, unknown>, withoutAnswer = false): string {
+ * reply's AnswerText written last as the raw answer, or in the smaller
+ * form that form names. A payload without an AnswerText has one form. */
+export function replyText(payload: Record<string, unknown>, form: ReplyForm = "answer"): string {
   const { answer, ...rest } = payload;
   if (!(answer instanceof AnswerText)) return JSON.stringify(payload);
-  if (withoutAnswer) return JSON.stringify({ ...rest, answer_bytes: new TextEncoder().encode(answer.text).length });
+  if (form === "size") return JSON.stringify({ ...rest, answer_bytes: new TextEncoder().encode(answer.text).length });
+  if (form === "dropped") return JSON.stringify({ dropped: rest.warnings });
   const text = JSON.stringify(rest);
   return `${text.slice(0, -1)}${text === "{}" ? "" : ","}"answer":${answer.text}}`;
 }

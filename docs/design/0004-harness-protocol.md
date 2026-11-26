@@ -1061,9 +1061,14 @@ answered by a `host_reply`.
       The engine then adds a `plugin_error` warning that names the size,
       so the hook's warnings still arrive.
     - **The edge of that rule.** When `answer_bytes` does not fit beside the
-      warnings either, the harness sends the warnings alone, and the run
-      has no answer and no warning that says why. Only a reply whose
-      warnings alone are over `max_message` is a `plugin_error`.
+      warnings either, the harness sends the warnings as `dropped`, a key
+      one byte shorter than `warnings`, so that reply fits whenever the
+      warnings alone would. The engine keeps them and adds a
+      `plugin_error` warning that the answer did not fit.
+    - **Only size retries.** The harness tries a smaller reply only for a
+      reply over `max_message`. One that cannot be written, such as
+      warnings whose `toJSON` throws, and warnings too large by themselves,
+      give the error reply, so a reply always goes.
     - **One serialisation.** The harness reads the answer once and
       serialises it once, and the reply carries that text, so what the
       harness checked is what the engine gets.

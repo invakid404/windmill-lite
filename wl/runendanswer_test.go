@@ -32,7 +32,9 @@ import (
 //     gives it on its first read only, whose toJSON counts its calls: an
 //     answer read and serialised once is {"serialised":1};
 //   - {"mode":"map"}, {"mode":"empty"}, {"mode":"other"}: values outside
-//     the RunEnd form: a Map, {}, and the warning beside another key.
+//     the RunEnd form: a Map, {}, and the warning beside another key;
+//   - {"mode":"fill","w":<w>,"n":<n>}: a warning run_end/<w characters w>
+//     and an answer of a string of n characters x.
 const runEndPlugin = `const seen = new Map<string, string[]>();
 export default {
   onModuleStart({ run, site }) {
@@ -58,6 +60,7 @@ export default {
       case "map": return new Map();
       case "empty": return {};
       case "other": return { warnings: [warning], extra: 1 };
+      case "fill": return { warnings: [{ code: "run_end", message: "w".repeat(d.w) }], answer: "x".repeat(d.n) };
     }
     return { warnings: [warning], answer: { status: t.status, cause: t.cancel_cause ?? null, latched: t.latched !== undefined, modules } };
   },
@@ -322,8 +325,11 @@ func warningTexts(ws []Warning) []string {
 // the hook's warnings and the answer's size instead. The run keeps the
 // warning and has no answer, with a plugin_error that names the size: over
 // the bound, or within it but too large for the limit. An answer that fits
-// the limit arrives whole. The process is real, spawned beside the
-// runtime's pool for the runtime's bundle and plugin.
+// the limit arrives whole. A warning that fills the limit, so that even the
+// reply with it alone under warnings is one byte over, goes under dropped,
+// one byte shorter: the run keeps it and gets a plugin_error that its
+// answer did not fit. The process is real, spawned beside the runtime's
+// pool for the runtime's bundle and plugin.
 func TestPluginRunEndAnswerTooLargeToSend(t *testing.T) {
 	rt := openRunEnd(t, 0)
 	bun := bunOrSkip(t)
@@ -354,21 +360,37 @@ func TestPluginRunEndAnswerTooLargeToSend(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.answers = true
+	// The fourth call's reply, hc4, under dropped: a warning of w characters
+	// makes it exactly the limit, and the same reply under warnings one byte
+	// over it.
+	const limit = 256 << 10
+	prefix, suffix := `{"t":"host_reply","id":"hc4","payload":{"dropped":[{"code":"run_end","message":"`, `"}]}}`
+	w := limit - len(prefix) - len(suffix)
+	if under := len(strings.Replace(prefix, `"dropped"`, `"warnings"`, 1)) + w + len(suffix); under != limit+1 {
+		t.Fatalf("the reply under warnings would be %d bytes, want %d", under, limit+1)
+	}
 	for i, c := range []struct {
-		n        int
+		data     string
 		answer   string
 		warnings []string
 	}{
-		{200000, `"` + strings.Repeat("x", 200000) + `"`, []string{"run_end: success"}},
-		{300000, "", []string{"run_end: success", "plugin_error: the host plugin's onRunEnd: an answer of 300002 bytes did not fit in a message of the harness protocol, so the run has no answer"}},
-		{MaxRunEndAnswerBytes, "", []string{"run_end: success", "plugin_error: the host plugin's onRunEnd: an answer of 1048578 bytes is over the bound of 1048576 bytes, so the run has no answer"}},
+		{`{"mode":"size","n":200000}`, `"` + strings.Repeat("x", 200000) + `"`, []string{"run_end: success"}},
+		{`{"mode":"size","n":300000}`, "", []string{"run_end: success", "plugin_error: the host plugin's onRunEnd: an answer of 300002 bytes did not fit in a message of the harness protocol, so the run has no answer"}},
+		{fmt.Sprintf(`{"mode":"size","n":%d}`, MaxRunEndAnswerBytes), "", []string{"run_end: success", "plugin_error: the host plugin's onRunEnd: an answer of 1048578 bytes is over the bound of 1048576 bytes, so the run has no answer"}},
+		{fmt.Sprintf(`{"mode":"fill","w":%d,"n":%d}`, w, MaxRunEndAnswerBytes), "", []string{"run_end: " + strings.Repeat("w", w), "plugin_error: the host plugin's onRunEnd: an answer whose size did not fit beside its warnings in a message of the harness protocol, so the run has no answer"}},
 	} {
 		run := fmt.Sprintf("too-large-%d", i)
-		data := harness.NewRunData(run, jsonval.FromProducer([]byte(fmt.Sprintf(`{"mode":"size","n":%d}`, c.n))))
+		data := harness.NewRunData(run, jsonval.FromProducer([]byte(c.data)))
 		actx, answer := withAnswer(harness.WithRunData(context.Background(), data))
 		ws := p.hooks.OnRunEnd(actx, &Trace{RunID: run, Status: "success"})
 		if string(answer.get()) != c.answer || !slices.Equal(warningTexts(ws), c.warnings) {
-			t.Errorf("an answer of %d characters: answer of %d bytes, warnings %q; want %d bytes and %q", c.n, len(answer.get()), warningTexts(ws), len(c.answer), c.warnings)
+			got := warningTexts(ws)
+			for j := range got {
+				if len(got[j]) > 200 {
+					got[j] = fmt.Sprintf("%s… (%d bytes)", got[j][:60], len(got[j]))
+				}
+			}
+			t.Errorf("run data %.60s: answer of %d bytes, warnings %q; want %d bytes and %d warnings", c.data, len(answer.get()), got, len(c.answer), len(c.warnings))
 		}
 	}
 }

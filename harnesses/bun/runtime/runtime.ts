@@ -75,7 +75,7 @@ import {
   shadow,
 } from "./context.ts";
 import { Native, type NativeJob } from "./native.ts";
-import { AnswerText, declaration, dispatch, HostCallFailure, type Plugin, replyText, type Selector, type StepOutcome } from "./plugin.ts";
+import { AnswerText, declaration, dispatch, HostCallFailure, type Plugin, type ReplyForm, replyText, type Selector, type StepOutcome } from "./plugin.ts";
 import { HARNESS_VERSION, versionsPair } from "./version.ts";
 import { bind, errorText, patchBigInt, resultText, type Signature, signatureErrorText, signatureOf, stepContext } from "./wrapper.ts";
 
@@ -725,28 +725,33 @@ export class Runtime {
   private onHostCall(m: Message) {
     const plugin = this.opts.plugin;
     const reply = (payload: Record<string, unknown> | undefined, error?: { code: string; message: string }) => {
-      try {
-        this.send(error ? { t: "host_reply", id: m.id, error } : { t: "host_reply", id: m.id, payload: new Raw(replyText(payload!)) });
-      } catch (e) {
-        // A run-end answer too large for max_message goes without its
-        // answer, and with its size, so that the hook's warnings still
-        // reach the engine, which says why the run has no answer. When the
-        // size does not fit beside the warnings either, the warnings go
-        // alone: any reply that fits keeps them.
-        if (payload?.answer instanceof AnswerText) {
-          const { answer: _, ...warningsOnly } = payload;
-          for (const text of [replyText(payload, true), replyText(warningsOnly)]) {
-            try {
-              this.send({ t: "host_reply", id: m.id, payload: new Raw(text) });
-              return;
-            } catch {
-              // Too large: the next, smaller, reply.
-            }
-          }
+      if (error) {
+        try {
+          this.send({ t: "host_reply", id: m.id, error });
+        } catch (e) {
+          this.send({ t: "host_reply", id: m.id, error: { code: "plugin_error", message: `the answer cannot be sent: ${describe(e)}` } });
         }
-        // An answer too large, or not JSON: the engine hears why.
-        this.send({ t: "host_reply", id: m.id, error: { code: "plugin_error", message: `the answer cannot be sent: ${describe(e)}` } });
+        return;
       }
+      // A run-end answer too large for max_message goes in a smaller form:
+      // without the answer and with its size, or, when the size does not
+      // fit beside the warnings either, with the warnings alone as dropped.
+      // Each form is built and sent inside the guard, and only a reply over
+      // max_message tries the next: any other failure, or warnings too
+      // large by themselves, is the error reply, so a reply always goes.
+      const forms: readonly ReplyForm[] = payload!.answer instanceof AnswerText ? ["answer", "size", "dropped"] : ["answer"];
+      let failure: unknown;
+      for (const form of forms) {
+        try {
+          this.send({ t: "host_reply", id: m.id, payload: new Raw(replyText(payload!, form)) });
+          return;
+        } catch (e) {
+          failure = e;
+          if (!(e instanceof ProtocolError && e.code === "message_too_large")) break;
+        }
+      }
+      // An answer too large, or not JSON: the engine hears why.
+      this.send({ t: "host_reply", id: m.id, error: { code: "plugin_error", message: `the answer cannot be sent: ${describe(failure)}` } });
     };
     this.keepRunData(m);
     if (!plugin) {
