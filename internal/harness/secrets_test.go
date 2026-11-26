@@ -2,8 +2,11 @@ package harness
 
 import (
 	"bytes"
+	"math"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestLineWriterCutsNoSecret checks that a line longer than 64 KiB reaches
@@ -135,5 +138,46 @@ func TestLineWriterMasksAcrossParts(t *testing.T) {
 	}
 	if len(lines) != 3 {
 		t.Errorf("%d parts; want 3", len(lines))
+	}
+}
+
+// TestMaskJSONScalesWithRepeats checks that a string that repeats a secret
+// many times is masked at a cost in proportion to its length, whether its
+// JSON escapes nothing or escapes a tab between the secrets: masking one
+// eight times as long allocates no more than twenty times as much, and,
+// the fastest of three runs, takes no more than twenty-five times as long,
+// where work per secret over the whole string would cost sixty-four times
+// as much. The output masks every secret and keeps the rest.
+func TestMaskJSONScalesWithRepeats(t *testing.T) {
+	sec := NewSecrets([]string{"synth-8b"})
+	for _, sep := range []string{" ", `\t`} {
+		measure := func(n int) (uint64, time.Duration) {
+			text := []byte(`"` + strings.Repeat("synth-8b"+sep, n) + `"`)
+			want := `"` + strings.Repeat(SecretMask+sep, n) + `"`
+			var alloc uint64
+			fastest := time.Duration(math.MaxInt64)
+			for range 3 {
+				var before, after runtime.MemStats
+				runtime.GC()
+				runtime.ReadMemStats(&before)
+				start := time.Now()
+				got := sec.MaskJSON(text)
+				fastest = min(fastest, time.Since(start))
+				runtime.ReadMemStats(&after)
+				if string(got) != want {
+					t.Fatalf("separator %q, %d repeats: the output is not every secret masked and the rest kept (%d bytes, want %d)", sep, n, len(got), len(want))
+				}
+				alloc = after.TotalAlloc - before.TotalAlloc
+			}
+			return alloc, fastest
+		}
+		smallAlloc, smallTime := measure(2000)
+		largeAlloc, largeTime := measure(16000)
+		if largeAlloc > 20*smallAlloc {
+			t.Errorf("separator %q: masking 16000 repeats allocated %d bytes, %.1f times the %d bytes for 2000; want at most 20 times", sep, largeAlloc, float64(largeAlloc)/float64(smallAlloc), smallAlloc)
+		}
+		if largeTime > 25*smallTime {
+			t.Errorf("separator %q: masking 16000 repeats took %v, %.1f times the %v for 2000; want at most 25 times", sep, largeTime, float64(largeTime)/float64(smallTime), smallTime)
+		}
 	}
 }

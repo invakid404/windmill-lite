@@ -291,12 +291,15 @@ engine masks:
 - the trace: its result, each step's arguments, result, carried value and
   late output, and its platform calls, their paths and queries as sent
   and as decoded. That holds for the trace that `Run` returns and for
-  those and the records that hooks get;
+  those and the records that hooks get. A value there reads as its
+  producer wrote it and as stored, which spells numbers in plain decimal;
+  a secret that only the stored text shows makes the copy that text,
+  masked;
 - in those JSON values, their strings as decoded. An object or array
   equal to a secret that is a JSON document becomes `[secret]`, however
   each is written, numbers by exact value. So does the smallest part where
-  a secret still shows, compactly or as the value's own text writes it. That
-  is a number, the part of a string or key under it, such as a quoted
+  a secret still shows, compactly or as written with any spaces around it.
+  That is a number, the part of a string or key under it, such as a quoted
   secret, or an object or array across its tokens.
 
 `Result.Result`, the result that the host asked for, keeps the value in

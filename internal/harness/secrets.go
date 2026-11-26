@@ -350,9 +350,13 @@ func unhex(c byte) byte {
 // counts too. One inside a number or literal masks it. One across tokens,
 // such as the strings of an array, masks the smallest object or array that
 // holds it, and so does an object or array equal to a secret that is a JSON
-// document, however each is written. What is masked becomes the string
-// SecretMask, so the text stays JSON. Key order, duplicate keys and the
-// other numbers stay as they were, and the result is written compactly.
+// document, however each is written. One that crosses the value's edge,
+// such as into the spaces that JSON allows around it, masks the value
+// whole. Each token's map of escapes is built once, so a string that
+// repeats a secret costs in proportion to its length. What is masked
+// becomes the string SecretMask, so the text stays JSON. Key order,
+// duplicate keys and the other numbers stay as they were, and the result
+// is written compactly.
 // It returns text itself, byte for byte, when nothing holds a secret, and
 // also when text is not JSON.
 func (s *Secrets) MaskJSON(text []byte) []byte {
@@ -409,17 +413,26 @@ func (s *Secrets) maskJSON(text []byte, pointers []string) []byte {
 	views := []struct {
 		buf     []byte
 		compact bool
-	}{{text, false}, {compact.Bytes(), true}}
+		occ     []occurrence
+	}{{buf: text}, {buf: compact.Bytes(), compact: true}}
+	for i := range views {
+		if s.holds(views[i].buf) {
+			views[i].occ = s.occurrences(string(views[i].buf))
+		}
+	}
+	idx := tokenIndex{}
 	for _, n := range parts {
 		s.markDocs(n)
 		for _, v := range views {
-			if !s.holds(v.buf) {
-				continue
-			}
 			lo, hi := n.span(v.compact)
-			for _, oc := range s.occurrences(string(v.buf)) {
-				if oc.start >= lo && oc.end <= hi {
-					n.mark(oc.start, oc.end, v.compact, v.buf)
+			for _, oc := range v.occ {
+				switch {
+				case oc.start >= lo && oc.end <= hi:
+					n.mark(oc.start, oc.end, v.compact, v.buf, idx)
+				case oc.start < hi && oc.end > lo:
+					// Across the part's edge, such as into the spaces
+					// around a value: the part is masked whole.
+					n.all = true
 				}
 			}
 		}
@@ -802,12 +815,12 @@ func (n *jnode) span(compact bool) (int, int) {
 // compactly, in the smallest part of n that holds it: a string or a key,
 // the span of its text under the secret; a number or a literal, whole; an
 // object or array across whose tokens it lies, whole.
-func (n *jnode) mark(a, b int, compact bool, buf []byte) {
+func (n *jnode) mark(a, b int, compact bool, buf []byte, idx tokenIndex) {
 	for !n.all {
 		lo, hi := n.span(compact)
 		switch n.kind {
 		case 's':
-			n.spans = append(n.spans, tokenSpan(buf[lo:hi], a-lo, b-lo, len(n.text)))
+			n.spans = append(n.spans, idx.span(buf, lo, hi, compact, a, b, len(n.text)))
 			return
 		case 'l':
 			n.all = true
@@ -821,7 +834,7 @@ func (n *jnode) mark(a, b int, compact bool, buf []byte) {
 			if n.keySpans == nil {
 				n.keySpans = map[int][][2]int{}
 			}
-			n.keySpans[i] = append(n.keySpans[i], tokenSpan(buf[keys[i][0]:keys[i][1]], a-keys[i][0], b-keys[i][0], len(n.keys[i])))
+			n.keySpans[i] = append(n.keySpans[i], idx.span(buf, keys[i][0], keys[i][1], compact, a, b, len(n.keys[i])))
 			return
 		}
 		j := sort.Search(len(n.kids), func(j int) bool { _, e := n.kids[j].span(compact); return e >= b })
@@ -903,20 +916,54 @@ func (n *jnode) apply() bool {
 // cover none. It returns all of the text when tok does not decode to n
 // bytes, which a token with invalid UTF-8 may not.
 func tokenSpan(tok []byte, a, b, n int) [2]int {
+	if len(tok) == n+2 {
+		// No escape: decoded byte i is at tok[i+1].
+		if lo, hi := max(a-1, 0), min(b-1, n); lo < hi {
+			return [2]int{lo, hi}
+		}
+		return [2]int{0, 0}
+	}
 	st, en := tokenMap(tok)
+	return spanOf(st, en, a, b, n)
+}
+
+// spanOf is tokenSpan over a token's map (tokenMap): st and en do not
+// decrease, so the covered bytes are found by binary search.
+func spanOf(st, en []int, a, b, n int) [2]int {
 	if len(st) != n {
 		return [2]int{0, n}
 	}
-	lo, hi := n, 0
-	for i := range st {
-		if en[i] > a && st[i] < b {
-			lo, hi = min(lo, i), max(hi, i+1)
-		}
-	}
+	lo := sort.Search(n, func(i int) bool { return en[i] > a })
+	hi := sort.Search(n, func(i int) bool { return st[i] >= b })
 	if lo >= hi {
 		return [2]int{0, 0}
 	}
 	return [2]int{lo, hi}
+}
+
+// tokenIndex keeps the maps of the escaped string tokens that masking
+// looks into, by reading and start, so that each is built once however
+// many secrets a token holds.
+type tokenIndex map[[2]int][2][]int
+
+// span is tokenSpan for the token at [lo, hi) of buf, the reading compact
+// or not: [a, b) is in buf too.
+func (idx tokenIndex) span(buf []byte, lo, hi int, compact bool, a, b, n int) [2]int {
+	tok := buf[lo:hi]
+	if len(tok) == n+2 {
+		return tokenSpan(tok, a-lo, b-lo, n)
+	}
+	key := [2]int{lo, 0}
+	if compact {
+		key[1] = 1
+	}
+	m, ok := idx[key]
+	if !ok {
+		st, en := tokenMap(tok)
+		m = [2][]int{st, en}
+		idx[key] = m
+	}
+	return spanOf(m[0], m[1], a-lo, b-lo, n)
 }
 
 // tokenMap returns, for each byte of a JSON string token's decoded text,

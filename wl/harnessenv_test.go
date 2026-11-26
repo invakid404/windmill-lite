@@ -852,6 +852,8 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 		"WL_TEST_TRAIL_SECRET":   {Value: `synthetic-end-5f1a"`, Secret: true},
 		"WL_TEST_KEY_SECRET":     {Value: `"synthetic-key`, Secret: true},
 		"WL_TEST_LEFT":           {Value: "synthetic-left", Secret: true},
+		"WL_TEST_EDGE_LEAD":      {Value: ` "synthetic-edge-lead"`, Secret: true},
+		"WL_TEST_EDGE_TRAIL":     {Value: `"synthetic-edge-trail" `, Secret: true},
 	}
 	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, HarnessEnv: env})
 	if err != nil {
@@ -1119,6 +1121,62 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 	}
 	if rec, ok := res.Trace.Step(mustSite(t, "m:a")); !ok || string(rec.Result.Producer()) != `"[secret] / [secret]"` {
 		t.Errorf("f/t/fragment, answered with a string that a quoted secret starts: the step result in the trace: %s; want both masked", shownBytes(rec.Result.Producer(), `"synthetic-key`))
+	}
+	// A Go hook's answer that is a secret with the space before or after a
+	// root string, which JSON allows around a value: the trace's copy is the
+	// mask.
+	for _, answer := range []string{` "synthetic-edge-lead"`, `"synthetic-edge-trail" `} {
+		edgeHook := &Hooks{Intercept: []Interceptor{{Selector: module("f/t/fragment", "a"), Func: func(context.Context, Call) (Outcome, bool, error) {
+			return Outcome{Result: json.RawMessage(answer)}, true, nil
+		}}}}
+		res, err = callRT.Run(context.Background(), "f/t/fragment", nil, RunOptions{Hooks: edgeHook})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rec, ok := res.Trace.Step(mustSite(t, "m:a")); !ok || string(rec.Result.Producer()) != fmt.Sprintf("%q", harness.SecretMask) {
+			t.Errorf("f/t/fragment, answered with a secret that holds a root string's space: the step result in the trace: %s; want the mask", shownBytes(rec.Result.Producer(), "synthetic-edge"))
+		}
+	}
+	// A Go hook's answer that spells the secret of digits with an exponent:
+	// the stored text, which payloads and Stored give, writes it in plain
+	// decimal. The trace's copy holds the mask both ways, and so does the
+	// plugin's form of the trace; the requested result keeps the number. A
+	// failure that holds the number: the result, which goes out as stored
+	// text, holds the mask.
+	numberHook := &Hooks{Intercept: []Interceptor{{Selector: module("f/t/fragment", "a"), Func: func(context.Context, Call) (Outcome, bool, error) {
+		return Outcome{Result: json.RawMessage(`8.675309123e9`)}, true, nil
+	}}}}
+	res, err = callRT.Run(context.Background(), "f/t/fragment", nil, RunOptions{Hooks: numberHook})
+	if err != nil {
+		t.Fatal(err)
+	}
+	trace, _ = json.Marshal(traceJSON(res.Trace))
+	if rec, ok := res.Trace.Step(mustSite(t, "m:a")); string(res.Result) != number || !ok || string(rec.Result.Producer()) != fmt.Sprintf("%q", harness.SecretMask) || strings.Contains(string(trace), number) {
+		stored, _ := rec.Result.Stored()
+		t.Errorf("f/t/fragment, answered with the digits' exponent spelling: result %s, trace %s, stored %s; want the number, and the mask in the trace both ways", shownBytes(res.Result, number), shownBytes(rec.Result.Producer(), number), shownBytes(stored, number))
+	}
+	failHook := &Hooks{Intercept: []Interceptor{{Selector: module("f/t/fragment", "a"), Func: func(context.Context, Call) (Outcome, bool, error) {
+		return Outcome{Result: json.RawMessage(`{"name":"SyntheticError","n":8.675309123e9}`), Failed: true}, true, nil
+	}}}}
+	res, err = callRT.Run(context.Background(), "f/t/fragment", nil, RunOptions{Hooks: failHook})
+	if err != nil {
+		t.Fatal(err)
+	}
+	trace, _ = json.Marshal(traceJSON(res.Trace))
+	if res.Status != StatusFailure || strings.Contains(string(res.Result), number) || !strings.Contains(string(res.Result), harness.SecretMask) || strings.Contains(string(trace), number) {
+		t.Errorf("f/t/fragment, failing with the digits' exponent spelling: %s %s; want a failure whose result and trace hold the mask", res.Status, shownBytes(res.Result, number))
+	}
+	// The same string as a failure's message: the result, masked once, holds
+	// both masks too.
+	failKeyHook := &Hooks{Intercept: []Interceptor{{Selector: module("f/t/fragment", "a"), Func: func(context.Context, Call) (Outcome, bool, error) {
+		return Outcome{Result: json.RawMessage(`{"message":"synthetic-key / \\\"synthetic-key"}`), Failed: true}, true, nil
+	}}}}
+	res, err = callRT.Run(context.Background(), "f/t/fragment", nil, RunOptions{Hooks: failKeyHook})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != StatusFailure || !strings.Contains(string(res.Result), `"[secret] / [secret]"`) {
+		t.Errorf("f/t/fragment, failing with a message that a quoted secret starts: %s %s; want a failure whose message holds both masks", res.Status, shownBytes(res.Result, `"synthetic-key`))
 	}
 	// A secret that is a JSON string with its quotes, which the step parses
 	// and returns: the step's JSON is the secret's own bytes. The requested
