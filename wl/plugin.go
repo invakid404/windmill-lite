@@ -42,6 +42,13 @@ const DefaultPluginTimeout = 60 * time.Second
 // it closed at a host-provided site.
 var ErrHostCallTimeout = errors.New("host_call_timeout")
 
+// MaxRunEndAnswerBytes bounds the run-end answer of a host plugin's
+// onRunEnd (Result.Answer): the length of the answer's JSON text, as the
+// plugin's reply carries it. A larger answer is dropped: the run has no
+// answer, and gets a plugin_error warning that names both sizes, after the
+// warnings the hook returned.
+const MaxRunEndAnswerBytes = 1 << 20
+
 // HostCallError is the error a host plugin answered a hook with: its hook
 // threw or answered what the hook does not answer (code plugin_error), or
 // it does not declare the hook (unknown_hook). It latches the run.
@@ -91,6 +98,11 @@ type plugin struct {
 	// hooks and providers are the declaration as Go callbacks.
 	hooks     *Hooks
 	providers map[string]Provider
+	// answers says that the plugin's onRunEnd gives the run its answer
+	// (Result.Answer): set for the runtime's own plugin (usePlugin), and
+	// left unset for a run's hooks on a host's connection, whose host
+	// holds its state itself (brokerPlugin).
+	answers bool
 }
 
 // newPlugin decodes a declaration and checks it against the program:
@@ -317,17 +329,60 @@ func (p *plugin) goHooks() *Hooks {
 					Code    string `json:"code"`
 					Message string `json:"message"`
 				} `json:"warnings"`
+				// Answer is the run's answer: nil when the reply has
+				// none, and the text null for an answer of JSON null.
+				Answer json.RawMessage `json:"answer"`
+				// AnswerBytes is, in a reply without Answer, the size of
+				// the answer, as a JSON integer, that the harness left out
+				// because the reply with it did not fit the harness
+				// protocol's message limit. It stays raw here, because a
+				// run's hooks on a host's connection may answer any member
+				// beside their warnings, and only the runtime's own plugin
+				// reads it.
+				AnswerBytes json.RawMessage `json:"answer_bytes"`
+				// Dropped is, in place of Warnings, the hook's warnings in
+				// a reply whose answer the harness left out because not
+				// even its size fit beside them. It stays raw for the same
+				// reason as AnswerBytes.
+				Dropped json.RawMessage `json:"dropped"`
 			}
 			// A run its context ended, canceled or past a deadline, still
 			// reports its end: the call has the plugin timeout alone.
 			if err := p.do(context.WithoutCancel(ctx), "on_run_end", t.RunID, nil, p.tracePayload("on_run_end", t), &r); err != nil {
 				// The run's outcome is decided: a failed onRunEnd can only
-				// say so.
+				// say so, and gives no answer.
 				return []Warning{{Code: harness.HostErrorPlugin, Message: "the host plugin's onRunEnd: " + err.Error()}}
 			}
 			ws := make([]Warning, 0, len(r.Warnings))
 			for _, w := range r.Warnings {
 				ws = append(ws, Warning{Code: w.Code, Message: w.Message})
+			}
+			if !p.answers {
+				return ws
+			}
+			var dropped []struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			}
+			if r.Dropped != nil && json.Unmarshal(r.Dropped, &dropped) == nil {
+				for _, w := range dropped {
+					ws = append(ws, Warning{Code: w.Code, Message: w.Message})
+				}
+				return append(ws, Warning{Code: harness.HostErrorPlugin, Message: "the host plugin's onRunEnd: an answer whose size did not fit beside its warnings in a message of the harness protocol, so the run has no answer"})
+			}
+			size := int64(len(r.Answer))
+			if r.Answer == nil && json.Unmarshal(r.AnswerBytes, &size) != nil {
+				size = 0
+			}
+			switch {
+			case r.Answer != nil && size <= MaxRunEndAnswerBytes:
+				answerOf(ctx).set(r.Answer)
+			case size > MaxRunEndAnswerBytes:
+				ws = append(ws, Warning{Code: harness.HostErrorPlugin, Message: fmt.Sprintf("the host plugin's onRunEnd: an answer of %d bytes is over the bound of %d bytes, so the run has no answer", size, MaxRunEndAnswerBytes)})
+			case size > 0:
+				// Within the bound, but the harness protocol's message
+				// limit, lower than the bound, left it out.
+				ws = append(ws, Warning{Code: harness.HostErrorPlugin, Message: fmt.Sprintf("the host plugin's onRunEnd: an answer of %d bytes did not fit in a message of the harness protocol, so the run has no answer", size)})
 			}
 			return ws
 		}
@@ -830,6 +885,7 @@ func (rt *Runtime) usePlugin(decl jsonval.Value, call hostCaller, timeout time.D
 	if err != nil {
 		return err
 	}
+	p.answers = true
 	all := maps.Clone(rt.goProviders)
 	if all == nil {
 		all = map[string]Provider{}

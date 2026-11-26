@@ -86,6 +86,7 @@ uses it.
 | `warnings` | A JSON array of objects with a `code` and a `message`; empty when the run has none |
 | `deviations` | The deviations of the flow run's trace |
 | `trace` | The flow run's trace at the requested level, in the JSON form that a host plugin's run-end hook receives at that level; empty at `none` |
+| `answer` | `Result.Answer`: the JSON text of the run-end answer of the bundle's host plugin, the text `null` for an answer of null, and empty when the run has none |
 
 ## Refusals
 

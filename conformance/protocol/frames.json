@@ -938,7 +938,7 @@
     },
     {
       "case": "run-done-cancel-cause",
-      "title": "a canceled run's run_done names why it was canceled, after every other field",
+      "title": "a canceled run's run_done names why it was canceled, after every other field but the answer",
       "message_text": "{\"cancel_cause\":\"pre_write_deadline\",\"deviations\":[\"H10\"],\"t\":\"run_done\",\"warnings\":[{\"code\":\"c\",\"message\":\"m\"}],\"id\":\"r4\",\"status\":\"canceled\",\"result\":{\"error\":{\"name\":\"Canceled\",\"message\":\"Job canceled: no reason given by unknown\"}}}",
       "payload": "{\"t\":\"run_done\",\"id\":\"r4\",\"status\":\"canceled\",\"result\":{\"error\":{\"name\":\"Canceled\",\"message\":\"Job canceled: no reason given by unknown\"}},\"warnings\":[{\"code\":\"c\",\"message\":\"m\"}],\"deviations\":[\"H10\"],\"cancel_cause\":\"pre_write_deadline\"}"
     },
@@ -952,6 +952,24 @@
         "cancel_cause": ""
       },
       "payload": "{\"t\":\"run_done\",\"id\":\"r4\",\"status\":\"success\"}"
+    },
+    {
+      "case": "run-done-answer",
+      "title": "a run's outcome carries the host plugin's run-end answer, a raw value, after every other field",
+      "message_text": "{\"answer\":{\"outcome\":\"retry\",\"after_ms\":250},\"t\":\"run_done\",\"id\":\"r5\",\"status\":\"canceled\",\"cancel_cause\":\"deadline\"}",
+      "raw": {
+        "answer": "{\"outcome\":\"retry\",\"after_ms\":250}"
+      },
+      "payload": "{\"t\":\"run_done\",\"id\":\"r5\",\"status\":\"canceled\",\"cancel_cause\":\"deadline\",\"answer\":{\"outcome\":\"retry\",\"after_ms\":250}}"
+    },
+    {
+      "case": "run-done-null-answer",
+      "title": "an answer of JSON null is an answer, as a result of null is a result: a host plugin may answer null",
+      "message_text": "{\"t\":\"run_done\",\"id\":\"r5\",\"status\":\"success\",\"result\":1,\"answer\":null}",
+      "raw": {
+        "answer": "null"
+      },
+      "payload": "{\"t\":\"run_done\",\"id\":\"r5\",\"status\":\"success\",\"result\":1,\"answer\":null}"
     },
     {
       "case": "host-call",

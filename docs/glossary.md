@@ -354,6 +354,16 @@ for a flow its [trace](#trace) ([wl](../wl/README.md)).
 
 **Not:** job.
 
+### run-end answer
+
+The answer, any JSON value, that a [host plugin](#host-plugin)'s `onRunEnd`
+gives a flow [run](#run), however the run ended. The run's result carries
+it: `wl`'s `Result.Answer`, the `Runner` service's `RunResult.answer` and
+host mode's `run_done`
+([harnesses/bun](../harnesses/bun/README.md#the-run-end-answer)).
+
+**Not:** result, outcome.
+
 ### script
 
 Code in one file that windmill-lite runs: a script by path in the

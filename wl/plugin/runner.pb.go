@@ -849,7 +849,15 @@ type RunResult struct {
 	Deviations []string `protobuf:"bytes,8,rep,name=deviations,proto3" json:"deviations,omitempty"`
 	// trace is the run's trace at the level that the request asked for, as
 	// JSON text; empty at the level "none".
-	Trace         []byte `protobuf:"bytes,9,opt,name=trace,proto3" json:"trace,omitempty"`
+	Trace []byte `protobuf:"bytes,9,opt,name=trace,proto3" json:"trace,omitempty"`
+	// answer is, for a flow run, the run-end answer of the bundle's host
+	// plugin, as JSON text: the answer that its onRunEnd returned beside its
+	// warnings. It is empty when the run has no answer, and the text null
+	// for an answer of JSON null. A run has no answer when onRunEnd returned
+	// only warnings or nothing, failed, got no reply within the plugin
+	// timeout or from a lost process, or answered more than 1 MiB; the hooks
+	// of RunRequest.hooks give none.
+	Answer        []byte `protobuf:"bytes,10,opt,name=answer,proto3" json:"answer,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -943,6 +951,13 @@ func (x *RunResult) GetDeviations() []string {
 func (x *RunResult) GetTrace() []byte {
 	if x != nil {
 		return x.Trace
+	}
+	return nil
+}
+
+func (x *RunResult) GetAnswer() []byte {
+	if x != nil {
+		return x.Answer
 	}
 	return nil
 }
@@ -1520,7 +1535,7 @@ const file_windmill_lite_v1_runner_proto_rawDesc = "" +
 	"\rmax_in_flight\x18\x01 \x01(\x03R\vmaxInFlight\x12$\n" +
 	"\x0emax_args_bytes\x18\x02 \x01(\x03R\fmaxArgsBytes\x12$\n" +
 	"\x0emax_held_bytes\x18\x03 \x01(\x03R\fmaxHeldBytes\x12\x14\n" +
-	"\x05bytes\x18\x04 \x01(\x03R\x05bytes\"\x84\x02\n" +
+	"\x05bytes\x18\x04 \x01(\x03R\x05bytes\"\x9c\x02\n" +
 	"\tRunResult\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x16\n" +
@@ -1532,7 +1547,9 @@ const file_windmill_lite_v1_runner_proto_rawDesc = "" +
 	"\n" +
 	"deviations\x18\b \x03(\tR\n" +
 	"deviations\x12\x14\n" +
-	"\x05trace\x18\t \x01(\fR\x05trace\"S\n" +
+	"\x05trace\x18\t \x01(\fR\x05trace\x12\x16\n" +
+	"\x06answer\x18\n" +
+	" \x01(\fR\x06answer\"S\n" +
 	"\rCancelRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\x12\x1a\n" +

@@ -11,7 +11,8 @@
 #   - oldest/: the oldest @types/node a host is expected to use.
 # For each set it runs tsc four times: with and without the DOM library,
 # each in strict and in non-strict mode. It exits 1 if any run reports an
-# error.
+# error. Each run also checks examples.ts: uses of the SDK's public types,
+# whose lines under @ts-expect-error must fail to compile.
 #
 # Run `bun install --frozen-lockfile` in this directory and in oldest/
 # first.
@@ -26,7 +27,7 @@ for types in "$here" "$here/oldest"; do
 done
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-cp -R "$src/host" "$src/runtime" "$here/tsconfig.json" "$work/"
+cp -R "$src/host" "$src/runtime" "$here/examples.ts" "$here/tsconfig.json" "$work/"
 printf '{"type":"module"}\n' > "$work/package.json"
 status=0
 for types in "$here" "$here/oldest"; do
