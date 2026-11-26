@@ -547,11 +547,11 @@ step, never releases them.
   over the host's for its invocation. A native step reads none of them,
   since its `process.env` is built from its invocation's variables.
 - **Secrets among them.** The engine replaces each secret's value with
-  `[secret]` in what it passes on besides a requested result that is no
-  error. It masks output lines and the errors that quote them, an escaped
-  step's log tail, warnings, latched errors, the plugin's errors, a result
-  that is an error, and the trace's copies of step data and platform
-  calls. What steps and hooks run with stays as it is.
+  `[secret]` in what it passes on besides the host's data in a requested
+  result. It masks output lines and the errors that quote them, warnings,
+  latched errors, the plugin's errors, the errors in a requested result,
+  and the trace's copies of step data and platform calls. What steps and
+  hooks run with stays as it is.
 - **Host mode** takes none: the host's environment is its own.
 
 ### Lifecycle

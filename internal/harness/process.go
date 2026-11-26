@@ -70,11 +70,10 @@ type ProcessConfig struct {
 	// masks them (NewSecrets) in the text that it takes from the process
 	// and passes on as text of its own: the process's output lines, which
 	// go to Diagnostics and into the errors that quote them, the engine's
-	// diagnostics about it, the log tail that an escaped invocation's
-	// error quotes, and the errors of its host plugin's hooks. Results,
-	// failures, warnings and hook answers stay as the process sent them:
-	// wl masks their copies in a trace and in a run's warnings. nil masks
-	// nothing.
+	// diagnostics about it, and the errors of its host plugin's hooks.
+	// Results, failures (an escaped one's log tail included), warnings and
+	// hook answers stay as the process sent them: wl masks their copies in
+	// a trace, a run's result and its warnings. nil masks nothing.
 	Secrets []string
 	// WorkRoot is the directory in which the process's private working
 	// directory is created; empty means os.TempDir().
@@ -915,9 +914,6 @@ func (p *Process) onResult(r Result) (*invocation, []func(), bool, error) {
 			inv.times.Received, inv.times.Decoded = p.conn.msgRead, p.conn.msgDecoded
 		}
 		out := stepOutcome(r)
-		// An escaped outcome's tail, the harness's copy of the log, is
-		// quoted by its error.
-		out.Tail = p.secrets.Mask(out.Tail)
 		if r.Settled && p.cfg.ModuleState == engine.ModuleStateFresh {
 			// WR-55: the job of a fresh process completes once the process
 			// has exited and no process is left in its group, so the
@@ -982,8 +978,7 @@ func (p *Process) onLog(l Log) (*invocation, []func()) {
 	inv := p.invs[l.ID]
 	if inv != nil && inv.state == invPending {
 		for _, line := range l.Lines {
-			// The tail is kept only for the error of an escaped outcome.
-			inv.tail.add(p.secrets.Mask(line))
+			inv.tail.add(line)
 		}
 		return nil, nil
 	}

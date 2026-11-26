@@ -258,36 +258,39 @@ process starts with its base environment alone
 
 `Secret` marks a secret. The engine then replaces each occurrence of its
 value, and of each line of a value that spans lines, with `[secret]` in
-what it passes on besides a run's requested result that is no error. It
-also masks the value as an error text quotes it: as a Go quoted string
-(`%q`) and JavaScript's `JSON.stringify` write it, and as
-`encodeURIComponent` escapes it for a request's URL:
+what it passes on besides the host's data in a run's requested result. It
+masks the value also as a Go quoted string (`%q`) and `JSON.stringify`
+write it. In a text with `%XX` escapes, such as a URL, it masks only the
+span that decodes to the value:
 
 - the harness processes' output lines, which go to `Diagnostics`, and the
   errors that quote them, such as that of a process that exits before its
   handshake. A line longer than 64 KiB goes in parts that cut no secret in
   two;
-- the log tail that the error of an escaped step quotes;
 - a run's warnings: their codes, messages and the keys of their counts,
   where keys that mask alike add their counts;
 - the errors of the host plugin, those of its declaration's checks
   included, and a run's latched error ([Latched errors](#latched-errors));
-- a run's result when it is an error: a failed run's, or a step's error
-  that a flow carried on past to the end;
+- the errors in a run's requested result. That is the whole result when
+  it is a step's error, of a failed run or of a flow that carried on past
+  it. It is also a part that is one, such as a tolerated branch's error in
+  a branchall's array, or an escaped step's error that quotes its log;
 - the trace: its result, each step's arguments, result, carried value and
   late output, and its platform calls, their paths and queries as
   decoded, in the trace that `Run` returns and in those and the records
   that hooks get;
 - in those JSON values, their strings as decoded. A number or literal
-  that holds a secret becomes the string `[secret]`. So does a whole value
-  in which a secret spans the JSON's structure, such as a JSON document
-  that a step parsed from a secret.
+  that holds a secret becomes the string `[secret]`, and so does an object
+  or array equal to a secret that is a JSON document, however each is
+  written. A value in which a secret still spans the structure becomes
+  `[secret]` whole.
 
-`Result.Result`, the result that the host asked for, keeps the value when
-it is no error, a skipped run's included, and so do the steps' arguments
-and the hooks' answers as the engine runs them. A host's result cache
-(`Results`) stores no step result that holds a secret, so a runtime that
-shares the cache with other secrets, or none, never reads one there.
+`Result.Result`, the result that the host asked for, keeps the value in
+its other parts, a skipped run's result included, and so do the steps'
+arguments and the hooks' answers as the engine runs them. A host's result
+cache (`Results`) stores no step result that holds a secret, judged on the
+result itself as decoded, so a runtime that shares the cache with other
+secrets, or none, never reads one there.
 
 #### Latched errors
 

@@ -3,11 +3,10 @@ package wl
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"maps"
-	"net/url"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/invakid404/windmill-lite/internal/engine"
@@ -43,68 +42,13 @@ func maskTrace(secrets *harness.Secrets, t *Trace) *Trace {
 		c.PlatformCalls = make([]PlatformCall, len(t.PlatformCalls))
 		for i, p := range t.PlatformCalls {
 			p.Method, p.Message = secrets.Mask(p.Method), secrets.Mask(p.Message)
-			p.Path, p.Query = maskPath(secrets, p.Path), maskQuery(secrets, p.Query)
+			// The path and query as sent: masked as decoded, each span that
+			// holds a secret escaped again around the mask.
+			p.Path, p.Query = secrets.MaskURL(p.Path, false), secrets.MaskURL(p.Query, true)
 			c.PlatformCalls[i] = p
 		}
 	}
 	return &c
-}
-
-// maskPath returns an escaped URL path with each secret masked, as it
-// reads raw and as decoded, so that a secret that a client escaped, or
-// that spans segments, is masked. When the decoded path holds one, the
-// path is the masked decoded path, each segment escaped again; otherwise
-// it keeps its bytes, with any escaped form of a secret masked.
-func maskPath(secrets *harness.Secrets, path string) string {
-	if dec, err := url.PathUnescape(path); err == nil {
-		if m := secrets.Mask(dec); m != dec {
-			segs := strings.Split(m, "/")
-			for i, seg := range segs {
-				segs[i] = url.PathEscape(seg)
-			}
-			return strings.Join(segs, "/")
-		}
-	}
-	return secrets.Mask(path)
-}
-
-// maskQuery returns a raw query with each secret masked in its names and
-// values as decoded, each that holds one escaped again around the mask;
-// the others keep their bytes, and the pairs their order. A secret that
-// spans pairs makes the whole query its masked decoded text, escaped.
-func maskQuery(secrets *harness.Secrets, query string) string {
-	pairs := strings.Split(query, "&")
-	for i, pair := range pairs {
-		name, value, eq := strings.Cut(pair, "=")
-		mn := maskEscaped(secrets, name, url.QueryUnescape, url.QueryEscape)
-		mv := maskEscaped(secrets, value, url.QueryUnescape, url.QueryEscape)
-		if mn != name || mv != value {
-			pairs[i] = mn
-			if eq {
-				pairs[i] += "=" + mv
-			}
-		}
-	}
-	q := strings.Join(pairs, "&")
-	if dec, err := url.QueryUnescape(q); err == nil {
-		if m := secrets.Mask(dec); m != dec {
-			return url.QueryEscape(m)
-		}
-	}
-	return secrets.Mask(q)
-}
-
-// maskEscaped masks the secrets in s as decoded with unescape, escaping
-// the masked text again, and returns s unchanged when it holds none. A
-// part that does not decode is masked as it is.
-func maskEscaped(secrets *harness.Secrets, s string, unescape func(string) (string, error), escape func(string) string) string {
-	if dec, err := unescape(s); err == nil {
-		if m := secrets.Mask(dec); m != dec {
-			return escape(m)
-		}
-		return s
-	}
-	return secrets.Mask(s)
 }
 
 // maskRecord returns rec with each secret masked in its arguments, its
@@ -208,11 +152,50 @@ type secretResults struct {
 	secrets *harness.Secrets
 }
 
+// Put judges the result itself, decoded from the engine's entry, whatever
+// its spelling there: the entry's own fields, such as the key "result",
+// do not count. An entry it cannot decode is not stored.
 func (c secretResults) Put(ctx context.Context, key string, value []byte, expires time.Time) error {
-	if c.secrets.Mask(string(value)) != string(value) || !bytes.Equal(c.secrets.MaskJSON(value), value) {
+	var entry struct {
+		Result json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(value, &entry); err != nil || len(entry.Result) == 0 {
+		return nil
+	}
+	if !bytes.Equal(c.secrets.MaskJSON(entry.Result), entry.Result) {
 		return nil
 	}
 	return c.ResultCache.Put(ctx, key, value, expires)
+}
+
+// maskErrorParts returns a run's requested result with each secret masked
+// in the parts of it that are errors, the whole result included: those
+// that equal a step's result or carried value whose origin says it is an
+// error, such as a tolerated branch's error inside a branchall's array.
+// The other parts, the host's data, stay as they are.
+func maskErrorParts(secrets *harness.Secrets, t *Trace, result jsonval.Value) jsonval.Value {
+	if secrets == nil || result.IsZero() {
+		return result
+	}
+	var parts []any
+	add := func(v jsonval.Value, o engine.Origin) {
+		if o == engine.OriginNone || v.IsZero() {
+			return
+		}
+		if d, ok := harness.DecodeJSON(v.Producer()); ok {
+			parts = append(parts, d)
+		}
+	}
+	for _, s := range t.Steps {
+		add(s.Result, s.ResultOrigin)
+		add(s.Carried, s.CarriedOrigin)
+	}
+	text := result.Producer()
+	masked := secrets.MaskJSONParts(text, parts)
+	if bytes.Equal(masked, text) {
+		return result
+	}
+	return jsonval.FromProducer(masked)
 }
 
 // maskedError is an error whose text has the runtime's secrets masked.

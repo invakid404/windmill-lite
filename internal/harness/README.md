@@ -344,25 +344,23 @@ entry that the engine sets itself, or that no environment can carry:
   byte.
 
 `ProcessConfig.Secrets` are the values of the secret entries.
-`NewSecrets` makes of them the `Secrets` that replace each value, and each
-line of one that spans lines, with `SecretMask`, `[secret]`. They replace
-it also as an error text quotes it: as a Go quoted string (`%q`) and
-JavaScript's `JSON.stringify` write it, and as `encodeURIComponent`
-escapes it. They do so in the text
-that the engine takes from the process and passes on as text of its own:
+`NewSecrets` makes of them the `Secrets` that replace each value, each
+line of one that spans lines, and its `%q` and `JSON.stringify` forms,
+with `SecretMask`, `[secret]`. In a text with `%XX` escapes they mask the
+span that decodes to a value. They mask the text that the engine takes
+from the process and passes on as text of its own:
 
 - its output lines, before they are forwarded or kept for errors. A line
   that grows past 64 KiB goes in parts. Each part ends where no secret is
   cut in two, nor one that the next bytes could make longer. What follows
   the cut, shorter than the longest secret, waits for the next write;
 - the engine's diagnostics about the process;
-- the log tail that an escaped invocation's error quotes;
 - its host plugin's hook errors, so that a `HostCallError` keeps its type.
 
-An invocation's result, failure and warnings, and a hook's answer, stay
-as the process sent them:
+An invocation's result, failure (an escaped one's log tail included) and
+warnings, and a hook's answer, stay as the process sent them:
 [wl](../../wl/README.md#the-harness-environment) masks their copies in a
-trace and in a run's warnings.
+trace, a run's result and its warnings.
 
 ### Process groups
 

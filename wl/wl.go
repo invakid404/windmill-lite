@@ -233,15 +233,15 @@ type Options struct {
 // which Open reads once, however many entries name it. Value is then empty.
 //
 // Secret marks a secret. The engine then replaces each occurrence of the
-// value with "[secret]", also quoted or URL-escaped, in what it passes on
-// besides a run's requested result (Result.Result) that is no error: the
-// harness processes' output lines, which go to Diagnostics and into the
-// errors that quote them, the log tail that an escaped step's error
-// quotes, a run's warnings, its latched error and the errors of the host
-// plugin, a result that is an error, the trace's copies of step arguments,
-// results, late output and platform calls, and the trace and records that
-// hooks get. A host's result cache (Options.Results) stores no step result
-// that holds one. Steps and hooks get their inputs and answers as written.
+// value with "[secret]", also quoted or percent-encoded, in what it passes
+// on besides the host's data in a run's requested result (Result.Result):
+// the harness processes' output lines, which go to Diagnostics and into
+// the errors that quote them, a run's warnings, its latched error and the
+// errors of the host plugin, the errors in a requested result, the trace's
+// copies of step arguments, results, late output and platform calls, and
+// the trace and records that hooks get. A host's result cache
+// (Options.Results) stores no step result that holds one. Steps and hooks
+// get their inputs and answers as written.
 type EnvValue struct {
 	Value    string
 	ValueEnv string
