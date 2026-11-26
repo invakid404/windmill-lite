@@ -270,8 +270,9 @@ engine masks:
 
 - the harness processes' output lines, which go to `Diagnostics`, and the
   errors that quote them, such as that of a process that exits before its
-  handshake. A line longer than 64 KiB goes in parts that cut no secret in
-  two, as written or percent-encoded;
+  handshake. A line longer than 64 KiB goes in parts; a secret that a
+  part's end splits is masked on both sides, as written or
+  percent-encoded;
 - an escaped step's log tail, which its error quotes: the last 600
   characters of its log, which may start inside a secret. A leading piece
   of 3 bytes or more that ends a secret is masked too, with any whole
@@ -294,9 +295,9 @@ engine masks:
 - in those JSON values, their strings as decoded. An object or array
   equal to a secret that is a JSON document becomes `[secret]`, however
   each is written, numbers by exact value. So does the smallest part where
-  a secret still shows, compactly or as the value's own text writes it. A
-  number, string or key can hold it in its JSON, such as a quoted secret,
-  or an object or array across its tokens.
+  a secret still shows, compactly or as the value's own text writes it. That
+  is a number, the part of a string or key under it, such as a quoted
+  secret, or an object or array across its tokens.
 
 `Result.Result`, the result that the host asked for, keeps the value in
 its other parts, a skipped run's result included, and so do the steps'

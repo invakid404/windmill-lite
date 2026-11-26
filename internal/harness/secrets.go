@@ -216,17 +216,33 @@ func (s *Secrets) MaskTail(tail string) string {
 // the end of one the start of the other, are masked as one span.
 func (s *Secrets) find(text string) [][2]int {
 	var spans [][2]int
+	for _, oc := range s.occurrences(text) {
+		spans = append(spans, [2]int{oc.start, oc.end})
+	}
+	return mergeSpans(spans)
+}
+
+// occurrence is a secret, old, at [start, end) of a text.
+type occurrence struct {
+	start, end int
+	old        string
+}
+
+// occurrences returns every occurrence of each secret in text, those that
+// overlap included.
+func (s *Secrets) occurrences(text string) []occurrence {
+	var out []occurrence
 	for _, o := range s.olds {
 		for i := 0; i+len(o) <= len(text); {
 			j := strings.Index(text[i:], o)
 			if j < 0 {
 				break
 			}
-			spans = append(spans, [2]int{i + j, i + j + len(o)})
+			out = append(out, occurrence{i + j, i + j + len(o), o})
 			i += j + 1
 		}
 	}
-	return mergeSpans(spans)
+	return out
 }
 
 // spans returns the spans of text that hold a secret, as written and as
@@ -333,10 +349,11 @@ func unhex(c byte) byte {
 // JSON's structure. The smallest part that holds it then becomes the
 // string SecretMask, so the text stays JSON, and the rest of the value
 // stays: a number or a literal, such as a secret of digits that a step
-// returned as a number; a string or a key whose JSON holds a secret, such
-// as a secret with its quotes, or one that a JSON escape spells; or else
-// an object or array across whose tokens it lies, such as the strings of
-// an array. Key order, duplicate keys and the other numbers stay as
+// returned as a number; in a string or a key whose JSON holds a secret
+// that its text does not, such as a secret with its quotes, or one that a
+// JSON escape spells, the part of its text under the secret, or all of it
+// where the JSON has an escape; or else an object or array across whose
+// tokens it lies, such as the strings of an array. Key order, duplicate keys and the other numbers stay as
 // they were, and the result is written compactly. It returns text itself,
 // byte for byte, when nothing holds a secret, and also when text is not
 // JSON.
@@ -378,9 +395,9 @@ func (s *Secrets) maskJSON(text []byte, pointers []string) []byte {
 		return text
 	}
 	// The secrets in the text as it is written, which may span its tokens.
-	var occ [][2]int
+	var occ []occurrence
 	if s.holds(text) {
-		occ = s.find(string(text))
+		occ = s.occurrences(string(text))
 	}
 	changed := false
 	if pointers == nil {
@@ -438,42 +455,33 @@ func (n *jnode) at(ptr string) *jnode {
 // SecretMask: as n is written again compactly, and as its source writes
 // it, where occ are the secrets in the source. It reports whether it
 // changed n.
-func (s *Secrets) maskWhole(n *jnode, occ [][2]int) bool {
-	changed := s.maskNode(n)
+func (s *Secrets) maskWhole(n *jnode, occ []occurrence) bool {
+	changed := s.maskNode(n, occ)
 	var b bytes.Buffer
 	n.write(&b)
 	if s.holds(b.Bytes()) {
 		s.spill(n)
 		changed = true
 	}
-	for _, sp := range occ {
-		if n.maskSource(sp) {
+	for _, oc := range occ {
+		if n.maskSource([2]int{oc.start, oc.end}) {
 			changed = true
 		}
 	}
 	return changed
 }
 
-// maskSource masks the smallest part of n whose source holds the span sp
-// of the source: a key or a value whose token holds it whole, unless the
-// string rules masked that token already, or else the smallest object or
-// array across whose tokens it lies. It reports whether it changed n.
+// maskSource masks the smallest object or array in n across whose tokens
+// in the source the span sp of the source lies. A key or value token that
+// holds sp whole is left as it is: maskNode masked it. It reports whether
+// it changed n.
 func (n *jnode) maskSource(sp [2]int) bool {
-	if !n.src || n.done || sp[0] < n.start || sp[1] > n.end {
+	if !n.src || sp[0] < n.start || sp[1] > n.end || n.kind != '{' && n.kind != '[' {
 		return false
 	}
-	if n.kind != '{' && n.kind != '[' {
-		n.mask()
-		return true
-	}
-	for i, k := range n.keySrc {
+	for _, k := range n.keySrc {
 		if sp[0] >= k[0] && sp[1] <= k[1] {
-			if slices.Contains(n.keysDone, i) {
-				return false
-			}
-			n.keys[i] = SecretMask
-			n.keyDone(i)
-			return true
+			return false
 		}
 	}
 	for _, k := range n.kids {
@@ -485,16 +493,9 @@ func (n *jnode) maskSource(sp [2]int) bool {
 	return true
 }
 
-// keyDone records that key i of n is masked.
-func (n *jnode) keyDone(i int) {
-	if !slices.Contains(n.keysDone, i) {
-		n.keysDone = append(n.keysDone, i)
-	}
-}
-
 // mask turns n into the string SecretMask, keeping where its source is.
 func (n *jnode) mask() {
-	*n = jnode{kind: 's', text: SecretMask, src: n.src, start: n.start, end: n.end, done: true}
+	*n = jnode{kind: 's', text: SecretMask, src: n.src, start: n.start, end: n.end}
 }
 
 // holds reports whether text holds one of the strings to mask.
@@ -502,9 +503,9 @@ func (s *Secrets) holds(text []byte) bool {
 	return slices.ContainsFunc(s.olds, func(o string) bool { return bytes.Contains(text, []byte(o)) })
 }
 
-// spill returns n written compactly, after it turns each smallest part of
-// n whose writing holds a secret into SecretMask: a value, a key, or an
-// object or array.
+// spill returns n written compactly, after it turns each smallest object
+// or array in n whose writing holds a secret into SecretMask. maskNode
+// has masked each key and value token whose own JSON holds one.
 func (s *Secrets) spill(n *jnode) []byte {
 	var b bytes.Buffer
 	switch n.kind {
@@ -515,27 +516,18 @@ func (s *Secrets) spill(n *jnode) []byte {
 				b.WriteByte(',')
 			}
 			if n.kind == '{' {
-				var key bytes.Buffer
-				if writeJSONString(&key, n.keys[i]); s.holds(key.Bytes()) {
-					n.keys[i] = SecretMask
-					n.keyDone(i)
-					key.Reset()
-					writeJSONString(&key, SecretMask)
-				}
-				b.Write(key.Bytes())
+				writeJSONString(&b, n.keys[i])
 				b.WriteByte(':')
 			}
 			b.Write(s.spill(k))
 		}
 		b.WriteByte(n.kind + 2) // '}' and ']' follow '{' and '[' by two
+		if s.holds(b.Bytes()) {
+			n.mask()
+			b.Reset()
+			n.write(&b)
+		}
 	default:
-		// A token whose JSON holds a secret, such as a secret with its
-		// quotes that a string's quotes write.
-		n.write(&b)
-	}
-	if s.holds(b.Bytes()) {
-		n.mask()
-		b.Reset()
 		n.write(&b)
 	}
 	return b.Bytes()
@@ -551,13 +543,10 @@ type jnode struct {
 	keys []string
 	kids []*jnode
 	// start and end are where the value is in its source text, when src is
-	// set, and keySrc where an object's keys are. done is set once n is
-	// masked, in part or whole, and keysDone lists the keys that are.
+	// set, and keySrc where an object's keys are.
 	src        bool
 	start, end int
 	keySrc     [][2]int
-	done       bool
-	keysDone   []int
 }
 
 // decodeTree decodes one JSON value from dec.
@@ -746,39 +735,86 @@ func (n *jnode) write(b *bytes.Buffer) {
 	}
 }
 
-// maskNode masks n as MaskJSON masks a whole value, and reports whether it
-// changed it.
-func (s *Secrets) maskNode(n *jnode) bool {
-	if n.kind == '{' || n.kind == '[' {
+// maskNode masks n's tokens and the documents in it: an object or array
+// equal to a secret document becomes SecretMask; a number or literal whose
+// text holds a secret does too; a string or a key is masked by maskToken.
+// occ are the secrets in the source. It reports whether it changed n.
+func (s *Secrets) maskNode(n *jnode, occ []occurrence) bool {
+	switch n.kind {
+	case '{', '[':
 		for _, d := range s.docs {
 			if nodeEqual(n, d) {
 				n.mask()
 				return true
 			}
 		}
-	}
-	changed := false
-	switch n.kind {
+		changed := false
+		for i, k := range n.keys {
+			var src [2]int
+			if i < len(n.keySrc) {
+				src = n.keySrc[i]
+			}
+			if m := s.maskToken(k, src, n.src, occ); m != k {
+				n.keys[i], changed = m, true
+			}
+		}
+		for _, k := range n.kids {
+			if s.maskNode(k, occ) {
+				changed = true
+			}
+		}
+		return changed
 	case 's':
-		if m := s.Mask(n.text); m != n.text {
-			n.text, changed = m, true
+		if m := s.maskToken(n.text, [2]int{n.start, n.end}, n.src, occ); m != n.text {
+			n.text = m
+			return true
+		}
+	case 'l':
+		if s.holds([]byte(n.text)) {
+			n.mask()
+			return true
 		}
 	}
-	if changed {
-		n.done = true
-	}
-	for i, k := range n.keys {
-		if m := s.Mask(k); m != k {
-			n.keys[i], changed = m, true
-			n.keyDone(i)
+	return false
+}
+
+// maskToken returns a string or a key, text as decoded, with each secret
+// in it masked as Mask masks it, and also each secret that its JSON token
+// holds and text does not, such as a secret with its quotes: as the token
+// is written compactly, and as the source writes it at src (when known).
+// Where that token is text in quotes with no escape, only the part of text
+// under such a secret is masked, its quotes left out, so the text beside
+// it stays; otherwise all of text.
+func (s *Secrets) maskToken(text string, src [2]int, known bool, occ []occurrence) string {
+	spans := s.spans(text, false)
+	whole := false
+	under := func(a, b, tokenLen int) {
+		if tokenLen != len(text)+2 {
+			whole = true
+			return
+		}
+		if a, b = max(a-1, 0), min(b-1, len(text)); a < b {
+			spans = append(spans, [2]int{a, b})
 		}
 	}
-	for _, k := range n.kids {
-		if s.maskNode(k) {
-			changed = true
+	var w bytes.Buffer
+	writeJSONString(&w, text)
+	for _, oc := range s.occurrences(w.String()) {
+		if !strings.Contains(text, oc.old) {
+			under(oc.start, oc.end, w.Len())
 		}
 	}
-	return changed
+	if known {
+		for _, oc := range occ {
+			if oc.start >= src[0] && oc.end <= src[1] && !strings.Contains(text, oc.old) {
+				under(oc.start-src[0], oc.end-src[0], src[1]-src[0])
+			}
+		}
+	}
+	if whole {
+		return SecretMask
+	}
+	return replaceSpans(text, mergeSpans(spans), nil, SecretMask)
 }
 
 // writeJSONString writes s as a JSON string, without the HTML escapes of
@@ -791,50 +827,59 @@ func writeJSONString(out *bytes.Buffer, s string) {
 	out.Write(bytes.TrimSuffix(b.Bytes(), []byte("\n")))
 }
 
-// cut returns where an output line that has grown too long, buf, may be
-// cut, so that the part before the cut can be forwarded masked and the
-// rest kept for the next write: no secret that starts before the cut ends
-// after it, or could still complete with the bytes to come, as the line
-// reads raw and as its %XX escapes decode (Mask reads it both ways), and
-// no escape that the next bytes could complete starts before it. What is
-// kept is shorter than three times the longest secret and two bytes.
-func (s *Secrets) cut(buf []byte) int {
+// pending returns where, in an output line that has grown too long, buf,
+// the first secret starts that the bytes to come could still complete, as
+// the line reads raw or as its %XX escapes decode, or the first escape that
+// they could complete: len(buf) when there is none. The line may go out up
+// to there. What is kept is shorter than three times the longest secret
+// and two bytes, so every cut makes progress.
+func (s *Secrets) pending(buf []byte) int {
 	if s == nil {
 		return len(buf)
 	}
-	c := s.cutAt(buf)
-	// An escape that the next bytes may complete ends the view as decoded,
-	// which may then end in a secret's start.
+	c := s.pendingAt(buf)
 	end := len(buf)
 	if n := len(buf); n >= 1 && buf[n-1] == '%' {
 		end = n - 1
 	} else if n >= 2 && buf[n-2] == '%' && isHex(buf[n-1]) {
 		end = n - 2
 	}
-	if dec, from := decodeEscapes(string(buf[:end]), false); end < len(buf) || len(dec) != end {
-		c = min(c, end, from[s.cutAt(dec)])
-	}
-	return c
+	dec, from := decodeEscapes(string(buf[:end]), false)
+	return min(c, end, from[s.pendingAt(dec)])
 }
 
-// cutAt is cut for one view of the line, buf: before the first position
-// where the rest of buf is the start of a secret longer than that rest,
-// which bytes to come may complete, even where a shorter secret ends at the
-// end already; and then before the start of the span of secrets in buf
-// that the cut would fall inside, secrets that overlap counting as one.
-func (s *Secrets) cutAt(buf []byte) int {
-	c := len(buf)
+// lookBack is how far a secret can reach in an output line, as written or
+// percent-encoded: three times the longest secret and two bytes. pending
+// keeps no more, and maskPart needs no more of what went out.
+func (s *Secrets) lookBack() int { return 3*s.longest + 2 }
+
+// pendingAt is pending for one view of the line, buf: the first position
+// where the rest of buf is the start of a secret longer than that rest.
+func (s *Secrets) pendingAt(buf []byte) int {
 	for i := max(0, len(buf)-s.longest+1); i < len(buf); i++ {
 		rest := string(buf[i:])
 		if slices.ContainsFunc(s.olds, func(o string) bool { return len(o) > len(rest) && strings.HasPrefix(o, rest) }) {
-			c = i
-			break
+			return i
 		}
 	}
-	for _, sp := range s.find(string(buf)) {
-		if sp[0] < c && c < sp[1] {
-			c = sp[0]
+	return len(buf)
+}
+
+// maskPart returns the part of an output line that goes out, buf[:c],
+// with each secret masked as Mask masks it, found in ctx, the end of what
+// went out of the line before, followed by buf, the line since: so also a
+// secret that ctx starts, or one that starts before c and ends after it.
+func (s *Secrets) maskPart(ctx, buf []byte, c int) string {
+	if s == nil {
+		return string(buf[:c])
+	}
+	full := string(ctx) + string(buf)
+	var spans [][2]int
+	for _, sp := range s.spans(full, false) {
+		a, b := max(sp[0], len(ctx)), min(sp[1], len(ctx)+c)
+		if a < b {
+			spans = append(spans, [2]int{a - len(ctx), b - len(ctx)})
 		}
 	}
-	return c
+	return replaceSpans(string(buf[:c]), spans, nil, SecretMask)
 }

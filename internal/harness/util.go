@@ -134,8 +134,8 @@ type lineWriter struct {
 
 func (lw *lineWriter) stream(name string) io.Writer { return &streamWriter{lw: lw, name: name} }
 
+// emit forwards line, with its secrets masked already, and keeps it.
 func (lw *lineWriter) emit(name, line string) {
-	line = lw.secrets.Mask(line)
 	lw.diag.line(fmt.Sprintf("harness pid %d %s: %s", lw.diag.pid.Load(), name, line))
 	lw.mu.Lock()
 	lw.last = append(lw.last, line)
@@ -159,6 +159,10 @@ type streamWriter struct {
 	lw   *lineWriter
 	name string
 	buf  []byte
+	// ctx is the end of the line's part that went out already, when a long
+	// line went out in parts: a secret that starts there and ends in buf is
+	// masked in what follows too.
+	ctx []byte
 }
 
 func (s *streamWriter) Write(b []byte) (int, error) {
@@ -168,29 +172,36 @@ func (s *streamWriter) Write(b []byte) (int, error) {
 		if i < 0 {
 			break
 		}
-		s.lw.emit(s.name, string(s.buf[:i]))
-		s.buf = s.buf[i+1:]
+		s.lw.emit(s.name, s.lw.secrets.maskPart(s.ctx, s.buf[:i], i))
+		s.buf, s.ctx = s.buf[i+1:], nil
 	}
 	// A line that grows past 64 KiB is forwarded in parts. With secrets,
-	// a part ends where no secret is cut in two, as written or
-	// percent-encoded (Secrets.cut), and the rest, shorter than three times
-	// the longest secret and two bytes, waits for the next write; the line
-	// may grow by that much before its part goes, so that a part always
-	// holds 64 KiB.
+	// a part ends before the first secret that the bytes to come could
+	// still complete, as written or percent-encoded (Secrets.pending), so
+	// what is kept, shorter than three times the longest secret and two
+	// bytes, waits for the next write, and each part holds 64 KiB. A part
+	// masks each secret that the line holds so far, also one that the cut
+	// splits: its start in this part, its end in the next, which ctx, the
+	// end of what went out, lets the next part's masking see.
 	if len(s.buf) > partLimit(s.lw.secrets) {
-		c := s.lw.secrets.cut(s.buf)
-		s.lw.emit(s.name, string(s.buf[:c]))
+		c := s.lw.secrets.pending(s.buf)
+		s.lw.emit(s.name, s.lw.secrets.maskPart(s.ctx, s.buf, c))
+		if sec := s.lw.secrets; sec != nil {
+			out := append(s.ctx, s.buf[:c]...)
+			s.ctx = append([]byte(nil), out[max(0, len(out)-sec.lookBack()):]...)
+		}
 		s.buf = append([]byte(nil), s.buf[c:]...)
 	}
 	return len(b), nil
 }
 
 // partLimit is how long an output line grows before a part of it is
-// forwarded: 64 KiB, and with secrets as much as Secrets.cut may keep.
+// forwarded: 64 KiB, and with secrets as much as Secrets.pending may keep,
+// which is also how much of what went out a part's masking looks back at.
 func partLimit(sec *Secrets) int {
 	limit := 64 << 10
 	if sec != nil {
-		limit += 3*sec.longest + 2
+		limit += sec.lookBack()
 	}
 	return limit
 }

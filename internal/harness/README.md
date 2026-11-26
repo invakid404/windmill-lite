@@ -354,11 +354,11 @@ overlap become one mask. They mask the text that the engine takes from
 the process and passes on as text of its own:
 
 - its output lines, before they are forwarded or kept for errors. A line
-  that grows past 64 KiB goes in parts. Each part ends where no secret is
-  cut in two, as written or as its escapes decode, nor one that the next
-  bytes could make longer, nor an escape that they could complete. What
-  follows the cut, shorter than three times the longest secret, waits for
-  the next write;
+  past 64 KiB goes in parts, each ending before the first secret or escape
+  that the next bytes could complete, as written or decoded. What follows,
+  under three times the longest secret, waits, so each write past the
+  limit sends a part. A part masks the secrets that the line holds so far,
+  also one that its end splits, whose rest the next part masks;
 - an escaped invocation's log tail, which its error quotes. Each log line
   is masked before the engine keeps the last 600 characters, and so is
   the tail that the harness cut from its own log, whose start may be the

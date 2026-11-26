@@ -849,6 +849,7 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 		"WL_TEST_GAP_FRAGMENT":   {Value: gapFragment, Secret: true},
 		"WL_TEST_SPELLED_SECRET": {Value: spelled, Secret: true},
 		"WL_TEST_QUOTED_SECRET":  {Value: `"synthetic&quoted-0d4e"`, Secret: true},
+		"WL_TEST_TRAIL_SECRET":   {Value: `synthetic-end-5f1a"`, Secret: true},
 	}
 	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, HarnessEnv: env})
 	if err != nil {
@@ -1088,16 +1089,17 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 	// A Go hook's answer whose JSON spells the escape secret in a key and in
 	// a value, which hold it only as written, and holds the secret that is a
 	// JSON string with its quotes in a value and in a key, which escape its
-	// ampersand, so that only their JSON written compactly holds it: the
-	// trace's copy masks each key and value, and only those.
+	// ampersand, so that only their JSON written compactly holds it, and a
+	// secret that ends with a quote at the end of a value, after text that
+	// stays: the trace's copy masks each key and value, and only those.
 	spelledHook := &Hooks{Intercept: []Interceptor{{Selector: module("f/t/fragment", "a"), Func: func(context.Context, Call) (Outcome, bool, error) {
-		return Outcome{Result: json.RawMessage(`[{"` + spelled + `":1},"` + spelled + `","synthetic\u0026quoted-0d4e",{"synthetic\u0026quoted-0d4e":1}]`)}, true, nil
+		return Outcome{Result: json.RawMessage(`[{"` + spelled + `":1},"` + spelled + `","synthetic\u0026quoted-0d4e",{"synthetic\u0026quoted-0d4e":1},"keep synthetic-end-5f1a"]`)}, true, nil
 	}}}}
 	res, err = callRT.Run(context.Background(), "f/t/fragment", nil, RunOptions{Hooks: spelledHook})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec, ok := res.Trace.Step(mustSite(t, "m:a")); !ok || string(rec.Result.Producer()) != `[{"[secret]":1},"[secret]","[secret]",{"[secret]":1}]` {
+	if rec, ok := res.Trace.Step(mustSite(t, "m:a")); !ok || string(rec.Result.Producer()) != `[{"[secret]":1},"[secret]","[secret]",{"[secret]":1},"keep [secret]"]` {
 		t.Errorf("f/t/fragment, answered with the escape secret as written: the step result in the trace: %s; want the key and the value masked", shownBytes(rec.Result.Producer(), spelled))
 	}
 	// A secret that is a JSON string with its quotes, which the step parses
@@ -1114,6 +1116,24 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 	}
 	if rec, ok := res.Trace.Step(mustSite(t, "m:a")); string(res.Result) != `"synthetic-quoted-7a1e"` || !ok || string(rec.Result.Producer()) != fmt.Sprintf("%q", harness.SecretMask) {
 		t.Errorf("f/t/parsed with a quoted secret: result %s, trace %s; want the value and the mask", shownBytes(res.Result, "synthetic-quoted"), shownBytes(rec.Result.Producer(), "synthetic-quoted"))
+	}
+	// The same with a second secret that starts the first one's value: the
+	// value's own masking finds the second, and the token's JSON still
+	// holds the first whole, so the trace's copy is the mask alone.
+	bothRT, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, HarnessEnv: map[string]EnvValue{
+		"WL_TEST_JSON_SECRET": {Value: `"synthetic-distinctive-tail"`, Secret: true},
+		"WL_TEST_SHORT":       {Value: "synthetic", Secret: true},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bothRT.Close()
+	res, err = bothRT.Run(context.Background(), "f/t/parsed", nil, RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec, ok := res.Trace.Step(mustSite(t, "m:a")); string(res.Result) != `"synthetic-distinctive-tail"` || !ok || string(rec.Result.Producer()) != fmt.Sprintf("%q", harness.SecretMask) {
+		t.Errorf("f/t/parsed with a quoted secret and its start: result %s, trace %s; want the value and the mask alone", shownBytes(res.Result, "distinctive"), shownBytes(rec.Result.Producer(), "distinctive"))
 	}
 	// Two secrets that overlap, the end of one the start of the other, as
 	// one span in a path: nothing of the second one's end is left.
