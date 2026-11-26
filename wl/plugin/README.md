@@ -215,9 +215,10 @@ plugin's `onRunEnd` returned beside its warnings
 ([wl](../README.md#host-plugins)). An empty field means no answer, and the
 text `null` an answer of JSON null.
 
-- **Every outcome.** The engine calls `onRunEnd` however the run ended, a
-  failed, latched or canceled run included, and one whose deadline passed
-  before any step.
+- **Every outcome of a flow run.** The engine calls `onRunEnd` however a
+  flow run ended, a failed, latched or canceled run included, and one
+  whose deadline passed before any step. A root script's run calls no
+  run-end hook, so its `answer` is always empty.
 - **No answer.** A run has none when `onRunEnd` returns warnings or
   nothing, fails, gets no reply within `plugin_timeout_ms`, or answers more
   than 1 MiB of JSON text. Each failure adds a `plugin_error` warning.

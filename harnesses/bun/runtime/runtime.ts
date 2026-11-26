@@ -75,7 +75,7 @@ import {
   shadow,
 } from "./context.ts";
 import { Native, type NativeJob } from "./native.ts";
-import { declaration, dispatch, HostCallFailure, type Plugin, type Selector, type StepOutcome } from "./plugin.ts";
+import { AnswerText, declaration, dispatch, HostCallFailure, type Plugin, replyText, type Selector, type StepOutcome } from "./plugin.ts";
 import { HARNESS_VERSION, versionsPair } from "./version.ts";
 import { bind, errorText, patchBigInt, resultText, type Signature, signatureErrorText, signatureOf, stepContext } from "./wrapper.ts";
 
@@ -726,8 +726,19 @@ export class Runtime {
     const plugin = this.opts.plugin;
     const reply = (payload: Record<string, unknown> | undefined, error?: { code: string; message: string }) => {
       try {
-        this.send(error ? { t: "host_reply", id: m.id, error } : { t: "host_reply", id: m.id, payload: new Raw(JSON.stringify(payload)) });
+        this.send(error ? { t: "host_reply", id: m.id, error } : { t: "host_reply", id: m.id, payload: new Raw(replyText(payload!)) });
       } catch (e) {
+        // A run-end answer too large for max_message goes without its
+        // answer, and with its size, so that the hook's warnings still
+        // reach the engine, which says why the run has no answer.
+        if (payload?.answer instanceof AnswerText) {
+          try {
+            this.send({ t: "host_reply", id: m.id, payload: new Raw(replyText(payload, true)) });
+            return;
+          } catch {
+            // Too large without the answer too: the error below.
+          }
+        }
         // An answer too large, or not JSON: the engine hears why.
         this.send({ t: "host_reply", id: m.id, error: { code: "plugin_error", message: `the answer cannot be sent: ${describe(e)}` } });
       }

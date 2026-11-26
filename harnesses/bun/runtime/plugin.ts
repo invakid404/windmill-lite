@@ -134,11 +134,19 @@ export type TraceDetail = "full" | "summary" | "none";
 
 export type Warning = { code: string; message: string };
 
-/** What onRunEnd may return besides warnings or nothing: warnings to add
- * to the run, and the run's answer, any JSON value, which the run's result
- * carries (wl.Result.Answer). An answer of null is an answer; leaving
- * answer out, or undefined, gives none. */
+/** What onRunEnd may return besides warnings or nothing: a plain object
+ * whose keys are warnings, answer or both. warnings are added to the run;
+ * answer, any JSON value, is the run's answer, which its result carries
+ * (wl.Result.Answer). An answer of null is an answer; leaving answer out,
+ * or undefined, gives none. */
 export type RunEnd = { warnings?: Warning[]; answer?: unknown };
+
+/** The JSON text of the answer that onRunEnd gave, as JSON.stringify wrote
+ * it once. The reply carries these bytes (replyText), so a getter or a
+ * toJSON of the answer runs once. */
+export class AnswerText {
+  constructor(readonly text: string) {}
+}
 
 type MaybePromise<T> = T | Promise<T>;
 
@@ -294,27 +302,52 @@ function outcome(where: string, o: Outcome | undefined): Record<string, unknown>
   return o.failed ? { result: o.result ?? null, failed: true } : { result: o.result ?? null };
 }
 
+/** Whether onRunEnd returned a RunEnd: a plain object, with no prototype
+ * but Object's, whose keys are warnings, answer or both. Any other value
+ * keeps the rules of warnings or nothing, so a Map, a Date, {} or an object
+ * with another key answers plugin_error, as it always did. */
+function isRunEnd(v: unknown): v is RunEnd {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  const proto = Object.getPrototypeOf(v);
+  if (proto !== Object.prototype && proto !== null) return false;
+  const keys = Object.keys(v);
+  return keys.length > 0 && keys.every((k) => k === "warnings" || k === "answer");
+}
+
 /** The reply to on_run_end: the warnings that onRunEnd returned, and its
- * answer when it gave one. onRunEnd returns warnings, nothing, or a RunEnd
- * with no other key. An answer that JSON cannot encode, such as a
- * function, is a plugin_error, and so is one that JSON.stringify throws on,
- * such as a BigInt; the engine bounds its size. */
-function runEnd(out: Warning[] | RunEnd | void | null): Record<string, unknown> {
+ * answer when it gave one, as an AnswerText. Each property of a RunEnd is
+ * read once, and the answer is serialised once. An answer that JSON cannot
+ * encode, such as a function, is a plugin_error, and so is one that
+ * JSON.stringify throws on, such as a cycle; the engine bounds its size. */
+function runEnd(out: unknown): Record<string, unknown> {
   let ws: unknown = out ?? [];
-  const reply: Record<string, unknown> = {};
-  if (out && typeof out === "object" && !Array.isArray(out)) {
-    const other = Object.keys(out).find((k) => k !== "warnings" && k !== "answer");
-    if (other !== undefined) throw new HostCallFailure("plugin_error", `onRunEnd answered an object with the key ${JSON.stringify(other)}: it has only warnings and answer`);
-    ws = out.warnings ?? [];
-    if (out.answer !== undefined) {
-      if (JSON.stringify(out.answer) === undefined) throw new HostCallFailure("plugin_error", "onRunEnd answered an answer that JSON cannot encode");
-      reply.answer = out.answer;
-    }
+  let answer: unknown;
+  if (isRunEnd(out)) {
+    const keys = Object.keys(out);
+    ws = (keys.includes("warnings") ? out.warnings : undefined) ?? [];
+    if (keys.includes("answer")) answer = out.answer;
   }
   if (!Array.isArray(ws) || ws.some((w) => !w || typeof w.code !== "string" || typeof w.message !== "string")) {
     throw new HostCallFailure("plugin_error", "onRunEnd answered warnings that are not {code, message} objects");
   }
-  return { warnings: ws.map((w: Warning) => ({ code: w.code, message: w.message })), ...reply };
+  const reply: Record<string, unknown> = { warnings: ws.map((w: Warning) => ({ code: w.code, message: w.message })) };
+  if (answer !== undefined) {
+    const text = JSON.stringify(answer);
+    if (text === undefined) throw new HostCallFailure("plugin_error", "onRunEnd answered an answer that JSON cannot encode");
+    reply.answer = new AnswerText(text);
+  }
+  return reply;
+}
+
+/** A host_reply payload as JSON text: JSON.stringify's, with an on_run_end
+ * reply's AnswerText written last as the raw answer. Without the answer,
+ * withoutAnswer gives its size in UTF-8 bytes as answer_bytes instead. */
+export function replyText(payload: Record<string, unknown>, withoutAnswer = false): string {
+  const { answer, ...rest } = payload;
+  if (!(answer instanceof AnswerText)) return JSON.stringify(payload);
+  if (withoutAnswer) return JSON.stringify({ ...rest, answer_bytes: new TextEncoder().encode(answer.text).length });
+  const text = JSON.stringify(rest);
+  return `${text.slice(0, -1)}${text === "{}" ? "" : ","}"answer":${answer.text}}`;
 }
 
 function entry<T>(list: T[] | undefined, index: unknown, hook: string): T {

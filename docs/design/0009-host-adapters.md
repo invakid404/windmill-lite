@@ -561,11 +561,12 @@ The gRPC deadline of the `Run` call bounds the call, not the run. A call
 that ends first cancels its run, whose outcome then has no receiver, so
 `Client.Run` sets the run's deadline ahead of the call's.
 
-Every end of a run calls the `onRunEnd` of the bundle's host plugin, a
-deadline that passed before any step included, and the call has the
-plugin timeout alone. So a canceled run's `RunResult` can carry the
-plugin's answer. A host that needs the answer chooses a reply margin that
-covers `plugin_timeout_ms`.
+Every end of a flow run calls the `onRunEnd` of the bundle's host plugin,
+a deadline that passed before any step included, and the call has the
+plugin timeout alone. So a canceled flow run's `RunResult` can carry the
+plugin's answer. A root script's run calls no run-end hook and has no
+answer. A host that needs the answer chooses a reply margin that covers
+`plugin_timeout_ms`.
 
 #### Process affinity and limits
 

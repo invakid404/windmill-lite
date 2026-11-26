@@ -420,7 +420,7 @@ A script run uses only `Kind`, `ID`, `Identity`, `Data`, `Pin` and
 | `Latched` | For a `latched` run, the error that was latched |
 | `CancelCause` | For a `canceled` run, why it was canceled (table below); empty otherwise |
 | `Started` | For a script run, `true` once the script's invocation was sent to a harness process, whose writes windmill-lite cannot see. `false` when the script never ran, such as on a cache hit or a deadline that passed before the send. A flow run leaves it `false`. |
-| `Answer` | For a flow run, the JSON text of the run-end answer that the host plugin's `onRunEnd` returned ([Host plugins](#host-plugins)). `nil` means no answer, and the text `null` an answer of JSON null. |
+| `Answer` | For a flow run, the JSON text of the run-end answer that the host plugin's `onRunEnd` returned ([Host plugins](#host-plugins)). `nil` means no answer, and the text `null` an answer of JSON null. `encoding/json` leaves a `nil` answer out. |
 
 | Status | Constant | Meaning |
 |---|---|---|
@@ -720,6 +720,10 @@ to write one.
   - An answer whose JSON text is longer than `MaxRunEndAnswerBytes`
     (1 MiB) is dropped. The run keeps the hook's warnings, and gets a
     `plugin_error` warning after them that names both sizes.
+  - A reply that the harness protocol's message limit cannot carry with
+    its answer arrives without it, with the answer's size. The run keeps
+    the hook's warnings and gets a `plugin_error` warning that names the
+    size.
   - A Go host's hooks, `RunOptions.Hooks` and a run's hooks on a host's
     connection, give no answer: they run in the host's own process, which
     holds their state already.
@@ -881,6 +885,9 @@ with the engine's side of the protocol in
   engine returns. Only the runtime's own plugin fills it (`plugin.answers`,
   set by `usePlugin`). A run's hooks on a host's connection take the same
   decoding, and their answer is ignored.
+  - A reply with `answer_bytes` and no `answer` comes from a harness that
+    could not send the answer within `max_message`; the run gets the
+    warning of an answer over the bound, or of one too large to send.
 - **Settlement.** Every `host_call` of a run holds the run's settlement
   (`doHeld`, `engine.HoldSettlement`) until its reply, or until its late
   reply or the harness's exit when the runtime stopped waiting first. So
@@ -916,7 +923,7 @@ build helper's dependencies, and skip without them unless
 | `plugincases_test.go` | The cases of `conformance/plugins/hooks.yaml`, through the TypeScript case plugin, named by `Options.Plugin` and built into the bundle, and through Go callbacks built from the same plugins | Yes |
 | `bundledplugin_test.go` | A bundle's own plugin. Its `around` wrapper and the step share a host-provided module in 16 concurrent runs (`TestBundledPluginSharesHostModule`), and a bundle with no step starts processes for it (`TestBundledPluginWithoutSteps`). `Open` refuses it with `Options.Plugin` and in `fresh` (`TestOpenRefusesTwoPlugins`), and refuses a manifest that names a module outside the bundle (`TestOpenRefusesUnverifiedPlugin`). A `fetch` wrapper it installs at load reaches an ordinary step and not a native one (`TestPluginFetchWrapperOrder`) | Yes |
 | `rundata_test.go` | `RunOptions.Data` on real runs. Wrappers of an `around`-only plugin read their own run's data and steps `undefined` (`TestRunDataAroundOnly`), a hook reads it frozen (`TestRunDataHook`), and a run that a Go hook starts does not inherit it (`TestRunDataNotInherited`). The process holds it until a flow run or a script job settles (`TestRunDataReleased`), and one without a plugin gets none (`TestRunDataNeedsPlugin`). Data that is not JSON or not UTF-8 is refused (`TestRunDataRefusesInvalid`, `TestRunDataRefusesInvalidUTF8`). | Yes |
-| `runendanswer_test.go` | A successful, failed, latched or canceled run, and one past its deadline before any step, gets the plugin's answer, and null is the text `null` (`TestPluginRunEndAnswer`). A throw, a timeout or a lost pinned process gives no answer and one `plugin_error` warning (`TestPluginRunEndAnswerFailed`). Warnings alone, or nothing, keep the warnings and give no answer (`TestPluginRunEndAnswerUnchanged`). An answer at `MaxRunEndAnswerBytes` arrives whole, and one byte over is dropped (`TestPluginRunEndAnswerBound`). | Yes |
+| `runendanswer_test.go` | The run-end answer of a plugin's `onRunEnd` on real runs: for every end of a flow run, null as `null`, an answer read and serialised once, and its JSON encoding (`TestPluginRunEndAnswer`). None after a throw, a timeout or a lost process (`TestPluginRunEndAnswerFailed`). Warnings alone, nothing, and values outside the form keep their result (`TestPluginRunEndAnswerUnchanged`). The bound, exactly (`TestPluginRunEndAnswerBound`), and a harness process whose message limit cannot carry the answer (`TestPluginRunEndAnswerTooLargeToSend`). | Yes |
 | `rundatalate_test.go` | Run data after `Run` returns, while a plugin hook that outlived the plugin timeout holds the run's settlement. A later run of the same `ID`, with data or without, reads its own, and the earlier run's hook and `onRunSettled` read theirs (`TestRunDataReusedID`). A buffer reused once `Run` returns does not reach a new process (`TestRunDataOwnsBuffer`). | Yes |
 | `store_test.go` | `Options.ResourceStore` on real steps (`TestResourceStoreOnBun`): two runtimes that share a memory store, one with its own, a failing store's warning, and `D24` in the trace; a run id in flight refused (`TestRunIDInFlight`). Without Bun: `Close` releasing its own store while readers use it (`TestCloseReleasesItsOwnStore`), and a late answer kept from a later run of the same id (`TestLateAnswerAcrossIDReuse`) | Yes, but for the last two |
 | `pool_test.go` | `Options.Pool`. Without Bun: `Open`'s refusals in `fresh` and host mode (`TestPoolOptionsRefusedFresh`) and of `MaxLive` below `Max` (`TestPoolMaxLiveBelowMax`), and the cap's entry in the trace. On real steps: a second process for a step beside a CPU-bound one and under `Cap`, the module and RSS triggers (`TestWlPoolOptions`), and the warm start (`TestWarmStart`). A step reads a plugin's resource under `Cap: 1` (`TestPoolCapLeavesPluginCalls`) and while its process leaves (`TestPoolRecyclingProcessServesPluginCalls`); zero settings call the diagnostics writer as before (`TestDiagnosticsZeroSettings`) | Yes, but for the refusals and the trace |

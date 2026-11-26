@@ -1035,10 +1035,12 @@ answered by a `host_reply`.
      `runs_held`.
 10. **The run-end answer.** The `host_reply` to an `on_run_end` carries the
     hook's `warnings` and, when the plugin gave one, its `answer`: any JSON
-    value. The run's outcome carries the answer, so a host plugin can map
-    every way a run ends, a failure, a latch or a cancellation included,
-    from state that only its process holds. A flow's last step cannot: it
-    does not run after those ends.
+    value. The flow run's outcome carries the answer, so a host plugin can
+    map every way a flow run ends, a failure, a latch or a cancellation
+    included, from state that only its process holds. A flow's last step
+    cannot: it does not run after those ends.
+    - **Flow runs only.** A root script's run calls no run-end hook, so it
+      has no answer.
     - **None and null.** An `answer` of `null` is an answer: a plugin may
       mean it. An absent field is none, and every layer writes none so: no
       `answer` in the reply and in `run_done`, an empty `answer` in a
@@ -1053,6 +1055,14 @@ answered by a `host_reply`.
       data, so the bound stops a plugin's mistake from growing each
       outcome. Dropping the answer alone keeps the hook's warnings, which
       a refusal of the whole reply would lose.
+    - **A reply too large to send.** When the reply with its answer is over
+      `max_message`, the harness sends the hook's warnings and
+      `answer_bytes`, the answer's size in UTF-8 bytes, without the answer.
+      The engine then adds a `plugin_error` warning that names the size,
+      so the hook's warnings still arrive.
+    - **One serialisation.** The harness reads the answer once and
+      serialises it once, and the reply carries that text, so what the
+      harness checked is what the engine gets.
     - **Whose answer.** Only the runtime's own plugin answers. A run's
       hooks on a host's connection
       ([host adapters](0009-host-adapters.md#hooks-across-the-plugin-boundary))

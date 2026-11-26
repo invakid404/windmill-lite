@@ -321,8 +321,10 @@ type Result struct {
 	// failed, got no reply within the plugin timeout or from a lost
 	// process, or answered more than MaxRunEndAnswerBytes. A Go host's own
 	// hooks give no answer, and neither does a script run, which calls no
-	// run-end hook.
-	Answer json.RawMessage
+	// run-end hook. encoding/json leaves the field out when it is nil: a
+	// Result without an answer has no Answer member, and one with an answer
+	// of null has "Answer":null.
+	Answer json.RawMessage `json:",omitempty"`
 }
 
 // runEndAnswer is a flow run's answer (Result.Answer), which its context

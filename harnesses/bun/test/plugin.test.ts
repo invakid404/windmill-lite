@@ -6,7 +6,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { describe, expect, test } from "bun:test";
 import { decodeAll, encode, FrameReader, frame, Raw } from "../runtime/frame.ts";
-import { declaration, dispatch, HostCallFailure, type Plugin } from "../runtime/plugin.ts";
+import { declaration, dispatch, HostCallFailure, type Plugin, replyText } from "../runtime/plugin.ts";
 import { Runtime } from "../runtime/runtime.ts";
 
 const site = { path: "m:a", flow: "f/x", module: "a", script: "f/x/a" };
@@ -91,35 +91,55 @@ describe("dispatch", () => {
     expect(await code("provide", { name: "bad", site, args: {} })).toBe("plugin_error");
   });
 
-  // What onRunEnd returns becomes the reply's payload, which the runtime
-  // sends as JSON.stringify writes it.
-  const runEnd = (f: NonNullable<Plugin["onRunEnd"]>) => dispatch({ onRunEnd: f }, "on_run_end", "r", { trace: { run: "r", status: "success" } });
+  // What onRunEnd returns becomes the reply's payload, whose text the
+  // runtime sends as replyText writes it.
+  const runEnd = async (f: NonNullable<Plugin["onRunEnd"]>) => replyText(await dispatch({ onRunEnd: f }, "on_run_end", "r", { trace: { run: "r", status: "success" } }));
   const w = { code: "c", message: "m" };
 
   test("onRunEnd's warnings, or nothing, answer warnings alone, with no answer", async () => {
     for (const f of [() => [w], async () => [w]]) {
-      expect(JSON.stringify(await runEnd(f))).toBe('{"warnings":[{"code":"c","message":"m"}]}');
+      expect(await runEnd(f)).toBe('{"warnings":[{"code":"c","message":"m"}]}');
     }
     for (const f of [() => undefined, async () => {}, () => null as never, () => []]) {
-      expect(JSON.stringify(await runEnd(f))).toBe('{"warnings":[]}');
+      expect(await runEnd(f)).toBe('{"warnings":[]}');
     }
   });
 
   test("onRunEnd's { warnings?, answer? } answers the warnings and the answer, null included", async () => {
     const answer = { outcome: "retry", after_ms: 250, notes: ["a", null] };
-    expect(JSON.stringify(await runEnd(() => ({ warnings: [w], answer })))).toBe(
+    expect(await runEnd(() => ({ warnings: [w], answer }))).toBe(
       '{"warnings":[{"code":"c","message":"m"}],"answer":{"outcome":"retry","after_ms":250,"notes":["a",null]}}',
     );
-    expect(JSON.stringify(await runEnd(async () => ({ answer: 0 })))).toBe('{"warnings":[],"answer":0}');
-    expect(JSON.stringify(await runEnd(() => ({ answer: "" })))).toBe('{"warnings":[],"answer":""}');
+    expect(await runEnd(async () => ({ answer: 0 }))).toBe('{"warnings":[],"answer":0}');
+    expect(await runEnd(() => ({ answer: "é" }))).toBe('{"warnings":[],"answer":"é"}');
     // null is an answer; an absent or undefined answer is none.
-    expect(JSON.stringify(await runEnd(() => ({ answer: null })))).toBe('{"warnings":[],"answer":null}');
-    expect(JSON.stringify(await runEnd(() => ({ warnings: [w] })))).toBe('{"warnings":[{"code":"c","message":"m"}]}');
-    expect(JSON.stringify(await runEnd(() => ({ answer: undefined })))).toBe('{"warnings":[]}');
-    expect(JSON.stringify(await runEnd(() => ({})))).toBe('{"warnings":[]}');
+    expect(await runEnd(() => ({ answer: null }))).toBe('{"warnings":[],"answer":null}');
+    expect(await runEnd(() => ({ warnings: [w] }))).toBe('{"warnings":[{"code":"c","message":"m"}]}');
+    expect(await runEnd(() => ({ answer: undefined }))).toBe('{"warnings":[]}');
+    // An object without a prototype is a RunEnd too.
+    expect(await runEnd(() => Object.assign(Object.create(null), { answer: 1 }))).toBe('{"warnings":[],"answer":1}');
   });
 
-  test("onRunEnd's answer that JSON cannot carry, another key, or bad warnings answer plugin_error", async () => {
+  test("onRunEnd's answer is read once and serialised once: the reply carries the text that was checked", async () => {
+    let reads = 0;
+    let serialised = 0;
+    const value = { toJSON: () => ({ serialised: ++serialised }) };
+    const out = {
+      warnings: [w],
+      get answer() {
+        return ++reads === 1 ? value : undefined;
+      },
+    };
+    expect(await runEnd(() => out)).toBe('{"warnings":[{"code":"c","message":"m"}],"answer":{"serialised":1}}');
+    expect([reads, serialised]).toEqual([1, 1]);
+  });
+
+  test("a reply too large for max_message goes without its answer, with its size in UTF-8 bytes", async () => {
+    const payload = await dispatch({ onRunEnd: () => ({ warnings: [w], answer: "é".repeat(3) }) }, "on_run_end", "r", { trace: {} });
+    expect(replyText(payload, true)).toBe('{"warnings":[{"code":"c","message":"m"}],"answer_bytes":8}');
+  });
+
+  test("onRunEnd's answer that JSON cannot carry, a value outside the forms, or bad warnings answer plugin_error", async () => {
     const fails = async (f: () => unknown) => {
       try {
         await runEnd(f as never);
@@ -128,7 +148,15 @@ describe("dispatch", () => {
       }
       return "answered";
     };
-    expect(await fails(() => ({ answers: 1 }))).toBe('plugin_error: onRunEnd answered an object with the key "answers": it has only warnings and answer');
+    // A value outside the RunEnd form keeps the refusal of warnings that
+    // are not {code, message} objects.
+    const refused = "plugin_error: onRunEnd answered warnings that are not {code, message} objects";
+    class Answer {
+      answer = 1;
+    }
+    for (const f of [() => ({ answers: 1 }), () => ({ warnings: [w], extra: 1 }), () => ({}), () => new Map(), () => new Date(), () => new Answer()]) {
+      expect(await fails(f)).toBe(refused);
+    }
     expect(await fails(() => ({ answer: () => 1 }))).toBe("plugin_error: onRunEnd answered an answer that JSON cannot encode");
     expect(await fails(() => ({ answer: Symbol("s") }))).toBe("plugin_error: onRunEnd answered an answer that JSON cannot encode");
     const cyclic: Record<string, unknown> = {};
@@ -140,15 +168,16 @@ describe("dispatch", () => {
   });
 });
 
-/** A host-mode runtime whose frames the test reads. */
-function hostRuntime(plugin?: Plugin) {
+/** A host-mode runtime whose frames the test reads, welcomed with the
+ * message limit maxMessage. */
+function hostRuntime(plugin?: Plugin, maxMessage = 1 << 20) {
   const written: Uint8Array[] = [];
   const runtime = new Runtime({ bundleDir: "/nonexistent", bundleDigest: "sha256:b", host: true, plugin, transport: { write: (b) => (written.push(b.slice()), b.length), end: () => {} }, exit: () => {} });
   runtime.start();
   const send = (m: Record<string, unknown>) => runtime.onData(frame(encode(m as { t: string })));
   // A frame as a peer may write it, not through the canonical encoder.
   const sendRaw = (text: string) => runtime.onData(frame(new TextEncoder().encode(text)));
-  send({ t: "welcome", proto: 1, engine: "test", bundle: "sha256:b", config: { module_state: "warm", heartbeat_ms: 60000, max_message: 1 << 20 } });
+  send({ t: "welcome", proto: 1, engine: "test", bundle: "sha256:b", config: { module_state: "warm", heartbeat_ms: 60000, max_message: maxMessage } });
   const messages = () => decodeAll(new FrameReader().push(Buffer.concat(written)));
   return { runtime, send, sendRaw, messages };
 }
@@ -164,6 +193,43 @@ function runDataCall(send: (m: Record<string, unknown>) => void) {
 }
 
 describe("the runtime", () => {
+  test("answers on_run_end with the answer's text, read and serialised once", async () => {
+    let reads = 0;
+    let serialised = 0;
+    const value = { toJSON: () => ({ serialised: ++serialised }) };
+    const { runtime, send, messages } = hostRuntime({
+      onRunEnd: () => ({
+        get answer() {
+          return ++reads === 1 ? value : undefined;
+        },
+      }),
+    });
+    send({ t: "host_call", id: "hc1", hook: "on_run_end", run: "r", site: "", payload: { trace: { run: "r", status: "success" } } });
+    await Bun.sleep(5);
+    expect(messages().find((m) => m.t === "host_reply")).toEqual({ t: "host_reply", id: "hc1", payload: { warnings: [], answer: { serialised: 1 } } });
+    expect([reads, serialised]).toEqual([1, 1]);
+    runtime.onClose();
+  });
+
+  test("a run-end reply too large for max_message keeps its warnings and gives its answer's size; one too large without it is an error", async () => {
+    const w = { code: "c", message: "m" };
+    const { runtime, send, messages } = hostRuntime(
+      {
+        onRunEnd: (t) => (t.run === "small" ? { warnings: [w], answer: "é".repeat(3000) } : { warnings: [{ code: "c", message: "w".repeat(5000) }], answer: 1 }),
+      },
+      4096,
+    );
+    send({ t: "host_call", id: "hc1", hook: "on_run_end", run: "small", site: "", payload: { trace: { run: "small", status: "success" } } });
+    send({ t: "host_call", id: "hc2", hook: "on_run_end", run: "large", site: "", payload: { trace: { run: "large", status: "success" } } });
+    await Bun.sleep(5);
+    const replies = messages().filter((m) => m.t === "host_reply");
+    expect(replies.find((m) => m.id === "hc1")).toEqual({ t: "host_reply", id: "hc1", payload: { warnings: [w], answer_bytes: 6002 } });
+    const large = replies.find((m) => m.id === "hc2");
+    expect(large?.error?.code).toBe("plugin_error");
+    expect(large?.error?.message).toContain("the answer cannot be sent");
+    runtime.onClose();
+  });
+
   test("a run's outcome carries run_done's answer as JSON text: null is an answer, an absent one none", async () => {
     const { runtime, send } = hostRuntime();
     const runs = [0, 1, 2].map(() => runtime.submit("flow", "f/x", "{}"));

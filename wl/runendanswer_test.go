@@ -10,6 +10,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/invakid404/windmill-lite/internal/harness"
+	"github.com/invakid404/windmill-lite/internal/jsonval"
 )
 
 // runEndPlugin is a host plugin whose onRunEnd answers from state that
@@ -24,7 +27,12 @@ import (
 //   - {"mode":"throw"}: a throw;
 //   - {"mode":"hang"}: a promise that never settles;
 //   - {"mode":"size","n":<n>}: the warning and an answer of a string of n
-//     characters x, whose JSON text is n + 2 bytes.
+//     characters x, whose JSON text is n + 2 bytes;
+//   - {"mode":"counted"}: the warning and an answer behind a getter that
+//     gives it on its first read only, whose toJSON counts its calls: an
+//     answer read and serialised once is {"serialised":1};
+//   - {"mode":"map"}, {"mode":"empty"}, {"mode":"other"}: values outside
+//     the RunEnd form: a Map, {}, and the warning beside another key.
 const runEndPlugin = `const seen = new Map<string, string[]>();
 export default {
   onModuleStart({ run, site }) {
@@ -42,6 +50,14 @@ export default {
       case "throw": throw new Error("the plugin's run end failed");
       case "hang": return new Promise(() => {});
       case "size": return { warnings: [warning], answer: "x".repeat(d.n) };
+      case "counted": {
+        let reads = 0, serialised = 0;
+        const value = { toJSON: () => ({ serialised: ++serialised }) };
+        return { warnings: [warning], get answer() { return ++reads === 1 ? value : undefined; } };
+      }
+      case "map": return new Map();
+      case "empty": return {};
+      case "other": return { warnings: [warning], extra: 1 };
     }
     return { warnings: [warning], answer: { status: t.status, cause: t.cancel_cause ?? null, latched: t.latched !== undefined, modules } };
   },
@@ -142,6 +158,9 @@ func TestPluginRunEndAnswer(t *testing.T) {
 			if !slices.Contains(warningTexts(res.Warnings), "run_end: "+c.status) {
 				t.Fatalf("warnings %+v: the hook's warning is missing", res.Warnings)
 			}
+			if got := marshalledAnswer(t, res); got != c.answer {
+				t.Fatalf("json.Marshal of the result: Answer %s, want %s", got, c.answer)
+			}
 		})
 	}
 	t.Run("null", func(t *testing.T) {
@@ -149,7 +168,41 @@ func TestPluginRunEndAnswer(t *testing.T) {
 		if res.Status != StatusSuccess || string(res.Answer) != "null" || len(res.Warnings) != 0 {
 			t.Fatalf("status %s, answer %q, warnings %+v; want success, the text null and no warning", res.Status, res.Answer, res.Warnings)
 		}
+		if got := marshalledAnswer(t, res); got != "null" {
+			t.Fatalf("json.Marshal of the result: Answer %s, want null", got)
+		}
 	})
+	// The answer's getter is read once, and its toJSON runs once: the reply
+	// carries the text that the harness checked.
+	t.Run("read and serialised once", func(t *testing.T) {
+		res := runEnd(t, context.Background(), rt, "f/a/ok", `{"mode":"counted"}`, nil)
+		if res.Status != StatusSuccess || string(res.Answer) != `{"serialised":1}` || !slices.Equal(warningTexts(res.Warnings), []string{"run_end: success"}) {
+			t.Fatalf("status %s, answer %s, warnings %+v; want success, {\"serialised\":1} and the hook's warning", res.Status, res.Answer, res.Warnings)
+		}
+	})
+}
+
+// marshalledAnswer is the Answer member of res as encoding/json writes the
+// result, or "absent" when it has none. It marshals a copy without the
+// trace, whose values encoding/json cannot all encode, as a script run's
+// result has none.
+func marshalledAnswer(t *testing.T, res *Result) string {
+	t.Helper()
+	c := *res
+	c.Trace = nil
+	b, err := json.Marshal(&c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	a, ok := m["Answer"]
+	if !ok {
+		return "absent"
+	}
+	return string(a)
 }
 
 // TestPluginRunEndAnswerFailed: a run whose onRunEnd throws, gets no reply
@@ -188,13 +241,17 @@ func TestPluginRunEndAnswerFailed(t *testing.T) {
 
 // TestPluginRunEndAnswerUnchanged: an onRunEnd that returns warnings, or
 // nothing, gives the run its warnings, or none, and no answer; its status
-// and result stay the run's own. A Go host's own OnRunEnd beside it adds
-// its warnings first, and no answer either.
+// and result stay the run's own, and json.Marshal of the result has no
+// Answer member. A Go host's own OnRunEnd beside it adds its warnings
+// first, and no answer either. A value outside the RunEnd form, a Map, {}
+// or an object with another key, still answers the plugin_error of
+// warnings that are not {code, message} objects.
 func TestPluginRunEndAnswerUnchanged(t *testing.T) {
 	rt := openRunEnd(t, 0)
 	goEnd := &Hooks{OnRunEnd: func(context.Context, *Trace) []Warning {
 		return []Warning{{Code: "go_end", Message: "the Go hook"}}
 	}}
+	const refused = "plugin_error: the host plugin's onRunEnd: plugin_error: host plugin hook on_run_end: onRunEnd answered warnings that are not {code, message} objects"
 	for _, c := range []struct {
 		name, data string
 		hooks      *Hooks
@@ -203,6 +260,9 @@ func TestPluginRunEndAnswerUnchanged(t *testing.T) {
 		{"warnings", `{"mode":"warnings"}`, nil, []string{"run_end: success"}},
 		{"nothing", `{"mode":"nothing"}`, nil, nil},
 		{"a Go hook's warnings first", `{"mode":"warnings"}`, goEnd, []string{"go_end: the Go hook", "run_end: success"}},
+		{"a Map", `{"mode":"map"}`, nil, []string{refused}},
+		{"an empty object", `{"mode":"empty"}`, nil, []string{refused}},
+		{"an object with another key", `{"mode":"other"}`, nil, []string{refused}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			res := runEnd(t, context.Background(), rt, "f/a/ok", c.data, c.hooks)
@@ -214,6 +274,9 @@ func TestPluginRunEndAnswerUnchanged(t *testing.T) {
 			}
 			if !slices.Equal(warningTexts(res.Warnings), c.warnings) {
 				t.Fatalf("warnings %+v, want %+v", res.Warnings, c.warnings)
+			}
+			if got := marshalledAnswer(t, res); got != "absent" {
+				t.Fatalf("json.Marshal of the result: Answer %s, want no member", got)
 			}
 		})
 	}
@@ -252,4 +315,60 @@ func warningTexts(ws []Warning) []string {
 		out = append(out, w.Code+": "+w.Message)
 	}
 	return out
+}
+
+// TestPluginRunEndAnswerTooLargeToSend: a harness process whose message
+// limit, lowered to 256 KiB, cannot carry the reply with its answer sends
+// the hook's warnings and the answer's size instead. The run keeps the
+// warning and has no answer, with a plugin_error that names the size: over
+// the bound, or within it but too large for the limit. An answer that fits
+// the limit arrives whole. The process is real, spawned beside the
+// runtime's pool for the runtime's bundle and plugin.
+func TestPluginRunEndAnswerTooLargeToSend(t *testing.T) {
+	rt := openRunEnd(t, 0)
+	bun := bunOrSkip(t)
+	plugin := filepath.Join(t.TempDir(), "plugin.ts")
+	if err := os.WriteFile(plugin, []byte(runEndPlugin), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runtimeDir, err := filepath.Abs(filepath.Join("..", "harnesses", "bun", "runtime"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, args := harness.BunCommand(bun, filepath.Join(runtimeDir, "main.ts"), rt.dir)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	proc, err := harness.Spawn(ctx, harness.ProcessConfig{
+		Path: path, Args: append(args, "--plugin", plugin), WorkRoot: t.TempDir(), Kind: "bun", Runtime: harness.PinnedBun,
+		Bundle: rt.digest, EngineVersion: rt.version, Facade: rt.PlatformOrigin(), Platform: rt.fac.Platform(), MaxMessage: 256 << 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		proc.Kill()
+		<-proc.Done()
+	}()
+	p, err := newPlugin(proc.Hello().Plugin, rt.prog, proc.HostCall, 0, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.answers = true
+	for i, c := range []struct {
+		n        int
+		answer   string
+		warnings []string
+	}{
+		{200000, `"` + strings.Repeat("x", 200000) + `"`, []string{"run_end: success"}},
+		{300000, "", []string{"run_end: success", "plugin_error: the host plugin's onRunEnd: an answer of 300002 bytes did not fit in a message of the harness protocol, so the run has no answer"}},
+		{MaxRunEndAnswerBytes, "", []string{"run_end: success", "plugin_error: the host plugin's onRunEnd: an answer of 1048578 bytes is over the bound of 1048576 bytes, so the run has no answer"}},
+	} {
+		run := fmt.Sprintf("too-large-%d", i)
+		data := harness.NewRunData(run, jsonval.FromProducer([]byte(fmt.Sprintf(`{"mode":"size","n":%d}`, c.n))))
+		actx, answer := withAnswer(harness.WithRunData(context.Background(), data))
+		ws := p.hooks.OnRunEnd(actx, &Trace{RunID: run, Status: "success"})
+		if string(answer.get()) != c.answer || !slices.Equal(warningTexts(ws), c.warnings) {
+			t.Errorf("an answer of %d characters: answer of %d bytes, warnings %q; want %d bytes and %q", c.n, len(answer.get()), warningTexts(ws), len(c.answer), c.warnings)
+		}
+	}
 }

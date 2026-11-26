@@ -264,9 +264,9 @@ Two further rules complete it:
     H4, H7, H8, H10) in its `run` frame. `onRunEnd` runs for a canceled run
     too, with the plugin timeout alone.
   - **The run-end answer.** A plugin's `onRunEnd` may return
-    `{ warnings?, answer? }`. The run's outcome then carries the answer, any
-    JSON value, so the plugin maps every way a run ends, from state that
-    only its process holds. A Go host's own H9 gives no answer, since its
+    `{ warnings?, answer? }`. A flow run's outcome then carries the answer,
+    any JSON value, so the plugin maps every way a flow run ends, from state
+    that only its process holds. A Go host's own H9 gives no answer, since its
     state is already the host's
     ([harness protocol](0004-harness-protocol.md#host-plugins) item 10).
   - **Records.** A TypeScript hook's records and traces carry every field

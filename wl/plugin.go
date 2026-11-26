@@ -332,6 +332,11 @@ func (p *plugin) goHooks() *Hooks {
 				// Answer is the run's answer: nil when the reply has
 				// none, and the text null for an answer of JSON null.
 				Answer json.RawMessage `json:"answer"`
+				// AnswerBytes is, in a reply without Answer, the size of
+				// the answer that the harness left out because the reply
+				// with it did not fit the harness protocol's message
+				// limit; 0 for none.
+				AnswerBytes int64 `json:"answer_bytes"`
 			}
 			// A run its context ended, canceled or past a deadline, still
 			// reports its end: the call has the plugin timeout alone.
@@ -344,12 +349,22 @@ func (p *plugin) goHooks() *Hooks {
 			for _, w := range r.Warnings {
 				ws = append(ws, Warning{Code: w.Code, Message: w.Message})
 			}
-			if r.Answer != nil && p.answers {
-				if len(r.Answer) > MaxRunEndAnswerBytes {
-					ws = append(ws, Warning{Code: harness.HostErrorPlugin, Message: fmt.Sprintf("the host plugin's onRunEnd: an answer of %d bytes is over the bound of %d bytes, so the run has no answer", len(r.Answer), MaxRunEndAnswerBytes)})
-				} else {
-					answerOf(ctx).set(r.Answer)
-				}
+			if !p.answers {
+				return ws
+			}
+			size := int64(len(r.Answer))
+			if r.Answer == nil {
+				size = r.AnswerBytes
+			}
+			switch {
+			case r.Answer != nil && size <= MaxRunEndAnswerBytes:
+				answerOf(ctx).set(r.Answer)
+			case size > MaxRunEndAnswerBytes:
+				ws = append(ws, Warning{Code: harness.HostErrorPlugin, Message: fmt.Sprintf("the host plugin's onRunEnd: an answer of %d bytes is over the bound of %d bytes, so the run has no answer", size, MaxRunEndAnswerBytes)})
+			case size > 0:
+				// Within the bound, but the harness protocol's message
+				// limit, lower than the bound, left it out.
+				ws = append(ws, Warning{Code: harness.HostErrorPlugin, Message: fmt.Sprintf("the host plugin's onRunEnd: an answer of %d bytes did not fit in a message of the harness protocol, so the run has no answer", size)})
 			}
 			return ws
 		}
