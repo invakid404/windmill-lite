@@ -202,6 +202,9 @@ the configuration names no plugin of its own.
   that is not set fails the start, naming the variable. A resource reaches a
   secret through a `$var:` reference to a secret variable, as on Windmill
   ([WA-12](../semantics/client-api.md#wa-12)).
+- **Secret entries of `harness_env`.** The engine masks their values in
+  the output of the harness processes that it passes on
+  ([harness protocol](0004-harness-protocol.md#per-invocation-identity-logs-and-environment)).
 - **The launch environment.** A go-plugin host usually starts its plugin
   with a literal environment (go-plugin's `SkipHostEnv`), so it puts
   exactly the referenced variables there.

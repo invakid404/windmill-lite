@@ -546,6 +546,11 @@ step, never releases them.
   environment. A step's own variables, such as its script's `envs`, win
   over the host's for its invocation. A native step reads none of them,
   since its `process.env` is built from its invocation's variables.
+- **Secrets among them.** The engine replaces each secret's value with
+  `[secret]` in the text that it takes from the process and passes on:
+  its output lines and the errors that quote them, warnings, and the
+  errors of its host plugin's hooks. A step's result, failure and log, and
+  a hook's answer, are the run's data and stay as they are.
 - **Host mode** takes none: the host's environment is its own.
 
 ### Lifecycle

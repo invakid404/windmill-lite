@@ -489,7 +489,10 @@ start, naming the provider.
   however many references name it, and then unsets it. A variable that is
   not set fails the start, naming it.
 - **Not repeated.** The value is in no build information and in no line
-  of the engine's standard error.
+  of the engine's standard error. The engine masks a secret entry of
+  `harness_env` in what it passes on from a harness process, such as the
+  process's output, which goes to standard error
+  ([wl](../../wl/README.md#the-harness-environment)).
 - **The launch environment.** `wl/plugin` starts the engine with a
   literal environment, so the host puts exactly the named variables there.
 
@@ -715,7 +718,8 @@ names, and so sees its exit status and can signal it.
 | `TestPluginTokenBoundDrains` | With the bound of gone tokens lowered to 2 (`WL_TEST_PLUGIN_TOKEN_BOUND`), the engine serves after one `gone` answer, and after the second answers health `NOT_SERVING` and names its bound on standard error. |
 | `TestPluginConfigRefusals` | Settings in milliseconds beyond what a duration holds, a negative `drain_timeout_ms` and a negative `engine_recycle_rss` refuse the start, naming the field, and a socket directory that is a file ends the engine with status 1 and no handshake. A bundle that a test hook replaces with another after its check does not open: the engine exits with status 1 after the handshake line, which a test hook delays (`WL_TEST_PLUGIN_DELAY_HANDSHAKE`) past the failing open's time. |
 | `TestPluginSecretsByReference` | A secret's value comes from `value_env` and reaches the step that reads it, but no stderr line or build information. Two variables may name one environment variable. The configuration's digest changes with the reference's name, not with the value. An unset variable, a secret `value` and a store's `url` refuse the start without the value. |
-| `TestPluginHarnessEnvSecrets` | A step reads each `harness_env` entry: a value, and a secret by `value_env` that two entries and a variable share. An entry whose `value_env` names `TZ` gets the engine's, and the step then has no `TZ`, which the engine has unset. The secret is in no stderr line or build information. A secret `value`, a reserved name, both or neither of `value` and `value_env`, and an unset reference refuse the start without a value. |
+| `TestPluginHarnessEnvSecrets` | A step reads each `harness_env` entry: a value, an empty one, and a secret by `value_env` that two entries and a variable share. An entry whose `value_env` is `TZ` gets the engine's, which the engine then unsets, so the step has no `TZ`. The secret is in no stderr line or build information. A secret `value`, a reserved name, both or neither of `value` and `value_env`, an empty `value_env` and an entry's unset reference refuse the start. |
+| `TestPluginHarnessEnvSecretMasked` | The bundle's host plugin prints a secret entry at load, throws with it in an argument rewrite and returns it in a warning: the run results and the engine's whole standard error, read after it exited, hold `[secret]` instead. A plugin that throws with it at load fails the start, and the standard error quotes its error with the mask. |
 | `TestPluginSocketPrivate` | Started under the umask `0027`, the engine serves on a socket of mode `0700`, and a step creates a file of mode `0640`. |
 | `TestRunnerResultPolls` | `result_polls_for_all_jobs`, through `Client.Run` on the result-polls fixture: on, the run gets the recorded answers; off, the default, the polls answer 501, which fails the step. |
 | `TestPluginHandshakeFirstLine` | With a configuration whose warm start starts a harness process, go-plugin's handshake line is the first line of the engine's standard output. |

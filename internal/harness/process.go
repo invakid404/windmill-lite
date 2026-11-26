@@ -66,6 +66,14 @@ type ProcessConfig struct {
 	// harness processes (wl's Options.HarnessEnv), each one that CheckEnv
 	// accepts. nil adds none.
 	ExtraEnv []string
+	// Secrets are the values of the secret entries of ExtraEnv. The engine
+	// masks them (NewSecretMask) in the text that it takes from the process
+	// outside its invocations' own data: its output lines, which go to
+	// Diagnostics and into the errors that quote them, the engine's
+	// diagnostics about it, its invocations' warnings, and the errors of
+	// its host plugin's hooks. Results, failures, logs and hook answers
+	// stay as the process sent them. nil masks nothing.
+	Secrets []string
 	// WorkRoot is the directory in which the process's private working
 	// directory is created; empty means os.TempDir().
 	WorkRoot string
@@ -310,6 +318,9 @@ type Process struct {
 	diag       *diagnostics
 	killLines  *killLineBudget
 	stdio      *lineWriter
+	// mask masks ProcessConfig.Secrets in the text that the engine takes
+	// from the process (NewSecretMask); nil when it has none.
+	mask func(string) string
 
 	// group is whether the process leads a process group of its own, as
 	// every process the engine spawns does (WR-55), and groupGone whether
@@ -516,7 +527,8 @@ func newProcess(cfg ProcessConfig) (*Process, time.Duration, error) {
 	if diag == nil {
 		diag = os.Stderr
 	}
-	p.diag = &diagnostics{w: diag}
+	p.mask = NewSecretMask(cfg.Secrets)
+	p.diag = &diagnostics{w: diag, mask: p.mask}
 	p.killLines = cfg.killLines
 	if p.killLines == nil {
 		p.killLines = runtimeKillLines
@@ -568,7 +580,7 @@ func (p *Process) spawn(ctx context.Context, timeout time.Duration) (*Process, e
 	// stdout and stderr are pipes of the engine's own, read by its own
 	// goroutines, so Wait returns as soon as the harness exits, even while
 	// a child of it still holds them open.
-	p.stdio = &lineWriter{diag: p.diag, keep: 20}
+	p.stdio = &lineWriter{diag: p.diag, keep: 20, mask: p.mask}
 	outR, outW, err := os.Pipe()
 	if err != nil {
 		parent.Close()
@@ -989,7 +1001,11 @@ func (p *Process) onWarning(w Warning) (*invocation, []func()) {
 		p.diag.printf("dropped a warning for invocation %q, which is not in flight: %s", w.ID, w.Message)
 		return nil, nil
 	}
-	warning := engine.Warning{Code: w.Code, Message: w.Message, Left: w.Left, Untracked: w.Untracked}
+	msg := w.Message
+	if p.mask != nil {
+		msg = p.mask(msg)
+	}
+	warning := engine.Warning{Code: w.Code, Message: msg, Left: w.Left, Untracked: w.Untracked}
 	return inv, []func(){func() { inv.report.Warning(warning) }}
 }
 

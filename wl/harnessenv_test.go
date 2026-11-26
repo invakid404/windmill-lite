@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/invakid404/windmill-lite/internal/harness"
+	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
 // The harness environment tests run real steps and a real host plugin in
@@ -61,6 +62,7 @@ export async function main() {
 `,
 	"f/t/env.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/env",` +
 		`"input_transforms":{"names":{"type":"javascript","expr":"flow_input.names"},"hashed":{"type":"javascript","expr":"flow_input.hashed"}}}}]}}`,
+	"f/t/shared.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/shared","input_transforms":{}}}]}}`,
 }
 
 // harnessEnvBundle returns the pinned Bun, and a bundle of
@@ -296,13 +298,27 @@ func TestHarnessEnvReserved(t *testing.T) {
 	}
 }
 
-// TestHarnessEnvDefault checks what a harness process's environment holds,
-// as a step reads it with its invocation's reserved WM_* variables left
-// out: with no entries, exactly today's base environment (BaseEnv and the
-// facade's BASE_URL), in a warm and a fresh runtime; with entries, the base
-// environment and the entries, nothing else.
+// TestHarnessEnvDefault checks a harness process's whole environment: with
+// no entries, exactly today's base environment (BaseEnv and the facade's
+// BASE_URL), in a warm and a fresh runtime; with entries, the base
+// environment and the entries, nothing else. A warm process's environment
+// is what a host plugin reads at load, outside every invocation. A fresh
+// process runs no plugin, so there it is what a step reads, without the
+// variables that the engine sets for each invocation. Only the names of
+// variables that differ are reported, never a value.
 func TestHarnessEnvDefault(t *testing.T) {
 	bun, out, runtimeDir := harnessEnvBundle(t)
+	plugin := filepath.Join(t.TempDir(), "plugin.ts")
+	src := `const atLoad = { ...process.env };
+export default { onRunEnd() { return [{ code: "process_env", message: JSON.stringify(atLoad) }] } };
+`
+	if err := os.WriteFile(plugin, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	own := map[string]bool{}
+	for k := range (platform.Identity{}).Env(platform.Host{}) {
+		own[k] = true
+	}
 	for _, c := range []struct {
 		name  string
 		mode  string
@@ -316,34 +332,186 @@ func TestHarnessEnvDefault(t *testing.T) {
 		{"fresh, entries", ModuleStateFresh, map[string]EnvValue{"WL_TEST_A": {Value: "a"}}, map[string]string{"WL_TEST_A": "a"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, ModuleState: c.mode, HarnessEnv: c.env})
+			opts := Options{Bun: bun, HarnessRuntime: runtimeDir, ModuleState: c.mode, HarnessEnv: c.env}
+			if c.mode == ModuleStateWarm {
+				opts.Plugin = plugin
+			}
+			rt, err := Open(out, opts)
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer rt.Close()
 			var seen map[string]string
-			if err := json.Unmarshal(runScript(t, rt, "f/t/all", nil), &seen); err != nil {
-				t.Fatal(err)
+			if c.mode == ModuleStateWarm {
+				res, err := rt.Run(context.Background(), "f/t/env", json.RawMessage(`{"names":[],"hashed":[]}`), RunOptions{})
+				if err != nil || res.Status != StatusSuccess {
+					t.Fatalf("the flow: %v %v", res, err)
+				}
+				for _, w := range res.Warnings {
+					if w.Code == "process_env" {
+						if err := json.Unmarshal([]byte(w.Message), &seen); err != nil {
+							t.Fatal(err)
+						}
+					}
+				}
+				if seen == nil {
+					t.Fatal("the plugin did not report its process environment")
+				}
+			} else {
+				if err := json.Unmarshal(runScript(t, rt, "f/t/all", nil), &seen); err != nil {
+					t.Fatal(err)
+				}
+				maps.DeleteFunc(seen, func(k, _ string) bool { return own[k] })
 			}
-			maps.DeleteFunc(seen, func(k, _ string) bool { return strings.HasPrefix(k, "WM_") })
 			want := map[string]string{"BASE_URL": rt.PlatformOrigin()}
 			for _, e := range harness.BaseEnv() {
 				k, v, _ := strings.Cut(e, "=")
 				want[k] = v
 			}
 			maps.Copy(want, c.extra)
-			if !maps.Equal(seen, want) {
-				t.Errorf("the process environment, without the invocation's WM_* variables:\n got  %v\n want %v", sortedEntries(seen), sortedEntries(want))
+			if d := envDiff(seen, want); len(d) > 0 {
+				t.Errorf("the process environment differs from the base environment and the entries in %v", d)
 			}
 		})
 	}
+	// The comparison reports an unexpected variable, a WM_ one included,
+	// by its name alone.
+	leak := map[string]string{"PATH": "/bin", "WM_TEST_LEAK": "synthetic-leaked-value"}
+	if d := envDiff(leak, map[string]string{"PATH": "/bin"}); !slices.Equal(d, []string{"WM_TEST_LEAK"}) {
+		t.Errorf("envDiff of an unexpected WM_ variable: %v", d)
+	}
 }
 
-// sortedEntries is m as NAME=value entries in order, for a readable diff.
-func sortedEntries(m map[string]string) []string {
-	var out []string
-	for _, k := range slices.Sorted(maps.Keys(m)) {
-		out = append(out, k+"="+m[k])
+// envDiff returns, sorted, the names of the variables that got and want do
+// not share with one value: missing, unexpected or changed. It never
+// returns a value, which may be a credential of the machine that runs the
+// test.
+func envDiff(got, want map[string]string) []string {
+	var names []string
+	for k, v := range got {
+		if w, ok := want[k]; !ok || w != v {
+			names = append(names, k)
+		}
 	}
-	return out
+	for k := range want {
+		if _, ok := got[k]; !ok {
+			names = append(names, k)
+		}
+	}
+	slices.Sort(names)
+	return names
+}
+
+// TestHarnessEnvReferenceReadOnce checks that Open reads a variable of the
+// engine's environment once, however many entries name it: two entries
+// that name one variable, whose value changes between two reads, give a
+// step one value.
+func TestHarnessEnvReferenceReadOnce(t *testing.T) {
+	bun, out, runtimeDir := harnessEnvBundle(t)
+	const ref = "WL_TEST_HARNESS_ROTATING_REF"
+	reads := 0
+	real := lookupEnv
+	t.Cleanup(func() { lookupEnv = real })
+	lookupEnv = func(name string) (string, bool) {
+		if name != ref {
+			return real(name)
+		}
+		reads++
+		return fmt.Sprintf("rotated-value-%d", reads), true
+	}
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, HarnessEnv: map[string]EnvValue{"WL_TEST_A": {ValueEnv: ref}, "WL_TEST_B": {ValueEnv: ref, Secret: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	got := readEnv(t, rt, []string{"WL_TEST_A", "WL_TEST_B"}, []string{})
+	if got["WL_TEST_A"] == nil || got["WL_TEST_B"] == nil || *got["WL_TEST_A"] != *got["WL_TEST_B"] || reads != 1 {
+		t.Errorf("two entries that name one variable: %s and %s after %d reads; want one value from one read", shown(got["WL_TEST_A"]), shown(got["WL_TEST_B"]), reads)
+	}
+}
+
+// TestHarnessEnvSecretMasked checks that the engine masks the value of a
+// Secret entry, a synthetic one that ValueEnv names, in the text that it
+// takes from a harness process and passes on, and only there. A host
+// plugin prints it at load, an around wrapper and an argument rewrite
+// throw with it, and onRunEnd returns it in a warning: the diagnostics, the
+// latched errors, the warnings and the traces hold the mask instead, and a
+// plain entry printed beside it stays. A step's result is the run's data,
+// so a step that returns the secret returns it whole. A plugin that throws
+// with it at load fails Open with an error that holds the mask.
+func TestHarnessEnvSecretMasked(t *testing.T) {
+	bun, out, runtimeDir := harnessEnvBundle(t)
+	// The reference and its synthetic value, declared apart: on one line,
+	// the secret scan's generic rule reads the pair as a key.
+	const ref = "WL_TEST_HARNESS_MASKED_REF"
+	const secret = "synthetic-masked-secret-6a0e"
+	t.Setenv(ref, secret)
+	dir := t.TempDir()
+	plugin := filepath.Join(dir, "plugin.ts")
+	src := `const secret = process.env.WL_TEST_SECRET ?? "";
+console.error("the plugin loaded with " + secret + " and " + process.env.WL_TEST_PLAIN);
+export default {
+  around: [{ selector: { flow: "f/t/env", module: "a" }, fn: () => { throw new Error("around refused " + secret) } }],
+  rewriteArgs: [{ selector: { flow: "f/t/shared", module: "a" }, fn: () => { throw new Error("rewrite refused " + secret) } }],
+  onRunEnd() { return [{ code: "seen", message: "run ended with " + secret }] },
+};
+`
+	if err := os.WriteFile(plugin, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]EnvValue{"WL_TEST_SECRET": {ValueEnv: ref, Secret: true}, "WL_TEST_PLAIN": {Value: "a plain setting"}}
+	diag := &syncBuf{}
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, Diagnostics: diag, HarnessEnv: env})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := readEnv(t, rt, []string{"WL_TEST_SECRET"}, []string{}); got["WL_TEST_SECRET"] == nil || *got["WL_TEST_SECRET"] != secret {
+		t.Errorf("a step that returns the secret returned %s, want it whole", shown(got["WL_TEST_SECRET"]))
+	}
+	texts := map[string]string{}
+	for flow, refused := range map[string]string{"f/t/env": "around refused " + harness.SecretMask, "f/t/shared": "rewrite refused " + harness.SecretMask} {
+		res, err := rt.Run(context.Background(), flow, json.RawMessage(`{"names":[],"hashed":[]}`), RunOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Status != StatusLatched || res.Latched == nil || !strings.Contains(res.Latched.Error(), refused) {
+			t.Errorf("%s: %s, latched %v; want latched with %q", flow, res.Status, res.Latched, refused)
+		} else {
+			texts[flow+" latched"] = res.Latched.Error()
+		}
+		warnings, _ := json.Marshal(res.Warnings)
+		if !strings.Contains(string(warnings), "run ended with "+harness.SecretMask) {
+			t.Errorf("%s: warnings %s; want onRunEnd's with the mask", flow, warnings)
+		}
+		trace, err := json.Marshal(traceJSON(res.Trace))
+		if err != nil {
+			t.Fatal(err)
+		}
+		texts[flow+" warnings"], texts[flow+" trace"] = string(warnings), string(trace)
+	}
+	if err := rt.Close(); err != nil {
+		t.Fatal(err)
+	}
+	texts["diagnostics"] = diag.String()
+	if !strings.Contains(texts["diagnostics"], "the plugin loaded with "+harness.SecretMask+" and a plain setting") {
+		t.Errorf("the diagnostics: want the plugin's line with the mask and the plain setting:\n%s", texts["diagnostics"])
+	}
+
+	failing := filepath.Join(dir, "failing.ts")
+	if err := os.WriteFile(failing, []byte(`throw new Error("the plugin cannot use " + process.env.WL_TEST_SECRET);`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diag2 := &syncBuf{}
+	_, err = Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: failing, Diagnostics: diag2, HarnessEnv: env})
+	if err == nil || !strings.Contains(err.Error(), "the plugin cannot use "+harness.SecretMask) {
+		t.Errorf("a plugin that throws with the secret at load: %v; want an error that quotes its output with the mask", err)
+	} else {
+		texts["the failed Open"] = err.Error()
+	}
+	texts["the failed Open's diagnostics"] = diag2.String()
+	for what, text := range texts {
+		if strings.Contains(text, secret) {
+			t.Errorf("%s hold the secret: %s", what, text)
+		}
+	}
 }

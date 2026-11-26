@@ -79,6 +79,7 @@ the code.
 | `ExitStatus` | struct | How a process ended: code or signal | tests |
 | `BaseEnv` | func | The base environment of a spawned process | `ProcessConfig`'s default, `wltest` |
 | `CheckEnv` | func | Whether a spawned process may start with a host's environment entry (`ProcessConfig.ExtraEnv`): the error says why not, without the value ([The base environment](#the-base-environment)) | `wl`, `windmill-lite plugin` |
+| `NewSecretMask`, `SecretMask` | func, const | The function that replaces each secret value in a text with `[secret]` (`ProcessConfig.Secrets`) | `Process`, `wl` |
 | `BunCommand` | func | The command line that starts the Bun harness runtime on a bundle, with `--umask` after `SetLaunchUmask` | `wl`, `wltest` |
 | `SetLaunchUmask` | func | Makes every harness that `BunCommand` starts afterwards set that umask first ([harnesses/bun](../../harnesses/bun/README.md#start-a-spawned-harness)); without it, a harness keeps the umask that it inherits | `windmill-lite plugin` |
 | `PinnedBun`, `ProtocolVersion` | const | `1.4.3`; `1` | `PinnedBun`: `wl`, `internal/bundle`, `wltest`. `ProtocolVersion`: the handshake, tests |
@@ -340,6 +341,16 @@ entry that the engine sets itself, or that no environment can carry:
   `NODE_PATH`;
 - an empty name, a name with `=` or a NUL byte, and a value with a NUL
   byte.
+
+`ProcessConfig.Secrets` are the values of the secret entries. The
+function of `NewSecretMask` replaces each with `SecretMask`, `[secret]`,
+in the text that the engine takes from the process outside its
+invocations' data:
+
+- its output lines, before they are forwarded or kept for errors;
+- the engine's diagnostics about the process;
+- its invocations' warnings;
+- its host plugin's hook errors.
 
 ### Process groups
 

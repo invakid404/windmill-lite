@@ -88,6 +88,9 @@ type plugin struct {
 	call    hostCaller
 	timeout time.Duration
 	diag    func(string)
+	// mask masks the secrets of the runtime's harness entries in the
+	// messages of the warnings that onRunEnd returns; nil for none.
+	mask func(string) string
 	// hooks and providers are the declaration as Go callbacks.
 	hooks     *Hooks
 	providers map[string]Provider
@@ -327,7 +330,11 @@ func (p *plugin) goHooks() *Hooks {
 			}
 			ws := make([]Warning, 0, len(r.Warnings))
 			for _, w := range r.Warnings {
-				ws = append(ws, Warning{Code: w.Code, Message: w.Message})
+				msg := w.Message
+				if p.mask != nil {
+					msg = p.mask(msg)
+				}
+				ws = append(ws, Warning{Code: w.Code, Message: msg})
 			}
 			return ws
 		}
@@ -830,6 +837,7 @@ func (rt *Runtime) usePlugin(decl jsonval.Value, call hostCaller, timeout time.D
 	if err != nil {
 		return err
 	}
+	p.mask = rt.secretMask
 	all := maps.Clone(rt.goProviders)
 	if all == nil {
 		all = map[string]Provider{}

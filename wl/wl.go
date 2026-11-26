@@ -201,7 +201,9 @@ type Options struct {
 	// variables. A step reads its invocation's own variables first: the
 	// reserved WM_* variables, its script's own envs and what a plugin's
 	// invocationEnv sets. A native step reads none of them: its
-	// process.env holds only its base URLs and reserved variables.
+	// process.env is built from its base URLs and its invocation's own
+	// variables, never from the process environment. The engine masks the
+	// value of a Secret entry in the text it passes on (EnvValue).
 	//
 	// Open refuses, naming the entry and never a value: a name that starts
 	// with WM_ (the reserved variables, set for each invocation); BASE_URL
@@ -228,35 +230,55 @@ type Options struct {
 // EnvValue is the value of an environment variable of the runtime's
 // harness processes (Options.HarnessEnv): Value, or, when ValueEnv is set,
 // the value of the variable of that name in the engine's own environment,
-// which Open reads once. Value is then empty.
+// which Open reads once, however many entries name it. Value is then empty.
+//
+// Secret marks a secret. The engine then replaces each occurrence of the
+// value with "[secret]" in the text that it takes from a harness process
+// and passes on: the process's output lines, which go to Diagnostics and
+// into the errors that quote them, the warnings of its invocations and its
+// host plugin, and the errors of the plugin's hooks. What step code returns,
+// fails with or logs, and what a hook answers, is the run's data, which
+// stays as the code wrote it.
 type EnvValue struct {
 	Value    string
 	ValueEnv string
+	Secret   bool
 }
 
-// harnessEnv returns the entries of env as NAME=value, sorted by name, the
-// values of ValueEnv references read from the engine's environment, or the
-// error that refuses one. The error names the entry, never a value.
-func harnessEnv(env map[string]EnvValue) ([]string, error) {
-	var entries []string
+// lookupEnv reads a variable of the engine's environment for a ValueEnv
+// reference. Tests replace it.
+var lookupEnv = os.LookupEnv
+
+// harnessEnv returns the entries of env as NAME=value, sorted by name, with
+// the values of the secret entries, or the error that refuses one. Each
+// variable that a ValueEnv names is read once, however many entries name
+// it, so they all get one value. The error names the entry, never a value.
+func harnessEnv(env map[string]EnvValue) (entries, secrets []string, err error) {
+	read := map[string]string{}
 	for _, name := range slices.Sorted(maps.Keys(env)) {
 		v := env[name]
 		value := v.Value
 		if v.ValueEnv != "" {
 			if v.Value != "" {
-				return nil, fmt.Errorf("wl: Options.HarnessEnv[%q]: Value and ValueEnv are exclusive", name)
+				return nil, nil, fmt.Errorf("wl: Options.HarnessEnv[%q]: Value and ValueEnv are exclusive", name)
 			}
 			var ok bool
-			if value, ok = os.LookupEnv(v.ValueEnv); !ok {
-				return nil, fmt.Errorf("wl: Options.HarnessEnv[%q].ValueEnv: the environment variable %q is not set", name, v.ValueEnv)
+			if value, ok = read[v.ValueEnv]; !ok {
+				if value, ok = lookupEnv(v.ValueEnv); !ok {
+					return nil, nil, fmt.Errorf("wl: Options.HarnessEnv[%q].ValueEnv: the environment variable %q is not set", name, v.ValueEnv)
+				}
+				read[v.ValueEnv] = value
 			}
 		}
 		if err := harness.CheckEnv(name, value); err != nil {
-			return nil, fmt.Errorf("wl: Options.HarnessEnv[%q]: %w", name, err)
+			return nil, nil, fmt.Errorf("wl: Options.HarnessEnv[%q]: %w", name, err)
 		}
 		entries = append(entries, name+"="+value)
+		if v.Secret {
+			secrets = append(secrets, value)
+		}
 	}
-	return entries, nil
+	return entries, secrets, nil
 }
 
 // RuntimeLimits are the limits that a runtime's runs share (ADR 0004
@@ -485,8 +507,11 @@ type Runtime struct {
 	// them (foreignOrigins).
 	foreign []string
 	// harnessEnv is Options.HarnessEnv as its processes' NAME=value
-	// entries (harnessEnv), nil for none.
-	harnessEnv []string
+	// entries (harnessEnv), nil for none, and harnessSecrets the values of
+	// its secret entries, which secretMask masks (nil for none).
+	harnessEnv     []string
+	harnessSecrets []string
+	secretMask     func(string) string
 	// memoryStore says that the runtime's resource store keeps its entries
 	// in memory, which its runs' traces list as D24.
 	memoryStore bool
@@ -615,9 +640,10 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	if rt.foreign, err = foreignOrigins(opts.ForeignWindmillOrigins); err != nil {
 		return nil, err
 	}
-	if rt.harnessEnv, err = harnessEnv(opts.HarnessEnv); err != nil {
+	if rt.harnessEnv, rt.harnessSecrets, err = harnessEnv(opts.HarnessEnv); err != nil {
 		return nil, err
 	}
+	rt.secretMask = harness.NewSecretMask(rt.harnessSecrets)
 	// Harness processes run in directories of their own, so every path
 	// they see is absolute.
 	if path, err = filepath.Abs(path); err != nil {
@@ -853,7 +879,7 @@ func (rt *Runtime) harness(opts Options) (*harness.Pool, error) {
 	cfg.Key = harness.Key{Class: string(ir.ClassBun), Runtime: harness.PinnedBun, Deps: rt.digest, ModuleState: rt.state}
 	cfg.Process = harness.ProcessConfig{
 		Path: path, Args: args, WorkRoot: work, Kind: string(ir.ClassBun), Runtime: harness.PinnedBun,
-		Bundle: rt.digest, EngineVersion: rt.version, ExtraEnv: rt.harnessEnv,
+		Bundle: rt.digest, EngineVersion: rt.version, ExtraEnv: rt.harnessEnv, Secrets: rt.harnessSecrets,
 		Diagnostics: opts.Diagnostics, Facade: rt.PlatformOrigin(), Platform: rt.fac.Platform(),
 		ForeignWindmillOrigins: rt.foreign,
 	}

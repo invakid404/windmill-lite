@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -39,10 +40,55 @@ type diagnostics struct {
 	mu  sync.Mutex
 	w   io.Writer
 	pid atomic.Int64
+	// mask masks the secrets in the engine's own lines about the process,
+	// which can quote what the process sent; nil when it has none.
+	mask func(string) string
 }
 
 func (d *diagnostics) printf(format string, args ...any) {
-	d.line(fmt.Sprintf("windmill-lite: harness pid %d: %s", d.pid.Load(), fmt.Sprintf(format, args...)))
+	msg := fmt.Sprintf(format, args...)
+	if d.mask != nil {
+		msg = d.mask(msg)
+	}
+	d.line(fmt.Sprintf("windmill-lite: harness pid %d: %s", d.pid.Load(), msg))
+}
+
+// SecretMask is what replaces a secret's value in the text that the engine
+// takes from a harness process (NewSecretMask).
+const SecretMask = "[secret]"
+
+// NewSecretMask returns the function that replaces, in a text, each
+// occurrence of a value of secrets, and of each line of a value that spans
+// lines, with SecretMask; the longest first, so that a secret that holds
+// another is masked whole. Empty values and lines are left out. It returns
+// nil when nothing is left to mask.
+func NewSecretMask(secrets []string) func(string) string {
+	seen := map[string]bool{}
+	var olds []string
+	add := func(s string) {
+		if s != "" && !seen[s] {
+			seen[s] = true
+			olds = append(olds, s)
+		}
+	}
+	for _, s := range secrets {
+		add(s)
+		if strings.Contains(s, "\n") {
+			for _, l := range strings.Split(s, "\n") {
+				add(strings.TrimSuffix(l, "\r"))
+			}
+		}
+	}
+	if len(olds) == 0 {
+		return nil
+	}
+	// A Replacer tries its old strings in argument order at each position.
+	slices.SortStableFunc(olds, func(a, b string) int { return len(b) - len(a) })
+	pairs := make([]string, 0, 2*len(olds))
+	for _, o := range olds {
+		pairs = append(pairs, o, SecretMask)
+	}
+	return strings.NewReplacer(pairs...).Replace
 }
 
 func (d *diagnostics) line(s string) {
@@ -120,6 +166,9 @@ func (b *killLineBudget) write(d *diagnostics, line string) {
 type lineWriter struct {
 	diag *diagnostics
 	keep int
+	// mask masks the process's secrets in each line before it is
+	// forwarded or kept; nil when the process has none.
+	mask func(string) string
 
 	mu   sync.Mutex
 	last []string
@@ -128,6 +177,9 @@ type lineWriter struct {
 func (lw *lineWriter) stream(name string) io.Writer { return &streamWriter{lw: lw, name: name} }
 
 func (lw *lineWriter) emit(name, line string) {
+	if lw.mask != nil {
+		line = lw.mask(line)
+	}
 	lw.diag.line(fmt.Sprintf("harness pid %d %s: %s", lw.diag.pid.Load(), name, line))
 	lw.mu.Lock()
 	lw.last = append(lw.last, line)

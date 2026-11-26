@@ -588,10 +588,11 @@ type configVariable struct {
 
 // configEnv is an environment variable of the harness processes
 // (wl.Options.HarnessEnv): a value written in the file, or one that names a
-// variable of the engine's environment (value_env). A secret must.
+// variable of the engine's environment (value_env). A secret must. Each is
+// a pointer, so that a field given empty is told apart from one left out.
 type configEnv struct {
 	Value    *string `json:"value"`
-	ValueEnv string  `json:"value_env"`
+	ValueEnv *string `json:"value_env"`
 	IsSecret bool    `json:"is_secret"`
 }
 
@@ -695,12 +696,14 @@ func decodePluginConfig(data []byte) (*pluginConfig, error) {
 	for _, name := range slices.Sorted(maps.Keys(c.HarnessEnv)) {
 		v := c.HarnessEnv[name]
 		switch {
-		case v.Value != nil && v.ValueEnv != "":
+		case v.Value != nil && v.ValueEnv != nil:
 			return nil, fmt.Errorf("harness_env[%q]: value and value_env are exclusive", name)
 		case v.IsSecret && v.Value != nil:
 			return nil, fmt.Errorf("harness_env[%q].value: a secret is never written in the file; name a variable of the engine's environment with value_env", name)
-		case v.Value == nil && v.ValueEnv == "":
+		case v.Value == nil && v.ValueEnv == nil:
 			return nil, fmt.Errorf("harness_env[%q]: value or value_env is required", name)
+		case v.ValueEnv != nil && *v.ValueEnv == "":
+			return nil, fmt.Errorf("harness_env[%q].value_env: empty; name a variable of the engine's environment", name)
 		}
 		value := ""
 		if v.Value != nil {
@@ -868,11 +871,11 @@ func (c *pluginConfig) options(stderr io.Writer) (wl.Options, func(), error) {
 				value = *v.Value
 			} else {
 				var err error
-				if value, err = env.read(v.ValueEnv); err != nil {
+				if value, err = env.read(*v.ValueEnv); err != nil {
 					return wl.Options{}, nil, fmt.Errorf("harness_env[%q].value_env: %w", name, err)
 				}
 			}
-			opts.HarnessEnv[name] = wl.EnvValue{Value: value}
+			opts.HarnessEnv[name] = wl.EnvValue{Value: value, Secret: v.IsSecret}
 		}
 	}
 	if len(c.Providers) > 0 {
