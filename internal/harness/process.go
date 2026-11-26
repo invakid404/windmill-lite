@@ -67,12 +67,14 @@ type ProcessConfig struct {
 	// accepts. nil adds none.
 	ExtraEnv []string
 	// Secrets are the values of the secret entries of ExtraEnv. The engine
-	// masks them (NewSecretMask) in the text that it takes from the process
-	// outside its invocations' own data: its output lines, which go to
-	// Diagnostics and into the errors that quote them, the engine's
-	// diagnostics about it, its invocations' warnings, and the errors of
-	// its host plugin's hooks. Results, failures, logs and hook answers
-	// stay as the process sent them. nil masks nothing.
+	// masks them (NewSecrets) in the text that it takes from the process
+	// and passes on as text of its own: the process's output lines, which
+	// go to Diagnostics and into the errors that quote them, the engine's
+	// diagnostics about it, the log tail that an escaped invocation's
+	// error quotes, and the errors of its host plugin's hooks. Results,
+	// failures, warnings and hook answers stay as the process sent them:
+	// wl masks their copies in a trace and in a run's warnings. nil masks
+	// nothing.
 	Secrets []string
 	// WorkRoot is the directory in which the process's private working
 	// directory is created; empty means os.TempDir().
@@ -318,9 +320,9 @@ type Process struct {
 	diag       *diagnostics
 	killLines  *killLineBudget
 	stdio      *lineWriter
-	// mask masks ProcessConfig.Secrets in the text that the engine takes
-	// from the process (NewSecretMask); nil when it has none.
-	mask func(string) string
+	// secrets are ProcessConfig.Secrets, which the engine masks in the
+	// text that it takes from the process; nil when it has none.
+	secrets *Secrets
 
 	// group is whether the process leads a process group of its own, as
 	// every process the engine spawns does (WR-55), and groupGone whether
@@ -527,8 +529,8 @@ func newProcess(cfg ProcessConfig) (*Process, time.Duration, error) {
 	if diag == nil {
 		diag = os.Stderr
 	}
-	p.mask = NewSecretMask(cfg.Secrets)
-	p.diag = &diagnostics{w: diag, mask: p.mask}
+	p.secrets = NewSecrets(cfg.Secrets)
+	p.diag = &diagnostics{w: diag, secrets: p.secrets}
 	p.killLines = cfg.killLines
 	if p.killLines == nil {
 		p.killLines = runtimeKillLines
@@ -580,7 +582,7 @@ func (p *Process) spawn(ctx context.Context, timeout time.Duration) (*Process, e
 	// stdout and stderr are pipes of the engine's own, read by its own
 	// goroutines, so Wait returns as soon as the harness exits, even while
 	// a child of it still holds them open.
-	p.stdio = &lineWriter{diag: p.diag, keep: 20, mask: p.mask}
+	p.stdio = &lineWriter{diag: p.diag, keep: 20, secrets: p.secrets}
 	outR, outW, err := os.Pipe()
 	if err != nil {
 		parent.Close()
@@ -913,6 +915,9 @@ func (p *Process) onResult(r Result) (*invocation, []func(), bool, error) {
 			inv.times.Received, inv.times.Decoded = p.conn.msgRead, p.conn.msgDecoded
 		}
 		out := stepOutcome(r)
+		// An escaped outcome's tail, the harness's copy of the log, is
+		// quoted by its error.
+		out.Tail = p.secrets.Mask(out.Tail)
 		if r.Settled && p.cfg.ModuleState == engine.ModuleStateFresh {
 			// WR-55: the job of a fresh process completes once the process
 			// has exited and no process is left in its group, so the
@@ -977,7 +982,8 @@ func (p *Process) onLog(l Log) (*invocation, []func()) {
 	inv := p.invs[l.ID]
 	if inv != nil && inv.state == invPending {
 		for _, line := range l.Lines {
-			inv.tail.add(line)
+			// The tail is kept only for the error of an escaped outcome.
+			inv.tail.add(p.secrets.Mask(line))
 		}
 		return nil, nil
 	}
@@ -1001,11 +1007,7 @@ func (p *Process) onWarning(w Warning) (*invocation, []func()) {
 		p.diag.printf("dropped a warning for invocation %q, which is not in flight: %s", w.ID, w.Message)
 		return nil, nil
 	}
-	msg := w.Message
-	if p.mask != nil {
-		msg = p.mask(msg)
-	}
-	warning := engine.Warning{Code: w.Code, Message: msg, Left: w.Left, Untracked: w.Untracked}
+	warning := engine.Warning{Code: w.Code, Message: w.Message, Left: w.Left, Untracked: w.Untracked}
 	return inv, []func(){func() { inv.report.Warning(warning) }}
 }
 

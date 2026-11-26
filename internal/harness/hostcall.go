@@ -88,11 +88,7 @@ func (p *Process) hostCall(ctx context.Context, hook, run, site string, payload 
 	select {
 	case r := <-reply:
 		if r.Error != nil {
-			msg := r.Error.Message
-			if p.mask != nil {
-				msg = p.mask(msg)
-			}
-			return jsonval.Value{}, true, &HostCallError{Hook: hook, Code: r.Error.Code, Message: msg}
+			return jsonval.Value{}, true, &HostCallError{Hook: hook, Code: r.Error.Code, Message: p.secrets.Mask(r.Error.Message)}
 		}
 		return r.Payload, true, nil
 	case <-ctx.Done():

@@ -450,11 +450,11 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 			rt.forgetPin(p)
 			return nil, err
 		}
-		out := &Result{ID: res.ID, Status: StatusSuccess, Result: storedText(res.Result), Warnings: calls.warned(), Started: sent.sent()}
+		out := &Result{ID: res.ID, Status: StatusSuccess, Result: storedText(res.Result), Warnings: maskWarnings(rt.secrets, calls.warned()), Started: sent.sent()}
 		switch {
 		case res.Latched != nil:
 			// Its step latched the run (H5): wl.latch, or a failed around.
-			out.Status, out.Result, out.Latched = StatusLatched, nil, res.Latched
+			out.Status, out.Result, out.Latched = StatusLatched, nil, maskError(rt.secrets, res.Latched)
 		case res.Failed && ctx.Err() != nil:
 			// The script failed because the run's context ended (FX-38).
 			out.Status, out.CancelCause = StatusCanceled, engine.CancelCauseOf(ctx)
@@ -509,7 +509,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	defer unpin()
 	ctx = harness.WithPin(ctx, p)
 	if h != nil {
-		h.pin = p
+		h.pin, h.secrets = p, rt.secrets
 	}
 	var services *platform.Services
 	bind := &runBinding{id: id, pin: p}
@@ -560,14 +560,17 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		tr.PlatformCalls = calls.taken()
 	}
 	tr.Warnings = append(tr.Warnings, calls.warned()...)
+	// The requested result is the run's; its copy in the trace, like the
+	// rest of what leaves the engine, has the runtime's secrets masked.
+	masked := maskTrace(rt.secrets, tr)
 	return &Result{
 		ID:             tr.RunID,
 		Status:         string(tr.Status),
 		Result:         storedText(tr.Result),
 		MayHaveMutated: tr.MayHaveMutated,
-		Trace:          tr,
-		Warnings:       tr.Warnings,
-		Latched:        tr.Latched,
+		Trace:          masked,
+		Warnings:       masked.Warnings,
+		Latched:        masked.Latched,
 		CancelCause:    tr.CancelCause,
 	}, nil
 }

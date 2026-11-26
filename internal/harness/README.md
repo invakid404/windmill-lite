@@ -59,6 +59,7 @@ the code.
 | `target_linux.go`, `target_other.go` | What host mode's watchdog signals: a pidfd of the host on Linux, kill(2) elsewhere |
 | `pool.go` | `Pool`: routing, lag, the cap, tainting and recycling, recycle triggers, the bound on live processes, replacement, `Close` |
 | `util.go` | The log tail, diagnostics lines and the kill-line budget, the recent settled invocations, the `serial` call queue, the stdout and stderr line writer, signal names |
+| `secrets.go` | `Secrets`, `NewSecrets`, `SecretMask`: the masking of a host's secret environment entries |
 | `timings.go` | `SetTimesHook`, `InvocationTimes`: each invocation's clock readings, for benchmarks |
 | `doc.go` | The package comment |
 
@@ -79,7 +80,7 @@ the code.
 | `ExitStatus` | struct | How a process ended: code or signal | tests |
 | `BaseEnv` | func | The base environment of a spawned process | `ProcessConfig`'s default, `wltest` |
 | `CheckEnv` | func | Whether a spawned process may start with a host's environment entry (`ProcessConfig.ExtraEnv`): the error says why not, without the value ([The base environment](#the-base-environment)) | `wl`, `windmill-lite plugin` |
-| `NewSecretMask`, `SecretMask` | func, const | The function that replaces each secret value in a text with `[secret]` (`ProcessConfig.Secrets`) | `Process`, `wl` |
+| `Secrets`, `NewSecrets`, `SecretMask` | struct, func, const | The secret values of `ProcessConfig.Secrets`, which `Mask` replaces with `[secret]` in a text and `MaskJSON` in a JSON value's strings | `Process`, `wl` |
 | `BunCommand` | func | The command line that starts the Bun harness runtime on a bundle, with `--umask` after `SetLaunchUmask` | `wl`, `wltest` |
 | `SetLaunchUmask` | func | Makes every harness that `BunCommand` starts afterwards set that umask first ([harnesses/bun](../../harnesses/bun/README.md#start-a-spawned-harness)); without it, a harness keeps the umask that it inherits | `windmill-lite plugin` |
 | `PinnedBun`, `ProtocolVersion` | const | `1.4.3`; `1` | `PinnedBun`: `wl`, `internal/bundle`, `wltest`. `ProtocolVersion`: the handshake, tests |
@@ -343,14 +344,22 @@ entry that the engine sets itself, or that no environment can carry:
   byte.
 
 `ProcessConfig.Secrets` are the values of the secret entries. The
-function of `NewSecretMask` replaces each with `SecretMask`, `[secret]`,
-in the text that the engine takes from the process outside its
-invocations' data:
+`Secrets` that `NewSecrets` makes of them replace each value, and each
+line of one that spans lines, with `SecretMask`, `[secret]`, in the text
+that the engine takes from the process and passes on as text of its own:
 
-- its output lines, before they are forwarded or kept for errors;
+- its output lines, before they are forwarded or kept for errors. A line
+  that grows past 64 KiB goes in parts, each cut where no secret is cut
+  in two; what follows the cut, shorter than the longest secret, waits for
+  the next write;
 - the engine's diagnostics about the process;
-- its invocations' warnings;
-- its host plugin's hook errors.
+- the log tail that an escaped invocation's error quotes;
+- its host plugin's hook errors, so that a `HostCallError` keeps its type.
+
+An invocation's result, failure and warnings, and a hook's answer, stay
+as the process sent them:
+[wl](../../wl/README.md#the-harness-environment) masks their copies in a
+trace and in a run's warnings.
 
 ### Process groups
 

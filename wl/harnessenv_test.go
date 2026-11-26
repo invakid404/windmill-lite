@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/invakid404/windmill-lite/internal/engine"
 	"github.com/invakid404/windmill-lite/internal/harness"
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
@@ -63,6 +65,34 @@ export async function main() {
 	"f/t/env.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/env",` +
 		`"input_transforms":{"names":{"type":"javascript","expr":"flow_input.names"},"hashed":{"type":"javascript","expr":"flow_input.hashed"}}}}]}}`,
 	"f/t/shared.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/shared","input_transforms":{}}}]}}`,
+	"f/t/echo.ts": `// Returns its argument.
+export async function main(x: unknown) {
+  return x;
+}
+`,
+	"f/t/thrower.ts": `// Fails with its WL_TEST_SECRET variable in its error.
+export async function main() {
+  throw new Error("failed with " + process.env.WL_TEST_SECRET);
+}
+`,
+	"f/t/latcher.ts": `// Latches its run with its WL_TEST_SECRET variable in the error.
+export async function main() {
+  (globalThis as any).wl.latch(new Error("latched with " + process.env.WL_TEST_SECRET));
+  return 1;
+}
+`,
+	"f/t/escape.ts": `// Logs its WL_TEST_SECRET variable, then exits with status 3.
+export async function main() {
+  console.log("leaving with " + process.env.WL_TEST_SECRET);
+  process.exit(3);
+}
+`,
+	// f/t/reveal: step a returns WL_TEST_SECRET, and step b echoes it.
+	"f/t/reveal.flow/flow.yaml": `{"summary":"t","value":{"modules":[` +
+		`{"id":"a","value":{"type":"script","path":"f/t/env","input_transforms":{"names":{"type":"static","value":["WL_TEST_SECRET"]},"hashed":{"type":"static","value":[]}}}},` +
+		`{"id":"b","value":{"type":"script","path":"f/t/echo","input_transforms":{"x":{"type":"javascript","expr":"results.a"}}}}]}}`,
+	"f/t/thrower.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/thrower","input_transforms":{}}}]}}`,
+	"f/t/latcher.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/latcher","input_transforms":{}}}]}}`,
 }
 
 // harnessEnvBundle returns the pinned Bun, and a bundle of
@@ -344,8 +374,13 @@ export default { onRunEnd() { return [{ code: "process_env", message: JSON.strin
 			var seen map[string]string
 			if c.mode == ModuleStateWarm {
 				res, err := rt.Run(context.Background(), "f/t/env", json.RawMessage(`{"names":[],"hashed":[]}`), RunOptions{})
-				if err != nil || res.Status != StatusSuccess {
-					t.Fatalf("the flow: %v %v", res, err)
+				if err != nil {
+					t.Fatalf("the flow did not start: %v", err)
+				}
+				// Neither the result nor its warnings are reported: the
+				// warning holds the whole process environment.
+				if res.Status != StatusSuccess {
+					t.Fatalf("the flow ended %s, want success", res.Status)
 				}
 				for _, w := range res.Warnings {
 					if w.Code == "process_env" {
@@ -433,10 +468,12 @@ func TestHarnessEnvReferenceReadOnce(t *testing.T) {
 // TestHarnessEnvSecretMasked checks that the engine masks the value of a
 // Secret entry, a synthetic one that ValueEnv names, in the text that it
 // takes from a harness process and passes on, and only there. A host
-// plugin prints it at load, an around wrapper and an argument rewrite
-// throw with it, and onRunEnd returns it in a warning: the diagnostics, the
-// latched errors, the warnings and the traces hold the mask instead, and a
-// plain entry printed beside it stays. A step's result is the run's data,
+// plugin prints it at load, also in a line longer than 64 KiB, an around
+// wrapper, an argument rewrite and onRunSettled throw with it, and
+// onRunEnd returns it in a warning's code and message: the diagnostics, the
+// latched errors, the warnings and the traces hold the mask instead, the
+// rewrite's latched error is still a HostCallError, and a plain entry
+// printed beside it stays. A step's result is the run's data,
 // so a step that returns the secret returns it whole. A plugin that throws
 // with it at load fails Open with an error that holds the mask.
 func TestHarnessEnvSecretMasked(t *testing.T) {
@@ -448,12 +485,27 @@ func TestHarnessEnvSecretMasked(t *testing.T) {
 	t.Setenv(ref, secret)
 	dir := t.TempDir()
 	plugin := filepath.Join(dir, "plugin.ts")
-	src := `const secret = process.env.WL_TEST_SECRET ?? "";
+	// At load the plugin also writes, at once, one line of the secret 6,000
+	// times, each after a "|", about 180 KB: the engine forwards it in
+	// parts of about 64 KiB, cut where it cuts no secret in two.
+	src := `import { writeSync } from "node:fs";
+const secret = process.env.WL_TEST_SECRET ?? "";
 console.error("the plugin loaded with " + secret + " and " + process.env.WL_TEST_PLAIN);
+// The pipe takes a write in part: write until all of it is in.
+const line = Buffer.from("|" + secret + ("|" + secret).repeat(5999) + "\n");
+for (let off = 0; off < line.length; ) {
+  try {
+    off += writeSync(1, line, off, line.length - off);
+  } catch (e) {
+    if ((e as { code?: string }).code !== "EAGAIN") throw e;
+    Bun.sleepSync(1);
+  }
+}
 export default {
   around: [{ selector: { flow: "f/t/env", module: "a" }, fn: () => { throw new Error("around refused " + secret) } }],
   rewriteArgs: [{ selector: { flow: "f/t/shared", module: "a" }, fn: () => { throw new Error("rewrite refused " + secret) } }],
-  onRunEnd() { return [{ code: "seen", message: "run ended with " + secret }] },
+  onRunEnd() { return [{ code: "seen " + secret, message: "run ended with " + secret }] },
+  onRunSettled() { throw new Error("settled with " + secret) },
 };
 `
 	if err := os.WriteFile(plugin, []byte(src), 0o644); err != nil {
@@ -479,9 +531,16 @@ export default {
 		} else {
 			texts[flow+" latched"] = res.Latched.Error()
 		}
+		// The rewrite's error is the plugin's, which keeps its type.
+		var hce *HostCallError
+		if flow == "f/t/shared" && (!errors.As(res.Latched, &hce) || !strings.Contains(hce.Message, refused)) {
+			t.Errorf("f/t/shared: latched %T; want a HostCallError whose message holds %q", res.Latched, refused)
+		}
 		warnings, _ := json.Marshal(res.Warnings)
-		if !strings.Contains(string(warnings), "run ended with "+harness.SecretMask) {
-			t.Errorf("%s: warnings %s; want onRunEnd's with the mask", flow, warnings)
+		if !slices.ContainsFunc(res.Warnings, func(w Warning) bool {
+			return w.Code == "seen "+harness.SecretMask && w.Message == "run ended with "+harness.SecretMask
+		}) {
+			t.Errorf("%s: warnings %s; want onRunEnd's with the mask in its code and message", flow, warnings)
 		}
 		trace, err := json.Marshal(traceJSON(res.Trace))
 		if err != nil {
@@ -494,7 +553,28 @@ export default {
 	}
 	texts["diagnostics"] = diag.String()
 	if !strings.Contains(texts["diagnostics"], "the plugin loaded with "+harness.SecretMask+" and a plain setting") {
-		t.Errorf("the diagnostics: want the plugin's line with the mask and the plain setting:\n%s", texts["diagnostics"])
+		t.Errorf("the diagnostics: want the plugin's line with the mask and the plain setting")
+	}
+	if !strings.Contains(texts["diagnostics"], "settled with "+harness.SecretMask) {
+		t.Errorf("the diagnostics: want the failed onRunSettled's line with the mask")
+	}
+	// The long line's parts: each holds nothing but masks and separators,
+	// so no part holds a piece of the secret, and the masks add up to the
+	// 6,000 secrets that the plugin wrote.
+	parts, masks := 0, 0
+	for _, line := range strings.Split(texts["diagnostics"], "\n") {
+		_, payload, ok := strings.Cut(line, " stdout: ")
+		if !ok || !strings.HasPrefix(payload, "|") && !strings.HasPrefix(payload, harness.SecretMask) {
+			continue
+		}
+		parts++
+		masks += strings.Count(payload, harness.SecretMask)
+		if rest := strings.NewReplacer(harness.SecretMask, "", "|", "").Replace(payload); rest != "" {
+			t.Errorf("part %d of the long line holds %d bytes besides masks and separators", parts, len(rest))
+		}
+	}
+	if parts < 2 || masks != 6000 {
+		t.Errorf("the long line: %d parts with %d masks; want it in parts, with 6000 masks", parts, masks)
 	}
 
 	failing := filepath.Join(dir, "failing.ts")
@@ -514,4 +594,141 @@ export default {
 			t.Errorf("%s hold the secret: %s", what, text)
 		}
 	}
+}
+
+// TestHarnessEnvSecretTrace checks that a run's trace, and the records and
+// traces that hooks get, hold a mask where step data holds a Secret
+// entry's value, while the run's requested result keeps the value. On one
+// successful flow, step a returns the secret and step b echoes it: the
+// requested result holds the secret, and the trace's result, a's result
+// and carried value, b's arguments and result, and what OnModuleEnd and
+// OnRunEnd get, hold the mask. A failed flow's failure, and a latched
+// flow's latch, keep the secret out of the trace and the latched error,
+// which keeps its type. An escaped step's error quotes its log with the
+// mask, in a warm and in a fresh runtime.
+func TestHarnessEnvSecretTrace(t *testing.T) {
+	bun, out, runtimeDir := harnessEnvBundle(t)
+	const ref = "WL_TEST_HARNESS_TRACE_REF"
+	const secret = "synthetic-trace-secret-91c4"
+	t.Setenv(ref, secret)
+	env := map[string]EnvValue{"WL_TEST_SECRET": {ValueEnv: ref, Secret: true}}
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, HarnessEnv: env})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	var mu sync.Mutex
+	var ends []string
+	var endTrace []byte
+	hooks := &Hooks{
+		OnModuleEnd: func(_ context.Context, _ RunHandle, _ Site, rec StepRecord) error {
+			b, _ := json.Marshal(recordJSON(rec))
+			mu.Lock()
+			ends = append(ends, string(b))
+			mu.Unlock()
+			return nil
+		},
+		OnRunEnd: func(_ context.Context, tr *Trace) []Warning {
+			b, _ := json.Marshal(traceJSON(tr))
+			mu.Lock()
+			endTrace = b
+			mu.Unlock()
+			return nil
+		},
+	}
+	res, err := rt.Run(context.Background(), "f/t/reveal", nil, RunOptions{Hooks: hooks})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := fmt.Sprintf(`{"WL_TEST_SECRET":%q}`, secret); res.Status != StatusSuccess || string(res.Result) != want {
+		t.Errorf("f/t/reveal: %s %s; want success with the secret in its result", res.Status, shownBytes(res.Result, secret))
+	}
+	masked := fmt.Sprintf(`{"WL_TEST_SECRET":%q}`, harness.SecretMask)
+	for _, site := range []string{"m:a", "m:b"} {
+		rec, ok := res.Trace.Step(mustSite(t, site))
+		if !ok {
+			t.Fatalf("no record of %s", site)
+		}
+		if got := string(rec.Result.Producer()); got != masked {
+			t.Errorf("%s's result in the trace: %s, want %s", site, shownBytes([]byte(got), secret), masked)
+		}
+		if site == "m:b" && (string(rec.RecordedArgs.Producer()) != `{"x":`+masked+`}` || string(rec.ResolvedArgs.Producer()) != `{"x":`+masked+`}`) {
+			t.Errorf("m:b's arguments in the trace: %s and %s, want the mask", shownBytes(rec.RecordedArgs.Producer(), secret), shownBytes(rec.ResolvedArgs.Producer(), secret))
+		}
+	}
+	trace, _ := json.Marshal(traceJSON(res.Trace))
+	mu.Lock()
+	hookTexts := map[string]string{"the trace": string(trace), "OnRunEnd's trace": string(endTrace), "OnModuleEnd's records": strings.Join(ends, "\n")}
+	mu.Unlock()
+	for what, text := range hookTexts {
+		if strings.Contains(text, secret) || !strings.Contains(text, harness.SecretMask) {
+			t.Errorf("%s: want the mask and not the secret: %s", what, shownBytes([]byte(text), secret))
+		}
+	}
+
+	res, err = rt.Run(context.Background(), "f/t/thrower", nil, RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	trace, _ = json.Marshal(traceJSON(res.Trace))
+	if res.Status != StatusFailure || !strings.Contains(string(res.Result), secret) || strings.Contains(string(trace), secret) || !strings.Contains(string(trace), "failed with "+harness.SecretMask) {
+		t.Errorf("f/t/thrower: %s; want a failure whose result holds the secret and whose trace holds the mask instead", res.Status)
+	}
+
+	res, err = rt.Run(context.Background(), "f/t/latcher", nil, RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var latch *engine.StepLatch
+	trace, _ = json.Marshal(traceJSON(res.Trace))
+	if res.Status != StatusLatched || !errors.As(res.Latched, &latch) || latch.Message != "Error: latched with "+harness.SecretMask && !strings.Contains(latch.Message, "latched with "+harness.SecretMask) || strings.Contains(res.Latched.Error(), secret) || strings.Contains(string(trace), secret) {
+		t.Errorf("f/t/latcher: %s, latched %T; want a step latch whose message holds the mask, and a trace without the secret", res.Status, res.Latched)
+	}
+
+	for _, mode := range []string{ModuleStateWarm, ModuleStateFresh} {
+		rt := rt
+		if mode == ModuleStateFresh {
+			if rt, err = Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, ModuleState: mode, HarnessEnv: env}); err != nil {
+				t.Fatal(err)
+			}
+			defer rt.Close()
+		}
+		res, err := rt.Run(context.Background(), "f/t/escape", json.RawMessage(`{}`), RunOptions{Kind: KindScript})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Status != StatusFailure || !strings.Contains(string(res.Result), "leaving with "+harness.SecretMask) || strings.Contains(string(res.Result), secret) {
+			t.Errorf("%s: an escaped step: %s %s; want a failure whose error quotes its log with the mask", mode, res.Status, shownBytes(res.Result, secret))
+		}
+	}
+}
+
+// TestHarnessEnvSecretDeclaration checks that a host plugin that loads and
+// declares a selector that the engine refuses, with a Secret entry's value
+// as its branch, fails Open with an error that names the selector with the
+// mask in place of the value, and that is still ErrSelector.
+func TestHarnessEnvSecretDeclaration(t *testing.T) {
+	bun, out, runtimeDir := harnessEnvBundle(t)
+	const ref = "WL_TEST_HARNESS_DECLARATION_REF"
+	const secret = "synthetic-declared-secret-3f58"
+	t.Setenv(ref, secret)
+	plugin := filepath.Join(t.TempDir(), "plugin.ts")
+	src := `export default { haltBefore: [{ flow: "f/t/env", module: "a", branches: [process.env.WL_TEST_SECRET ?? ""] }] };
+`
+	if err := os.WriteFile(plugin, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, HarnessEnv: map[string]EnvValue{"WL_TEST_SECRET": {ValueEnv: ref, Secret: true}}})
+	if err == nil || !errors.Is(err, ErrSelector) || !strings.Contains(err.Error(), harness.SecretMask) || strings.Contains(err.Error(), secret) {
+		t.Errorf("a declaration refused for a secret branch: %v; want ErrSelector with the mask and not the secret", err)
+	}
+}
+
+// shownBytes is text for a test's report: itself, or, when it holds the
+// secret, its length alone.
+func shownBytes(text []byte, secret string) string {
+	if strings.Contains(string(text), secret) {
+		return fmt.Sprintf("(%d bytes that hold the secret)", len(text))
+	}
+	return string(text)
 }

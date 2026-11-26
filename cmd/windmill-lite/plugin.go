@@ -588,12 +588,58 @@ type configVariable struct {
 
 // configEnv is an environment variable of the harness processes
 // (wl.Options.HarnessEnv): a value written in the file, or one that names a
-// variable of the engine's environment (value_env). A secret must. Each is
-// a pointer, so that a field given empty is told apart from one left out.
+// variable of the engine's environment (value_env). A secret must. Value
+// and ValueEnv are nil only for a field left out.
 type configEnv struct {
-	Value    *string `json:"value"`
-	ValueEnv *string `json:"value_env"`
-	IsSecret bool    `json:"is_secret"`
+	Value    *string
+	ValueEnv *string
+	IsSecret bool
+	// bad says, after the entry's name, why the entry is not usable as
+	// written, naming its field and never a value; "" when it is.
+	bad string
+}
+
+// UnmarshalJSON decodes an entry field by field, so that a field given as
+// null or as another type than its own, and a field that the entry does
+// not have, are told apart from a field left out. It does not fail: the
+// decoding of the configuration goes on, and decodePluginConfig refuses an
+// entry with bad set, naming it.
+func (e *configEnv) UnmarshalJSON(b []byte) error {
+	*e = configEnv{}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(b, &fields); err != nil || fields == nil {
+		e.bad = ": not an object of value or value_env, and is_secret"
+		return nil
+	}
+	str := func(k string) *string {
+		raw := bytes.TrimSpace(fields[k])
+		var s string
+		if len(raw) == 0 || raw[0] != '"' || json.Unmarshal(raw, &s) != nil {
+			e.bad = "." + k + ": not a string"
+			return nil
+		}
+		return &s
+	}
+	for _, k := range slices.Sorted(maps.Keys(fields)) {
+		switch k {
+		case "value":
+			e.Value = str(k)
+		case "value_env":
+			e.ValueEnv = str(k)
+		case "is_secret":
+			if raw := bytes.TrimSpace(fields[k]); string(raw) != "true" && string(raw) != "false" {
+				e.bad = ".is_secret: not true or false"
+			} else {
+				e.IsSecret = string(raw) == "true"
+			}
+		default:
+			e.bad = fmt.Sprintf(": unknown field %q", k)
+		}
+		if e.bad != "" {
+			return nil
+		}
+	}
+	return nil
 }
 
 // configStore is the resource store: memory, or Redis, whose URL names a
@@ -696,6 +742,8 @@ func decodePluginConfig(data []byte) (*pluginConfig, error) {
 	for _, name := range slices.Sorted(maps.Keys(c.HarnessEnv)) {
 		v := c.HarnessEnv[name]
 		switch {
+		case v.bad != "":
+			return nil, fmt.Errorf("harness_env[%q]%s", name, v.bad)
 		case v.Value != nil && v.ValueEnv != nil:
 			return nil, fmt.Errorf("harness_env[%q]: value and value_env are exclusive", name)
 		case v.IsSecret && v.Value != nil:

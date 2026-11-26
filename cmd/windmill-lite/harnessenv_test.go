@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/invakid404/windmill-lite/internal/harness"
@@ -33,9 +32,10 @@ import (
 //     its build information, whose configuration digest is the SHA-256 of
 //     the file.
 //   - A secret written in the file, a reserved name, value with value_env
-//     (an empty one included), neither of them, an empty value_env, and a
-//     reference that only an entry names and that is not set each refuse
-//     the start, naming the entry or the reference, and never a value.
+//     (an empty one included), neither of them, an empty value_env, a field
+//     or an entry given as null, and a reference that only an entry names
+//     and that is not set each refuse the start, naming the entry or the
+//     reference, and never a value.
 func TestPluginHarnessEnvSecrets(t *testing.T) {
 	bun, out := pluginBundle(t)
 	// The reference and its synthetic value, declared apart: on one line,
@@ -104,6 +104,10 @@ func TestPluginHarnessEnvSecrets(t *testing.T) {
 		{"neither value nor value_env", `harness_env["WL_TEST_PLAIN"]`, map[string]any{"WL_TEST_PLAIN": map[string]any{"is_secret": true}}},
 		{"value with an empty value_env", `harness_env["WL_TEST_PLAIN"]: value and value_env`, map[string]any{"WL_TEST_PLAIN": map[string]any{"value": inline, "value_env": ""}}},
 		{"an empty value_env", `harness_env["WL_TEST_PLAIN"].value_env`, map[string]any{"WL_TEST_PLAIN": map[string]any{"value_env": "", "is_secret": true}}},
+		{"value with a null value_env", `harness_env["WL_TEST_PLAIN"].value_env: not a string`, map[string]any{"WL_TEST_PLAIN": map[string]any{"value": inline, "value_env": nil}}},
+		{"a null value with value_env", `harness_env["WL_TEST_PLAIN"].value: not a string`, map[string]any{"WL_TEST_PLAIN": map[string]any{"value": nil, "value_env": ref}}},
+		{"a null is_secret", `harness_env["WL_TEST_PLAIN"].is_secret`, map[string]any{"WL_TEST_PLAIN": map[string]any{"value_env": ref, "is_secret": nil}}},
+		{"a null entry", `harness_env["WL_TEST_PLAIN"]: not an object`, map[string]any{"WL_TEST_PLAIN": nil}},
 		{"a reserved variable", `harness_env["WM_TOKEN"]`, map[string]any{"WM_TOKEN": map[string]any{"value": inline}}},
 		{"the facade's origin", `harness_env["BASE_URL"]`, map[string]any{"BASE_URL": map[string]any{"value": inline}}},
 		{"a base variable", `harness_env["PATH"]`, map[string]any{"PATH": map[string]any{"value": inline}}},
@@ -130,8 +134,11 @@ func TestPluginHarnessEnvSecrets(t *testing.T) {
 // harnessEnvPluginFiles is a synthetic folder whose bundle has a host
 // plugin of its own, which reads the entry WL_TEST_SECRET when it loads.
 // With WL_TEST_FAIL_AT_LOAD set to 1 it throws there, with the value in its
-// error. Otherwise it prints the value, its argument rewrite for
-// f/env/refused throws with it, and its onRunEnd returns it in a warning.
+// error, and with WL_TEST_BAD_DECLARATION set to 1 it declares a halt whose
+// branch is the value, which the engine refuses. Otherwise it prints the
+// value, its argument rewrite for f/env/refused throws with it, and its
+// onRunEnd returns it in a warning's code and message. The step of
+// f/env/reveal returns it.
 var harnessEnvPluginFiles = map[string]string{
 	"wmill.yaml": "defaultTs: bun\n",
 	"f/env/echo.ts": `// Returns its argument.
@@ -139,63 +146,54 @@ export async function main(x: unknown) {
   return x;
 }
 `,
+	"f/env/reveal.ts": `// Returns its WL_TEST_SECRET variable.
+export async function main() {
+  return process.env.WL_TEST_SECRET ?? null;
+}
+`,
 	"f/env/plugin.ts": `const secret = process.env.WL_TEST_SECRET ?? "";
 if (process.env.WL_TEST_FAIL_AT_LOAD === "1") throw new Error("the plugin cannot use " + secret);
 console.error("the plugin loaded with " + secret);
-export default {
+const plugin: Record<string, unknown> = {
   rewriteArgs: [{ selector: { flow: "f/env/refused", module: "a" }, fn: () => { throw new Error("rewrite refused " + secret); } }],
   onRunEnd() {
-    return [{ code: "seen", message: "run ended with " + secret }];
+    return [{ code: "seen " + secret, message: "run ended with " + secret }];
   },
 };
+if (process.env.WL_TEST_BAD_DECLARATION === "1") plugin.haltBefore = [{ flow: "f/env/echo", module: "a", branches: [secret] }];
+export default plugin;
 `,
 	"f/env/echo.flow/flow.yaml": `{"summary":"one step that echoes","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/env/echo",` +
 		`"input_transforms":{"x":{"type":"javascript","expr":"flow_input.x"}}}}]}}`,
 	"f/env/refused.flow/flow.yaml": `{"summary":"one step whose arguments the plugin refuses to rewrite","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/env/echo",` +
 		`"input_transforms":{"x":{"type":"javascript","expr":"flow_input.x"}}}}]}}`,
+	"f/env/reveal.flow/flow.yaml": `{"summary":"one step that returns the secret","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/env/reveal","input_transforms":{}}}]}}`,
 }
 
 const harnessEnvPluginContract = `roots:
   - flow: f/env/echo
   - flow: f/env/refused
+  - flow: f/env/reveal
 plugin: f/env/plugin.ts
 `
 
-var harnessEnvPluginBuild struct {
-	once   sync.Once
-	dir    string
-	bundle string
-	err    error
-}
-
-// harnessEnvPluginBundle returns the pinned Bun and the bundle of
-// harnessEnvPluginFiles, built once per test binary.
-func harnessEnvPluginBundle(t *testing.T) (bun, out string) {
-	t.Helper()
-	bun = absBun(t)
-	harnessEnvPluginBuild.once.Do(func() {
-		if harnessEnvPluginBuild.dir, harnessEnvPluginBuild.err = os.MkdirTemp("", "wl-harnessenv-"); harnessEnvPluginBuild.err != nil {
-			return
-		}
-		harnessEnvPluginBuild.bundle = filepath.Join(harnessEnvPluginBuild.dir, "bundle")
-		harnessEnvPluginBuild.err = buildFolder(bun, harnessEnvPluginFiles, harnessEnvPluginContract, harnessEnvPluginBuild.bundle)
-	})
-	if harnessEnvPluginBuild.err != nil {
-		t.Fatal(harnessEnvPluginBuild.err)
-	}
-	return bun, harnessEnvPluginBuild.bundle
-}
-
 // TestPluginHarnessEnvSecretMasked checks, through `windmill-lite plugin`,
-// that the engine masks a secret entry's value in what it passes on from a
-// harness process. The bundle's host plugin prints a synthetic secret at
-// load, throws with it in an argument rewrite and returns it in onRunEnd's
-// warning: the run results hold the mask instead, and so does the engine's
-// whole standard error, read once the engine has exited. A plugin that
-// throws with it at load fails the start after the handshake, and the
-// engine's whole standard error holds the mask, not the secret.
+// that the engine masks a secret entry's value in what it passes on
+// besides a run's requested result. The bundle's host plugin prints a
+// synthetic secret at load, throws with it in an argument rewrite and
+// returns it in onRunEnd's warning: the run results hold the mask instead,
+// and so does the engine's whole standard error, read once the engine has
+// exited. A flow whose step returns the secret has it in its result, and
+// the mask in its trace. A plugin that throws with it at load, and one
+// whose declaration the engine refuses for it, fail the start after the
+// handshake, and the engine's whole standard error holds the mask, not the
+// secret.
 func TestPluginHarnessEnvSecretMasked(t *testing.T) {
-	bun, out := harnessEnvPluginBundle(t)
+	bun := absBun(t)
+	out := filepath.Join(t.TempDir(), "bundle")
+	if err := buildFolder(bun, harnessEnvPluginFiles, harnessEnvPluginContract, out); err != nil {
+		t.Fatal(err)
+	}
 	// The reference and its synthetic value, declared apart: on one line,
 	// the secret scan's generic rule reads the pair as a key.
 	const ref = "WL_TEST_HARNESS_MASKED_REF"
@@ -204,26 +202,40 @@ func TestPluginHarnessEnvSecretMasked(t *testing.T) {
 	cfg["harness_env"] = map[string]any{"WL_TEST_SECRET": map[string]any{"value_env": ref, "is_secret": true}}
 	e := launchPlugin(t, cfg, ref+"="+secret)
 	args := []byte(`{"x":1}`)
-	for path, want := range map[string]string{"f/env/echo": "run ended with " + harness.SecretMask, "f/env/refused": "rewrite refused " + harness.SecretMask} {
+	for path, want := range map[string]string{"f/env/echo": "seen " + harness.SecretMask, "f/env/refused": "rewrite refused " + harness.SecretMask} {
 		res := e.mustRun(t, &plugin.RunRequest{Path: path, Args: args})
 		text := fmt.Sprint(res)
-		if !strings.Contains(text, want) || strings.Contains(text, secret) {
-			t.Errorf("the result of %s: %s; want %q and not the secret", path, text, want)
+		if !strings.Contains(text, want) || !strings.Contains(text, "run ended with "+harness.SecretMask) || strings.Contains(text, secret) {
+			t.Errorf("the result of %s: want %q and onRunEnd's masked warning, and not the secret", path, want)
 		}
+	}
+	res := e.mustRun(t, &plugin.RunRequest{Path: "f/env/reveal", Trace: "full"})
+	if string(res.GetResult()) != fmt.Sprintf("%q", secret) {
+		t.Errorf("f/env/reveal's result: %d bytes, want the secret", len(res.GetResult()))
+	}
+	if trace := string(res.GetTrace()); !strings.Contains(trace, fmt.Sprintf("%q", harness.SecretMask)) || strings.Contains(trace, secret) {
+		t.Errorf("f/env/reveal's trace: want the mask as the step's result and not the secret")
 	}
 	e.client.Kill()
 	if stderr := e.stderr.String(); !strings.Contains(stderr, "the plugin loaded with "+harness.SecretMask) || strings.Contains(stderr, secret) {
-		t.Errorf("the engine's standard error, once it exited: want the plugin's line with the mask and not the secret:\n%s", stderr)
+		t.Errorf("the engine's standard error, once it exited: want the plugin's line with the mask and not the secret")
 	}
 
-	failing := pluginConfigOf(t, bun, out)
-	failing["harness_env"] = map[string]any{
-		"WL_TEST_SECRET":       map[string]any{"value_env": ref, "is_secret": true},
-		"WL_TEST_FAIL_AT_LOAD": map[string]any{"value": "1"},
-	}
-	code, stderr := startFails(t, failing, ref+"="+secret)
-	if code != 1 || !strings.Contains(stderr, "the plugin cannot use "+harness.SecretMask) || strings.Contains(stderr, secret) {
-		t.Errorf("a plugin that throws with the secret at load: exit %d, stderr:\n%s\nwant 1, quoting its error with the mask and not the secret", code, stderr)
+	for _, c := range []struct {
+		flag, want string
+	}{
+		{"WL_TEST_FAIL_AT_LOAD", "the plugin cannot use " + harness.SecretMask},
+		{"WL_TEST_BAD_DECLARATION", harness.SecretMask},
+	} {
+		failing := pluginConfigOf(t, bun, out)
+		failing["harness_env"] = map[string]any{
+			"WL_TEST_SECRET": map[string]any{"value_env": ref, "is_secret": true},
+			c.flag:           map[string]any{"value": "1"},
+		}
+		code, stderr := startFails(t, failing, ref+"="+secret)
+		if code != 1 || !strings.Contains(stderr, c.want) || strings.Contains(stderr, secret) {
+			t.Errorf("a start that fails with %s: exit %d; want 1, with %q in the standard error and not the secret", c.flag, code, c.want)
+		}
 	}
 }
 

@@ -233,12 +233,13 @@ type Options struct {
 // which Open reads once, however many entries name it. Value is then empty.
 //
 // Secret marks a secret. The engine then replaces each occurrence of the
-// value with "[secret]" in the text that it takes from a harness process
-// and passes on: the process's output lines, which go to Diagnostics and
-// into the errors that quote them, the warnings of its invocations and its
-// host plugin, and the errors of the plugin's hooks. What step code returns,
-// fails with or logs, and what a hook answers, is the run's data, which
-// stays as the code wrote it.
+// value with "[secret]" in what it passes on besides a run's requested
+// result (Result.Result): the harness processes' output lines, which go to
+// Diagnostics and into the errors that quote them, the log tail that an
+// escaped step's error quotes, a run's warnings, its latched error and the
+// errors of the host plugin, the trace's copies of step arguments, results
+// and late output, and the trace and records that hooks get. Steps and
+// hooks get their inputs and answers as written.
 type EnvValue struct {
 	Value    string
 	ValueEnv string
@@ -508,10 +509,10 @@ type Runtime struct {
 	foreign []string
 	// harnessEnv is Options.HarnessEnv as its processes' NAME=value
 	// entries (harnessEnv), nil for none, and harnessSecrets the values of
-	// its secret entries, which secretMask masks (nil for none).
+	// its secret entries, which secrets masks (nil for none).
 	harnessEnv     []string
 	harnessSecrets []string
-	secretMask     func(string) string
+	secrets        *harness.Secrets
 	// memoryStore says that the runtime's resource store keeps its entries
 	// in memory, which its runs' traces list as D24.
 	memoryStore bool
@@ -643,7 +644,7 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	if rt.harnessEnv, rt.harnessSecrets, err = harnessEnv(opts.HarnessEnv); err != nil {
 		return nil, err
 	}
-	rt.secretMask = harness.NewSecretMask(rt.harnessSecrets)
+	rt.secrets = harness.NewSecrets(rt.harnessSecrets)
 	// Harness processes run in directories of their own, so every path
 	// they see is absolute.
 	if path, err = filepath.Abs(path); err != nil {
