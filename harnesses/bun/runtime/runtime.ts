@@ -724,13 +724,22 @@ export class Runtime {
    * failure is its error. */
   private onHostCall(m: Message) {
     const plugin = this.opts.plugin;
+    // An error reply, its message cut to fit max_message, as a warning's
+    // is: the message can be as long as the plugin's or a serialiser's
+    // error made it. It never throws; one that cannot go at all is only
+    // written to the diagnostics.
+    const fail = (error: { code: string; message: string }) => {
+      const out = fitText((message) => ({ t: "host_reply", id: m.id, error: { code: error.code, message } }), error.message, this.sender.maxMessage);
+      try {
+        if (out === undefined) throw new Error("not even an empty message fits max_message");
+        this.send(out);
+      } catch (e) {
+        this.diag(`windmill-lite harness: the error reply to host_call ${JSON.stringify(m.id)} cannot be sent: ${describe(e)}`);
+      }
+    };
     const reply = (payload: Record<string, unknown> | undefined, error?: { code: string; message: string }) => {
       if (error) {
-        try {
-          this.send({ t: "host_reply", id: m.id, error });
-        } catch (e) {
-          this.send({ t: "host_reply", id: m.id, error: { code: "plugin_error", message: `the answer cannot be sent: ${describe(e)}` } });
-        }
+        fail(error);
         return;
       }
       // A run-end answer too large for max_message goes in a smaller form:
@@ -751,7 +760,7 @@ export class Runtime {
         }
       }
       // An answer too large, or not JSON: the engine hears why.
-      this.send({ t: "host_reply", id: m.id, error: { code: "plugin_error", message: `the answer cannot be sent: ${describe(failure)}` } });
+      fail({ code: "plugin_error", message: `the answer cannot be sent: ${describe(failure)}` });
     };
     this.keepRunData(m);
     if (!plugin) {
@@ -1521,13 +1530,21 @@ function cutToFit(text: string, limit: number): string {
  * ending in "…" when cut; undefined when not even an empty string fits. A
  * cut never splits a surrogate pair. */
 export function fitString(m: Outgoing, field: string, text: string, limit: number): Outgoing | undefined {
-  const size = (t: string) => encode({ ...m, [field]: t }).length;
-  if (size(text) <= limit) return { ...m, [field]: text };
+  return fitText((t) => ({ ...m, [field]: t }), text, limit);
+}
+
+/** The message that build makes of as much of text, from the start, as
+ * keeps its canonical payload within limit bytes, ending in "…" when cut;
+ * undefined when not even an empty string fits. fitString's rule, for a
+ * string anywhere in the message, such as a host_reply's error message. */
+export function fitText(build: (text: string) => Outgoing, text: string, limit: number): Outgoing | undefined {
+  const size = (t: string) => encode(build(t)).length;
+  if (size(text) <= limit) return build(text);
   const cut = (k: number) => {
     if (k > 0 && k < text.length && /[\uD800-\uDBFF]/.test(text[k - 1])) k--;
     return text.slice(0, k) + "…";
   };
-  if (size(cut(0)) > limit) return size("") <= limit ? { ...m, [field]: "" } : undefined;
+  if (size(cut(0)) > limit) return size("") <= limit ? build("") : undefined;
   let lo = 0;
   let hi = text.length;
   while (lo < hi) {
@@ -1535,7 +1552,7 @@ export function fitString(m: Outgoing, field: string, text: string, limit: numbe
     if (size(cut(mid)) <= limit) lo = mid;
     else hi = mid - 1;
   }
-  return { ...m, [field]: cut(lo) };
+  return build(cut(lo));
 }
 
 function rawBody(o: Outcome, tail: string): Record<string, unknown> {

@@ -1295,8 +1295,11 @@ The registry:
   that holds the one serialisation, written into the payload as it is. A
   reply over `max_message` goes as `{ warnings, answer_bytes }`, or as
   `{ dropped }`, the warnings under a key one byte shorter. Only that error
-  tries a smaller form, each built and sent inside one guard, so a reply
-  always goes; the engine checks the answer's size against its bound.
+  tries a smaller form, each built and sent inside one guard; the engine
+  checks the answer's size against its bound.
+- **Error replies** (`fitText`). Every `host_reply` error goes with its
+  message cut to fit `max_message`, as a warning's is, so a reply always
+  goes.
 - **`around`** (`runAround`). The runtime runs the step inside the
   matching wrappers, outermost first, in the invocation's context. A
   failed wrapper is reported in a `plugin_error` warning before the

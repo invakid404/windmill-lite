@@ -1068,7 +1068,8 @@ answered by a `host_reply`.
     - **Only size retries.** The harness tries a smaller reply only for a
       reply over `max_message`. One that cannot be written, such as
       warnings whose `toJSON` throws, and warnings too large by themselves,
-      give the error reply, so a reply always goes.
+      give the error reply. An error reply's message is cut to fit
+      `max_message`, as a warning's is, so a reply always goes.
     - **One serialisation.** The harness reads the answer once and
       serialises it once, and the reply carries that text, so what the
       harness checked is what the engine gets.

@@ -282,6 +282,42 @@ describe("the runtime", () => {
     }
   });
 
+  test("an error reply too long for max_message goes once, its message cut to fit", async () => {
+    // A serialiser's exception, and a hook's own error, of 5,000
+    // characters, against a limit of 4,096 bytes.
+    const long = "x".repeat(5000);
+    class Brittle extends Array<{ code: string; message: string }> {
+      toJSON(): never {
+        throw new Error(long);
+      }
+    }
+    const cases: { plugin: Plugin; hook: string; prefix: string }[] = [
+      { plugin: { onRunEnd: () => ({ warnings: Brittle.from([{ code: "c", message: "m" }]), answer: 1 }) }, hook: "on_run_end", prefix: "the answer cannot be sent: Error: xxx" },
+      {
+        plugin: {
+          onModuleStart: () => {
+            throw new Error(long);
+          },
+        },
+        hook: "on_module_start",
+        prefix: "Error: xxx",
+      },
+    ];
+    for (const c of cases) {
+      const { runtime, send, messages } = hostRuntime(c.plugin, 4096);
+      send({ t: "host_call", id: "hc1", hook: c.hook, run: "r", site: "", payload: { site, trace: { run: "r", status: "success" } } });
+      await Bun.sleep(5);
+      const replies = messages().filter((m) => m.t === "host_reply");
+      expect(replies.length).toBe(1);
+      expect(replies[0].id).toBe("hc1");
+      expect(replies[0].error?.code).toBe("plugin_error");
+      expect(replies[0].error?.message.startsWith(c.prefix)).toBe(true);
+      expect(replies[0].error?.message.endsWith("…")).toBe(true);
+      expect(encode({ t: "host_reply", id: "hc1", error: replies[0].error }).length).toBeLessThanOrEqual(4096);
+      runtime.onClose();
+    }
+  });
+
   test("a run's outcome carries run_done's answer as JSON text: null is an answer, an absent one none", async () => {
     const { runtime, send } = hostRuntime();
     const runs = [0, 1, 2].map(() => runtime.submit("flow", "f/x", "{}"));
