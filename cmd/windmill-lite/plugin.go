@@ -566,6 +566,7 @@ type pluginConfig struct {
 	MaxMessageBytes        *int64                    `json:"max_message_bytes"`
 	BytesTotal             *int64                    `json:"bytes_total"`
 	Labels                 map[string]string         `json:"labels"`
+	HarnessEnv             map[string]configEnv      `json:"harness_env"`
 }
 
 // configResource is a resource of the configuration, as in a bundle's
@@ -583,6 +584,15 @@ type configVariable struct {
 	ValueEnv  string  `json:"value_env"`
 	IsSecret  bool    `json:"is_secret"`
 	Encrypted bool    `json:"encrypted"`
+}
+
+// configEnv is an environment variable of the harness processes
+// (wl.Options.HarnessEnv): a value written in the file, or one that names a
+// variable of the engine's environment (value_env). A secret must.
+type configEnv struct {
+	Value    *string `json:"value"`
+	ValueEnv string  `json:"value_env"`
+	IsSecret bool    `json:"is_secret"`
 }
 
 // configStore is the resource store: memory, or Redis, whose URL names a
@@ -680,6 +690,24 @@ func decodePluginConfig(data []byte) (*pluginConfig, error) {
 			return nil, fmt.Errorf("variables[%q].value: a secret is never written in the file; name a variable of the engine's environment with value_env", path)
 		case v.Value == nil && v.ValueEnv == "":
 			return nil, fmt.Errorf("variables[%q]: value or value_env is required", path)
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(c.HarnessEnv)) {
+		v := c.HarnessEnv[name]
+		switch {
+		case v.Value != nil && v.ValueEnv != "":
+			return nil, fmt.Errorf("harness_env[%q]: value and value_env are exclusive", name)
+		case v.IsSecret && v.Value != nil:
+			return nil, fmt.Errorf("harness_env[%q].value: a secret is never written in the file; name a variable of the engine's environment with value_env", name)
+		case v.Value == nil && v.ValueEnv == "":
+			return nil, fmt.Errorf("harness_env[%q]: value or value_env is required", name)
+		}
+		value := ""
+		if v.Value != nil {
+			value = *v.Value
+		}
+		if err := harness.CheckEnv(name, value); err != nil {
+			return nil, fmt.Errorf("harness_env[%q]: %w", name, err)
 		}
 	}
 	for _, path := range slices.Sorted(maps.Keys(c.Resources)) {
@@ -827,6 +855,24 @@ func (c *pluginConfig) options(stderr io.Writer) (wl.Options, func(), error) {
 				}
 			}
 			opts.Variables[path] = wl.Variable{Value: value, Secret: v.IsSecret, Ciphertext: v.Encrypted}
+		}
+	}
+	if len(c.HarnessEnv) > 0 {
+		// The runtime gets each value itself: the reference is unset once
+		// read, before the runtime opens.
+		opts.HarnessEnv = make(map[string]wl.EnvValue, len(c.HarnessEnv))
+		for _, name := range slices.Sorted(maps.Keys(c.HarnessEnv)) {
+			v := c.HarnessEnv[name]
+			value := ""
+			if v.Value != nil {
+				value = *v.Value
+			} else {
+				var err error
+				if value, err = env.read(v.ValueEnv); err != nil {
+					return wl.Options{}, nil, fmt.Errorf("harness_env[%q].value_env: %w", name, err)
+				}
+			}
+			opts.HarnessEnv[name] = wl.EnvValue{Value: value}
 		}
 	}
 	if len(c.Providers) > 0 {

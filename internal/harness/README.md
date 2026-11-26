@@ -78,6 +78,7 @@ the code.
 | `RunData`, `NewRunData`, `WithRunData`, `RunDataOf` | struct, funcs | One run's data, which the plugins of the processes it reaches read, carried in the run's context ([Run data](#run-data)); `Release` | `wl` |
 | `ExitStatus` | struct | How a process ended: code or signal | tests |
 | `BaseEnv` | func | The base environment of a spawned process | `ProcessConfig`'s default, `wltest` |
+| `CheckEnv` | func | Whether a spawned process may start with a host's environment entry (`ProcessConfig.ExtraEnv`): the error says why not, without the value ([The base environment](#the-base-environment)) | `wl`, `windmill-lite plugin` |
 | `BunCommand` | func | The command line that starts the Bun harness runtime on a bundle, with `--umask` after `SetLaunchUmask` | `wl`, `wltest` |
 | `SetLaunchUmask` | func | Makes every harness that `BunCommand` starts afterwards set that umask first ([harnesses/bun](../../harnesses/bun/README.md#start-a-spawned-harness)); without it, a harness keeps the umask that it inherits | `windmill-lite plugin` |
 | `PinnedBun`, `ProtocolVersion` | const | `1.4.3`; `1` | `PinnedBun`: `wl`, `internal/bundle`, `wltest`. `ProtocolVersion`: the handshake, tests |
@@ -312,7 +313,8 @@ the harness protocol design record lists the fields of `run`, `run_done`,
 A process's environment is `ProcessConfig.Env`, or `BaseEnv()`: the base
 set that Windmill's worker gives a Bun job
 ([WR-22](../../docs/semantics/languages.md#wr-22)), as far as the engine
-stands in for the worker.
+stands in for the worker. `BaseEnv()` reads the engine's environment again
+at each spawn.
 
 | Variable | Value |
 |---|---|
@@ -325,6 +327,19 @@ stands in for the worker.
 | `NODE_PATH` | The engine's, set only when the engine has one |
 | `BASE_URL` | `ProcessConfig.Facade`, when set. It is appended over any value of the same name, as Windmill's worker sets it last ([WA-2](../../docs/semantics/client-api.md#wa-2)) |
 | `BASE_INTERNAL_URL` | Never set for Bun |
+
+`ProcessConfig.ExtraEnv` follows the base set, before `BASE_URL`: the
+host's own `NAME=value` entries (`HarnessEnv` in
+[wl](../../wl/README.md#the-harness-environment)). `CheckEnv` refuses an
+entry that the engine sets itself, or that no environment can carry:
+
+- a name that starts with `WM_`, the job's reserved variables, which each
+  invocation sets over the process's own;
+- `BASE_URL` and `BASE_INTERNAL_URL`;
+- a name of the base set, whether or not the engine has `TZ` or
+  `NODE_PATH`;
+- an empty name, a name with `=` or a NUL byte, and a value with a NUL
+  byte.
 
 ### Process groups
 

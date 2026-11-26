@@ -187,13 +187,15 @@ the configuration names no plugin of its own.
 | `foreign_windmill_origins` | The origins of real Windmill instances, whose requests from steps lose windmill-lite's job ids ([platform interface](0007-platform-interface.md#async-dispatch)) | none |
 | `engine_recycle_rss` | The engine's own resident set, in bytes, at which it stops serving | off |
 | `drain_timeout_ms` | How long a drain lets the runs in flight go on | 60000 |
+| `harness_env` | Environment variables of every harness process, by name: a value, or a reference to a variable of the engine's environment ([harness protocol](0004-harness-protocol.md#per-invocation-identity-logs-and-environment)) | none |
 | `max_message_bytes` | The largest gRPC message in either direction | 536870912, the harness protocol's limit |
 | `bytes_total` | The runtime's byte total, which every run's reservations share ([harness protocol](0004-harness-protocol.md#pooling-processes-the-engine-spawns)) | off |
 | `labels` | Names and values that build information echoes, such as a deployment's region | none |
 
 - **Secrets by reference.** A secret variable's value names a variable of
-  the engine's environment (`value_env`), and so does the resource store's
-  URL (`url_env`), which may hold a credential. A secret written in the
+  the engine's environment (`value_env`), and so do a secret entry of
+  `harness_env` and the resource store's URL (`url_env`), which may hold a
+  credential. A secret written in the
   file refuses the start, naming the field but not the value.
 - **Reading them.** The engine reads each reference once, at start, and
   writes the value to no file, build information or diagnostic. A variable

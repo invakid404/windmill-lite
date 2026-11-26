@@ -535,6 +535,18 @@ step, never releases them.
   `BASE_INTERNAL_URL` is not set for Bun, as in Windmill. Both are set before
   any step module loads, because the client captures its base URL at import
   ([WA-1](../semantics/client-api.md#wa-1)).
+- **The host's variables.** A host may give every process that the engine
+  spawns environment variables of its own: settings and secrets that steps
+  and its host plugin read as process variables, as Windmill's workers pass
+  their configured variables to each job ([WA-2](../semantics/client-api.md#wa-2)).
+  The engine adds them after the base environment, before `BASE_URL`.
+- **Names the host cannot set.** The engine refuses a variable that it
+  sets itself: a `WM_*` name, which each invocation sets over the
+  process's own, `BASE_URL`, `BASE_INTERNAL_URL`, and a name of the base
+  environment. A step's own variables, such as its script's `envs`, win
+  over the host's for its invocation. A native step reads none of them,
+  since its `process.env` is built from its invocation's variables.
+- **Host mode** takes none: the host's environment is its own.
 
 ### Lifecycle
 

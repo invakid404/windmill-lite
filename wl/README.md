@@ -1,8 +1,8 @@
 # wl
 
 **Current state:** `wl` opens a bundle and runs its flows and root
-scripts, with host hooks, providers, budgets, pool settings, host mode and
-host plugins.
+scripts, with host hooks, providers, budgets, pool settings, environment
+variables for its harness processes, host mode and host plugins.
 Only Bun steps run.
 
 Of the adapters of the
@@ -168,6 +168,7 @@ The zero value of each field is its default.
 | `Identity` | The [job identity](#job-identity) of every job: its workspace, user and the instance's public URL | windmill-lite's placeholders, such as the workspace `windmill-lite` | To give steps the workspace and user that their code expects |
 | `ForeignWindmillOrigins` | The origins of real [Windmill](../docs/glossary.md#windmill) instances that steps call through their own client, such as `https://windmill.example.com`. A step's dispatch to one of them loses its links to the step's own [job](../docs/glossary.md#job) ids ([Job ids on a real Windmill](#job-ids-on-a-real-windmill)). | None | When steps dispatch jobs on a real Windmill |
 | `ResultPollsForAllJobs` | A step's result polls (`getResultMaybe` and `getResult`, which `waitJob` uses) answer for every job of a live run that its job read answers for, as Windmill answers them, and not only for the runs that steps dispatched ([internal/platform/facade](../internal/platform/facade/README.md#dispatch-and-results)) | Off | When steps poll the result of another job of their run |
+| `HarnessEnv` | Environment variables, by name, that every harness process starts with beside its base environment: settings and secrets that steps and a host plugin read as process variables. Each `EnvValue` holds a `Value`, or `ValueEnv`, the name of a variable of the engine's own environment ([The harness environment](#the-harness-environment)). | None | When steps or a host plugin read settings or secrets from their environment |
 | `Host` | Opens the runtime in [host mode](#host-mode) | Nil | Only for host mode |
 
 A `Variable` holds its `Value`, and `Secret` marks a secret. With
@@ -222,6 +223,49 @@ a resource or variable again for each step and each call. The
 [equivalence contract](../docs/design/0001-equivalence-contract.md#5-named-deviations)
 names it, and the [trace](../docs/glossary.md#trace) of a run with it
 lists `D21`.
+
+### The harness environment
+
+`Options.HarnessEnv` gives every harness process that the runtime spawns
+environment variables of the host's, by name. Step code and a
+[host plugin](../docs/glossary.md#host-plugin) read them as process
+variables, as Windmill's workers pass the variables that they are
+configured with to each job process
+([WA-2](../docs/semantics/client-api.md#wa-2)). Empty, the default, a
+process starts with its base environment alone
+([internal/harness](../internal/harness/README.md#the-base-environment)).
+
+- **The value.** An `EnvValue` holds a `Value`, or `ValueEnv`: the name of
+  a variable of the engine's own environment, which `Open` reads once. In
+  a Go host, that is the host process's environment, which `Open` leaves
+  as it is.
+- **A step** reads them under its invocation's own variables. Its reserved
+  `WM_*` variables, its script's own `envs` and what a host plugin's
+  `invocationEnv` returns win for that invocation. On Windmill, a worker's
+  configured variables win over a script's own `envs`
+  ([WA-4](../docs/semantics/client-api.md#wa-4)).
+- **A native step** (`nativets` or `//native`) reads none of them: its
+  `process.env` holds only its base URLs and reserved variables.
+- **A host plugin** reads them when it loads, and in its hooks.
+- **Every spawned process.** A `fresh` runtime's processes, one for each
+  step, take them too. Host mode refuses them: it spawns no harness
+  process, and the host's environment is its own.
+- **No value is repeated.** The engine writes no value to a trace, a
+  warning, an error or the diagnostics writer. What a step does with one,
+  such as return it or print it, is the step's.
+
+`Open` refuses an entry that names a variable that the engine sets itself:
+
+| Name | Why |
+|---|---|
+| A name that starts with `WM_` | The job's reserved variables, which the engine sets for each invocation ([WA-4](../docs/semantics/client-api.md#wa-4)) |
+| `BASE_URL`, `BASE_INTERNAL_URL` | The engine gives each step the [platform facade](../docs/glossary.md#platform-facade)'s origin as `BASE_URL`, and the stock client prefers `BASE_INTERNAL_URL` to `BASE_URL` |
+| `PATH`, `HOME`, `TZ`, `FORCE_COLOR`, `DO_NOT_TRACK`, `BUN_INSTALL_CACHE_DIR`, `BUN_RUNTIME_TRANSPILER_CACHE_PATH`, `NODE_PATH` | The base environment sets them, from the engine's own environment where it has them. Set `PATH`, `HOME`, `TZ` or `NODE_PATH` there. |
+| An empty name, or one with `=` or a NUL byte | No process environment can carry it |
+
+`Open` also refuses a value with a NUL byte, an entry with both `Value`
+and `ValueEnv`, and one whose `ValueEnv` is not set. Each refusal names
+the entry, never a value.
 
 ### The harness pool
 
@@ -893,6 +937,7 @@ build helper's dependencies, and skip without them unless
 | `settled_test.go` | The run-settlement hooks | No |
 | `bun_test.go` | A real bundle in `warm` and `fresh`: platform calls in the trace, cached results shared between runtimes, cancellation, `InvocationEnv`, per-run variables, the first write and the pre-write deadline, the step API (`TestStepAPI`), plugin trace parity and `around` | Yes |
 | `outside_test.go` | A bundle whose host contract lists two modules outside the [sync folder](../docs/glossary.md#sync-folder), without a host | Yes |
+| `harnessenv_test.go` | `Options.HarnessEnv` on real processes. A step reads a value and a secret by `ValueEnv`, in `warm` and `fresh`, and a native step reads neither (`TestHarnessEnvReachesStep`); a host plugin reads them at load (`TestHarnessEnvReachesPlugin`). `Open` refuses the names of the table above and host mode, naming the entry, and a script's own `envs` win (`TestHarnessEnvReserved`). Without entries a process has its base environment alone, and with them the entries besides (`TestHarnessEnvDefault`). | Yes, but for the refusals |
 | `plugincases_test.go` | The cases of `conformance/plugins/hooks.yaml`, through the TypeScript case plugin, named by `Options.Plugin` and built into the bundle, and through Go callbacks built from the same plugins | Yes |
 | `bundledplugin_test.go` | A bundle's own plugin. Its `around` wrapper and the step share a host-provided module in 16 concurrent runs (`TestBundledPluginSharesHostModule`), and a bundle with no step starts processes for it (`TestBundledPluginWithoutSteps`). `Open` refuses it with `Options.Plugin` and in `fresh` (`TestOpenRefusesTwoPlugins`), and refuses a manifest that names a module outside the bundle (`TestOpenRefusesUnverifiedPlugin`). A `fetch` wrapper it installs at load reaches an ordinary step and not a native one (`TestPluginFetchWrapperOrder`) | Yes |
 | `rundata_test.go` | `RunOptions.Data` on real runs. Wrappers of an `around`-only plugin read their own run's data and steps `undefined` (`TestRunDataAroundOnly`), a hook reads it frozen (`TestRunDataHook`), and a run that a Go hook starts does not inherit it (`TestRunDataNotInherited`). The process holds it until a flow run or a script job settles (`TestRunDataReleased`), and one without a plugin gets none (`TestRunDataNeedsPlugin`). Data that is not JSON or not UTF-8 is refused (`TestRunDataRefusesInvalid`, `TestRunDataRefusesInvalidUTF8`). | Yes |

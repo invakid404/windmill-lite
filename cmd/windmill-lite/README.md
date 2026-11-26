@@ -471,6 +471,7 @@ whose digest passed.
 | `labels` | An object of strings | None | Names and values that `GetBuildInfo` echoes |
 | `engine_recycle_rss` | A number of bytes, 0 or more | 0: off | The engine's own resident set at which it drains, read on Linux from `/proc/self/status` (`VmRSS`) and on macOS with `task_info` (its current, not its peak, resident size) |
 | `drain_timeout_ms` | A number from 0 to 9,223,372,036,854 | 60000 | How long a drain lets the `Run` calls in flight go on |
+| `harness_env` | An object of `{"value"}` or `{"value_env"}` by name, each with `is_secret` | None | Environment variables of every harness process, which steps and the bundle's host plugin read (`HarnessEnv` in [wl](../../wl/README.md#the-harness-environment)). A name that `wl` refuses, such as a `WM_*` name, `BASE_URL` or `PATH`, refuses the start, naming the entry ([Secrets by reference](#secrets-by-reference)) |
 
 A provider set to `"broker"` is answered by the hooks of the run that
 reaches it, on go-plugin's broker, and a run whose hooks do not serve it
@@ -479,8 +480,9 @@ start, naming the provider.
 
 ### Secrets by reference
 
-- **A secret is never in the file.** A secret variable gives `value_env`,
-  the name of a variable of the engine's environment. A secret `value`
+- **A secret is never in the file.** A secret variable, or a secret entry
+  of `harness_env`, gives `value_env`, the name of a variable of the
+  engine's environment. A secret `value`
   refuses the start, naming the field and not the value, and so does a
   store's `url`, which may hold a password: a Redis store gives `url_env`.
 - **Read once.** The engine reads each named variable once, at start,
@@ -595,7 +597,7 @@ gives the setup.
 | `runcmd_test.go` | `run`'s usage errors, which exit with status 2. Arguments, a bundle or a profile file that do not open exit with status 1, and print nothing on standard output. A synthetic folder's flow, run `warm` and `fresh`, reads a host's secret through its arguments. A run that succeeds exits 0 with its result, trace and CPU profile, a run that fails exits 1, and a run without the harness runtime does not start. |
 | `runcmd_test.go`, the resource store | On `-resource-store memory`, each run starts without the state the last one wrote. An unknown store, `redis` without `WL_REDIS_URL`, an unreachable Redis or Sentinel, and URLs that do not parse do not start; each runs in an engine process of its own, whose whole standard error holds no password. With `WL_TEST_REDIS_URL` ([wl/redisstore](../../wl/redisstore/README.md#tests)), two engine processes on one Redis share the state: the second's create is refused as taken, and it reads the first's value. |
 | `host_test.go`, `argsfile_test.go`, `readcache_test.go`, `tracedetail_test.go`, `foreign_test.go`, `resultpolls_test.go` | Host mode end to end, on the Bun host `testdata/host/host.ts` ([Host-mode tests](#host-mode-tests)) |
-| `plugin_test.go`, `runoptions_test.go`, `drain_test.go`, `broker_test.go` | `plugin` end to end, through `wl/plugin` ([Plugin tests](#plugin-tests)) |
+| `plugin_test.go`, `runoptions_test.go`, `drain_test.go`, `broker_test.go`, `harnessenv_test.go` | `plugin` end to end, through `wl/plugin` ([Plugin tests](#plugin-tests)) |
 | `memory_test.go` | What `warm` step modules cost a host process ([Memory tests](#memory-tests)) |
 | `realm_test.go` | What native invocations leave in a long-lived Bun process ([Native realm tests](#native-realm-tests)) |
 | `retain_test.go` | `TestSettledRunLetsGoOfItsValuesOnHosts`: on the plain host and on the plugin host, a run's step results are unreachable once the run has settled, while the runtime and its host go on |
@@ -687,12 +689,12 @@ How these tests run:
 
 ### Plugin tests
 
-`plugin_test.go`, `runoptions_test.go` and `broker_test.go` launch the test binary as the engine through
+`plugin_test.go`, `runoptions_test.go`, `broker_test.go` and `harnessenv_test.go` launch the test binary as the engine through
 `wl/plugin`'s `ClientConfig`, with its SHA-256 and a literal environment
-in which `WL_TEST_ENGINE` is `1`, and calls it through `plugin.Client`
+in which `WL_TEST_ENGINE` is `1`, and call it through `plugin.Client`
 over go-plugin's connection. `supervisor_test.go` runs `wl/plugin`'s
-`Supervisor` on that engine. The tests build their bundles from
-synthetic folders that the test file holds. `drain_test.go` starts the
+`Supervisor` on that engine. The bundles come from synthetic folders that
+the test files hold. `drain_test.go` starts the
 engine as go-plugin would, connects to the socket that its handshake line
 names, and so sees its exit status and can signal it.
 
@@ -713,6 +715,7 @@ names, and so sees its exit status and can signal it.
 | `TestPluginTokenBoundDrains` | With the bound of gone tokens lowered to 2 (`WL_TEST_PLUGIN_TOKEN_BOUND`), the engine serves after one `gone` answer, and after the second answers health `NOT_SERVING` and names its bound on standard error. |
 | `TestPluginConfigRefusals` | Settings in milliseconds beyond what a duration holds, a negative `drain_timeout_ms` and a negative `engine_recycle_rss` refuse the start, naming the field, and a socket directory that is a file ends the engine with status 1 and no handshake. A bundle that a test hook replaces with another after its check does not open: the engine exits with status 1 after the handshake line, which a test hook delays (`WL_TEST_PLUGIN_DELAY_HANDSHAKE`) past the failing open's time. |
 | `TestPluginSecretsByReference` | A secret's value comes from `value_env` and reaches the step that reads it, but no stderr line or build information. Two variables may name one environment variable. The configuration's digest changes with the reference's name, not with the value. An unset variable, a secret `value` and a store's `url` refuse the start without the value. |
+| `TestPluginHarnessEnvSecrets` | A step reads each `harness_env` entry: a value, and a secret by `value_env` that two entries and a variable share. An entry whose `value_env` names `TZ` gets the engine's, and the step then has no `TZ`, which the engine has unset. The secret is in no stderr line or build information. A secret `value`, a reserved name, both or neither of `value` and `value_env`, and an unset reference refuse the start without a value. |
 | `TestPluginSocketPrivate` | Started under the umask `0027`, the engine serves on a socket of mode `0700`, and a step creates a file of mode `0640`. |
 | `TestRunnerResultPolls` | `result_polls_for_all_jobs`, through `Client.Run` on the result-polls fixture: on, the run gets the recorded answers; off, the default, the polls answer 501, which fails the step. |
 | `TestPluginHandshakeFirstLine` | With a configuration whose warm start starts a harness process, go-plugin's handshake line is the first line of the engine's standard output. |

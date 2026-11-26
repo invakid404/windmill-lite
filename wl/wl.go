@@ -194,6 +194,27 @@ type Options struct {
 	// runtime's that no step dispatched answers 501. In host mode it
 	// applies to the host's steps.
 	ResultPollsForAllJobs bool
+	// HarnessEnv are environment variables, by name, that every harness
+	// process the runtime spawns starts with, beside its base environment
+	// (the base variables of a Bun job, and BASE_URL): a host's settings
+	// and secrets, which step code and a host plugin read as process
+	// variables. A step reads its invocation's own variables first: the
+	// reserved WM_* variables, its script's own envs and what a plugin's
+	// invocationEnv sets. A native step reads none of them: its
+	// process.env holds only its base URLs and reserved variables.
+	//
+	// Open refuses, naming the entry and never a value: a name that starts
+	// with WM_ (the reserved variables, set for each invocation); BASE_URL
+	// and BASE_INTERNAL_URL (the platform facade's origin); a name of the
+	// base environment (PATH, HOME, TZ, FORCE_COLOR, DO_NOT_TRACK,
+	// BUN_INSTALL_CACHE_DIR, BUN_RUNTIME_TRANSPILER_CACHE_PATH, NODE_PATH),
+	// which takes its values from the engine's own environment; an empty
+	// name, a name with "=" or a NUL byte, and a value with a NUL byte; an
+	// entry with both Value and ValueEnv, and one whose ValueEnv is not
+	// set. A fresh runtime's processes take them too. Host mode, which
+	// spawns no harness process, refuses them. Empty, the default, adds
+	// none.
+	HarnessEnv map[string]EnvValue
 	// Host, when set, opens the runtime in host mode (ADR 0004 host mode,
 	// ADR 0009): its steps run in the host process that started it, which
 	// submits the runs. The bundle must then be a directory, which the
@@ -202,6 +223,40 @@ type Options struct {
 	// harness. Open completes the handshake with the host before it
 	// returns, and refuses the host, with the reason, when it fails.
 	Host *Host
+}
+
+// EnvValue is the value of an environment variable of the runtime's
+// harness processes (Options.HarnessEnv): Value, or, when ValueEnv is set,
+// the value of the variable of that name in the engine's own environment,
+// which Open reads once. Value is then empty.
+type EnvValue struct {
+	Value    string
+	ValueEnv string
+}
+
+// harnessEnv returns the entries of env as NAME=value, sorted by name, the
+// values of ValueEnv references read from the engine's environment, or the
+// error that refuses one. The error names the entry, never a value.
+func harnessEnv(env map[string]EnvValue) ([]string, error) {
+	var entries []string
+	for _, name := range slices.Sorted(maps.Keys(env)) {
+		v := env[name]
+		value := v.Value
+		if v.ValueEnv != "" {
+			if v.Value != "" {
+				return nil, fmt.Errorf("wl: Options.HarnessEnv[%q]: Value and ValueEnv are exclusive", name)
+			}
+			var ok bool
+			if value, ok = os.LookupEnv(v.ValueEnv); !ok {
+				return nil, fmt.Errorf("wl: Options.HarnessEnv[%q].ValueEnv: the environment variable %q is not set", name, v.ValueEnv)
+			}
+		}
+		if err := harness.CheckEnv(name, value); err != nil {
+			return nil, fmt.Errorf("wl: Options.HarnessEnv[%q]: %w", name, err)
+		}
+		entries = append(entries, name+"="+value)
+	}
+	return entries, nil
 }
 
 // RuntimeLimits are the limits that a runtime's runs share (ADR 0004
@@ -429,6 +484,9 @@ type Runtime struct {
 	// foreign is Options.ForeignWindmillOrigins as the welcomes carry
 	// them (foreignOrigins).
 	foreign []string
+	// harnessEnv is Options.HarnessEnv as its processes' NAME=value
+	// entries (harnessEnv), nil for none.
+	harnessEnv []string
 	// memoryStore says that the runtime's resource store keeps its entries
 	// in memory, which its runs' traces list as D24.
 	memoryStore bool
@@ -550,8 +608,14 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 		if opts.Pool != (PoolOptions{}) {
 			return nil, errors.New("wl: host mode has no harness pool, since the host is its one harness process: Options.Pool must be zero")
 		}
+		if len(opts.HarnessEnv) > 0 {
+			return nil, errors.New("wl: host mode spawns no harness process, since the host is its one harness process: Options.HarnessEnv must be empty")
+		}
 	}
 	if rt.foreign, err = foreignOrigins(opts.ForeignWindmillOrigins); err != nil {
+		return nil, err
+	}
+	if rt.harnessEnv, err = harnessEnv(opts.HarnessEnv); err != nil {
 		return nil, err
 	}
 	// Harness processes run in directories of their own, so every path
@@ -789,7 +853,7 @@ func (rt *Runtime) harness(opts Options) (*harness.Pool, error) {
 	cfg.Key = harness.Key{Class: string(ir.ClassBun), Runtime: harness.PinnedBun, Deps: rt.digest, ModuleState: rt.state}
 	cfg.Process = harness.ProcessConfig{
 		Path: path, Args: args, WorkRoot: work, Kind: string(ir.ClassBun), Runtime: harness.PinnedBun,
-		Bundle: rt.digest, EngineVersion: rt.version,
+		Bundle: rt.digest, EngineVersion: rt.version, ExtraEnv: rt.harnessEnv,
 		Diagnostics: opts.Diagnostics, Facade: rt.PlatformOrigin(), Platform: rt.fac.Platform(),
 		ForeignWindmillOrigins: rt.foreign,
 	}

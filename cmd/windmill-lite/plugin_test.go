@@ -77,6 +77,12 @@ export async function main() {
   return { workspace: e.WM_WORKSPACE, username: e.WM_USERNAME, email: e.WM_EMAIL };
 }
 `,
+	"f/plugin/env.ts": `// Returns, for each name, the value of that variable of process.env, or
+// null.
+export async function main(names: string[]) {
+  return Object.fromEntries(names.map((n) => [n, process.env[n] ?? null]));
+}
+`,
 	"f/plugin/file_mode.ts": `// Creates the file at path and returns its permission bits.
 import { statSync, writeFileSync } from "node:fs";
 export async function main(path: string) {
@@ -149,6 +155,7 @@ const pluginContract = `roots:
   - script: f/plugin/fail_after_write
   - script: f/plugin/identity
   - script: f/plugin/file_mode
+  - script: f/plugin/env
 `
 
 var pluginBuild struct {

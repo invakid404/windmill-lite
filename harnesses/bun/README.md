@@ -805,6 +805,14 @@ Without it, the harness keeps the umask that it inherits. An engine that
 serves with a stricter umask of its own passes the one that it was
 started with.
 
+The engine starts the harness with the base environment of a Bun job
+([internal/harness](../../internal/harness/README.md#the-base-environment))
+and the host's own variables (`HarnessEnv` in
+[wl](../../wl/README.md#the-harness-environment)), and with nothing else
+of its own environment. So the process environment, which code outside
+every invocation reads and a step reads under its invocation's own
+variables, holds exactly these.
+
 File descriptor 3 must be one end of a stream socket pair, which carries
 every frame. Standard output and standard error carry no frames, so what a
 step prints cannot corrupt the protocol.

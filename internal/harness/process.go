@@ -58,8 +58,14 @@ type ProcessConfig struct {
 	// program name; see BunCommand.
 	Path string
 	Args []string
-	// Env is the process's entire environment; nil means BaseEnv().
+	// Env is the process's environment before ExtraEnv; nil means
+	// BaseEnv(), read again at each spawn.
 	Env []string
+	// ExtraEnv are NAME=value entries that the process starts with after
+	// Env and before BASE_URL: a host's settings and secrets for its
+	// harness processes (wl's Options.HarnessEnv), each one that CheckEnv
+	// accepts. nil adds none.
+	ExtraEnv []string
 	// WorkRoot is the directory in which the process's private working
 	// directory is created; empty means os.TempDir().
 	WorkRoot string
@@ -217,6 +223,46 @@ func BaseEnv() []string {
 		env = append(env, "NODE_PATH="+np)
 	}
 	return env
+}
+
+// baseEnvNames are the names of the variables that BaseEnv can set,
+// whether or not the engine's environment gives TZ and NODE_PATH.
+var baseEnvNames = []string{"PATH", "HOME", "TZ", "FORCE_COLOR", "DO_NOT_TRACK", "BUN_INSTALL_CACHE_DIR", "BUN_RUNTIME_TRANSPILER_CACHE_PATH", "NODE_PATH"}
+
+// CheckEnv returns nil when a harness process may start with the
+// environment entry name=value (ProcessConfig.ExtraEnv), and otherwise an
+// error that says why, which names neither the entry nor its value: the
+// caller names the entry, and the value may be a secret. It refuses:
+//
+//   - a name that is empty or holds "=" or a NUL byte, and a value that
+//     holds a NUL byte, which no process environment can carry;
+//   - a name that starts with WM_: the job's reserved variables, which the
+//     engine sets for each invocation, over the process's own ([WA-4]);
+//   - BASE_URL, which the engine sets last to the platform facade's
+//     origin, and BASE_INTERNAL_URL, which the stock client prefers to
+//     BASE_URL for its platform calls ([WA-2]);
+//   - a name of the base environment (BaseEnv), whose values come from the
+//     engine's own environment, as Windmill's worker sets its common Bun
+//     variables after the variables configured for a job ([WA-2]).
+//
+// [WA-2]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-2
+// [WA-4]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-4
+func CheckEnv(name, value string) error {
+	switch {
+	case name == "":
+		return errors.New("an empty name")
+	case strings.ContainsAny(name, "=\x00"):
+		return errors.New(`a name holds "=" or a NUL byte`)
+	case strings.ContainsRune(value, 0):
+		return errors.New("the value holds a NUL byte")
+	case strings.HasPrefix(name, "WM_"):
+		return errors.New("WM_ variables are the job's reserved variables, which the engine sets for each invocation")
+	case name == "BASE_URL" || name == "BASE_INTERNAL_URL":
+		return errors.New("the engine gives steps the platform facade's origin as BASE_URL, and the stock client would prefer BASE_INTERNAL_URL to it")
+	case slices.Contains(baseEnvNames, name):
+		return errors.New("the base environment sets it from the engine's own environment")
+	}
+	return nil
 }
 
 // HandshakeError is a harness the engine refused in the handshake.
@@ -499,6 +545,9 @@ func (p *Process) spawn(ctx context.Context, timeout time.Duration) (*Process, e
 	cmd.Env = cfg.Env
 	if cmd.Env == nil {
 		cmd.Env = BaseEnv()
+	}
+	if len(cfg.ExtraEnv) > 0 {
+		cmd.Env = append(slices.Clone(cmd.Env), cfg.ExtraEnv...)
 	}
 	if cfg.Facade != "" {
 		// WA-2: the worker sets BASE_URL last, over any value of the same
