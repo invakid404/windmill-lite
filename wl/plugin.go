@@ -826,10 +826,18 @@ func (rt *Runtime) answersPlatform() bool {
 // checking that every provider the host contract names is a Go provider or
 // the plugin's (missing_provider), and that none is both.
 func (rt *Runtime) usePlugin(decl jsonval.Value, call hostCaller, timeout time.Duration, diag func(string)) error {
+	// The checks of the declaration quote what the plugin declared.
+	if err := rt.checkPlugin(decl, call, timeout, diag); err != nil {
+		return maskError(rt.secrets, err)
+	}
+	return nil
+}
+
+// checkPlugin is usePlugin before the masking of its error.
+func (rt *Runtime) checkPlugin(decl jsonval.Value, call hostCaller, timeout time.Duration, diag func(string)) error {
 	p, err := newPlugin(decl, rt.prog, call, timeout, diag)
 	if err != nil {
-		// The checks of the declaration quote what the plugin declared.
-		return maskError(rt.secrets, err)
+		return err
 	}
 	all := maps.Clone(rt.goProviders)
 	if all == nil {

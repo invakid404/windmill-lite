@@ -461,6 +461,10 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		case res.Failed:
 			out.Status = StatusFailure
 		}
+		if res.Failed {
+			// A failed script returns its error value, an error text.
+			out.Result = storedText(maskValue(rt.secrets, res.Result))
+		}
 		// The run settles once its outcome is decided: in host mode the
 		// settlement's callback releases the run's hard deadline, which
 		// ends ctx, so a script that failed on its own does not read as
@@ -563,10 +567,16 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	// The requested result is the run's; its copy in the trace, like the
 	// rest of what leaves the engine, has the runtime's secrets masked.
 	masked := maskTrace(rt.secrets, tr)
+	result := tr.Result
+	if tr.Status != conformance.RunSuccess {
+		// A run that did not succeed returns an error value, whose text
+		// is an error text: it has the secrets masked too.
+		result = masked.Result
+	}
 	return &Result{
 		ID:             tr.RunID,
 		Status:         string(tr.Status),
-		Result:         storedText(tr.Result),
+		Result:         storedText(result),
 		MayHaveMutated: tr.MayHaveMutated,
 		Trace:          masked,
 		Warnings:       masked.Warnings,

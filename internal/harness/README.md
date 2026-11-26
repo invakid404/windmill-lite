@@ -343,15 +343,16 @@ entry that the engine sets itself, or that no environment can carry:
 - an empty name, a name with `=` or a NUL byte, and a value with a NUL
   byte.
 
-`ProcessConfig.Secrets` are the values of the secret entries. The
-`Secrets` that `NewSecrets` makes of them replace each value, and each
-line of one that spans lines, with `SecretMask`, `[secret]`, in the text
+`ProcessConfig.Secrets` are the values of the secret entries.
+`NewSecrets` makes of them the `Secrets` that replace each value, and each
+line of one that spans lines, with `SecretMask`, `[secret]`. They replace
+it also as a Go quoted string (`%q`) writes it. They do so in the text
 that the engine takes from the process and passes on as text of its own:
 
 - its output lines, before they are forwarded or kept for errors. A line
-  that grows past 64 KiB goes in parts, each cut where no secret is cut
-  in two; what follows the cut, shorter than the longest secret, waits for
-  the next write;
+  that grows past 64 KiB goes in parts. Each part ends where no secret is
+  cut in two, nor one that the next bytes could make longer. What follows
+  the cut, shorter than the longest secret, waits for the next write;
 - the engine's diagnostics about the process;
 - the log tail that an escaped invocation's error quotes;
 - its host plugin's hook errors, so that a `HostCallError` keeps its type.
@@ -1036,6 +1037,7 @@ and `WL_REQUIRE_BUN` set ([docs/ci.md](../../docs/ci.md#the-go-jobs)).
 | File | What it checks | Needs |
 |---|---|---|
 | `frames_test.go` | The codec cases of `conformance/protocol/frames.json`; `-args -update` rewrites their payloads. An empty or null `foreign_windmill_origins` decodes as none (`TestWelcomeEmptyForeignOriginsAreNone`). | |
+| `secrets_test.go` | A line past 64 KiB goes out in parts that hold no piece of a secret (`TestLineWriterCutsNoSecret`). The cases: a secret cut in two where a part must go, and a secret that ends there while a longer one that starts with it goes on | |
 | `args_test.go` | `scriptArgs`: the two internal keys dropped, a key written with an escape included, every other member's raw text and place kept. Arguments with nothing to drop, or that are not an object, stay unchanged | |
 | `conn_test.go` | The writer's ordering rules, the barrier behind open run streams (with a `pong` still overtaking them), and the exchange matcher. `TestFlushWritesTheFrameItself` and `TestFlushKeepsFramesWholeAndInOrder` (a sender's own write, under `-race`, on a 4 KiB socket buffer) | |
 | `host_test.go` | A host on a socketpair: the handshake's parent check, a host gone before its hello, runs and their invocations, `run_cancel`, a lost host (also with a gap, `hostLostGap`), the watchdog, and the 502 for a bad platform answer | |

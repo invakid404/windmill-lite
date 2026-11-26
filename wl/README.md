@@ -258,23 +258,39 @@ process starts with its base environment alone
 
 `Secret` marks a secret. The engine then replaces each occurrence of its
 value, and of each line of a value that spans lines, with `[secret]` in
-what it passes on besides a run's requested result:
+what it passes on besides a successful run's requested result. It also
+masks the value as a Go quoted string (`%q`) writes it, and as a URL
+escapes it in a platform call's path and query:
 
 - the harness processes' output lines, which go to `Diagnostics`, and the
   errors that quote them, such as that of a process that exits before its
   handshake. A line longer than 64 KiB goes in parts that cut no secret in
   two;
 - the log tail that the error of an escaped step quotes;
-- the codes and messages of a run's warnings, a run's latched error, which
-  keeps its type, and the errors of the host plugin, those of its
-  declaration's checks included;
-- the trace: its result, and each step's arguments, result, carried value
-  and late output, in the trace that `Run` returns and in those and the
-  records that hooks get. A value is masked in its strings, as decoded.
+- a run's warnings: their codes, messages and the keys of their counts,
+  where keys that mask alike add their counts;
+- the errors of the host plugin, those of its declaration's checks
+  included, and a run's latched error ([Latched errors](#latched-errors));
+- the result of a run that did not succeed, an error text;
+- the trace: its result, each step's arguments, result, carried value and
+  late output, and its platform calls, in the trace that `Run` returns and
+  in those and the records that hooks get. A JSON value is masked in its
+  strings as decoded; a number or literal that holds a secret, such as a
+  secret of digits, becomes the string `[secret]`.
 
-`Result.Result`, the result that the host asked for, keeps the value, and
-so do the steps' arguments and the hooks' answers as the engine runs
-them.
+A successful run's `Result.Result`, the result that the host asked for,
+keeps the value, and so do the steps' arguments and the hooks' answers as
+the engine runs them.
+
+#### Latched errors
+
+A latched error whose text holds a secret keeps its type only as step
+code's latch (`wl.latch`), a `HostCallError` or an `around` wrapper's
+error, its message masked. Any other error, such as a Go hook's own type
+latched through `RunHandle.Latch`, comes back as an error with the masked
+text. It still matches the original error and its chain with `errors.Is`.
+But `errors.As` does not see through it, since the original holds the
+secret.
 
 `Open` refuses an entry that names a variable that the engine sets itself:
 

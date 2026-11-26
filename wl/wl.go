@@ -233,13 +233,14 @@ type Options struct {
 // which Open reads once, however many entries name it. Value is then empty.
 //
 // Secret marks a secret. The engine then replaces each occurrence of the
-// value with "[secret]" in what it passes on besides a run's requested
-// result (Result.Result): the harness processes' output lines, which go to
-// Diagnostics and into the errors that quote them, the log tail that an
-// escaped step's error quotes, a run's warnings, its latched error and the
-// errors of the host plugin, the trace's copies of step arguments, results
-// and late output, and the trace and records that hooks get. Steps and
-// hooks get their inputs and answers as written.
+// value with "[secret]", also quoted or URL-escaped, in what it passes on
+// besides a successful run's requested result (Result.Result): the harness
+// processes' output lines, which go to Diagnostics and into the errors
+// that quote them, the log tail that an escaped step's error quotes, a
+// run's warnings, its latched error and the errors of the host plugin, a
+// failed run's result, the trace's copies of step arguments, results, late
+// output and platform calls, and the trace and records that hooks get.
+// Steps and hooks get their inputs and answers as written.
 type EnvValue struct {
 	Value    string
 	ValueEnv string

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -168,12 +169,19 @@ export default plugin;
 	"f/env/refused.flow/flow.yaml": `{"summary":"one step whose arguments the plugin refuses to rewrite","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/env/echo",` +
 		`"input_transforms":{"x":{"type":"javascript","expr":"flow_input.x"}}}}]}}`,
 	"f/env/reveal.flow/flow.yaml": `{"summary":"one step that returns the secret","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/env/reveal","input_transforms":{}}}]}}`,
+	"f/env/thrower.ts": `// Fails with its WL_TEST_SECRET variable in its error.
+export async function main() {
+  throw new Error("failed with " + process.env.WL_TEST_SECRET);
+}
+`,
+	"f/env/thrower.flow/flow.yaml": `{"summary":"one step that fails","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/env/thrower","input_transforms":{}}}]}}`,
 }
 
 const harnessEnvPluginContract = `roots:
   - flow: f/env/echo
   - flow: f/env/refused
   - flow: f/env/reveal
+  - flow: f/env/thrower
 plugin: f/env/plugin.ts
 `
 
@@ -184,10 +192,12 @@ plugin: f/env/plugin.ts
 // returns it in onRunEnd's warning: the run results hold the mask instead,
 // and so does the engine's whole standard error, read once the engine has
 // exited. A flow whose step returns the secret has it in its result, and
-// the mask in its trace. A plugin that throws with it at load, and one
-// whose declaration the engine refuses for it, fail the start after the
-// handshake, and the engine's whole standard error holds the mask, not the
-// secret.
+// the mask in its trace; a flow that fails with it has the mask in its
+// result, an error text, and in its trace. A plugin that throws with a
+// secret that holds a quote and a backslash at load, and one whose
+// declaration the engine refuses for it, fail the start after the
+// handshake, and the engine's whole standard error holds the mask and the
+// secret in no form, raw or quoted.
 func TestPluginHarnessEnvSecretMasked(t *testing.T) {
 	bun := absBun(t)
 	out := filepath.Join(t.TempDir(), "bundle")
@@ -216,11 +226,22 @@ func TestPluginHarnessEnvSecretMasked(t *testing.T) {
 	if trace := string(res.GetTrace()); !strings.Contains(trace, fmt.Sprintf("%q", harness.SecretMask)) || strings.Contains(trace, secret) {
 		t.Errorf("f/env/reveal's trace: want the mask as the step's result and not the secret")
 	}
+	// A failed flow's result is an error text, which holds the mask.
+	res = e.mustRun(t, &plugin.RunRequest{Path: "f/env/thrower", Trace: "full"})
+	if result := string(res.GetResult()); res.GetStatus() != "failure" || !strings.Contains(result, "failed with "+harness.SecretMask) || strings.Contains(result, secret) || strings.Contains(string(res.GetTrace()), secret) {
+		t.Errorf("f/env/thrower: %s; want a failure whose result and trace hold the mask and not the secret", res.GetStatus())
+	}
 	e.client.Kill()
 	if stderr := e.stderr.String(); !strings.Contains(stderr, "the plugin loaded with "+harness.SecretMask) || strings.Contains(stderr, secret) {
 		t.Errorf("the engine's standard error, once it exited: want the plugin's line with the mask and not the secret")
 	}
 
+	// The failed starts' secret holds a quote and a backslash, which a
+	// refusal that quotes the value escapes: no form of it may show.
+	const quotedSecret = `synthetic"quoted\secret-77aa`
+	quoted := strconv.Quote(quotedSecret)
+	encoded, _ := json.Marshal(quotedSecret)
+	forms := []string{quotedSecret, quoted[1 : len(quoted)-1], string(encoded[1 : len(encoded)-1])}
 	for _, c := range []struct {
 		flag, want string
 	}{
@@ -232,9 +253,14 @@ func TestPluginHarnessEnvSecretMasked(t *testing.T) {
 			"WL_TEST_SECRET": map[string]any{"value_env": ref, "is_secret": true},
 			c.flag:           map[string]any{"value": "1"},
 		}
-		code, stderr := startFails(t, failing, ref+"="+secret)
-		if code != 1 || !strings.Contains(stderr, c.want) || strings.Contains(stderr, secret) {
-			t.Errorf("a start that fails with %s: exit %d; want 1, with %q in the standard error and not the secret", c.flag, code, c.want)
+		code, stderr := startFails(t, failing, ref+"="+quotedSecret)
+		if code != 1 || !strings.Contains(stderr, c.want) {
+			t.Errorf("a start that fails with %s: exit %d; want 1, with %q in the standard error", c.flag, code, c.want)
+		}
+		for _, f := range forms {
+			if strings.Contains(stderr, f) {
+				t.Errorf("a start that fails with %s: the standard error holds the secret as %q", c.flag, f)
+			}
 		}
 	}
 }

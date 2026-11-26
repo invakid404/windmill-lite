@@ -9,12 +9,15 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/invakid404/windmill-lite/internal/engine"
 	"github.com/invakid404/windmill-lite/internal/harness"
@@ -92,7 +95,42 @@ export async function main() {
 		`{"id":"a","value":{"type":"script","path":"f/t/env","input_transforms":{"names":{"type":"static","value":["WL_TEST_SECRET"]},"hashed":{"type":"static","value":[]}}}},` +
 		`{"id":"b","value":{"type":"script","path":"f/t/echo","input_transforms":{"x":{"type":"javascript","expr":"results.a"}}}}]}}`,
 	"f/t/thrower.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/thrower","input_transforms":{}}}]}}`,
-	"f/t/latcher.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/latcher","input_transforms":{}}}]}}`,
+	"f/t/number.ts": `// Returns its WL_TEST_NUMBER variable as a number.
+export async function main() {
+  return Number(process.env.WL_TEST_NUMBER);
+}
+`,
+	"f/t/number.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/number","input_transforms":{}}}]}}`,
+	"f/t/late.ts": `// Fixes its outcome with process.exit(0) and swallows the exit, then logs
+// and returns its WL_TEST_SECRET variable, which both come late.
+export async function main() {
+  try {
+    process.exit(0);
+  } catch {}
+  console.log("late with " + process.env.WL_TEST_SECRET);
+  await Bun.sleep(50);
+  return "late result with " + process.env.WL_TEST_SECRET;
+}
+`,
+	"f/t/late.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/late","input_transforms":{}}}]}}`,
+	"f/t/call.ts": `// Calls the platform facade with WL_TEST_URL_SECRET, escaped, in a path
+// and a query, and with WL_TEST_METHOD_SECRET as a method; returns the
+// statuses.
+export async function main() {
+  const e = process.env;
+  const base = ` + "`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/variables/get_value/`" + `;
+  const headers = { Authorization: ` + "`Bearer ${e.WM_TOKEN}`" + ` };
+  const s = encodeURIComponent(e.WL_TEST_URL_SECRET ?? "");
+  const a = await fetch(base + s + "?path=" + s, { headers });
+  const b = await fetch(base + "u/t/x", { method: e.WL_TEST_METHOD_SECRET, headers });
+  return [a.status, b.status];
+}
+`,
+	// f/t/escaping: the escaping step's error, which its log tail ends, is
+	// the result of a run that succeeds.
+	"f/t/escaping.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","continue_on_error":true,"value":{"type":"script","path":"f/t/escape","input_transforms":{}}}]}}`,
+	"f/t/call.flow/flow.yaml":     `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/call","input_transforms":{}}}]}}`,
+	"f/t/latcher.flow/flow.yaml":  `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/latcher","input_transforms":{}}}]}}`,
 }
 
 // harnessEnvBundle returns the pinned Bun, and a bundle of
@@ -511,7 +549,9 @@ export default {
 	if err := os.WriteFile(plugin, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	env := map[string]EnvValue{"WL_TEST_SECRET": {ValueEnv: ref, Secret: true}, "WL_TEST_PLAIN": {Value: "a plain setting"}}
+	// A second secret is the start of the first, so that a part of the
+	// long line that ends where it ends must not end the first's mask.
+	env := map[string]EnvValue{"WL_TEST_SECRET": {ValueEnv: ref, Secret: true}, "WL_TEST_PREFIX": {Value: secret[:15], Secret: true}, "WL_TEST_PLAIN": {Value: "a plain setting"}}
 	diag := &syncBuf{}
 	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, Diagnostics: diag, HarnessEnv: env})
 	if err != nil {
@@ -598,20 +638,35 @@ export default {
 
 // TestHarnessEnvSecretTrace checks that a run's trace, and the records and
 // traces that hooks get, hold a mask where step data holds a Secret
-// entry's value, while the run's requested result keeps the value. On one
-// successful flow, step a returns the secret and step b echoes it: the
-// requested result holds the secret, and the trace's result, a's result
-// and carried value, b's arguments and result, and what OnModuleEnd and
-// OnRunEnd get, hold the mask. A failed flow's failure, and a latched
-// flow's latch, keep the secret out of the trace and the latched error,
-// which keeps its type. An escaped step's error quotes its log with the
-// mask, in a warm and in a fresh runtime.
+// entry's value, while a successful run's requested result keeps the
+// value. On one successful flow, step a returns the secret and step b
+// echoes it: the requested result holds the secret, and the trace's
+// result, a's result and carried value, b's arguments and result, and what
+// OnModuleEnd and OnRunEnd get, hold the mask. A failed flow's and a
+// failed script's result, an error text, hold the mask too, and so do a
+// latched flow's trace and latch, which keeps its type. A secret of digits
+// returned as a number is masked in the trace, its requested result kept;
+// a warning's counts keyed by secrets are masked and added; a platform
+// call's escaped path and query and its method hold no secret; late output
+// and a late result in OnRunSettled's trace hold the mask. An escaped
+// step's error quotes its log with the mask, in a warm and in a fresh
+// runtime, also as the result of a run that succeeds.
 func TestHarnessEnvSecretTrace(t *testing.T) {
 	bun, out, runtimeDir := harnessEnvBundle(t)
 	const ref = "WL_TEST_HARNESS_TRACE_REF"
 	const secret = "synthetic-trace-secret-91c4"
 	t.Setenv(ref, secret)
-	env := map[string]EnvValue{"WL_TEST_SECRET": {ValueEnv: ref, Secret: true}}
+	// A secret of digits, one with URL punctuation, and one that is a
+	// method's name: Bun's fetch sends only the methods that it knows.
+	const number = "8675309123"
+	const urlSecret = "synthetic/url secret?&=4e2b"
+	const verb = "PATCH"
+	env := map[string]EnvValue{
+		"WL_TEST_SECRET":        {ValueEnv: ref, Secret: true},
+		"WL_TEST_NUMBER":        {Value: number, Secret: true},
+		"WL_TEST_URL_SECRET":    {Value: urlSecret, Secret: true},
+		"WL_TEST_METHOD_SECRET": {Value: verb, Secret: true},
+	}
 	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, HarnessEnv: env})
 	if err != nil {
 		t.Fatal(err)
@@ -666,13 +721,104 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 		}
 	}
 
+	// A failure's result is an error text: it holds the mask, as the trace
+	// does, for a flow and for a root script.
 	res, err = rt.Run(context.Background(), "f/t/thrower", nil, RunOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	trace, _ = json.Marshal(traceJSON(res.Trace))
-	if res.Status != StatusFailure || !strings.Contains(string(res.Result), secret) || strings.Contains(string(trace), secret) || !strings.Contains(string(trace), "failed with "+harness.SecretMask) {
-		t.Errorf("f/t/thrower: %s; want a failure whose result holds the secret and whose trace holds the mask instead", res.Status)
+	if res.Status != StatusFailure || !strings.Contains(string(res.Result), "failed with "+harness.SecretMask) || strings.Contains(string(res.Result), secret) ||
+		strings.Contains(string(trace), secret) || !strings.Contains(string(trace), "failed with "+harness.SecretMask) {
+		t.Errorf("f/t/thrower: %s %s; want a failure whose result and trace hold the mask instead of the secret", res.Status, shownBytes(res.Result, secret))
+	}
+	res, err = rt.Run(context.Background(), "f/t/thrower", json.RawMessage(`{}`), RunOptions{Kind: KindScript})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != StatusFailure || !strings.Contains(string(res.Result), "failed with "+harness.SecretMask) || strings.Contains(string(res.Result), secret) {
+		t.Errorf("the script f/t/thrower: %s %s; want a failure whose result holds the mask instead of the secret", res.Status, shownBytes(res.Result, secret))
+	}
+
+	// A secret of digits that a step returns as a number: the requested
+	// result keeps the number, and the trace holds the mask, as a string.
+	// The run-end hook returns a warning whose counts are keyed by two
+	// secrets and a plain name: the two masked keys add their counts.
+	counted := &Hooks{OnRunEnd: func(context.Context, *Trace) []Warning {
+		return []Warning{{Code: "counted", Left: map[string]int{secret: 1, number: 2, "plain": 3}, Untracked: map[string]int{secret: 4}}}
+	}}
+	res, err = rt.Run(context.Background(), "f/t/number", nil, RunOptions{Hooks: counted})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != StatusSuccess || string(res.Result) != number {
+		t.Errorf("f/t/number: %s %s; want success with the number", res.Status, shownBytes(res.Result, number))
+	}
+	if rec, ok := res.Trace.Step(mustSite(t, "m:a")); !ok || string(rec.Result.Producer()) != fmt.Sprintf("%q", harness.SecretMask) {
+		t.Errorf("f/t/number's step result in the trace: %s; want the mask", shownBytes(rec.Result.Producer(), number))
+	}
+	var counts *Warning
+	for i, w := range res.Warnings {
+		if w.Code == "counted" {
+			counts = &res.Warnings[i]
+		}
+	}
+	if counts == nil || !maps.Equal(counts.Left, map[string]int{harness.SecretMask: 3, "plain": 3}) || !maps.Equal(counts.Untracked, map[string]int{harness.SecretMask: 4}) {
+		t.Errorf("the warning's counts: %+v; want the secrets' keys masked, their counts added", counts)
+	}
+
+	// The platform calls in the trace: a secret with URL punctuation in a
+	// path and a query, which the step escaped, and a secret as a method.
+	// The second call's route is one that windmill-lite does not serve, so
+	// its answer, 501, fails the step, and the failure quotes the call.
+	res, err = rt.Run(context.Background(), "f/t/call", nil, RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(res.Result), verb) || strings.Contains(string(res.Result), urlSecret) {
+		t.Errorf("f/t/call's result holds a secret: %d bytes", len(res.Result))
+	}
+	if len(res.Trace.PlatformCalls) != 2 {
+		t.Fatalf("f/t/call made %d platform calls, want 2", len(res.Trace.PlatformCalls))
+	}
+	for i, c := range res.Trace.PlatformCalls {
+		path, _ := url.PathUnescape(c.Path)
+		query, _ := url.QueryUnescape(c.Query)
+		for _, field := range []string{c.Method, c.Path, c.Query, path, query, c.Message} {
+			if strings.Contains(field, urlSecret) || strings.Contains(field, url.PathEscape(urlSecret)) || strings.Contains(field, url.QueryEscape(urlSecret)) || strings.Contains(field, verb) {
+				t.Errorf("platform call %d holds a secret: method %s, a path and query of %d and %d bytes", i, shownBytes([]byte(c.Method), verb), len(c.Path), len(c.Query))
+			}
+		}
+	}
+	if c := res.Trace.PlatformCalls[0]; !strings.Contains(c.Path, url.PathEscape(harness.SecretMask)) || !strings.Contains(c.Query, url.QueryEscape(harness.SecretMask)) {
+		t.Errorf("the first platform call: want the mask, escaped, in its path and its query")
+	}
+	if c := res.Trace.PlatformCalls[1]; c.Method != harness.SecretMask {
+		t.Errorf("the second platform call's method: want the mask")
+	}
+
+	// Late output that the settled callback's own trace holds: the step
+	// fixes its outcome early, then logs and returns the secret, which the
+	// run gets late; its invocation settles with the late result.
+	settledTrace := make(chan *Trace, 1)
+	res, err = rt.Run(context.Background(), "f/t/late", nil, RunOptions{Hooks: &Hooks{OnRunSettled: func(tr *Trace) { settledTrace <- tr }}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case tr := <-settledTrace:
+		var late []string
+		for _, st := range tr.Steps {
+			for _, l := range st.Late {
+				late = append(late, string(l.Body.Producer()))
+			}
+		}
+		text := strings.Join(late, "\n")
+		if !strings.Contains(text, "late with "+harness.SecretMask) || !strings.Contains(text, "late result with "+harness.SecretMask) || strings.Contains(text, secret) {
+			t.Errorf("the late output in OnRunSettled's trace: %s; want the mask and not the secret", shownBytes([]byte(text), secret))
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("OnRunSettled was not called within 30 s")
 	}
 
 	res, err = rt.Run(context.Background(), "f/t/latcher", nil, RunOptions{})
@@ -700,27 +846,64 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 		if res.Status != StatusFailure || !strings.Contains(string(res.Result), "leaving with "+harness.SecretMask) || strings.Contains(string(res.Result), secret) {
 			t.Errorf("%s: an escaped step: %s %s; want a failure whose error quotes its log with the mask", mode, res.Status, shownBytes(res.Result, secret))
 		}
+		// The error, an error text that the engine wrote from the log tail,
+		// is the result of a run that succeeds, which keeps its result as
+		// it is: the tail itself holds the mask.
+		res, err = rt.Run(context.Background(), "f/t/escaping", nil, RunOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Status != StatusSuccess || !strings.Contains(string(res.Result), "leaving with "+harness.SecretMask) || strings.Contains(string(res.Result), secret) {
+			t.Errorf("%s: a run whose result is an escaped step's error: %s %s; want success, the error quoting the log with the mask", mode, res.Status, shownBytes(res.Result, secret))
+		}
 	}
 }
 
 // TestHarnessEnvSecretDeclaration checks that a host plugin that loads and
-// declares a selector that the engine refuses, with a Secret entry's value
-// as its branch, fails Open with an error that names the selector with the
-// mask in place of the value, and that is still ErrSelector.
+// declares what the engine refuses with a Secret entry's value in it fails
+// Open with an error that holds the mask, and the value in no form, raw or
+// quoted: a selector whose branch is the value, still ErrSelector, and a
+// provider named by the value that Options.Providers names too. The value
+// holds a quote and a backslash, which a quoting error escapes.
 func TestHarnessEnvSecretDeclaration(t *testing.T) {
 	bun, out, runtimeDir := harnessEnvBundle(t)
 	const ref = "WL_TEST_HARNESS_DECLARATION_REF"
-	const secret = "synthetic-declared-secret-3f58"
+	// A quote and a backslash, which an error that quotes the value
+	// escapes.
+	const secret = `synthetic"declared\secret-3f58`
 	t.Setenv(ref, secret)
-	plugin := filepath.Join(t.TempDir(), "plugin.ts")
-	src := `export default { haltBefore: [{ flow: "f/t/env", module: "a", branches: [process.env.WL_TEST_SECRET ?? ""] }] };
-`
-	if err := os.WriteFile(plugin, []byte(src), 0o644); err != nil {
+	dir := t.TempDir()
+	branch := filepath.Join(dir, "branch.ts")
+	if err := os.WriteFile(branch, []byte(`export default { haltBefore: [{ flow: "f/t/env", module: "a", branches: [process.env.WL_TEST_SECRET ?? ""] }] };`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, HarnessEnv: map[string]EnvValue{"WL_TEST_SECRET": {ValueEnv: ref, Secret: true}}})
-	if err == nil || !errors.Is(err, ErrSelector) || !strings.Contains(err.Error(), harness.SecretMask) || strings.Contains(err.Error(), secret) {
-		t.Errorf("a declaration refused for a secret branch: %v; want ErrSelector with the mask and not the secret", err)
+	provider := filepath.Join(dir, "provider.ts")
+	if err := os.WriteFile(provider, []byte(`export default { providers: { [process.env.WL_TEST_SECRET ?? ""]: () => ({ result: 1 }) } };`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]EnvValue{"WL_TEST_SECRET": {ValueEnv: ref, Secret: true}}
+	quoted := strconv.Quote(secret)
+	encoded, _ := json.Marshal(secret)
+	forms := []string{secret, quoted[1 : len(quoted)-1], string(encoded[1 : len(encoded)-1])}
+	for _, c := range []struct {
+		what   string
+		opts   Options
+		target error
+	}{
+		{"a secret branch", Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: branch, HarnessEnv: env}, ErrSelector},
+		{"a secret provider that Options.Providers names too", Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: provider, HarnessEnv: env,
+			Providers: map[string]Provider{secret: func(context.Context, Call) (Outcome, bool, error) { return Outcome{}, false, nil }}}, nil},
+	} {
+		_, err := Open(out, c.opts)
+		if err == nil || !strings.Contains(err.Error(), harness.SecretMask) || c.target != nil && !errors.Is(err, c.target) {
+			t.Errorf("%s: %v; want a refusal with the mask, matching %v", c.what, err, c.target)
+			continue
+		}
+		for _, f := range forms {
+			if strings.Contains(err.Error(), f) {
+				t.Errorf("%s: the refusal holds the secret as %q", c.what, f)
+			}
+		}
 	}
 }
 

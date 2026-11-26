@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -16,8 +17,11 @@ const SecretMask = "[secret]"
 // (ProcessConfig.Secrets), which the engine masks with SecretMask in the
 // text that it takes from a harness process and passes on. It masks each
 // value, and each line of a value that spans lines, since the process's
-// output reaches the engine one line at a time. A nil *Secrets masks
-// nothing, and its methods return their input.
+// output reaches the engine one line at a time. It also masks each of them
+// as it reads inside a Go quoted string (%q, strconv.Quote), since an
+// error text can quote a value; for a quote, a backslash, a newline or a
+// tab, a JSON string writes the same. A nil *Secrets masks nothing, and
+// its methods return their input.
 type Secrets struct {
 	// olds are the strings to mask, the longest first, so that a secret
 	// that holds another is masked whole: a Replacer tries its old strings
@@ -38,11 +42,15 @@ func NewSecrets(values []string) *Secrets {
 			olds = append(olds, s)
 		}
 	}
-	for _, v := range values {
+	forms := func(v string) {
 		add(v)
+		add(unquote(strconv.Quote(v)))
+	}
+	for _, v := range values {
+		forms(v)
 		if strings.Contains(v, "\n") {
 			for _, l := range strings.Split(v, "\n") {
-				add(strings.TrimSuffix(l, "\r"))
+				forms(strings.TrimSuffix(l, "\r"))
 			}
 		}
 	}
@@ -57,6 +65,14 @@ func NewSecrets(values []string) *Secrets {
 	return &Secrets{olds: olds, r: strings.NewReplacer(pairs...), longest: len(olds[0])}
 }
 
+// unquote is a quoted string without its quotes.
+func unquote(q string) string {
+	if len(q) < 2 {
+		return ""
+	}
+	return q[1 : len(q)-1]
+}
+
 // Mask returns text with each occurrence of a secret replaced by
 // SecretMask.
 func (s *Secrets) Mask(text string) string {
@@ -68,9 +84,12 @@ func (s *Secrets) Mask(text string) string {
 
 // MaskJSON returns the JSON text with each occurrence of a secret masked in
 // its strings, object keys included, as decoded, so that a secret written
-// with escapes is masked too. Numbers, literals, key order and duplicate
-// keys stay as they were. It returns text itself, byte for byte, when no
-// string holds a secret, and also when text is not JSON.
+// with escapes is masked too. A number or a literal whose text holds a
+// secret, such as a secret of digits that a step returned as a number,
+// becomes the string SecretMask, so the text stays JSON. The other numbers
+// and literals, key order and duplicate keys stay as they were. It returns
+// text itself, byte for byte, when nothing holds a secret, and also when
+// text is not JSON.
 func (s *Secrets) MaskJSON(text []byte) []byte {
 	if s == nil || len(text) == 0 {
 		return text
@@ -121,16 +140,21 @@ func (s *Secrets) MaskJSON(text []byte) []byte {
 				changed = true
 			}
 			writeJSONString(&out, m)
-		case json.Number:
-			out.WriteString(string(v))
-		case bool:
-			if v {
-				out.WriteString("true")
-			} else {
-				out.WriteString("false")
+		default:
+			// A number keeps its text; a literal is true, false or null.
+			lit := "null"
+			switch v := v.(type) {
+			case json.Number:
+				lit = string(v)
+			case bool:
+				lit = strconv.FormatBool(v)
 			}
-		case nil:
-			out.WriteString("null")
+			if s.r.Replace(lit) != lit {
+				changed = true
+				writeJSONString(&out, SecretMask)
+			} else {
+				out.WriteString(lit)
+			}
 		}
 	}
 	if !changed {
@@ -154,14 +178,23 @@ func writeJSONString(out *bytes.Buffer, s string) {
 // rest kept for the next write: every secret that starts before the cut
 // ends before it, and no secret that could still complete with the bytes
 // to come starts before it. It scans buf as Mask's Replacer does, the
-// leftmost secret first and the longest at one position, and cuts at the
-// first position from which the rest of buf is the start of a secret. What
+// leftmost secret first and the longest at one position. At each position
+// it first asks whether the rest of buf is the start of a secret longer
+// than that rest: then the Replacer's choice there waits on bytes to come,
+// even when a shorter secret matches there already, so it cuts there. What
 // is kept is shorter than the longest secret.
 func (s *Secrets) cut(buf []byte) int {
 	if s == nil {
 		return len(buf)
 	}
 	for i := 0; i < len(buf); {
+		if rest := len(buf) - i; rest < s.longest {
+			for _, o := range s.olds {
+				if len(o) > rest && strings.HasPrefix(o, string(buf[i:])) {
+					return i
+				}
+			}
+		}
 		matched := 0
 		for _, o := range s.olds {
 			if bytes.HasPrefix(buf[i:], []byte(o)) {
@@ -172,13 +205,6 @@ func (s *Secrets) cut(buf []byte) int {
 		if matched > 0 {
 			i += matched
 			continue
-		}
-		if len(buf)-i < s.longest {
-			for _, o := range s.olds {
-				if len(o) > len(buf)-i && strings.HasPrefix(o, string(buf[i:])) {
-					return i
-				}
-			}
 		}
 		i++
 	}

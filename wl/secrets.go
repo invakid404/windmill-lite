@@ -3,6 +3,10 @@ package wl
 import (
 	"bytes"
 	"errors"
+	"maps"
+	"net/url"
+	"slices"
+	"strings"
 
 	"github.com/invakid404/windmill-lite/internal/engine"
 	"github.com/invakid404/windmill-lite/internal/harness"
@@ -36,11 +40,71 @@ func maskTrace(secrets *harness.Secrets, t *Trace) *Trace {
 	if t.PlatformCalls != nil {
 		c.PlatformCalls = make([]PlatformCall, len(t.PlatformCalls))
 		for i, p := range t.PlatformCalls {
-			p.Path, p.Query, p.Message = secrets.Mask(p.Path), secrets.Mask(p.Query), secrets.Mask(p.Message)
+			p.Method, p.Message = secrets.Mask(p.Method), secrets.Mask(p.Message)
+			p.Path, p.Query = maskPath(secrets, p.Path), maskQuery(secrets, p.Query)
 			c.PlatformCalls[i] = p
 		}
 	}
 	return &c
+}
+
+// maskPath returns an escaped URL path with each secret masked in its
+// segments as decoded, so that a secret that a client escaped is masked
+// too. A segment that holds a secret is escaped again around the mask; the
+// others keep their bytes.
+func maskPath(secrets *harness.Secrets, path string) string {
+	segs := strings.Split(path, "/")
+	changed := false
+	for i, seg := range segs {
+		if m := maskEscaped(secrets, seg, url.PathUnescape, url.PathEscape); m != seg {
+			segs[i], changed = m, true
+		}
+	}
+	if !changed {
+		return path
+	}
+	return strings.Join(segs, "/")
+}
+
+// maskQuery returns a raw query with each secret masked in its names and
+// values as decoded, each that holds one escaped again around the mask;
+// the others keep their bytes, and the pairs their order.
+func maskQuery(secrets *harness.Secrets, query string) string {
+	pairs := strings.Split(query, "&")
+	changed := false
+	for i, pair := range pairs {
+		name, value, eq := strings.Cut(pair, "=")
+		mn := maskEscaped(secrets, name, url.QueryUnescape, url.QueryEscape)
+		mv := maskEscaped(secrets, value, url.QueryUnescape, url.QueryEscape)
+		if mn != name || mv != value {
+			changed = true
+			pairs[i] = mn
+			if eq {
+				pairs[i] += "=" + mv
+			}
+		}
+	}
+	if !changed {
+		return query
+	}
+	return strings.Join(pairs, "&")
+}
+
+// maskEscaped masks the secrets in s as it reads raw and decoded with
+// unescape, and returns s unchanged when neither holds one. A part that
+// does not decode is masked as it is.
+func maskEscaped(secrets *harness.Secrets, s string, unescape func(string) (string, error), escape func(string) string) string {
+	if m := secrets.Mask(s); m != s {
+		s = m
+	}
+	dec, err := unescape(s)
+	if err != nil {
+		return s
+	}
+	if m := secrets.Mask(dec); m != dec {
+		return escape(m)
+	}
+	return s
 }
 
 // maskRecord returns rec with each secret masked in its arguments, its
@@ -79,8 +143,9 @@ func maskValue(secrets *harness.Secrets, v jsonval.Value) jsonval.Value {
 	return jsonval.FromProducer(masked)
 }
 
-// maskWarnings returns ws with each secret masked in their codes and
-// messages, in a new slice when secrets is not nil.
+// maskWarnings returns ws with each secret masked in their codes,
+// messages and the keys of their counts, in a new slice when secrets is not
+// nil.
 func maskWarnings(secrets *harness.Secrets, ws []Warning) []Warning {
 	if secrets == nil || ws == nil {
 		return ws
@@ -88,16 +153,33 @@ func maskWarnings(secrets *harness.Secrets, ws []Warning) []Warning {
 	out := make([]Warning, len(ws))
 	for i, w := range ws {
 		w.Code, w.Message = secrets.Mask(w.Code), secrets.Mask(w.Message)
+		w.Left, w.Untracked = maskCounts(secrets, w.Left), maskCounts(secrets, w.Untracked)
 		out[i] = w
 	}
 	return out
 }
 
+// maskCounts returns counts with each secret masked in its keys, in a new
+// map when a key holds one. Keys that mask to one key, such as two
+// secrets, add their counts there.
+func maskCounts(secrets *harness.Secrets, counts map[string]int) map[string]int {
+	if !slices.ContainsFunc(slices.Collect(maps.Keys(counts)), func(k string) bool { return secrets.Mask(k) != k }) {
+		return counts
+	}
+	out := make(map[string]int, len(counts))
+	for k, n := range counts {
+		out[secrets.Mask(k)] += n
+	}
+	return out
+}
+
 // maskError returns err, or, when its text holds a secret, an error whose
-// text has it masked. A latch of step code or of a host plugin keeps its
-// type, with its message masked; any other error is wrapped in one that
-// errors.Is still matches as err, and that does not unwrap to err, whose
-// text holds the secret.
+// text has it masked. A *engine.StepLatch or *engine.PluginError keeps its
+// type, with its message masked (a *harness.HostCallError arrives masked
+// already, so it is returned as it is). Any other error, such as a Go
+// hook's own type latched through RunHandle.Latch, comes back wrapped in
+// one that errors.Is still matches as err, and that errors.As does not see
+// through, since the error it wraps holds the secret in its text.
 func maskError(secrets *harness.Secrets, err error) error {
 	if secrets == nil || err == nil {
 		return err
