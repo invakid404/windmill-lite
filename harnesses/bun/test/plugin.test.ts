@@ -282,17 +282,34 @@ describe("the runtime", () => {
     }
   });
 
-  test("an error reply too long for max_message goes once, its message cut to fit", async () => {
-    // A serialiser's exception, and a hook's own error, of 5,000
-    // characters, against a limit of 4,096 bytes.
+  test("a run-end answer's error reply too long for max_message goes once, its message cut to fit", async () => {
+    // A reply with an answer whose warnings' serialiser throws an error of
+    // 5,000 characters, against a limit of 4,096 bytes.
     const long = "x".repeat(5000);
     class Brittle extends Array<{ code: string; message: string }> {
       toJSON(): never {
         throw new Error(long);
       }
     }
-    const cases: { plugin: Plugin; hook: string; prefix: string }[] = [
-      { plugin: { onRunEnd: () => ({ warnings: Brittle.from([{ code: "c", message: "m" }]), answer: 1 }) }, hook: "on_run_end", prefix: "the answer cannot be sent: Error: xxx" },
+    const { runtime, send, messages } = hostRuntime({ onRunEnd: () => ({ warnings: Brittle.from([{ code: "c", message: "m" }]), answer: 1 }) }, 4096);
+    send({ t: "host_call", id: "hc1", hook: "on_run_end", run: "r", site: "", payload: { trace: { run: "r", status: "success" } } });
+    await Bun.sleep(5);
+    const replies = messages().filter((m) => m.t === "host_reply");
+    expect(replies.length).toBe(1);
+    expect(replies[0].id).toBe("hc1");
+    expect(replies[0].error?.code).toBe("plugin_error");
+    expect(replies[0].error?.message.startsWith("the answer cannot be sent: Error: xxx")).toBe(true);
+    expect(replies[0].error?.message.endsWith("…")).toBe(true);
+    expect(encode({ t: "host_reply", id: "hc1", error: replies[0].error }).length).toBeLessThanOrEqual(4096);
+    runtime.onClose();
+  });
+
+  test("any other reply too long for max_message keeps its rule: the plugin_error that says it cannot be sent", async () => {
+    // A hook's own error of 5,000 characters, an onRunEnd's too, and an
+    // onRunEnd's warnings of that size without an answer, against a limit
+    // of 4,096 bytes: none carries a run-end answer, so none is cut.
+    const long = "x".repeat(5000);
+    const cases: { plugin: Plugin; hook: string }[] = [
       {
         plugin: {
           onModuleStart: () => {
@@ -300,8 +317,16 @@ describe("the runtime", () => {
           },
         },
         hook: "on_module_start",
-        prefix: "Error: xxx",
       },
+      {
+        plugin: {
+          onRunEnd: () => {
+            throw new Error(long);
+          },
+        },
+        hook: "on_run_end",
+      },
+      { plugin: { onRunEnd: () => [{ code: "c", message: long }] }, hook: "on_run_end" },
     ];
     for (const c of cases) {
       const { runtime, send, messages } = hostRuntime(c.plugin, 4096);
@@ -311,9 +336,8 @@ describe("the runtime", () => {
       expect(replies.length).toBe(1);
       expect(replies[0].id).toBe("hc1");
       expect(replies[0].error?.code).toBe("plugin_error");
-      expect(replies[0].error?.message.startsWith(c.prefix)).toBe(true);
-      expect(replies[0].error?.message.endsWith("…")).toBe(true);
-      expect(encode({ t: "host_reply", id: "hc1", error: replies[0].error }).length).toBeLessThanOrEqual(4096);
+      expect(replies[0].error?.message.startsWith("the answer cannot be sent: Error: harness protocol: message_too_large: host_reply message of")).toBe(true);
+      expect(replies[0].error?.message.includes("xxxxxxxxxx")).toBe(false);
       runtime.onClose();
     }
   });

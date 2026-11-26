@@ -1297,9 +1297,11 @@ The registry:
   `{ dropped }`, the warnings under a key one byte shorter. Only that error
   tries a smaller form, each built and sent inside one guard; the engine
   checks the answer's size against its bound.
-- **Error replies** (`fitText`). Every `host_reply` error goes with its
-  message cut to fit `max_message`, as a warning's is, so a reply always
-  goes.
+- **Error replies.** The error reply of a reply with an answer goes with
+  its message cut to fit `max_message` (`fitText`), as a warning's is, so
+  it always goes. Every other reply, and every hook's own error, that
+  cannot be sent goes as a `plugin_error` that says the answer cannot be
+  sent and why.
 - **`around`** (`runAround`). The runtime runs the step inside the
   matching wrappers, outermost first, in the invocation's context. A
   failed wrapper is reported in a `plugin_error` warning before the

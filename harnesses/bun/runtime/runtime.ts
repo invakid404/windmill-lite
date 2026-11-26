@@ -724,12 +724,27 @@ export class Runtime {
    * failure is its error. */
   private onHostCall(m: Message) {
     const plugin = this.opts.plugin;
-    // An error reply, its message cut to fit max_message, as a warning's
-    // is: the message can be as long as the plugin's or a serialiser's
-    // error made it. It never throws; one that cannot go at all is only
-    // written to the diagnostics.
-    const fail = (error: { code: string; message: string }) => {
-      const out = fitText((message) => ({ t: "host_reply", id: m.id, error: { code: error.code, message } }), error.message, this.sender.maxMessage);
+    // A reply that carries a run-end answer goes in the smallest form that
+    // fits max_message: with the answer; without it and with its size; or,
+    // when the size does not fit beside the warnings either, with the
+    // warnings alone as dropped. Each form is built and sent inside the
+    // guard, and only a reply over max_message tries the next. When none
+    // can go, its error reply has its message cut to fit, as a warning's
+    // is, so it always goes; one that cannot go at all is only written to
+    // the diagnostics.
+    const answerReply = (payload: Record<string, unknown>) => {
+      const forms: readonly ReplyForm[] = ["answer", "size", "dropped"];
+      let failure: unknown;
+      for (const form of forms) {
+        try {
+          this.send({ t: "host_reply", id: m.id, payload: new Raw(replyText(payload, form)) });
+          return;
+        } catch (e) {
+          failure = e;
+          if (!(e instanceof ProtocolError && e.code === "message_too_large")) break;
+        }
+      }
+      const out = fitText((message) => ({ t: "host_reply", id: m.id, error: { code: "plugin_error", message } }), `the answer cannot be sent: ${describe(failure)}`, this.sender.maxMessage);
       try {
         if (out === undefined) throw new Error("not even an empty message fits max_message");
         this.send(out);
@@ -737,30 +752,19 @@ export class Runtime {
         this.diag(`windmill-lite harness: the error reply to host_call ${JSON.stringify(m.id)} cannot be sent: ${describe(e)}`);
       }
     };
+    // Every other reply, every hook's error included, keeps its rule: one
+    // that cannot be sent goes as a plugin_error that says why.
     const reply = (payload: Record<string, unknown> | undefined, error?: { code: string; message: string }) => {
-      if (error) {
-        fail(error);
+      if (!error && payload?.answer instanceof AnswerText) {
+        answerReply(payload);
         return;
       }
-      // A run-end answer too large for max_message goes in a smaller form:
-      // without the answer and with its size, or, when the size does not
-      // fit beside the warnings either, with the warnings alone as dropped.
-      // Each form is built and sent inside the guard, and only a reply over
-      // max_message tries the next: any other failure, or warnings too
-      // large by themselves, is the error reply, so a reply always goes.
-      const forms: readonly ReplyForm[] = payload!.answer instanceof AnswerText ? ["answer", "size", "dropped"] : ["answer"];
-      let failure: unknown;
-      for (const form of forms) {
-        try {
-          this.send({ t: "host_reply", id: m.id, payload: new Raw(replyText(payload!, form)) });
-          return;
-        } catch (e) {
-          failure = e;
-          if (!(e instanceof ProtocolError && e.code === "message_too_large")) break;
-        }
+      try {
+        this.send(error ? { t: "host_reply", id: m.id, error } : { t: "host_reply", id: m.id, payload: new Raw(JSON.stringify(payload)) });
+      } catch (e) {
+        // An answer too large, or not JSON: the engine hears why.
+        this.send({ t: "host_reply", id: m.id, error: { code: "plugin_error", message: `the answer cannot be sent: ${describe(e)}` } });
       }
-      // An answer too large, or not JSON: the engine hears why.
-      fail({ code: "plugin_error", message: `the answer cannot be sent: ${describe(failure)}` });
     };
     this.keepRunData(m);
     if (!plugin) {
