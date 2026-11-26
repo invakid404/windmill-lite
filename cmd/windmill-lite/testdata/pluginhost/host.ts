@@ -30,6 +30,12 @@
 //     {tenant: "d"}, whose hook submits a run through the host it finds as
 //     globalThis.wlHost, and reports what each read and how many runs' data
 //     the host holds once every run has settled.
+//   - run-end-answer: connects on WL_BUNDLE, whose plugin's onRunEnd
+//     answers by its run's data, and runs f/app/data_flow four times: with
+//     the data {tenant: "a"}; with {tenant: "b"} and a deadline that has
+//     passed; with {mode: "null"}; and with {mode: "warnings"}. It reports
+//     each run's status, whether its result has an answer, the answer, null
+//     for none, and its warnings.
 //
 // Environment: WL_ENGINE (the engine binary) and the scenario's variables.
 
@@ -164,6 +170,18 @@ switch (env.WL_SCENARIO) {
       nest: nest.result,
       held: host.health().runs_held,
     };
+    await host.close();
+    break;
+  }
+  case "run-end-answer": {
+    const host = await open(env.WL_BUNDLE!);
+    const runs = [
+      await host.run("f/app/data_flow", {}, { data: { tenant: "a" } }),
+      await host.run("f/app/data_flow", {}, { data: { tenant: "b" }, deadlineMs: 0 }),
+      await host.run("f/app/data_flow", {}, { data: { mode: "null" } }),
+      await host.run("f/app/data_flow", {}, { data: { mode: "warnings" } }),
+    ];
+    report = runs.map((r) => ({ status: r.status, has: "answer" in r, answer: r.answer ?? null, warnings: r.warnings }));
     await host.close();
     break;
   }

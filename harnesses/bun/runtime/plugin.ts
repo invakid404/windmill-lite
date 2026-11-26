@@ -134,6 +134,12 @@ export type TraceDetail = "full" | "summary" | "none";
 
 export type Warning = { code: string; message: string };
 
+/** What onRunEnd may return besides warnings or nothing: warnings to add
+ * to the run, and the run's answer, any JSON value, which the run's result
+ * carries (wl.Result.Answer). An answer of null is an answer; leaving
+ * answer out, or undefined, gives none. */
+export type RunEnd = { warnings?: Warning[]; answer?: unknown };
+
 type MaybePromise<T> = T | Promise<T>;
 
 export type Plugin = {
@@ -164,8 +170,9 @@ export type Plugin = {
   /** H12: returns the invocation's environment, or changes e.env and
    * returns nothing. */
   invocationEnv?: (e: { run: string; site: Site; env: Record<string, string> }) => MaybePromise<Record<string, string> | void>;
-  /** H9: warnings to append to the run's outcome. */
-  onRunEnd?: (t: Trace) => MaybePromise<Warning[] | void>;
+  /** H9: warnings to append to the run's outcome, or a RunEnd, which also
+   * gives the run its answer. */
+  onRunEnd?: (t: Trace) => MaybePromise<Warning[] | RunEnd | void>;
   onRunSettled?: (t: Trace) => MaybePromise<void>;
   /** H9: how much of the trace each run-end hook gets; the full trace for
    * a hook it does not name. The full trace costs the engine and the host
@@ -287,6 +294,29 @@ function outcome(where: string, o: Outcome | undefined): Record<string, unknown>
   return o.failed ? { result: o.result ?? null, failed: true } : { result: o.result ?? null };
 }
 
+/** The reply to on_run_end: the warnings that onRunEnd returned, and its
+ * answer when it gave one. onRunEnd returns warnings, nothing, or a RunEnd
+ * with no other key. An answer that JSON cannot encode, such as a
+ * function, is a plugin_error, and so is one that JSON.stringify throws on,
+ * such as a BigInt; the engine bounds its size. */
+function runEnd(out: Warning[] | RunEnd | void | null): Record<string, unknown> {
+  let ws: unknown = out ?? [];
+  const reply: Record<string, unknown> = {};
+  if (out && typeof out === "object" && !Array.isArray(out)) {
+    const other = Object.keys(out).find((k) => k !== "warnings" && k !== "answer");
+    if (other !== undefined) throw new HostCallFailure("plugin_error", `onRunEnd answered an object with the key ${JSON.stringify(other)}: it has only warnings and answer`);
+    ws = out.warnings ?? [];
+    if (out.answer !== undefined) {
+      if (JSON.stringify(out.answer) === undefined) throw new HostCallFailure("plugin_error", "onRunEnd answered an answer that JSON cannot encode");
+      reply.answer = out.answer;
+    }
+  }
+  if (!Array.isArray(ws) || ws.some((w) => !w || typeof w.code !== "string" || typeof w.message !== "string")) {
+    throw new HostCallFailure("plugin_error", "onRunEnd answered warnings that are not {code, message} objects");
+  }
+  return { warnings: ws.map((w: Warning) => ({ code: w.code, message: w.message })), ...reply };
+}
+
 function entry<T>(list: T[] | undefined, index: unknown, hook: string): T {
   const e = typeof index === "number" ? list?.[index] : undefined;
   if (e === undefined) throw new HostCallFailure("unknown_hook", `the plugin declares no ${hook} entry ${JSON.stringify(index)}`);
@@ -335,14 +365,9 @@ export async function dispatch(p: Plugin, hook: string, run: string, payload: Re
         }
         return { env: next };
       }
-      case "on_run_end": {
+      case "on_run_end":
         if (!p.onRunEnd) throw unknown();
-        const ws = (await p.onRunEnd(payload.trace as Trace)) ?? [];
-        if (!Array.isArray(ws) || ws.some((w) => !w || typeof w.code !== "string" || typeof w.message !== "string")) {
-          throw new HostCallFailure("plugin_error", "onRunEnd answered warnings that are not {code, message} objects");
-        }
-        return { warnings: ws.map((w) => ({ code: w.code, message: w.message })) };
-      }
+        return runEnd(await p.onRunEnd(payload.trace as Trace));
       case "on_run_settled":
         if (!p.onRunSettled) throw unknown();
         await p.onRunSettled(payload.trace as Trace);

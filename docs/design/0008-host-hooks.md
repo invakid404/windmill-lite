@@ -163,7 +163,7 @@ only expose those seams to hosts.
 | H6 | **Observers** | `onModuleStart` and `onModuleEnd(site, outcome)` for every module, nested ones and iterations included. Observers can latch (H5). |
 | H7 | **Fatal error names** | The host lists error `name`s that bypass `retry`, `continue_on_error`, `skip_failures` and `skip_failure` and latch instead. Using it is a recorded deviation in the run trace, because Windmill has no such rule ([FX-28](../semantics/execution.md#fx-28) is per-module YAML). |
 | H8 | **Halt** | `haltBefore(selector)` or `haltAfter(selector)` ends the run successfully at that point with status `halted` and its trace: evaluating a read-only prefix of a flow. A halt is a run's own, so one run halts while other runs of the same flow run whole. |
-| H9 | **Trace and run end** | Every run returns its trace: per site the status, whether it ran, recorded and resolved arguments, stored result, carried value, error, attempt number and timings. `onRunEnd(trace)` may append warnings to the run's outcome without changing its status, which is where replay of effects on a resumed attempt belongs. `onRunSettled(run)` fires later, when the run's abandoned invocations have all settled (possibly never), and is where resources step code can reach are released ([0004](0004-harness-protocol.md)). |
+| H9 | **Trace and run end** | Every run returns its trace: per site the status, whether it ran, recorded and resolved arguments, stored result, carried value, error, attempt number and timings. `onRunEnd(trace)` may append warnings to the run's outcome without changing its status, which is where replay of effects on a resumed attempt belongs; a host plugin's may add an answer. `onRunSettled(run)` fires later, when the run's abandoned invocations have all settled (possibly never), and is where resources step code can reach are released ([0004](0004-harness-protocol.md)). |
 | H10 | **Clock and randomness** | The engine's clock and the retry-jitter source are injectable: `real`; `record`, which records every requested wait and returns at once (quick-waits mode, for tests and latency measurement); and a fixed jitter seed. |
 | H11 | **Host scopes** | In host mode ([0009](0009-host-adapters.md)), submitting a run captures the host's `AsyncLocalStorage` context; every invocation of that run, every plugin call and every parallel iteration re-enters it. A step sees a scope only through a module instance the host shares with it, so a host that wants step code to read its scopes lists those modules as **host-provided** ([0010](0010-packaging.md), D12); a separately bundled copy of the same module has its own `AsyncLocalStorage` and reads nothing. Run data the host attaches is readable by plugins as `wl.run.data`. Policy case: the host sets a store in a host-provided module, and a step importing that module reads it, for two concurrent runs with different stores. |
 | H12 | **Invocation environment** | Set or unset variables in an invocation's environment ([0007](0007-platform-interface.md)). |
@@ -233,9 +233,9 @@ Two further rules complete it:
   - **Errors and timeouts.** A plugin hook's error, or a `host_call` whose
     reply does not come within the plugin timeout (`host_call_timeout`),
     latches the run, as a Go hook's error does, and at a provided site
-    fails it closed. A failed `onRunEnd` can only add a warning. A
-    TypeScript H13 provider's failure or timeout latches the run, through
-    the job API and reference resolution alike.
+    fails it closed. A failed `onRunEnd` can only add a warning, and
+    gives no answer. A TypeScript H13 provider's failure or timeout latches
+    the run, through the job API and reference resolution alike.
   - **`around`.** An `around` wrapper calls `next()` once, and the step's
     outcome stays its own whatever the wrapper returns. A wrapper that
     throws, or never runs the step, latches the run. The wrapper's
@@ -263,6 +263,12 @@ Two further rules complete it:
   - **Host mode.** A host-mode run carries its own hooks and budgets (H3,
     H4, H7, H8, H10) in its `run` frame. `onRunEnd` runs for a canceled run
     too, with the plugin timeout alone.
+  - **The run-end answer.** A plugin's `onRunEnd` may return
+    `{ warnings?, answer? }`. The run's outcome then carries the answer, any
+    JSON value, so the plugin maps every way a run ends, from state that
+    only its process holds. A Go host's own H9 gives no answer, since its
+    state is already the host's
+    ([harness protocol](0004-harness-protocol.md#host-plugins) item 10).
   - **Records.** A TypeScript hook's records and traces carry every field
     a Go hook's do.
 - **Halts are carried per run.** A Go host gives a run's halts in that

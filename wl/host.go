@@ -187,6 +187,9 @@ func (rt *Runtime) serveHost(ctx context.Context, p *harness.Process, r harness.
 	if res.Result != nil {
 		done.Result = jsonval.FromProducer(res.Result)
 	}
+	if res.Answer != nil {
+		done.Answer = jsonval.FromProducer(res.Answer)
+	}
 	if len(res.Warnings) > 0 {
 		type warning struct {
 			Code    string `json:"code"`

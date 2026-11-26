@@ -5,7 +5,7 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { describe, expect, test } from "bun:test";
-import { decodeAll, encode, FrameReader, frame } from "../runtime/frame.ts";
+import { decodeAll, encode, FrameReader, frame, Raw } from "../runtime/frame.ts";
 import { declaration, dispatch, HostCallFailure, type Plugin } from "../runtime/plugin.ts";
 import { Runtime } from "../runtime/runtime.ts";
 
@@ -90,6 +90,54 @@ describe("dispatch", () => {
     expect(await code("on_run_end", { trace: {} })).toBe("plugin_error");
     expect(await code("provide", { name: "bad", site, args: {} })).toBe("plugin_error");
   });
+
+  // What onRunEnd returns becomes the reply's payload, which the runtime
+  // sends as JSON.stringify writes it.
+  const runEnd = (f: NonNullable<Plugin["onRunEnd"]>) => dispatch({ onRunEnd: f }, "on_run_end", "r", { trace: { run: "r", status: "success" } });
+  const w = { code: "c", message: "m" };
+
+  test("onRunEnd's warnings, or nothing, answer warnings alone, with no answer", async () => {
+    for (const f of [() => [w], async () => [w]]) {
+      expect(JSON.stringify(await runEnd(f))).toBe('{"warnings":[{"code":"c","message":"m"}]}');
+    }
+    for (const f of [() => undefined, async () => {}, () => null as never, () => []]) {
+      expect(JSON.stringify(await runEnd(f))).toBe('{"warnings":[]}');
+    }
+  });
+
+  test("onRunEnd's { warnings?, answer? } answers the warnings and the answer, null included", async () => {
+    const answer = { outcome: "retry", after_ms: 250, notes: ["a", null] };
+    expect(JSON.stringify(await runEnd(() => ({ warnings: [w], answer })))).toBe(
+      '{"warnings":[{"code":"c","message":"m"}],"answer":{"outcome":"retry","after_ms":250,"notes":["a",null]}}',
+    );
+    expect(JSON.stringify(await runEnd(async () => ({ answer: 0 })))).toBe('{"warnings":[],"answer":0}');
+    expect(JSON.stringify(await runEnd(() => ({ answer: "" })))).toBe('{"warnings":[],"answer":""}');
+    // null is an answer; an absent or undefined answer is none.
+    expect(JSON.stringify(await runEnd(() => ({ answer: null })))).toBe('{"warnings":[],"answer":null}');
+    expect(JSON.stringify(await runEnd(() => ({ warnings: [w] })))).toBe('{"warnings":[{"code":"c","message":"m"}]}');
+    expect(JSON.stringify(await runEnd(() => ({ answer: undefined })))).toBe('{"warnings":[]}');
+    expect(JSON.stringify(await runEnd(() => ({})))).toBe('{"warnings":[]}');
+  });
+
+  test("onRunEnd's answer that JSON cannot carry, another key, or bad warnings answer plugin_error", async () => {
+    const fails = async (f: () => unknown) => {
+      try {
+        await runEnd(f as never);
+      } catch (e) {
+        return e instanceof HostCallFailure ? `${e.code}: ${e.message}` : `not a HostCallFailure: ${e}`;
+      }
+      return "answered";
+    };
+    expect(await fails(() => ({ answers: 1 }))).toBe('plugin_error: onRunEnd answered an object with the key "answers": it has only warnings and answer');
+    expect(await fails(() => ({ answer: () => 1 }))).toBe("plugin_error: onRunEnd answered an answer that JSON cannot encode");
+    expect(await fails(() => ({ answer: Symbol("s") }))).toBe("plugin_error: onRunEnd answered an answer that JSON cannot encode");
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    expect(await fails(() => ({ answer: cyclic }))).toMatch(/^plugin_error: TypeError: /);
+    expect(await fails(() => ({ warnings: [{ code: 1 }], answer: 1 }))).toBe("plugin_error: onRunEnd answered warnings that are not {code, message} objects");
+    expect(await fails(() => ({ warnings: "w", answer: 1 }))).toBe("plugin_error: onRunEnd answered warnings that are not {code, message} objects");
+    expect(await fails(() => "w")).toBe("plugin_error: onRunEnd answered warnings that are not {code, message} objects");
+  });
 });
 
 /** A host-mode runtime whose frames the test reads. */
@@ -116,6 +164,19 @@ function runDataCall(send: (m: Record<string, unknown>) => void) {
 }
 
 describe("the runtime", () => {
+  test("a run's outcome carries run_done's answer as JSON text: null is an answer, an absent one none", async () => {
+    const { runtime, send } = hostRuntime();
+    const runs = [0, 1, 2].map(() => runtime.submit("flow", "f/x", "{}"));
+    send({ t: "run_done", id: runs[0].id, status: "failure", answer: new Raw('{"outcome":"retry"}') });
+    send({ t: "run_done", id: runs[1].id, status: "success", result: new Raw("1"), answer: new Raw("null") });
+    send({ t: "run_done", id: runs[2].id, status: "success", result: new Raw("1") });
+    const [a, b, c] = await Promise.all(runs.map((r) => r.done));
+    expect(a.answer).toBe('{"outcome":"retry"}');
+    expect(b.answer).toBe("null");
+    expect("answer" in c).toBe(false);
+    runtime.onClose();
+  });
+
   test("its hello carries the plugin's declaration", () => {
     const { messages, runtime } = hostRuntime({ onModuleStart: () => {} });
     expect(messages()[0].plugin).toEqual({ on_module_start: true });

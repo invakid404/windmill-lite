@@ -455,6 +455,7 @@ For example, `{ flow: "f/app/main", module: "report" }` names the module
 | `latched` | `string` | For a latched run, the error it latched, such as `provider_declined` |
 | `deviations` | `string[]` | The run's deviations that depend on a run-time setting, such as the record clock |
 | `cancelCause` | `string` | For a canceled run, why: `deadline`, `pre_write_deadline`, `canceled` (its `signal` aborted, or another cancellation), `closing` (the engine closed) or `flow_timeout` (the flow's own limit) |
+| `answer` | `unknown` | For a flow run, the answer that the plugin's `onRunEnd` returned, parsed from JSON ([The run-end answer](#the-run-end-answer)). The field is absent when the run has no answer, and `null` for an answer of `null`. |
 
 ### Health
 
@@ -671,15 +672,15 @@ where it matches; the others see every module or every run.
 | `fatalErrorNames` | `string[]` | When a module fails, in every module | Latch the run instead of retrying or continuing |
 | `onModuleStart`, `onModuleEnd` | `(e: { run, site }) => void`, `(e: { run, site, record: StepRecord }) => void` | At the start and end of every module | Observe |
 | `invocationEnv` | `(e: { run, site, env }) => Record<string, string> \| void` | Before every invocation | Return the invocation's environment, or change `e.env` |
-| `onRunEnd` | `(t: Trace) => Warning[] \| void` | Once the run's outcome is decided | Return warnings to add to the run, each `{ code, message }` |
+| `onRunEnd` | `(t: Trace) => Warning[] \| RunEnd \| void` | Once the run's outcome is decided, however the run ended | Return warnings to add to the run, each `{ code, message }`. A `RunEnd`, `{ warnings?, answer? }`, also gives a flow run its answer ([The run-end answer](#the-run-end-answer)). |
 | `onRunSettled` | `(t: Trace) => void` | Once every invocation of the run has settled | Release what step code could still reach |
 | `providers` | `Record<string, (c: Call) => Outcome \| undefined>` | At a mandatory provided site that names the provider | Answer for the site, or return `undefined`, which declines and fails the run (`provider_declined`) |
 | `resource` | `(path: string, e: { run }) => { type: string; value: unknown } \| undefined` | When a run reads a resource that its own platform data does not hold | Return the resource's type and raw value, or `undefined` for none. The engine interpolates the value. |
 | `variable` | `(path: string, e: { run }) => { value: string; secret?: boolean } \| undefined` | When a run reads a variable that its own platform data does not hold | Return the variable's value, or `undefined` for none. Any other answer is a `plugin_error`. |
 
 - **A hook that throws** answers with `plugin_error`, which latches the
-  run. A failed `onRunEnd` only adds a `plugin_error` warning. A hook that
-  the plugin lacks answers `unknown_hook`.
+  run. A failed `onRunEnd` only adds a `plugin_error` warning, and gives
+  no answer. A hook that the plugin lacks answers `unknown_hook`.
 - **An `around` wrapper that throws** or never calls `next()` latches the
   run. A step that never ran then fails with an error that the harness
   generated.
@@ -707,6 +708,33 @@ declare less in `traceDetail`:
 A hook that declares less types its argument as `TraceSummary` or
 `TraceNone`. The declaration refuses a level for a hook that the plugin
 lacks, and a key or a level that does not exist.
+
+#### The run-end answer
+
+A plugin's `onRunEnd` can give a flow run an answer: any JSON value that
+the plugin computes, for example from state that it keeps for the run in
+its own process. The run's result carries it: `wl`'s `Result.Answer`, the
+`Runner` service's `RunResult.answer`, and a host's
+[run result](#run-results). `onRunEnd` is called however the run ended,
+so a failed, canceled, latched or halted run can have an answer too.
+
+| `onRunEnd` returns | The run's warnings | The run's answer |
+|---|---|---|
+| `Warning[]`, or nothing | Those warnings, or none | None |
+| `{ warnings?, answer? }`, a `RunEnd` | `warnings`, or none | `answer`, `null` included; none when `answer` is absent or `undefined` |
+
+- **Refusals.** A `RunEnd` with another key, such as `answers`, an answer
+  that `JSON.stringify` encodes as nothing, such as a function, or one
+  that it throws on, such as a cycle, answer `plugin_error`.
+- **No answer** comes from a failed `onRunEnd`, one that gets no reply
+  within the plugin timeout, one whose process is lost, and a root
+  script's run, which calls no run-end hook. Each failure adds one
+  `plugin_error` warning.
+- **The size bound.** The engine drops an answer whose JSON text is over
+  1 MiB (`wl.MaxRunEndAnswerBytes`, 1,048,576 bytes). The run keeps the
+  hook's warnings, and gets a `plugin_error` warning that names both
+  sizes.
+- **The type.** `RunEnd` is a type that `windmill-lite/bun` exports.
 
 ## Errors and refusals
 
@@ -1250,6 +1278,9 @@ The registry:
   the host had when it submitted the run; that scope is kept until the run
   settles, for `onRunSettled`. A harness without a plugin replies
   `unknown_hook` to every call.
+- **The run-end reply** (`runEnd`). What `onRunEnd` returns becomes the
+  reply `{ warnings, answer? }`, with `answer` only when the hook gave
+  one. The engine, not the harness, checks the answer's size.
 - **`around`** (`runAround`). The runtime runs the step inside the
   matching wrappers, outermost first, in the invocation's context. A
   failed wrapper is reported in a `plugin_error` warning before the
@@ -1553,7 +1584,7 @@ cd harnesses/bun && bun test
 | `test/sender.test.ts` | The send queue, against a socket that accepts a few bytes at a time: priority, the order per invocation, partial writes, `whenFlushed`, and the barrier of a host's `drain` behind large runs, with a pong still overtaking them |
 | `test/context.test.ts` | The environment view's rules in one process, the registry, the process scope, the exit status and the step API |
 | `test/fence.test.ts` | The settle-time fence: timers and `refresh()`, the fetch view and the evidence that ends a transfer, the log view, the `Bun.env` write trap, children's environment, and their process groups |
-| `test/plugin.test.ts` | Host plugins: the declaration, its trace detail, each hook's answer, the `unknown_hook` and `plugin_error` refusals, and the answer in the run's scope. A run's data as `wl.run.data` until `run_released`: two runs of one id apart, a continuation's late read, and the end of the connection |
+| `test/plugin.test.ts` | Host plugins: the declaration, its trace detail, each hook's answer, the `unknown_hook` and `plugin_error` refusals, and the answer in the run's scope. What `onRunEnd` may return: warnings, nothing, or warnings and an answer, `null` included, and the refusals of a `RunEnd`. A run's outcome with `run_done`'s answer, or without one. A run's data as `wl.run.data` until `run_released`: two runs of one id apart, a continuation's late read, and the end of the connection |
 | `test/host.test.ts` | The SDK: the shared working-directory cases (`conformance/protocol/host/workdir.json`) through `checkWorkdir`, the shared version cases (`versions.json`) through `versionsPair`, the refusals before the engine starts, the assets, a run's `onSettled` in its own scope, and the run frame's selectors, halts and deadlines. `test/argsengine.ts`, a stand-in engine, records the flags that `resourceStore` passes, and whether its `WL_REDIS_URL` is set and equals the expected URL. With the variable unset and set in the test, the URL reaches the engine's environment, never its arguments. |
 | `test/host.test.ts`, the collect trigger | Hosts that `test/heartbeatengine.ts` welcomes, mostly with a 10 ms heartbeat, with a stand-in for `Bun.gc`. The tests check the mark, the cooldown, the counters, failed collections and the `options` refusals. For the default policy, `"idle"`, they check its waits for runs, steps and the quiet period, and how `close()` and an engine exit clear its timer. They also check `"heartbeat"`, the recycle triggers left as they are, and when the heartbeat observer runs. |
 | `test/load.test.ts` | How a step module is evaluated: the caller's context at an ES module's top level, its static imports and a CommonJS module, after a top-level `await`, `import()`'s namespace, one evaluation, and a failure's own error |

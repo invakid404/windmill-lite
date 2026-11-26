@@ -420,6 +420,7 @@ A script run uses only `Kind`, `ID`, `Identity`, `Data`, `Pin` and
 | `Latched` | For a `latched` run, the error that was latched |
 | `CancelCause` | For a `canceled` run, why it was canceled (table below); empty otherwise |
 | `Started` | For a script run, `true` once the script's invocation was sent to a harness process, whose writes windmill-lite cannot see. `false` when the script never ran, such as on a cache hit or a deadline that passed before the send. A flow run leaves it `false`. |
+| `Answer` | For a flow run, the JSON text of the run-end answer that the host plugin's `onRunEnd` returned ([Host plugins](#host-plugins)). `nil` means no answer, and the text `null` an answer of JSON null. |
 
 | Status | Constant | Meaning |
 |---|---|---|
@@ -467,7 +468,7 @@ their full rules and the reasons for them.
 | `OnModuleStart`, `OnModuleEnd` | At the start and end of every module, nested ones and iterations included | Observe. `OnModuleEnd` gets the site's `StepRecord`. |
 | `HaltBefore`, `HaltAfter` | Before a matching module's first attempt, or once it has its final outcome and the run would start something other than a failure module | End the run with status `halted` |
 | `InvocationEnv` | Before each [invocation](../docs/glossary.md#invocation) runs | Set or delete variables of the invocation's job environment |
-| `OnRunEnd` | Once the run's outcome is decided | Add warnings to the run. It cannot change the status, and must not change the trace. |
+| `OnRunEnd` | Once the run's outcome is decided | Add warnings to the run. It cannot change the status, and must not change the trace. It gives the run no answer: only a host plugin's `onRunEnd` does ([Host plugins](#host-plugins)). |
 | `OnRunSettled` | Once every invocation that the run abandoned has settled, which may be never | Release the resources that step code can reach |
 | `WriteCapable`, `BeforeFirstWrite` | Before the first write-capable site launches a job | Veto the write ([Budgets](#budgets)) |
 | `FatalErrorNames` | When a module fails | Latch the run instead of retrying or continuing ([Budgets](#budgets)) |
@@ -709,6 +710,19 @@ to write one.
   the run, unless the run's context ended first.
 - `onRunEnd` is called for a run whose context ended too, canceled or past
   a deadline. Its call is bounded by the plugin timeout alone.
+- **The run-end answer.** A plugin's `onRunEnd` may return
+  `{ warnings?, answer? }`, and a flow run's `Result.Answer` then holds the
+  answer's JSON text, whatever the run's status
+  ([the Bun harness README](../harnesses/bun/README.md#the-run-end-answer)).
+  - A run has no answer when `onRunEnd` returns warnings or nothing,
+    fails, gets no reply within the plugin timeout, or cannot reach a
+    pinned run's process. A failure adds its `plugin_error` warning.
+  - An answer whose JSON text is longer than `MaxRunEndAnswerBytes`
+    (1 MiB) is dropped. The run keeps the hook's warnings, and gets a
+    `plugin_error` warning after them that names both sizes.
+  - A Go host's hooks, `RunOptions.Hooks` and a run's hooks on a host's
+    connection, give no answer: they run in the host's own process, which
+    holds their state already.
 - A Go hook always gets the whole trace. A plugin's run-end hooks get the
   trace in the form that its declaration asks for.
 
@@ -750,7 +764,7 @@ This section is for contributors who change `wl`.
 | `run.go` | `RunOptions`, `RunPlatform`, `Result`, `Run`; the causes of a canceled run; the clock and jitter types; `ErrPreWriteDeadline`, `ErrRunInFlight`; the trace types, which alias the engine's; the executor that collects each run's platform calls |
 | `hooks.go` | `Hooks` and the types of their callbacks, `Selector`, `Site`, `FatalError` and the selector and provider errors; selector matching, and the adapter to the engine's hook interface |
 | `host.go` | `Host`, `Runtime.Done`, `Host.Refuse`, `HandshakeError` and the reject codes: host mode, its handshake, and the runs that it serves |
-| `plugin.go` | `DefaultPluginTimeout`, `ErrHostCallTimeout`, `HostCallError`: host plugins, their declaration as `Hooks` and `Providers`, their resources and variables, `around`, and the merge of a run's hooks with the plugin's |
+| `plugin.go` | `DefaultPluginTimeout`, `ErrHostCallTimeout`, `HostCallError`, `MaxRunEndAnswerBytes`: host plugins, their declaration as `Hooks` and `Providers`, their resources and variables, `around`, and the merge of a run's hooks with the plugin's |
 | `payload.go` | The encoding of the payloads that the runtime sends to a host plugin |
 | `example_test.go` | The README's example, compiled by `go test` |
 | `storetest/` | The contract suite of `ResourceStore` ([its README](storetest/README.md)) |
@@ -815,8 +829,9 @@ with the engine's side of the protocol in
   The run's invocations go back to the host, which runs them in the scope
   that it captured when it submitted the run.
 - **Outcomes.** `run_done` carries the status, the stored result,
-  `may_have_mutated`, the warnings, the trace's deviations and, for a
-  canceled run, `cancel_cause`. `run_settled` follows once the run has
+  `may_have_mutated`, the warnings, the trace's deviations, for a
+  canceled run `cancel_cause`, and the host plugin's `answer` when the run
+  has one. `run_settled` follows once the run has
   settled; a root script's run settles only after its status and cause are
   decided, since the settlement's callback releases the run's hard
   deadline. A run that `Run` refuses goes back as `refused`, or `draining`
@@ -861,6 +876,11 @@ with the engine's side of the protocol in
   script run's one job too. The harness runs the step inside them.
 - **Records and traces.** `recordJSON` and `traceJSON` carry every field
   of the Go `StepRecord` and `Trace`, in snake_case.
+- **The run-end answer.** A flow run's context carries a slot for its
+  answer (`withAnswer`), which `Run` reads into `Result.Answer` once the
+  engine returns. Only the runtime's own plugin fills it (`plugin.answers`,
+  set by `usePlugin`). A run's hooks on a host's connection take the same
+  decoding, and their answer is ignored.
 - **Settlement.** Every `host_call` of a run holds the run's settlement
   (`doHeld`, `engine.HoldSettlement`) until its reply, or until its late
   reply or the harness's exit when the runtime stopped waiting first. So
@@ -896,6 +916,7 @@ build helper's dependencies, and skip without them unless
 | `plugincases_test.go` | The cases of `conformance/plugins/hooks.yaml`, through the TypeScript case plugin, named by `Options.Plugin` and built into the bundle, and through Go callbacks built from the same plugins | Yes |
 | `bundledplugin_test.go` | A bundle's own plugin. Its `around` wrapper and the step share a host-provided module in 16 concurrent runs (`TestBundledPluginSharesHostModule`), and a bundle with no step starts processes for it (`TestBundledPluginWithoutSteps`). `Open` refuses it with `Options.Plugin` and in `fresh` (`TestOpenRefusesTwoPlugins`), and refuses a manifest that names a module outside the bundle (`TestOpenRefusesUnverifiedPlugin`). A `fetch` wrapper it installs at load reaches an ordinary step and not a native one (`TestPluginFetchWrapperOrder`) | Yes |
 | `rundata_test.go` | `RunOptions.Data` on real runs. Wrappers of an `around`-only plugin read their own run's data and steps `undefined` (`TestRunDataAroundOnly`), a hook reads it frozen (`TestRunDataHook`), and a run that a Go hook starts does not inherit it (`TestRunDataNotInherited`). The process holds it until a flow run or a script job settles (`TestRunDataReleased`), and one without a plugin gets none (`TestRunDataNeedsPlugin`). Data that is not JSON or not UTF-8 is refused (`TestRunDataRefusesInvalid`, `TestRunDataRefusesInvalidUTF8`). | Yes |
+| `runendanswer_test.go` | A successful, failed, latched or canceled run, and one past its deadline before any step, gets the plugin's answer, and null is the text `null` (`TestPluginRunEndAnswer`). A throw, a timeout or a lost pinned process gives no answer and one `plugin_error` warning (`TestPluginRunEndAnswerFailed`). Warnings alone, or nothing, keep the warnings and give no answer (`TestPluginRunEndAnswerUnchanged`). An answer at `MaxRunEndAnswerBytes` arrives whole, and one byte over is dropped (`TestPluginRunEndAnswerBound`). | Yes |
 | `rundatalate_test.go` | Run data after `Run` returns, while a plugin hook that outlived the plugin timeout holds the run's settlement. A later run of the same `ID`, with data or without, reads its own, and the earlier run's hook and `onRunSettled` read theirs (`TestRunDataReusedID`). A buffer reused once `Run` returns does not reach a new process (`TestRunDataOwnsBuffer`). | Yes |
 | `store_test.go` | `Options.ResourceStore` on real steps (`TestResourceStoreOnBun`): two runtimes that share a memory store, one with its own, a failing store's warning, and `D24` in the trace; a run id in flight refused (`TestRunIDInFlight`). Without Bun: `Close` releasing its own store while readers use it (`TestCloseReleasesItsOwnStore`), and a late answer kept from a later run of the same id (`TestLateAnswerAcrossIDReuse`) | Yes, but for the last two |
 | `pool_test.go` | `Options.Pool`. Without Bun: `Open`'s refusals in `fresh` and host mode (`TestPoolOptionsRefusedFresh`) and of `MaxLive` below `Max` (`TestPoolMaxLiveBelowMax`), and the cap's entry in the trace. On real steps: a second process for a step beside a CPU-bound one and under `Cap`, the module and RSS triggers (`TestWlPoolOptions`), and the warm start (`TestWarmStart`). A step reads a plugin's resource under `Cap: 1` (`TestPoolCapLeavesPluginCalls`) and while its process leaves (`TestPoolRecyclingProcessServesPluginCalls`); zero settings call the diagnostics writer as before (`TestDiagnosticsZeroSettings`) | Yes, but for the refusals and the trace |

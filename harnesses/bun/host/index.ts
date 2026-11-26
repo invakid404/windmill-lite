@@ -23,7 +23,7 @@ import { exitProcess, invocations, noteBundledPlugin, realStderr, realTimers } f
 import { loadPlugin, type Plugin, type Selector } from "../runtime/plugin.ts";
 import { extractAssets, type HostHealth, RunError, Runtime } from "../runtime/runtime.ts";
 
-export type { AroundCall, Call, Outcome, PlatformCall, Plugin, Selector, Site, StepOutcome, StepRecord, Trace, TraceDetail, TraceNone, TraceSummary, Warning } from "../runtime/plugin.ts";
+export type { AroundCall, Call, Outcome, PlatformCall, Plugin, RunEnd, Selector, Site, StepOutcome, StepRecord, Trace, TraceDetail, TraceNone, TraceSummary, Warning } from "../runtime/plugin.ts";
 
 /** The process-wide registry of host-provided modules: module path to the
  * module's namespace (ADR 0010). */
@@ -288,6 +288,10 @@ export type RunResult = {
    * "canceled" (its signal aborted, or another cancellation), "closing"
    * (the engine closed) or "flow_timeout" (the flow's own limit). */
   cancelCause?: string;
+  /** A flow run's answer: the answer that the plugin's onRunEnd returned
+   * beside its warnings, parsed from JSON. The field is absent when the run
+   * has no answer, and null for an answer of null. */
+  answer?: unknown;
 };
 
 export type Health = HostHealth & {
@@ -1171,6 +1175,7 @@ async function connectOnce(o: ConnectOptions, held: Held): Promise<Host> {
             latched: o.latched,
             deviations: o.deviations,
             cancelCause: o.cancel_cause,
+            ...(o.answer === undefined ? {} : { answer: JSON.parse(o.answer) }),
           }),
           (e) => {
             throw e instanceof RunError ? new HostError(e.code, e.detail) : e;

@@ -204,8 +204,9 @@ type Invocation = {
 export type Mode = "warm" | "fresh";
 
 /** A run's outcome, as run_done reports it: result is its JSON text,
- * warnings its warnings, each with a code and a message, and cancel_cause
- * why a canceled run was canceled. */
+ * warnings its warnings, each with a code and a message, cancel_cause
+ * why a canceled run was canceled, and answer the JSON text of the host
+ * plugin's run-end answer, absent when it gave none. */
 export type RunOutcome = {
   status: string;
   result?: string;
@@ -214,6 +215,7 @@ export type RunOutcome = {
   latched?: string;
   deviations: string[];
   cancel_cause?: string;
+  answer?: string;
 };
 
 /** What a run frame carries besides its target and arguments: its static
@@ -1328,6 +1330,8 @@ export class Runtime {
       latched: typeof m.latched === "string" ? m.latched : undefined,
       deviations: Array.isArray(m.deviations) ? m.deviations : [],
       cancel_cause: typeof m.cancel_cause === "string" ? m.cancel_cause : undefined,
+      // A run_done keeps an answer of JSON null; an absent one is none.
+      ...(m.answer === undefined ? {} : { answer: JSON.stringify(m.answer) }),
     });
   }
 

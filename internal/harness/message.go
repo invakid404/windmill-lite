@@ -434,6 +434,10 @@ type RunDone struct {
 	// CancelCause is why a canceled run was canceled: one of the causes of
 	// engine.CancelCauseOf, such as "deadline"; "" otherwise.
 	CancelCause string
+	// Answer is the run-end answer of the host's plugin (wl.Result.Answer):
+	// zero when it gave none, and the value null for an answer of JSON
+	// null, which the frame keeps, as it keeps a result of null.
+	Answer jsonval.Value
 	// Settled, which is not part of the frame, closes once the run has
 	// settled (ADR 0004 host mode item 5): the process then sends
 	// RunSettled, after the run_done. Nil means never.
@@ -864,6 +868,9 @@ func (m RunDone) appendPayload(b []byte) ([]byte, error) {
 	if m.CancelCause != "" {
 		e.str("cancel_cause", m.CancelCause)
 	}
+	if !m.Answer.IsZero() {
+		e.raw("answer", m.Answer.Producer())
+	}
 	return e.end()
 }
 
@@ -1283,6 +1290,11 @@ func Decode(payload []byte) (Message, error) {
 		}
 		if d.present("cancel_cause") {
 			r.CancelCause = d.str("cancel_cause")
+		}
+		// An answer of JSON null is an answer, as a result of null is a
+		// result.
+		if _, ok := fields["answer"]; ok {
+			r.Answer = d.raw("answer")
 		}
 		m = r
 	case TypeRunCancel:
