@@ -1071,8 +1071,10 @@ answered by a `host_reply`.
       give the error reply. Its message is cut to fit `max_message`, as a
       warning's is, so a reply with an answer always gets one.
     - **Other replies keep their rule.** A reply without an answer, and a
-      hook's own error of any hook, that cannot be sent go as a
-      `plugin_error` that says the answer cannot be sent and why.
+      hook's own error of any hook, that cannot be sent are replaced by an
+      attempt to send a `plugin_error` that says the answer cannot be sent
+      and why. That error is not cut, so it can be too large for
+      `max_message` itself, and then no reply goes.
     - **One serialisation.** The harness reads the answer once and
       serialises it once, and the reply carries that text, so what the
       harness checked is what the engine gets.

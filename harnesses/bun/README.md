@@ -1300,8 +1300,9 @@ The registry:
 - **Error replies.** The error reply of a reply with an answer goes with
   its message cut to fit `max_message` (`fitText`), as a warning's is, so
   it always goes. Every other reply, and every hook's own error, that
-  cannot be sent goes as a `plugin_error` that says the answer cannot be
-  sent and why.
+  cannot be sent is replaced by an attempt to send a `plugin_error` that
+  says the answer cannot be sent and why. That error is not cut, so when it
+  is too large too, no reply goes.
 - **`around`** (`runAround`). The runtime runs the step inside the
   matching wrappers, outermost first, in the invocation's context. A
   failed wrapper is reported in a `plugin_error` warning before the

@@ -724,11 +724,11 @@ export class Runtime {
    * failure is its error. */
   private onHostCall(m: Message) {
     const plugin = this.opts.plugin;
-    // A reply that carries a run-end answer goes in the smallest form that
-    // fits max_message: with the answer; without it and with its size; or,
-    // when the size does not fit beside the warnings either, with the
-    // warnings alone as dropped. Each form is built and sent inside the
-    // guard, and only a reply over max_message tries the next. When none
+    // A reply that carries a run-end answer goes in the first of its forms,
+    // tried in this order, that fits max_message: with the answer; without
+    // it and with its size; and with the warnings alone as dropped. Each
+    // form is built and sent inside the guard, and only a reply over
+    // max_message tries the next. When none
     // can go, its error reply has its message cut to fit, as a warning's
     // is, so it always goes; one that cannot go at all is only written to
     // the diagnostics.
@@ -753,7 +753,8 @@ export class Runtime {
       }
     };
     // Every other reply, every hook's error included, keeps its rule: one
-    // that cannot be sent goes as a plugin_error that says why.
+    // that cannot be sent is replaced by an attempt to send a plugin_error
+    // that says why, whose message is not cut, so it can fail too.
     const reply = (payload: Record<string, unknown> | undefined, error?: { code: string; message: string }) => {
       if (!error && payload?.answer instanceof AnswerText) {
         answerReply(payload);
