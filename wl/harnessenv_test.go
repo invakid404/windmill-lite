@@ -850,6 +850,8 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 		"WL_TEST_SPELLED_SECRET": {Value: spelled, Secret: true},
 		"WL_TEST_QUOTED_SECRET":  {Value: `"synthetic&quoted-0d4e"`, Secret: true},
 		"WL_TEST_TRAIL_SECRET":   {Value: `synthetic-end-5f1a"`, Secret: true},
+		"WL_TEST_KEY_SECRET":     {Value: `"synthetic-key`, Secret: true},
+		"WL_TEST_LEFT":           {Value: "synthetic-left", Secret: true},
 	}
 	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, HarnessEnv: env})
 	if err != nil {
@@ -1090,17 +1092,33 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 	// a value, which hold it only as written, and holds the secret that is a
 	// JSON string with its quotes in a value and in a key, which escape its
 	// ampersand, so that only their JSON written compactly holds it, and a
-	// secret that ends with a quote at the end of a value, after text that
-	// stays: the trace's copy masks each key and value, and only those.
+	// secret that ends with a quote at the end of a value, after a tab, which
+	// the JSON escapes, and text that stay, and a key that holds a secret
+	// percent-encoded: the trace's copy masks each key and value, and only
+	// those, and in the tab's value only the secret.
 	spelledHook := &Hooks{Intercept: []Interceptor{{Selector: module("f/t/fragment", "a"), Func: func(context.Context, Call) (Outcome, bool, error) {
-		return Outcome{Result: json.RawMessage(`[{"` + spelled + `":1},"` + spelled + `","synthetic\u0026quoted-0d4e",{"synthetic\u0026quoted-0d4e":1},"keep synthetic-end-5f1a"]`)}, true, nil
+		return Outcome{Result: json.RawMessage(`[{"` + spelled + `":1},"` + spelled + `","synthetic\u0026quoted-0d4e",{"synthetic\u0026quoted-0d4e":1},"keep\tsynthetic-end-5f1a",{"` + jsEncodeURIComponent(urlSecret) + `":1}]`)}, true, nil
 	}}}}
 	res, err = callRT.Run(context.Background(), "f/t/fragment", nil, RunOptions{Hooks: spelledHook})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec, ok := res.Trace.Step(mustSite(t, "m:a")); !ok || string(rec.Result.Producer()) != `[{"[secret]":1},"[secret]","[secret]",{"[secret]":1},"keep [secret]"]` {
+	if rec, ok := res.Trace.Step(mustSite(t, "m:a")); !ok || string(rec.Result.Producer()) != `[{"[secret]":1},"[secret]","[secret]",{"[secret]":1},"keep\t[secret]",{"[secret]":1}]` {
 		t.Errorf("f/t/fragment, answered with the escape secret as written: the step result in the trace: %s; want the key and the value masked", shownBytes(rec.Result.Producer(), spelled))
+	}
+	// A root string whose JSON starts with a secret that begins with a quote,
+	// the token's own, and whose text holds that secret again, after a
+	// backslash, so that the secret's spellings occur elsewhere in the text:
+	// both are masked, the first by the bytes its own match covers.
+	keyHook := &Hooks{Intercept: []Interceptor{{Selector: module("f/t/fragment", "a"), Func: func(context.Context, Call) (Outcome, bool, error) {
+		return Outcome{Result: json.RawMessage(`"synthetic-key / \\\"synthetic-key"`)}, true, nil
+	}}}}
+	res, err = callRT.Run(context.Background(), "f/t/fragment", nil, RunOptions{Hooks: keyHook})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec, ok := res.Trace.Step(mustSite(t, "m:a")); !ok || string(rec.Result.Producer()) != `"[secret] / [secret]"` {
+		t.Errorf("f/t/fragment, answered with a string that a quoted secret starts: the step result in the trace: %s; want both masked", shownBytes(rec.Result.Producer(), `"synthetic-key`))
 	}
 	// A secret that is a JSON string with its quotes, which the step parses
 	// and returns: the step's JSON is the secret's own bytes. The requested
@@ -1203,7 +1221,8 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 	}
 
 	// The array that a secret spans, from a Go hook that writes a space
-	// between its strings, in a runtime with no secret document: the
+	// between its strings, in a runtime with no secret document, and with a
+	// second secret, the first string, that the array also holds: the
 	// trace's copy is the mask as a whole.
 	spaced := &Hooks{Intercept: []Interceptor{{Selector: module("f/t/fragment", "a"), Func: func(context.Context, Call) (Outcome, bool, error) {
 		return Outcome{Result: json.RawMessage(`["synthetic-left", "synthetic-right"]`)}, true, nil

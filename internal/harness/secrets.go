@@ -7,8 +7,11 @@ import (
 	"io"
 	"math/big"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf16"
+	"unicode/utf8"
 )
 
 // SecretMask is what replaces a secret's value in the text that the engine
@@ -337,26 +340,21 @@ func unhex(c byte) byte {
 	}
 }
 
-// MaskJSON returns the JSON text with each secret masked, as decoded:
-//
-//   - in its strings and object keys, with Mask;
-//   - in an object or array that equals a secret that is itself a JSON
-//     object or array, however each is written: it becomes the string
-//     SecretMask.
-//
-// A secret that still shows after that, as the value is written compactly
-// or as the text itself writes it, is in one token's JSON or spans the
-// JSON's structure. The smallest part that holds it then becomes the
-// string SecretMask, so the text stays JSON, and the rest of the value
-// stays: a number or a literal, such as a secret of digits that a step
-// returned as a number; in a string or a key whose JSON holds a secret
-// that its text does not, such as a secret with its quotes, or one that a
-// JSON escape spells, the part of its text under the secret, or all of it
-// where the JSON has an escape; or else an object or array across whose
-// tokens it lies, such as the strings of an array. Key order, duplicate keys and the other numbers stay as
-// they were, and the result is written compactly. It returns text itself,
-// byte for byte, when nothing holds a secret, and also when text is not
-// JSON.
+// MaskJSON returns the JSON text with each secret masked. It finds the
+// secrets in the value as it reads three ways, before it changes anything:
+// in its strings and keys as decoded (as Mask finds them), in the value
+// written compactly, and in the text as it is written, spaces included. A
+// secret inside one string or key masks the part of that string or key
+// under it, as decoded, whatever escapes its JSON uses, so the text beside
+// it stays: a secret with its quotes, or one that a JSON escape spells,
+// counts too. One inside a number or literal masks it. One across tokens,
+// such as the strings of an array, masks the smallest object or array that
+// holds it, and so does an object or array equal to a secret that is a JSON
+// document, however each is written. What is masked becomes the string
+// SecretMask, so the text stays JSON. Key order, duplicate keys and the
+// other numbers stay as they were, and the result is written compactly.
+// It returns text itself, byte for byte, when nothing holds a secret, and
+// also when text is not JSON.
 func (s *Secrets) MaskJSON(text []byte) []byte {
 	return s.maskJSON(text, nil)
 }
@@ -394,19 +392,42 @@ func (s *Secrets) maskJSON(text []byte, pointers []string) []byte {
 	if _, err := dec.Token(); err != io.EOF {
 		return text
 	}
-	// The secrets in the text as it is written, which may span its tokens.
-	var occ []occurrence
-	if s.holds(text) {
-		occ = s.occurrences(string(text))
+	parts := []*jnode{root}
+	if pointers != nil {
+		parts = nil
+		for _, ptr := range pointers {
+			if n := root.at(ptr); n != nil {
+				parts = append(parts, n)
+			}
+		}
+	}
+	// Every secret is found on the value as it is, before anything changes:
+	// in the text as written and in the value written compactly, which may
+	// span tokens, and in each string and key as decoded.
+	var compact bytes.Buffer
+	root.writeIndexed(&compact)
+	views := []struct {
+		buf     []byte
+		compact bool
+	}{{text, false}, {compact.Bytes(), true}}
+	for _, n := range parts {
+		s.markDocs(n)
+		for _, v := range views {
+			if !s.holds(v.buf) {
+				continue
+			}
+			lo, hi := n.span(v.compact)
+			for _, oc := range s.occurrences(string(v.buf)) {
+				if oc.start >= lo && oc.end <= hi {
+					n.mark(oc.start, oc.end, v.compact, v.buf)
+				}
+			}
+		}
+		s.markText(n)
 	}
 	changed := false
-	if pointers == nil {
-		changed = s.maskWhole(root, occ)
-	}
-	for _, ptr := range pointers {
-		if n := root.at(ptr); n != nil {
-			changed = s.maskWhole(n, occ) || changed
-		}
+	for _, n := range parts {
+		changed = n.apply() || changed
 	}
 	if !changed {
 		return text
@@ -449,50 +470,6 @@ func (n *jnode) at(ptr string) *jnode {
 	return n
 }
 
-// maskWhole masks n as MaskJSON masks a whole value: maskNode, then, where
-// a secret still shows across n's structure (the strings of an array, a key
-// and its value), the smallest object or array that holds it becomes
-// SecretMask: as n is written again compactly, and as its source writes
-// it, where occ are the secrets in the source. It reports whether it
-// changed n.
-func (s *Secrets) maskWhole(n *jnode, occ []occurrence) bool {
-	changed := s.maskNode(n, occ)
-	var b bytes.Buffer
-	n.write(&b)
-	if s.holds(b.Bytes()) {
-		s.spill(n)
-		changed = true
-	}
-	for _, oc := range occ {
-		if n.maskSource([2]int{oc.start, oc.end}) {
-			changed = true
-		}
-	}
-	return changed
-}
-
-// maskSource masks the smallest object or array in n across whose tokens
-// in the source the span sp of the source lies. A key or value token that
-// holds sp whole is left as it is: maskNode masked it. It reports whether
-// it changed n.
-func (n *jnode) maskSource(sp [2]int) bool {
-	if !n.src || sp[0] < n.start || sp[1] > n.end || n.kind != '{' && n.kind != '[' {
-		return false
-	}
-	for _, k := range n.keySrc {
-		if sp[0] >= k[0] && sp[1] <= k[1] {
-			return false
-		}
-	}
-	for _, k := range n.kids {
-		if k.src && sp[0] >= k.start && sp[1] <= k.end {
-			return k.maskSource(sp)
-		}
-	}
-	n.mask()
-	return true
-}
-
 // mask turns n into the string SecretMask, keeping where its source is.
 func (n *jnode) mask() {
 	*n = jnode{kind: 's', text: SecretMask, src: n.src, start: n.start, end: n.end}
@@ -501,36 +478,6 @@ func (n *jnode) mask() {
 // holds reports whether text holds one of the strings to mask.
 func (s *Secrets) holds(text []byte) bool {
 	return slices.ContainsFunc(s.olds, func(o string) bool { return bytes.Contains(text, []byte(o)) })
-}
-
-// spill returns n written compactly, after it turns each smallest object
-// or array in n whose writing holds a secret into SecretMask. maskNode
-// has masked each key and value token whose own JSON holds one.
-func (s *Secrets) spill(n *jnode) []byte {
-	var b bytes.Buffer
-	switch n.kind {
-	case '{', '[':
-		b.WriteByte(n.kind)
-		for i, k := range n.kids {
-			if i > 0 {
-				b.WriteByte(',')
-			}
-			if n.kind == '{' {
-				writeJSONString(&b, n.keys[i])
-				b.WriteByte(':')
-			}
-			b.Write(s.spill(k))
-		}
-		b.WriteByte(n.kind + 2) // '}' and ']' follow '{' and '[' by two
-		if s.holds(b.Bytes()) {
-			n.mask()
-			b.Reset()
-			n.write(&b)
-		}
-	default:
-		n.write(&b)
-	}
-	return b.Bytes()
 }
 
 // jnode is a decoded JSON value that keeps what writing it again needs: its
@@ -543,10 +490,18 @@ type jnode struct {
 	keys []string
 	kids []*jnode
 	// start and end are where the value is in its source text, when src is
-	// set, and keySrc where an object's keys are.
-	src        bool
-	start, end int
-	keySrc     [][2]int
+	// set, and keySrc where an object's keys are; cstart, cend and keyC are
+	// the same in the value written compactly (writeIndexed).
+	src          bool
+	start, end   int
+	keySrc       [][2]int
+	cstart, cend int
+	keyC         [][2]int
+	// What masking found: all when the whole value is masked, the spans of
+	// a string's text, and of each key's, as decoded.
+	all      bool
+	spans    [][2]int
+	keySpans map[int][][2]int
 }
 
 // decodeTree decodes one JSON value from dec.
@@ -735,88 +690,6 @@ func (n *jnode) write(b *bytes.Buffer) {
 	}
 }
 
-// maskNode masks n's tokens and the documents in it: an object or array
-// equal to a secret document becomes SecretMask; a number or literal whose
-// text holds a secret does too; a string or a key is masked by maskToken.
-// occ are the secrets in the source. It reports whether it changed n.
-func (s *Secrets) maskNode(n *jnode, occ []occurrence) bool {
-	switch n.kind {
-	case '{', '[':
-		for _, d := range s.docs {
-			if nodeEqual(n, d) {
-				n.mask()
-				return true
-			}
-		}
-		changed := false
-		for i, k := range n.keys {
-			var src [2]int
-			if i < len(n.keySrc) {
-				src = n.keySrc[i]
-			}
-			if m := s.maskToken(k, src, n.src, occ); m != k {
-				n.keys[i], changed = m, true
-			}
-		}
-		for _, k := range n.kids {
-			if s.maskNode(k, occ) {
-				changed = true
-			}
-		}
-		return changed
-	case 's':
-		if m := s.maskToken(n.text, [2]int{n.start, n.end}, n.src, occ); m != n.text {
-			n.text = m
-			return true
-		}
-	case 'l':
-		if s.holds([]byte(n.text)) {
-			n.mask()
-			return true
-		}
-	}
-	return false
-}
-
-// maskToken returns a string or a key, text as decoded, with each secret
-// in it masked as Mask masks it, and also each secret that its JSON token
-// holds and text does not, such as a secret with its quotes: as the token
-// is written compactly, and as the source writes it at src (when known).
-// Where that token is text in quotes with no escape, only the part of text
-// under such a secret is masked, its quotes left out, so the text beside
-// it stays; otherwise all of text.
-func (s *Secrets) maskToken(text string, src [2]int, known bool, occ []occurrence) string {
-	spans := s.spans(text, false)
-	whole := false
-	under := func(a, b, tokenLen int) {
-		if tokenLen != len(text)+2 {
-			whole = true
-			return
-		}
-		if a, b = max(a-1, 0), min(b-1, len(text)); a < b {
-			spans = append(spans, [2]int{a, b})
-		}
-	}
-	var w bytes.Buffer
-	writeJSONString(&w, text)
-	for _, oc := range s.occurrences(w.String()) {
-		if !strings.Contains(text, oc.old) {
-			under(oc.start, oc.end, w.Len())
-		}
-	}
-	if known {
-		for _, oc := range occ {
-			if oc.start >= src[0] && oc.end <= src[1] && !strings.Contains(text, oc.old) {
-				under(oc.start-src[0], oc.end-src[0], src[1]-src[0])
-			}
-		}
-	}
-	if whole {
-		return SecretMask
-	}
-	return replaceSpans(text, mergeSpans(spans), nil, SecretMask)
-}
-
 // writeJSONString writes s as a JSON string, without the HTML escapes of
 // encoding/json's default.
 func writeJSONString(out *bytes.Buffer, s string) {
@@ -882,4 +755,212 @@ func (s *Secrets) maskPart(ctx, buf []byte, c int) string {
 		}
 	}
 	return replaceSpans(string(buf[:c]), spans, nil, SecretMask)
+}
+
+// writeIndexed writes n compactly, as write does, and records where each
+// value and key is in what it writes (cstart, cend, keyC).
+func (n *jnode) writeIndexed(b *bytes.Buffer) {
+	n.cstart = b.Len()
+	switch n.kind {
+	case '{', '[':
+		b.WriteByte(n.kind)
+		n.keyC = n.keyC[:0]
+		for i, k := range n.kids {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			if n.kind == '{' {
+				ks := b.Len()
+				writeJSONString(b, n.keys[i])
+				n.keyC = append(n.keyC, [2]int{ks, b.Len()})
+				b.WriteByte(':')
+			}
+			k.writeIndexed(b)
+		}
+		b.WriteByte(n.kind + 2) // '}' and ']' follow '{' and '[' by two
+	case 's':
+		writeJSONString(b, n.text)
+	default:
+		b.WriteString(n.text)
+	}
+	n.cend = b.Len()
+}
+
+// span returns where n is in the source, or in the value written compactly
+// when compact is set.
+func (n *jnode) span(compact bool) (int, int) {
+	if compact {
+		return n.cstart, n.cend
+	}
+	if !n.src {
+		return 0, -1
+	}
+	return n.start, n.end
+}
+
+// mark records the secret at [a, b) of buf, the source or the value written
+// compactly, in the smallest part of n that holds it: a string or a key,
+// the span of its text under the secret; a number or a literal, whole; an
+// object or array across whose tokens it lies, whole.
+func (n *jnode) mark(a, b int, compact bool, buf []byte) {
+	for !n.all {
+		lo, hi := n.span(compact)
+		switch n.kind {
+		case 's':
+			n.spans = append(n.spans, tokenSpan(buf[lo:hi], a-lo, b-lo, len(n.text)))
+			return
+		case 'l':
+			n.all = true
+			return
+		}
+		keys := n.keySrc
+		if compact {
+			keys = n.keyC
+		}
+		if i := sort.Search(len(keys), func(i int) bool { return keys[i][1] >= b }); i < len(keys) && keys[i][0] <= a && i < len(n.keys) {
+			if n.keySpans == nil {
+				n.keySpans = map[int][][2]int{}
+			}
+			n.keySpans[i] = append(n.keySpans[i], tokenSpan(buf[keys[i][0]:keys[i][1]], a-keys[i][0], b-keys[i][0], len(n.keys[i])))
+			return
+		}
+		j := sort.Search(len(n.kids), func(j int) bool { _, e := n.kids[j].span(compact); return e >= b })
+		if j < len(n.kids) {
+			if s, _ := n.kids[j].span(compact); s <= a {
+				n = n.kids[j]
+				continue
+			}
+		}
+		n.all = true
+	}
+}
+
+// markDocs marks whole each object or array in n that equals a secret
+// document.
+func (s *Secrets) markDocs(n *jnode) {
+	if n.kind != '{' && n.kind != '[' {
+		return
+	}
+	for _, d := range s.docs {
+		if nodeEqual(n, d) {
+			n.all = true
+			return
+		}
+	}
+	for _, k := range n.kids {
+		s.markDocs(k)
+	}
+}
+
+// markText records, in each string and key of n, the spans of its text
+// that hold a secret as Mask finds them.
+func (s *Secrets) markText(n *jnode) {
+	if n.kind == 's' {
+		n.spans = append(n.spans, s.spans(n.text, false)...)
+	}
+	for i, k := range n.keys {
+		if sp := s.spans(k, false); len(sp) > 0 {
+			if n.keySpans == nil {
+				n.keySpans = map[int][][2]int{}
+			}
+			n.keySpans[i] = append(n.keySpans[i], sp...)
+		}
+	}
+	for _, k := range n.kids {
+		s.markText(k)
+	}
+}
+
+// apply masks what mark, markDocs and markText found in n, and reports
+// whether it changed n.
+func (n *jnode) apply() bool {
+	if n.all {
+		n.mask()
+		return true
+	}
+	changed := false
+	if n.kind == 's' && len(n.spans) > 0 {
+		if m := replaceSpans(n.text, mergeSpans(n.spans), nil, SecretMask); m != n.text {
+			n.text, changed = m, true
+		}
+	}
+	for i, sp := range n.keySpans {
+		if m := replaceSpans(n.keys[i], mergeSpans(sp), nil, SecretMask); m != n.keys[i] {
+			n.keys[i], changed = m, true
+		}
+	}
+	// What was found is spent: the spans index the text as it was.
+	n.spans, n.keySpans = nil, nil
+	for _, k := range n.kids {
+		changed = k.apply() || changed
+	}
+	return changed
+}
+
+// tokenSpan returns the span of a string's text, n bytes as decoded, that
+// the bytes [a, b) of its JSON token tok cover: each decoded byte whose
+// spelling in tok, a character or an escape, overlaps them; the quotes
+// cover none. It returns all of the text when tok does not decode to n
+// bytes, which a token with invalid UTF-8 may not.
+func tokenSpan(tok []byte, a, b, n int) [2]int {
+	st, en := tokenMap(tok)
+	if len(st) != n {
+		return [2]int{0, n}
+	}
+	lo, hi := n, 0
+	for i := range st {
+		if en[i] > a && st[i] < b {
+			lo, hi = min(lo, i), max(hi, i+1)
+		}
+	}
+	if lo >= hi {
+		return [2]int{0, 0}
+	}
+	return [2]int{lo, hi}
+}
+
+// tokenMap returns, for each byte of a JSON string token's decoded text,
+// where its spelling starts and ends in the token: one byte for a plain
+// byte, the whole escape for each byte that an escape decodes to.
+func tokenMap(tok []byte) (st, en []int) {
+	for i := 1; i < len(tok)-1; {
+		if tok[i] != '\\' || i+1 >= len(tok)-1 {
+			st, en = append(st, i), append(en, i+1)
+			i++
+			continue
+		}
+		size, r := 2, rune(0)
+		if tok[i+1] == 'u' && i+6 <= len(tok)-1 {
+			r, size = hexRune(tok[i+2:i+6]), 6
+			if utf16.IsSurrogate(r) {
+				if i+12 <= len(tok)-1 && tok[i+6] == '\\' && tok[i+7] == 'u' {
+					if p := utf16.DecodeRune(r, hexRune(tok[i+8:i+12])); p != utf8.RuneError {
+						r, size = p, 12
+					} else {
+						r = utf8.RuneError
+					}
+				} else {
+					r = utf8.RuneError
+				}
+			}
+		}
+		k := 1
+		if tok[i+1] == 'u' {
+			k = utf8.RuneLen(r)
+		}
+		for range k {
+			st, en = append(st, i), append(en, i+size)
+		}
+		i += size
+	}
+	return st, en
+}
+
+// hexRune is the rune that four hex digits spell, or utf8.RuneError.
+func hexRune(h []byte) rune {
+	v, err := strconv.ParseUint(string(h), 16, 32)
+	if err != nil {
+		return utf8.RuneError
+	}
+	return rune(v)
 }
