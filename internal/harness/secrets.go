@@ -156,11 +156,10 @@ func (s *Secrets) Mask(text string) string {
 	if s == nil {
 		return text
 	}
-	text = s.r.Replace(text)
-	if strings.IndexByte(text, '%') >= 0 {
-		text = s.maskDecoded(text, false, SecretMask)
+	if strings.IndexByte(text, '%') < 0 {
+		return s.r.Replace(text)
 	}
-	return text
+	return replaceSpans(text, s.spans(text, false), nil, SecretMask)
 }
 
 // MaskURL returns a URL's escaped path, or its raw query when query is
@@ -172,10 +171,7 @@ func (s *Secrets) MaskURL(text string, query bool) string {
 	if s == nil {
 		return text
 	}
-	// As sent, for a secret that itself holds an escape or a +, then as
-	// decoded.
-	text = replaceSpans(text, s.find(text), nil, secretMaskEscaped)
-	return s.maskDecoded(text, query, secretMaskEscaped)
+	return replaceSpans(text, s.spans(text, query), nil, secretMaskEscaped)
 }
 
 // MaskTail returns the log tail of an escaped invocation, which its error
@@ -211,10 +207,13 @@ func (s *Secrets) MaskTail(tail string) string {
 			cut = max(cut, skip+from[k])
 		}
 	}
-	if cut == 0 {
-		return s.Mask(tail)
+	spans := s.spans(tail, false)
+	if cut > 0 {
+		// Found on the tail as it is, with the whole secrets, so that a
+		// secret whose start is also its end is masked whole.
+		spans = mergeSpans(append(spans, [2]int{0, cut}))
 	}
-	return SecretMask + s.Mask(tail[cut:])
+	return replaceSpans(tail, spans, nil, SecretMask)
 }
 
 // find returns the spans of the secrets in text, as Mask's Replacer finds
@@ -239,13 +238,33 @@ func (s *Secrets) find(text string) [][2]int {
 	return spans
 }
 
-// maskDecoded decodes the %XX escapes of text, and + as a space when plus
-// is set, finds the secrets in what it decoded, and replaces the span of
-// text that each one was decoded from with marker. It returns text itself
-// when no secret is found.
-func (s *Secrets) maskDecoded(text string, plus bool, marker string) string {
-	dec, from := decodeEscapes(text, plus)
-	return replaceSpans(text, s.find(string(dec)), from, marker)
+// spans returns the spans of text that hold a secret, as written and as
+// its %XX escapes decode (and + as a space when plus is set), both found
+// on text as it is and merged where they overlap: a secret as written
+// that starts a longer one as decoded is masked with all of it.
+func (s *Secrets) spans(text string, plus bool) [][2]int {
+	all := s.find(text)
+	if strings.IndexByte(text, '%') >= 0 || plus && strings.IndexByte(text, '+') >= 0 {
+		dec, from := decodeEscapes(text, plus)
+		for _, sp := range s.find(string(dec)) {
+			all = append(all, [2]int{from[sp[0]], from[sp[1]]})
+		}
+	}
+	return mergeSpans(all)
+}
+
+// mergeSpans sorts spans by their start and merges those that overlap.
+func mergeSpans(spans [][2]int) [][2]int {
+	slices.SortFunc(spans, func(a, b [2]int) int { return a[0] - b[0] })
+	var out [][2]int
+	for _, sp := range spans {
+		if n := len(out); n > 0 && sp[0] < out[n-1][1] {
+			out[n-1][1] = max(out[n-1][1], sp[1])
+			continue
+		}
+		out = append(out, sp)
+	}
+	return out
 }
 
 // decodeEscapes decodes the %XX escapes of text, and + as a space when plus
@@ -321,11 +340,14 @@ func unhex(c byte) byte {
 //     object or array, however each is written: it becomes the string
 //     SecretMask.
 //
-// When a secret still shows in the text after that, it spans the JSON's
-// structure, and the whole value becomes the string SecretMask. Key order,
-// duplicate keys and the other numbers stay as they were. It returns text
-// itself, byte for byte, when nothing holds a secret, and also when text is
-// not JSON.
+// A secret that still shows after that spans the JSON's structure, such as
+// the strings of an array: as the value is written compactly, or as the
+// text itself writes it, with its own spaces. The smallest object or array
+// that holds it then becomes the string SecretMask, and the rest of the
+// value stays. Key order, duplicate keys and the other numbers stay as
+// they were, and the result is written compactly. It returns text itself,
+// byte for byte, when nothing holds a secret, and also when text is not
+// JSON.
 func (s *Secrets) MaskJSON(text []byte) []byte {
 	return s.maskJSON(text, nil)
 }
@@ -356,20 +378,25 @@ func (s *Secrets) maskJSON(text []byte, pointers []string) []byte {
 	}
 	dec := json.NewDecoder(bytes.NewReader(text))
 	dec.UseNumber()
-	root, err := decodeTree(dec)
+	root, err := decodeTree(dec, text)
 	if err != nil {
 		return text
 	}
 	if _, err := dec.Token(); err != io.EOF {
 		return text
 	}
+	// The secrets in the text as it is written, which may span its tokens.
+	var occ [][2]int
+	if s.holds(text) {
+		occ = s.find(string(text))
+	}
 	changed := false
 	if pointers == nil {
-		changed = s.maskWhole(root)
+		changed = s.maskWhole(root, occ)
 	}
 	for _, ptr := range pointers {
 		if n := root.at(ptr); n != nil {
-			changed = s.maskWhole(n) || changed
+			changed = s.maskWhole(n, occ) || changed
 		}
 	}
 	if !changed {
@@ -414,18 +441,52 @@ func (n *jnode) at(ptr string) *jnode {
 }
 
 // maskWhole masks n as MaskJSON masks a whole value: maskNode, then, where
-// a secret still shows in n written again compactly, across its structure
-// (the strings of an array, a key and its value), the smallest object or
-// array that holds it becomes SecretMask. It reports whether it changed n.
-func (s *Secrets) maskWhole(n *jnode) bool {
+// a secret still shows across n's structure (the strings of an array, a key
+// and its value), the smallest object or array that holds it becomes
+// SecretMask: as n is written again compactly, and as its source writes
+// it, where occ are the secrets in the source. It reports whether it
+// changed n.
+func (s *Secrets) maskWhole(n *jnode, occ [][2]int) bool {
 	changed := s.maskNode(n)
 	var b bytes.Buffer
 	n.write(&b)
-	if !s.holds(b.Bytes()) {
-		return changed
+	if s.holds(b.Bytes()) {
+		s.spill(n)
+		changed = true
 	}
-	s.spill(n)
-	return true
+	for _, sp := range occ {
+		if c := n.container(sp); c != nil {
+			c.mask()
+			changed = true
+		}
+	}
+	return changed
+}
+
+// container returns the smallest object or array in n whose source holds
+// the span sp of the source across its tokens, or nil when one token, a
+// key or a value, holds sp, when n's source does not, or when the part
+// that holds it is masked already.
+func (n *jnode) container(sp [2]int) *jnode {
+	if !n.src || sp[0] < n.start || sp[1] > n.end || n.kind != '{' && n.kind != '[' {
+		return nil
+	}
+	for _, k := range n.keySrc {
+		if sp[0] >= k[0] && sp[1] <= k[1] {
+			return nil
+		}
+	}
+	for _, k := range n.kids {
+		if k.src && sp[0] >= k.start && sp[1] <= k.end {
+			return k.container(sp)
+		}
+	}
+	return n
+}
+
+// mask turns n into the string SecretMask, keeping where its source is.
+func (n *jnode) mask() {
+	*n = jnode{kind: 's', text: SecretMask, src: n.src, start: n.start, end: n.end}
 }
 
 // holds reports whether text holds one of the strings to mask.
@@ -452,7 +513,7 @@ func (s *Secrets) spill(n *jnode) []byte {
 		}
 		b.WriteByte(n.kind + 2) // '}' and ']' follow '{' and '[' by two
 		if s.holds(b.Bytes()) {
-			*n = jnode{kind: 's', text: SecretMask}
+			n.mask()
 			b.Reset()
 			n.write(&b)
 		}
@@ -471,26 +532,35 @@ type jnode struct {
 	text string
 	keys []string
 	kids []*jnode
+	// start and end are where the value is in its source text, when src is
+	// set, and keySrc where an object's keys are.
+	src        bool
+	start, end int
+	keySrc     [][2]int
 }
 
 // decodeTree decodes one JSON value from dec.
-func decodeTree(dec *json.Decoder) (*jnode, error) {
+func decodeTree(dec *json.Decoder, text []byte) (*jnode, error) {
+	start := tokenStart(dec, text)
 	tok, err := dec.Token()
 	if err != nil {
 		return nil, err
 	}
+	var n *jnode
 	switch v := tok.(type) {
 	case json.Delim:
-		n := &jnode{kind: byte(v)}
+		n = &jnode{kind: byte(v)}
 		for dec.More() {
 			if v == '{' {
+				ks := tokenStart(dec, text)
 				kt, err := dec.Token()
 				if err != nil {
 					return nil, err
 				}
 				n.keys = append(n.keys, kt.(string))
+				n.keySrc = append(n.keySrc, [2]int{ks, int(dec.InputOffset())})
 			}
-			kid, err := decodeTree(dec)
+			kid, err := decodeTree(dec, text)
 			if err != nil {
 				return nil, err
 			}
@@ -499,16 +569,27 @@ func decodeTree(dec *json.Decoder) (*jnode, error) {
 		if _, err := dec.Token(); err != nil {
 			return nil, err
 		}
-		return n, nil
 	case string:
-		return &jnode{kind: 's', text: v}, nil
+		n = &jnode{kind: 's', text: v}
 	case json.Number:
-		return &jnode{kind: 'l', text: string(v)}, nil
+		n = &jnode{kind: 'l', text: string(v)}
 	case bool:
-		return &jnode{kind: 'l', text: strconv.FormatBool(v)}, nil
+		n = &jnode{kind: 'l', text: strconv.FormatBool(v)}
 	default:
-		return &jnode{kind: 'l', text: "null"}, nil
+		n = &jnode{kind: 'l', text: "null"}
 	}
+	n.src, n.start, n.end = true, start, int(dec.InputOffset())
+	return n, nil
+}
+
+// tokenStart returns where dec's next token starts in text, its source:
+// after the spaces and the comma or colon that come before it.
+func tokenStart(dec *json.Decoder, text []byte) int {
+	i := int(dec.InputOffset())
+	for i < len(text) && strings.IndexByte(" \t\r\n,:", text[i]) >= 0 {
+		i++
+	}
+	return i
 }
 
 // nodeEqual reports whether n equals d, a value as decodeValue decodes
@@ -564,27 +645,57 @@ func nodeEqual(n *jnode, d any) bool {
 	return ok && numbersEqual(n.text, string(v))
 }
 
-// numbersEqual reports whether two JSON numbers have one value, exactly.
-// A number whose exponent passes 400 either way compares by its text, so a
-// comparison never builds an enormous value.
+// numbersEqual reports whether two JSON numbers have one value, exactly,
+// however each is spelled, such as 1.0 and 1, or 0e401 and 0. It compares
+// their signs, significant digits and the powers of ten after them, and
+// never computes a value, so an exponent of any size costs only its
+// digits.
 func numbersEqual(a, b string) bool {
 	if a == b {
 		return true
 	}
-	small := func(x string) bool {
-		i := strings.IndexAny(x, "eE")
-		if i < 0 {
-			return len(x) <= 400
+	na, okA := decimalOf(a)
+	nb, okB := decimalOf(b)
+	return okA && okB && na.neg == nb.neg && na.digits == nb.digits && na.exp.Cmp(nb.exp) == 0
+}
+
+// decimal is a number as digits × 10^exp: its sign, its significant digits
+// with no leading or trailing zero, and exp. Zero has no digits, no sign
+// and exp 0.
+type decimal struct {
+	neg    bool
+	digits string
+	exp    *big.Int
+}
+
+// decimalOf returns the JSON number s as a decimal, or false when s is
+// not one.
+func decimalOf(s string) (decimal, bool) {
+	var d decimal
+	if strings.HasPrefix(s, "-") {
+		d.neg, s = true, s[1:]
+	}
+	d.exp = new(big.Int)
+	if i := strings.IndexAny(s, "eE"); i >= 0 {
+		if _, ok := d.exp.SetString(s[i+1:], 10); !ok {
+			return decimal{}, false
 		}
-		e, err := strconv.Atoi(strings.TrimPrefix(x[i+1:], "+"))
-		return err == nil && e >= -400 && e <= 400 && i <= 400
+		s = s[:i]
 	}
-	if !small(a) || !small(b) {
-		return false
+	whole, frac, _ := strings.Cut(s, ".")
+	digits := whole + frac
+	if digits == "" || strings.Trim(digits, "0123456789") != "" {
+		return decimal{}, false
 	}
-	ra, okA := new(big.Rat).SetString(a)
-	rb, okB := new(big.Rat).SetString(b)
-	return okA && okB && ra.Cmp(rb) == 0
+	d.exp.Sub(d.exp, big.NewInt(int64(len(frac))))
+	digits = strings.TrimLeft(digits, "0")
+	if digits == "" {
+		return decimal{exp: new(big.Int)}, true
+	}
+	trimmed := strings.TrimRight(digits, "0")
+	d.exp.Add(d.exp, big.NewInt(int64(len(digits)-len(trimmed))))
+	d.digits = trimmed
+	return d, true
 }
 
 // write writes n as JSON, compact.
@@ -620,7 +731,7 @@ func (s *Secrets) maskNode(n *jnode) bool {
 	if n.kind == '{' || n.kind == '[' {
 		for _, d := range s.docs {
 			if nodeEqual(n, d) {
-				*n = jnode{kind: 's', text: SecretMask}
+				n.mask()
 				return true
 			}
 		}
@@ -633,7 +744,7 @@ func (s *Secrets) maskNode(n *jnode) bool {
 		}
 	case 'l':
 		if s.r.Replace(n.text) != n.text {
-			*n = jnode{kind: 's', text: SecretMask}
+			n.mask()
 			return true
 		}
 	}

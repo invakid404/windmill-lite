@@ -260,8 +260,12 @@ process starts with its base environment alone
 value, and of each line of a value that spans lines, with `[secret]` in
 what it passes on besides the host's data in a run's requested result. It
 masks the value also as a Go quoted string (`%q`) and `JSON.stringify`
-write it. In a text with `%XX` escapes, such as a URL, it masks the value
-as written and the span that decodes to it:
+write it.
+
+In a text with `%XX` escapes, such as a URL, it masks the value as written
+and the span that decodes to it. It finds both on the text as it is, so
+that one secret as written cannot hide a longer one as decoded. The
+engine masks:
 
 - the harness processes' output lines, which go to `Diagnostics`, and the
   errors that quote them, such as that of a process that exits before its
@@ -269,7 +273,8 @@ as written and the span that decodes to it:
   two, as written or percent-encoded;
 - an escaped step's log tail, which its error quotes: the last 600
   characters of its log, which may start inside a secret. A leading piece
-  of 3 bytes or more that ends a secret is masked too;
+  of 3 bytes or more that ends a secret is masked too, with any whole
+  secret that it starts;
 - a run's warnings: their codes, messages and the keys of their counts,
   where keys that mask alike add their counts;
 - the errors of the host plugin, those of its declaration's checks
@@ -288,16 +293,20 @@ as written and the span that decodes to it:
 - in those JSON values, their strings as decoded. A number or literal
   that holds a secret becomes the string `[secret]`, and so does an object
   or array equal to a secret that is a JSON document, however each is
-  written, its numbers compared by value. Where a secret still spans the
-  structure, such as an array's strings, the smallest object or array that
-  holds it becomes `[secret]`.
+  written, its numbers compared by their exact value. Where a secret still
+  spans the structure, such as an array's strings, written compactly or as
+  the value's own text writes it, the smallest object or array that holds
+  it becomes `[secret]`.
 
 `Result.Result`, the result that the host asked for, keeps the value in
 its other parts, a skipped run's result included, and so do the steps'
-arguments and the hooks' answers as the engine runs them. A host's result
-cache (`Results`) stores no step result that holds a secret, judged on the
-result itself as decoded, so a runtime that shares the cache with other
-secrets, or none, never reads one there.
+arguments and the hooks' answers as the engine runs them.
+
+A host's result cache (`Results`) stores no step result that holds a
+secret, judged on the result itself as decoded, so a runtime that shares the cache with other
+secrets, or none, never reads one there. It also misses an entry that an
+earlier engine wrote, which does not name every error in its result,
+when that result holds a secret: the step runs again.
 
 #### Latched errors
 

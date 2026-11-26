@@ -203,6 +203,24 @@ export async function main() {
 }
 `,
 	"f/t/literal.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/literal","input_transforms":{}}}]}}`,
+	"f/t/prefix.ts": `// Calls the platform facade with WL_TEST_LONG_SECRET, of which it
+// escapes only the slash, in a path, on a route the facade serves and on
+// one it does not.
+export async function main() {
+  const e = process.env;
+  const api = ` + "`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}`" + `;
+  const headers = { Authorization: ` + "`Bearer ${e.WM_TOKEN}`" + ` };
+  const s = (e.WL_TEST_LONG_SECRET ?? "").replace("/", "%2F");
+  const a = await fetch(api + "/variables/get_value/" + s, { headers });
+  const b = await fetch(api + "/no/such/route/" + s, { headers });
+  return [a.status, b.status];
+}
+`,
+	"f/t/prefix.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/prefix","input_transforms":{}}}]}}`,
+	// f/t/failagg: a step that throws, and a failure module that runs the
+	// flow f/t/aggtolerated, whose array ends the run.
+	"f/t/failagg.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/thrower","input_transforms":{}}}],` +
+		`"failure_module":{"id":"failure","value":{"type":"flow","path":"f/t/aggtolerated","input_transforms":{}}}}}`,
 	// f/t/cachedtolerated: a flow with a cache_ttl whose step throws with
 	// WL_TEST_SECRET and tolerates it, so that the run succeeds with the
 	// error and the flow's result is cached; f/t/cachedagg: one whose
@@ -783,14 +801,16 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 	const spaceSecret = "synthetic/space secret-91aa"
 	// The document has spaces inside its brackets, which the step's result
 	// does not keep.
-	// and a number that it spells 1.0 and the step's result 1.
-	const jsonSecret = `[ "synthetic-json-secret-7d21", 1.0 ]`
-	const jsonCompact = `["synthetic-json-secret-7d21",1]`
+	// and numbers that it spells 1.0 and 0e401 and the step's result 1 and 0.
+	const jsonSecret = `[ "synthetic-json-secret-7d21", 1.0, 0e401 ]`
+	const jsonCompact = `["synthetic-json-secret-7d21",1,0]`
 	// A secret that holds an escape and a plus, which a path and a query
 	// keep as they are.
 	const literal = "synthetic%2Fliteral+plus-6a0c"
-	// A secret that is a fragment of JSON, which spans an array's elements.
+	// A secret that is a fragment of JSON, which spans an array's elements,
+	// and one with the space that JSON written with spaces puts between them.
 	const fragment = `synthetic-left","synthetic-right`
+	const gapFragment = `synthetic-gap-left", "synthetic-gap-right`
 	env := map[string]EnvValue{
 		"WL_TEST_SECRET":         {ValueEnv: ref, Secret: true},
 		"WL_TEST_NUMBER":         {Value: number, Secret: true},
@@ -801,6 +821,7 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 		"WL_TEST_SPACE_SECRET":   {Value: spaceSecret, Secret: true},
 		"WL_TEST_FRAGMENT":       {Value: fragment, Secret: true},
 		"WL_TEST_LITERAL_SECRET": {Value: literal, Secret: true},
+		"WL_TEST_GAP_FRAGMENT":   {Value: gapFragment, Secret: true},
 	}
 	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, HarnessEnv: env})
 	if err != nil {
@@ -1037,6 +1058,31 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 		!strings.Contains(c.Path, url.PathEscape(harness.SecretMask)) || !strings.Contains(c.Query, url.QueryEscape(harness.SecretMask)) || !strings.HasSuffix(c.Query, "&tail=kept") {
 		t.Errorf("f/t/literal's call: path %d bytes, query %d bytes; want the mask, escaped, in both, no form of the secret, and the plain parameter", len(c.Path), len(c.Query))
 	}
+	// Two secrets, one the start of the other, which holds a slash that the
+	// step alone escapes: the path holds the shorter as it is and the longer
+	// as decoded, and the fields, the 501's message and the failure hold
+	// the mask and nothing of the longer one's end.
+	prefixRT, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, HarnessEnv: map[string]EnvValue{
+		"WL_TEST_SHORT_SECRET": {Value: "synthetic-pre", Secret: true},
+		"WL_TEST_LONG_SECRET":  {Value: "synthetic-pre/fix-tail-4d1a", Secret: true},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer prefixRT.Close()
+	res, err = prefixRT.Run(context.Background(), "f/t/prefix", nil, RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	trace, _ = json.Marshal(traceJSON(res.Trace))
+	if len(res.Trace.PlatformCalls) != 2 || res.Status != StatusFailure || strings.Contains(string(res.Result), "fix-tail") || strings.Contains(string(trace), "fix-tail") || !strings.Contains(string(res.Result), harness.SecretMask) {
+		t.Errorf("f/t/prefix: %s, %d calls, %s; want a failure with the mask and no end of the longer secret, in the result and the trace", res.Status, len(res.Trace.PlatformCalls), shownBytes(res.Result, "fix-tail"))
+	}
+	for i, c := range res.Trace.PlatformCalls {
+		if strings.Contains(c.Path, "fix-tail") || strings.Contains(c.Message, "fix-tail") || !strings.Contains(c.Path, url.PathEscape(harness.SecretMask)) {
+			t.Errorf("f/t/prefix's call %d: path %d bytes, message %d bytes; want the mask, escaped, and no end of the longer secret", i, len(c.Path), len(c.Message))
+		}
+	}
 	// A failure that quotes one call, whose only secret is escaped: its
 	// JSON holds no other form of a secret. Its runtime has no secret that
 	// holds JSON's structure, which would have every JSON value parsed.
@@ -1068,6 +1114,18 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 	}
 	if rec, ok := res.Trace.Step(mustSite(t, "m:a")); !ok || string(rec.Result.Producer()) != fmt.Sprintf("%q", harness.SecretMask) {
 		t.Errorf("f/t/fragment, answered with spaces: the step result in the trace: %s; want the mask", shownBytes(rec.Result.Producer(), "synthetic-right"))
+	}
+	// And the other way round: a secret with that space, which the hook's
+	// answer holds as it is and the value written compactly does not.
+	gapped := &Hooks{Intercept: []Interceptor{{Selector: module("f/t/fragment", "a"), Func: func(context.Context, Call) (Outcome, bool, error) {
+		return Outcome{Result: json.RawMessage(`["synthetic-gap-left", "synthetic-gap-right"]`)}, true, nil
+	}}}}
+	res, err = callRT.Run(context.Background(), "f/t/fragment", nil, RunOptions{Hooks: gapped})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec, ok := res.Trace.Step(mustSite(t, "m:a")); !ok || string(rec.Result.Producer()) != fmt.Sprintf("%q", harness.SecretMask) {
+		t.Errorf("f/t/fragment, answered with a secret's own spaces: the step result in the trace: %s; want the mask", shownBytes(rec.Result.Producer(), gapFragment))
 	}
 
 	// Late output that the settled callback's own trace holds: the step
@@ -1344,6 +1402,10 @@ func TestHarnessEnvSecretResultCache(t *testing.T) {
 //     error holds the mask;
 //   - a step's copy of an earlier error, returned as data: the result keeps
 //     it, and the trace holds the mask;
+//   - a failure module that runs a flow whose array holds a tolerated
+//     throw beside data: the array ends the run, its error masked;
+//   - an entry of an earlier engine's format, which names no thrown error:
+//     missed when its result holds the secret, read when it does not;
 //   - a failure that a step's result marks, with an array beside its
 //     message that a secret spans: the failure, as the result and in the
 //     trace, has the array masked and keeps its message; inside a
@@ -1398,6 +1460,64 @@ func TestHarnessEnvSecretProvenance(t *testing.T) {
 		t.Errorf("f/t/copy: %s %s; want success with the copy as it is, and a trace without the secret", res.Status, shownBytes(res.Result, secret))
 	}
 
+	// A failure module that runs a flow whose array holds a tolerated
+	// throw: the run's result is that array, its error masked and the other
+	// branch's data kept.
+	res, err = rt.Run(context.Background(), "f/t/failagg", nil, RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	trace, _ = json.Marshal(traceJSON(res.Trace))
+	if r := string(res.Result); res.Status != StatusFailure || strings.Count(r, secret) != 1 || !strings.Contains(r, sibling) || !strings.Contains(r, "failed with "+harness.SecretMask) || strings.Contains(string(trace), secret) {
+		t.Errorf("f/t/failagg: %s %s; want a failure with the module's array, its error masked and the data whole", res.Status, shownBytes(res.Result, secret))
+	}
+
+	// An entry in the format of an earlier engine, which names no error
+	// that step code threw: one whose result holds the secret is missed, and
+	// the run masks its own result's error and keeps the data; one whose
+	// result holds none is read as it is.
+	for _, c := range []struct {
+		value string
+		hit   bool
+	}{{secret, false}, {"synthetic-unrelated-5e7f", true}} {
+		store := &recordingCache{ResultCache: platform.NewMemoryResults()}
+		writer, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Results: store, HarnessEnv: map[string]EnvValue{"WL_TEST_SECRET": {Value: c.value}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = writer.Run(context.Background(), "f/t/cachedagg", nil, RunOptions{})
+		writer.Close()
+		key, value := store.last()
+		var entry map[string]json.RawMessage
+		if err != nil || key == "" || json.Unmarshal(value, &entry) != nil {
+			t.Fatalf("priming the entry: %v, key %q", err, key)
+		}
+		delete(entry, "all_errors")
+		delete(entry, "errors")
+		legacy, _ := json.Marshal(entry)
+		if err := store.ResultCache.Put(context.Background(), key, legacy, time.Now().Add(time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+		reader, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Results: store, HarnessEnv: map[string]EnvValue{"WL_TEST_SECRET": {Value: secret, Secret: true}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := reader.Run(context.Background(), "f/t/cachedagg", nil, RunOptions{})
+		reader.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := string(res.Result)
+		switch {
+		case res.Trace.Cached != c.hit:
+			t.Errorf("an earlier engine's entry holding %d bytes: cached %v, want %v", len(c.value), res.Trace.Cached, c.hit)
+		case !c.hit && (strings.Count(r, secret) != 1 || !strings.Contains(r, sibling) || !strings.Contains(r, "failed with "+harness.SecretMask)):
+			t.Errorf("an earlier engine's entry with the secret: %s; want the run's own result, the error masked and the data whole", shownBytes(res.Result, secret))
+		case c.hit && !strings.Contains(r, "failed with "+c.value):
+			t.Errorf("an earlier engine's entry without the secret: %s; want it as stored", r)
+		}
+	}
+
 	masked := fmt.Sprintf(`"pieces":%q`, harness.SecretMask)
 	for flow, status := range map[string]string{"f/t/manual": StatusFailure, "f/t/manualagg": StatusSuccess} {
 		res, err := rt.Run(context.Background(), flow, nil, RunOptions{})
@@ -1418,31 +1538,60 @@ func TestHarnessEnvSecretProvenance(t *testing.T) {
 // TestHarnessEnvSecretTail checks that an escaped step's error, which
 // quotes the last 600 characters of its log, holds no piece of a Secret
 // entry's value when those characters start inside it: one cut 1 byte and
-// one cut 3 bytes into it, when the harness reports the escape (the step
+// one cut 3 bytes into it, and one that starts and ends alike, cut 2 bytes
+// into it or not at all, when the harness reports the escape (the step
 // exits), and when the process dies (the step ends it), whose log the
 // engine keeps itself.
 func TestHarnessEnvSecretTail(t *testing.T) {
 	bun, out, runtimeDir := harnessEnvBundle(t)
-	const secret = "synthetic-tail-value-6b0e"
-	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, HarnessEnv: map[string]EnvValue{"WL_TEST_SECRET": {Value: secret, Secret: true}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rt.Close()
-	for _, die := range []bool{false, true} {
-		for _, cut := range []int{1, 3} {
-			res, err := rt.Run(context.Background(), "f/t/tail", json.RawMessage(fmt.Sprintf(`{"cut":%d,"die":%v}`, cut, die)), RunOptions{Kind: KindScript})
-			if err != nil {
-				t.Fatal(err)
-			}
-			r := string(res.Result)
-			var piece bool
-			for i := 0; i+6 <= len(secret); i++ {
-				piece = piece || strings.Contains(r, secret[i:i+6])
-			}
-			if res.Status != StatusFailure || piece || !strings.Contains(r, harness.SecretMask+strings.Repeat("B", 20)) {
-				t.Errorf("die %v, cut %d: %s %s; want a failure whose tail starts with the mask, and no piece of the secret", die, cut, res.Status, shownBytes(res.Result, secret[cut:]))
+	// The second secret starts and ends alike, with no hex digit at its
+	// start, and its tail starts with it whole, then 2 bytes into it.
+	for _, c := range []struct {
+		secret string
+		cuts   []int
+	}{{"synthetic-tail-value-6b0e", []int{1, 3}}, {"xyz7-synthetic-overlap-xyz7", []int{0, 2}}} {
+		rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, HarnessEnv: map[string]EnvValue{"WL_TEST_SECRET": {Value: c.secret, Secret: true}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rt.Close()
+		for _, die := range []bool{false, true} {
+			for _, cut := range c.cuts {
+				res, err := rt.Run(context.Background(), "f/t/tail", json.RawMessage(fmt.Sprintf(`{"cut":%d,"die":%v}`, cut, die)), RunOptions{Kind: KindScript})
+				if err != nil {
+					t.Fatal(err)
+				}
+				r := string(res.Result)
+				var piece bool
+				for i := 0; i+6 <= len(c.secret); i++ {
+					piece = piece || strings.Contains(r, c.secret[i:i+6])
+				}
+				if res.Status != StatusFailure || piece || !strings.Contains(r, harness.SecretMask+strings.Repeat("B", 20)) {
+					t.Errorf("%d-byte secret, die %v, cut %d: %s %s; want a failure whose tail starts with the mask, and no piece of the secret", len(c.secret), die, cut, res.Status, shownBytes(res.Result, c.secret[cut:]))
+				}
 			}
 		}
 	}
+}
+
+// recordingCache is a result cache that remembers the last entry stored.
+type recordingCache struct {
+	ResultCache
+	mu    sync.Mutex
+	key   string
+	value []byte
+}
+
+func (c *recordingCache) Put(ctx context.Context, key string, value []byte, expires time.Time) error {
+	c.mu.Lock()
+	c.key, c.value = key, append([]byte(nil), value...)
+	c.mu.Unlock()
+	return c.ResultCache.Put(ctx, key, value, expires)
+}
+
+// last returns the key and value of the last entry stored.
+func (c *recordingCache) last() (string, []byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.key, c.value
 }

@@ -220,12 +220,16 @@ func (e *Engine) objectETag(ctx context.Context, stored []byte) (string, bool) {
 // its stored text, and the provenance the trace keeps for it (an origin
 // for a value a flow ended with, such as an error stop's EarlyStopError,
 // the generated errors inside an aggregate, and its other errors, with
-// their origins).
+// their origins). AllErrors marks an entry that lists every error inside
+// its result, as this engine writes each: an entry that an earlier engine
+// wrote has none, and its result may hold errors that neither Nested nor
+// Errors names (wl misses such an entry when its result holds a secret).
 type cacheEntry struct {
-	Result json.RawMessage `json:"result"`
-	Origin Origin          `json:"origin,omitempty"`
-	Nested []string        `json:"nested,omitempty"`
-	Errors []cacheError    `json:"errors,omitempty"`
+	Result    json.RawMessage `json:"result"`
+	Origin    Origin          `json:"origin,omitempty"`
+	Nested    []string        `json:"nested,omitempty"`
+	Errors    []cacheError    `json:"errors,omitempty"`
+	AllErrors bool            `json:"all_errors,omitempty"`
 }
 
 // cacheError is an error inside a cached aggregate that windmill-lite did
@@ -286,7 +290,7 @@ func (e *Engine) cachePut(ctx context.Context, key string, now time.Time, ttl ti
 	if err != nil {
 		return nil
 	}
-	entry := cacheEntry{Result: stored, Origin: origin, Nested: nested.generated()}
+	entry := cacheEntry{Result: stored, Origin: origin, Nested: nested.generated(), AllErrors: true}
 	for _, p := range nested {
 		if !p.origin.Generated() {
 			entry.Errors = append(entry.Errors, cacheError{p.at, p.origin})

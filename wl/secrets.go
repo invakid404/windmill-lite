@@ -168,6 +168,27 @@ func (c secretResults) Put(ctx context.Context, key string, value []byte, expire
 	return c.ResultCache.Put(ctx, key, value, expires)
 }
 
+// Get reads an entry as the store holds it, but misses one that does not
+// list every error in its result (an earlier engine's, without
+// "all_errors") when that result holds a secret: the run could not tell
+// its errors, which it masks, from the host's data, which it keeps. The
+// step then runs again. An entry whose result holds no secret is read as
+// before.
+func (c secretResults) Get(ctx context.Context, key string, now time.Time) ([]byte, bool, error) {
+	value, ok, err := c.ResultCache.Get(ctx, key, now)
+	if err != nil || !ok {
+		return value, ok, err
+	}
+	var entry struct {
+		Result    json.RawMessage `json:"result"`
+		AllErrors bool            `json:"all_errors"`
+	}
+	if json.Unmarshal(value, &entry) == nil && !entry.AllErrors && !bytes.Equal(c.secrets.MaskJSON(entry.Result), entry.Result) {
+		return nil, false, nil
+	}
+	return value, ok, err
+}
+
 // maskErrorParts returns a run's requested result with each secret masked
 // in the parts of it that are errors, as the trace records them: the whole
 // result when its origin says it is one, a cached result's included, or

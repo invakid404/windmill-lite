@@ -387,9 +387,10 @@ type outcome struct {
 	// when it is an error.
 	carried jsonval.Value
 	origin  Origin
-	// nested are the pointers, relative to carried, of the errors
-	// windmill-lite generated inside it when it aggregates others: a loop's
-	// array (StepRecord.CarriedNested).
+	// nested are the errors inside carried when it aggregates others, such
+	// as a loop's array, with their pointers relative to it and their
+	// origins, whoever produced them; the generated ones are
+	// StepRecord.CarriedNested.
 	nested errorParts
 	// chain is a chaining error's text, which a collapsed iteration hands
 	// to its loop to route (FX-15).
@@ -639,8 +640,8 @@ func unrecognizedStatus(m *ir.Module) string {
 }
 
 // carry is a value a flow carries on, with who produced it when it is an
-// error and the pointers of the errors windmill-lite generated inside it
-// (outcome.carried, outcome.origin and outcome.nested).
+// error and the errors inside it (outcome.carried, outcome.origin and
+// outcome.nested).
 type carry struct {
 	value  jsonval.Value
 	origin Origin
@@ -650,7 +651,7 @@ type carry struct {
 // flowEnd is how a frame's flow ended: its status and result (a host
 // verdict's status has none), whether a stop ended it (CF-12), errorStop
 // for a failure that a stop ended, handled when its failure module ended
-// it, and the generated errors inside the result.
+// it, and the errors inside the result, whoever produced them.
 type flowEnd struct {
 	status    conformance.RunStatus
 	result    jsonval.Value
@@ -990,7 +991,7 @@ func (r *run) runModules(ctx context.Context, fr *frame) flowEnd {
 		if !ok {
 			// A collapsed iteration's job keeps its result, the killed
 			// step's when a cancellation ended it (CF-28).
-			return flowEnd{status: st, result: o.carried, origin: o.origin, unreported: o.unreported}
+			return flowEnd{status: st, result: o.carried, origin: o.origin, nested: o.nested, unreported: o.unreported}
 		}
 		if o.end == endHalted {
 			return flowEnd{status: conformance.RunHalted}
@@ -1155,13 +1156,13 @@ func (r *run) failure(ctx context.Context, fr *frame, failing carry, prevID stri
 	}
 	switch {
 	case o.end == endSucceeded && recovers(o.carried):
-		return flowEnd{status: conformance.RunSuccess, result: o.carried, origin: o.origin, handled: true, recovered: true, stores: true}
+		return flowEnd{status: conformance.RunSuccess, result: o.carried, origin: o.origin, nested: o.nested, handled: true, recovered: true, stores: true}
 	case o.end == endSucceeded:
-		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, handled: true, stores: true}
+		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, nested: o.nested, handled: true, stores: true}
 	case o.end == endChained && o.aborted:
-		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, handled: true, delivered: &in}
+		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, nested: o.nested, handled: true, delivered: &in}
 	case o.end == endFailed, o.end == endChained, o.end == endUnrecoverable:
-		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, handled: true}
+		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, nested: o.nested, handled: true}
 	}
 	return flowEnd{status: conformance.RunFailure, result: engineError("InternalErr", "windmill-lite: the failure module was interrupted with no latch or cancellation"), origin: OriginEngine}
 }
@@ -2217,9 +2218,8 @@ func applyStop(s *ir.Stop, o outcome, own jsonval.Value) outcome {
 
 // errorStop fails the module with an EarlyStopError whose message is msg,
 // with own as its result when s asks for it (FX-19, FX-V2). own is o's
-// carried value: when it is included, the generated errors inside it keep
-// their provenance below /error/result (ADR 0011); otherwise they go with
-// it.
+// carried value: when it is included, the errors inside it keep their
+// provenance below /error/result (ADR 0011); otherwise they go with it.
 func errorStop(o outcome, msg string, s *ir.Stop, own jsonval.Value) outcome {
 	e := []member{{"name", jsonString("EarlyStopError")}, {"message", jsonString(msg)}}
 	var nested errorParts

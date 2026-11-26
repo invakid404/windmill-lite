@@ -666,7 +666,7 @@ func parallelDone(fr *frame, o outcome, failed bool) outcome {
 // collapsed body job's its own, the killed step's.
 func canceledChild(ctx context.Context, j *childJob) flowEnd {
 	if j != nil && !j.flow && !j.end.result.IsZero() {
-		return flowEnd{status: conformance.RunFailure, result: j.end.result, origin: j.end.origin}
+		return flowEnd{status: conformance.RunFailure, result: j.end.result, origin: j.end.origin, nested: j.end.nested}
 	}
 	return flowEnd{status: conformance.RunFailure, result: canceledError(cancellationOf(ctx)), origin: OriginEngine}
 }

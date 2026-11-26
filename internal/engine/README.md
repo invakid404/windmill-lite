@@ -1009,8 +1009,9 @@ locations only from the errors that windmill-lite generated:
 - **`Trace.ResultErrors`** lists the pointers of every error inside the
   run's result, whoever produced it: those of `ResultNested`, and the
   errors that step code threw or a host produced, such as a tolerated
-  branch's. A cached result keeps them, since the cache entry stores the
-  others with their origins (`errors`) beside the engine's (`nested`).
+  branch's. A failure module's result and a cached one keep them: the
+  cache entry stores the others with their origins (`errors`), and
+  `all_errors` marks an entry that names them all.
   [wl](../../wl/README.md#the-harness-environment) masks secrets there.
 
 ## For loops
