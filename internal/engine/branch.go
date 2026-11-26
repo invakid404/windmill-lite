@@ -127,7 +127,7 @@ func (r *run) branchOne(ctx context.Context, fr *frame, i int, prev jsonval.Valu
 	// route 3).
 	r.recordJob(fr, i, e.result)
 	o.rec.Ran = true
-	o.rec.Result, o.rec.ResultOrigin, o.rec.ResultNested = e.result.WithoutNUL(), e.origin, e.nested
+	o.rec.Result, o.rec.ResultOrigin, o.rec.ResultNested = e.result.WithoutNUL(), e.origin, e.nested.generated()
 	o = carryOn(o, e)
 	o.rec.Status, o.rec.Module = conformance.StepSuccess, conformance.ModuleSuccess
 	switch o.end = branchOneEnd(e); o.end {
@@ -305,7 +305,7 @@ func (r *run) sequentialStop(ctx context.Context, fr *frame, i int, o outcome, i
 	r.recordJob(fr, i, arr)
 	o.rec.Ran = true
 	o.rec.Result, o.rec.Carried, o.carried = arr, arr, arr
-	o.rec.ResultNested, o.rec.CarriedNested, o.nested = it.nested, it.nested, it.nested
+	o.rec.ResultNested, o.rec.CarriedNested, o.nested = it.nested.generated(), it.nested.generated(), it.nested
 	o.rec.Status, o.rec.Module, o.end = conformance.StepSuccess, conformance.ModuleSuccess, end
 	switch end {
 	case endStoppedSkipped:

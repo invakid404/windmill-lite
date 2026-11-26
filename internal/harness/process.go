@@ -70,10 +70,12 @@ type ProcessConfig struct {
 	// masks them (NewSecrets) in the text that it takes from the process
 	// and passes on as text of its own: the process's output lines, which
 	// go to Diagnostics and into the errors that quote them, the engine's
-	// diagnostics about it, and the errors of its host plugin's hooks.
-	// Results, failures (an escaped one's log tail included), warnings and
-	// hook answers stay as the process sent them: wl masks their copies in
-	// a trace, a run's result and its warnings. nil masks nothing.
+	// diagnostics about it, the errors of its host plugin's hooks, and an
+	// escaped invocation's log tail, before the log is cut and after the
+	// harness cut it (Secrets.MaskTail). Results, other failures, warnings
+	// and hook answers stay as the process sent them: wl masks their
+	// copies in a trace, a run's result and its warnings. nil masks
+	// nothing.
 	Secrets []string
 	// WorkRoot is the directory in which the process's private working
 	// directory is created; empty means os.TempDir().
@@ -908,6 +910,8 @@ func (p *Process) onResult(r Result) (*invocation, []func(), bool, error) {
 	if inv == nil {
 		return nil, nil, false, protoErr(CodeUnexpected, "result for invocation %q, which is not in flight", r.ID)
 	}
+	// The harness cut an escaped invocation's tail from its log.
+	r.Tail = p.secrets.MaskTail(r.Tail)
 	switch inv.state {
 	case invPending:
 		if inv.times != nil {
@@ -978,7 +982,9 @@ func (p *Process) onLog(l Log) (*invocation, []func()) {
 	inv := p.invs[l.ID]
 	if inv != nil && inv.state == invPending {
 		for _, line := range l.Lines {
-			inv.tail.add(line)
+			// Masked before the tail cuts the log, which could leave the
+			// end of a secret no matcher knows.
+			inv.tail.add(p.secrets.Mask(line))
 		}
 		return nil, nil
 	}

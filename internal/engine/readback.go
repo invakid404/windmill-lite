@@ -83,10 +83,10 @@ func (r *run) childUnreported(ctx context.Context, fr *frame) {
 // progress and carries nothing, and the flow's completion check ends the
 // run (endInterrupted), which its parents then wait for too
 // (outcome.unreported).
-func inProgress(o outcome, st conformance.StepStatus, v jsonval.Value, origin Origin, nested []string) outcome {
+func inProgress(o outcome, st conformance.StepStatus, v jsonval.Value, origin Origin, nested errorParts) outcome {
 	o.rec.Ran = true
 	o.rec.Status, o.rec.Module = st, conformance.ModuleInProgress
-	o.rec.Result, o.rec.ResultOrigin, o.rec.ResultNested = v, origin, nested
+	o.rec.Result, o.rec.ResultOrigin, o.rec.ResultNested = v, origin, nested.generated()
 	o.rec.Carried, o.rec.CarriedOrigin, o.rec.CarriedNested = jsonval.Value{}, OriginNone, nil
 	o.end, o.carried, o.origin, o.nested = endInterrupted, jsonval.Value{}, OriginNone, nil
 	o.unreported = true

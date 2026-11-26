@@ -80,7 +80,7 @@ the code.
 | `ExitStatus` | struct | How a process ended: code or signal | tests |
 | `BaseEnv` | func | The base environment of a spawned process | `ProcessConfig`'s default, `wltest` |
 | `CheckEnv` | func | Whether a spawned process may start with a host's environment entry (`ProcessConfig.ExtraEnv`): the error says why not, without the value ([The base environment](#the-base-environment)) | `wl`, `windmill-lite plugin` |
-| `Secrets`, `NewSecrets`, `SecretMask` | struct, func, const | The secret values of `ProcessConfig.Secrets`, which `Mask` replaces with `[secret]` in a text and `MaskJSON` in a JSON value's strings | `Process`, `wl` |
+| `Secrets`, `NewSecrets`, `SecretMask` | struct, func, const | The secret values of `ProcessConfig.Secrets`, which `Mask` replaces with `[secret]` in a text, `MaskURL` in a path or a query, `MaskTail` in a log tail, and `MaskJSON` and `MaskJSONAt` in a JSON value | `Process`, `wl` |
 | `BunCommand` | func | The command line that starts the Bun harness runtime on a bundle, with `--umask` after `SetLaunchUmask` | `wl`, `wltest` |
 | `SetLaunchUmask` | func | Makes every harness that `BunCommand` starts afterwards set that umask first ([harnesses/bun](../../harnesses/bun/README.md#start-a-spawned-harness)); without it, a harness keeps the umask that it inherits | `windmill-lite plugin` |
 | `PinnedBun`, `ProtocolVersion` | const | `1.4.3`; `1` | `PinnedBun`: `wl`, `internal/bundle`, `wltest`. `ProtocolVersion`: the handshake, tests |
@@ -352,13 +352,19 @@ from the process and passes on as text of its own:
 
 - its output lines, before they are forwarded or kept for errors. A line
   that grows past 64 KiB goes in parts. Each part ends where no secret is
-  cut in two, nor one that the next bytes could make longer. What follows
-  the cut, shorter than the longest secret, waits for the next write;
+  cut in two, as written or as its escapes decode, nor one that the next
+  bytes could make longer, nor an escape that they could complete. What
+  follows the cut, shorter than three times the longest secret, waits for
+  the next write;
+- an escaped invocation's log tail, which its error quotes. Each log line
+  is masked before the engine keeps the last 600 characters, and so is
+  the tail that the harness cut from its own log, whose start may be the
+  end of a secret (`MaskTail`);
 - the engine's diagnostics about the process;
 - its host plugin's hook errors, so that a `HostCallError` keeps its type.
 
-An invocation's result, failure (an escaped one's log tail included) and
-warnings, and a hook's answer, stay as the process sent them:
+An invocation's result, other failures and warnings, and a hook's answer,
+stay as the process sent them:
 [wl](../../wl/README.md#the-harness-environment) masks their copies in a
 trace, a run's result and its warnings.
 
@@ -1037,7 +1043,7 @@ and `WL_REQUIRE_BUN` set ([docs/ci.md](../../docs/ci.md#the-go-jobs)).
 | File | What it checks | Needs |
 |---|---|---|
 | `frames_test.go` | The codec cases of `conformance/protocol/frames.json`; `-args -update` rewrites their payloads. An empty or null `foreign_windmill_origins` decodes as none (`TestWelcomeEmptyForeignOriginsAreNone`). | |
-| `secrets_test.go` | A line past 64 KiB goes out in parts that hold no piece of a secret (`TestLineWriterCutsNoSecret`). The cases: a secret cut in two where a part must go, and a secret that ends there while a longer one that starts with it goes on | |
+| `secrets_test.go` | A line past 64 KiB goes out in parts that hold no piece of a secret (`TestLineWriterCutsNoSecret`). The cases: a secret cut in two where a part must go, and a secret that ends there while a longer one that starts with it goes on. Also a percent-encoded secret cut after an escape, inside one and after its `%` | |
 | `args_test.go` | `scriptArgs`: the two internal keys dropped, a key written with an escape included, every other member's raw text and place kept. Arguments with nothing to drop, or that are not an object, stay unchanged | |
 | `conn_test.go` | The writer's ordering rules, the barrier behind open run streams (with a `pong` still overtaking them), and the exchange matcher. `TestFlushWritesTheFrameItself` and `TestFlushKeepsFramesWholeAndInOrder` (a sender's own write, under `-race`, on a 4 KiB socket buffer) | |
 | `host_test.go` | A host on a socketpair: the handshake's parent check, a host gone before its hello, runs and their invocations, `run_cancel`, a lost host (also with a gap, `hostLostGap`), the watchdog, and the 502 for a bad platform answer | |

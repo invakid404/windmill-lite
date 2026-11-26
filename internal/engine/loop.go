@@ -170,13 +170,13 @@ func (r *run) iterator(ctx context.Context, fr *frame, m *ir.Module, site confor
 }
 
 // iterations are a loop's results so far, in index order, with the
-// pointers of the errors windmill-lite generated among them, which a
-// comparison needs (ADR 0011, StepRecord.ResultNested), and the last child
+// errors among them, whose generated ones a comparison needs (ADR 0011,
+// StepRecord.ResultNested), and the last child
 // job that failed and the last that completed, which a retry of the loop
 // starts from and records (CF-22).
 type iterations struct {
 	values       []jsonval.Value
-	nested       []string
+	nested       errorParts
 	failed, last *childJob
 }
 
@@ -200,17 +200,50 @@ func (it *iterations) completed(j *childJob) {
 	}
 }
 
-// add appends an iteration's result: a generated error at the iteration's
-// index, and the generated errors inside its result below that index.
+// add appends an iteration's result: an error at the iteration's index,
+// and the errors inside its result below that index.
 func (it *iterations) add(e flowEnd) {
 	at := "/" + strconv.Itoa(len(it.values))
 	it.values = append(it.values, e.result)
-	if e.origin.Generated() {
-		it.nested = append(it.nested, at)
+	if e.origin != OriginNone {
+		it.nested = append(it.nested, errorPart{at, e.origin})
 	}
 	for _, p := range e.nested {
-		it.nested = append(it.nested, at+p)
+		it.nested = append(it.nested, errorPart{at + p.at, p.origin})
 	}
+}
+
+// errorPart is an error inside a value that aggregates others, a loop's or
+// a branchall's array: its JSON pointer relative to the value, and who
+// produced it.
+type errorPart struct {
+	at     string
+	origin Origin
+}
+
+// errorParts are the errors inside an aggregate value.
+type errorParts []errorPart
+
+// generated returns the pointers of the parts windmill-lite generated, as
+// StepRecord.ResultNested lists them, or nil when there is none.
+func (ps errorParts) generated() []string {
+	var out []string
+	for _, p := range ps {
+		if p.origin.Generated() {
+			out = append(out, p.at)
+		}
+	}
+	return out
+}
+
+// pointers returns the pointers of every part (Trace.ResultErrors), or nil
+// when there is none.
+func (ps errorParts) pointers() []string {
+	var out []string
+	for _, p := range ps {
+		out = append(out, p.at)
+	}
+	return out
 }
 
 // sequentialLoop runs the iterations of a sequential for loop or a while
@@ -247,7 +280,7 @@ func (r *run) sequentialLoop(ctx context.Context, fr *frame, i int, prev jsonval
 	// child's, is what an abort hands its parent (outcome.last, CF-23
 	// route 3).
 	var iterOrigin Origin
-	var iterNested []string
+	var iterNested errorParts
 	chaining := func(k int, pickup bool, text string) outcome {
 		if k > 0 {
 			o.last = &carry{iterPrev, iterOrigin, iterNested}
@@ -663,7 +696,7 @@ func (r *run) loopDone(ctx context.Context, fr *frame, i int, o outcome, it *ite
 	r.recordJob(fr, i, arr)
 	o.rec.Ran = true
 	o.rec.Result, o.rec.Carried, o.carried = arr, arr, arr
-	o.rec.ResultNested, o.rec.CarriedNested, o.nested = it.nested, it.nested, it.nested
+	o.rec.ResultNested, o.rec.CarriedNested, o.nested = it.nested.generated(), it.nested.generated(), it.nested
 	o.rec.Status, o.rec.Module = conformance.StepSuccess, conformance.ModuleSuccess
 	o.failedChild, o.lastChild = it.failed, it.last
 	if failed || stopErr != nil {
@@ -706,7 +739,7 @@ func (r *run) loopDone(ctx context.Context, fr *frame, i int, o outcome, it *ite
 // and leave it canceled.
 func (r *run) loopInterrupted(o outcome, it *iterations, ran bool, status conformance.RunStatus) outcome {
 	o.rec.Ran = ran
-	o.rec.Status, o.rec.Module, o.rec.Result, o.rec.ResultNested = conformance.StepCanceled, conformance.ModuleFailure, arrayOf(it.values), it.nested
+	o.rec.Status, o.rec.Module, o.rec.Result, o.rec.ResultNested = conformance.StepCanceled, conformance.ModuleFailure, arrayOf(it.values), it.nested.generated()
 	o.end = endInterrupted
 	switch status {
 	case conformance.RunHalted:

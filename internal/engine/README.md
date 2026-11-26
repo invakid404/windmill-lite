@@ -1006,6 +1006,12 @@ locations only from the errors that windmill-lite generated:
   error beside them keeps its own.
 - A `branchall`'s array does the same, and a `branchone` carries its
   branch's result with its origin and pointers.
+- **`Trace.ResultErrors`** lists the pointers of every error inside the
+  run's result, whoever produced it: those of `ResultNested`, and the
+  errors that step code threw or a host produced, such as a tolerated
+  branch's. A cached result keeps them, since the cache entry stores the
+  others with their origins (`errors`) beside the engine's (`nested`).
+  [wl](../../wl/README.md#the-harness-environment) masks secrets there.
 
 ## For loops
 

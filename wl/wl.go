@@ -237,9 +237,9 @@ type Options struct {
 // on besides the host's data in a run's requested result (Result.Result):
 // the harness processes' output lines, which go to Diagnostics and into
 // the errors that quote them, a run's warnings, its latched error and the
-// errors of the host plugin, the errors in a requested result, the trace's
-// copies of step arguments, results, late output and platform calls, and
-// the trace and records that hooks get. A host's result cache
+// errors of the host plugin, the errors in a requested result where its
+// trace places them, the trace's copies of step arguments, results, late
+// output and platform calls, and the trace and records that hooks get. A host's result cache
 // (Options.Results) stores no step result that holds one. Steps and hooks
 // get their inputs and answers as written.
 type EnvValue struct {

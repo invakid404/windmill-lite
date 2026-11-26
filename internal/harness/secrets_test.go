@@ -13,13 +13,17 @@ import (
 //
 //   - one secret, cut in two by that point;
 //   - two secrets, one the start of the other, the shorter ending at that
-//     point while the longer goes on.
+//     point while the longer goes on;
+//   - a secret percent-encoded, cut in two after an escape, inside one,
+//     and right after its %.
 //
 // Each part must hold only filler, separators and masks, and the two
 // writes one mask in all.
 func TestLineWriterCutsNoSecret(t *testing.T) {
 	short := "synthetic-shared-prefix"
 	long := short + "-and-more-5c1e"
+	spaced := "synthetic/escaped secret-2d9e"
+	enc := "synthetic%2Fescaped%20secret-2d9e"
 	for _, c := range []struct {
 		name       string
 		secrets    []string
@@ -27,13 +31,16 @@ func TestLineWriterCutsNoSecret(t *testing.T) {
 	}{
 		{"one secret cut in two", []string{long}, "|" + long[:10], long[10:] + "|\n"},
 		{"a shorter secret ends where a longer one goes on", []string{short, long}, "|" + short, long[len(short):] + "|\n"},
+		{"an escaped secret cut after an escape", []string{spaced}, "|" + enc[:14], enc[14:] + "|\n"},
+		{"an escaped secret cut inside an escape", []string{spaced}, "|" + enc[:11], enc[11:] + "|\n"},
+		{"an escaped secret cut after its %", []string{spaced}, "|" + enc[:10], enc[10:] + "|\n"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var out bytes.Buffer
 			sec := NewSecrets(c.secrets)
 			lw := &lineWriter{diag: &diagnostics{w: &out}, keep: 20, secrets: sec}
 			w := lw.stream("stdout")
-			limit := 64<<10 + sec.longest
+			limit := partLimit(sec)
 			w.Write([]byte(strings.Repeat("x", limit+1-len(c.tail)) + c.tail))
 			w.Write([]byte(c.rest))
 			lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")

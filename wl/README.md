@@ -260,30 +260,37 @@ process starts with its base environment alone
 value, and of each line of a value that spans lines, with `[secret]` in
 what it passes on besides the host's data in a run's requested result. It
 masks the value also as a Go quoted string (`%q`) and `JSON.stringify`
-write it. In a text with `%XX` escapes, such as a URL, it masks only the
-span that decodes to the value:
+write it. In a text with `%XX` escapes, such as a URL, it masks the value
+as written and the span that decodes to it:
 
 - the harness processes' output lines, which go to `Diagnostics`, and the
   errors that quote them, such as that of a process that exits before its
   handshake. A line longer than 64 KiB goes in parts that cut no secret in
-  two;
+  two, as written or percent-encoded;
+- an escaped step's log tail, which its error quotes: the last 600
+  characters of its log, which may start inside a secret. A leading piece
+  of 3 bytes or more that ends a secret is masked too;
 - a run's warnings: their codes, messages and the keys of their counts,
   where keys that mask alike add their counts;
 - the errors of the host plugin, those of its declaration's checks
   included, and a run's latched error ([Latched errors](#latched-errors));
-- the errors in a run's requested result. That is the whole result when
-  it is a step's error, of a failed run or of a flow that carried on past
-  it. It is also a part that is one, such as a tolerated branch's error in
-  a branchall's array, or an escaped step's error that quotes its log;
+- the errors in a run's requested result, where the trace places them.
+  That is the whole result when it is an error (`Trace.ResultOrigin`): of
+  a failed run, of a flow that carried on past it, or read from the
+  result cache. Otherwise it is each error inside it
+  (`Trace.ResultErrors`), such as a tolerated branch's error in a
+  branchall's array. A step's copy of an error, returned as data, is the
+  host's data;
 - the trace: its result, each step's arguments, result, carried value and
-  late output, and its platform calls, their paths and queries as
-  decoded, in the trace that `Run` returns and in those and the records
-  that hooks get;
+  late output, and its platform calls, their paths and queries as sent
+  and as decoded. That holds for the trace that `Run` returns and for
+  those and the records that hooks get;
 - in those JSON values, their strings as decoded. A number or literal
   that holds a secret becomes the string `[secret]`, and so does an object
   or array equal to a secret that is a JSON document, however each is
-  written. A value in which a secret still spans the structure becomes
-  `[secret]` whole.
+  written, its numbers compared by value. Where a secret still spans the
+  structure, such as an array's strings, the smallest object or array that
+  holds it becomes `[secret]`.
 
 `Result.Result`, the result that the host asked for, keeps the value in
 its other parts, a skipped run's result included, and so do the steps'
@@ -986,7 +993,7 @@ build helper's dependencies, and skip without them unless
 | `settled_test.go` | The run-settlement hooks | No |
 | `bun_test.go` | A real bundle in `warm` and `fresh`: platform calls in the trace, cached results shared between runtimes, cancellation, `InvocationEnv`, per-run variables, the first write and the pre-write deadline, the step API (`TestStepAPI`), plugin trace parity and `around` | Yes |
 | `outside_test.go` | A bundle whose host contract lists two modules outside the [sync folder](../docs/glossary.md#sync-folder), without a host | Yes |
-| `harnessenv_test.go` | `Options.HarnessEnv` on real processes, `warm` and `fresh`: what a step, a native step and a host plugin read (`TestHarnessEnvReachesStep`, `TestHarnessEnvReachesPlugin`), the refused names, host mode and a script's own `envs` (`TestHarnessEnvReserved`), and the whole process environment (`TestHarnessEnvDefault`). One read serves entries that name one variable (`TestHarnessEnvReferenceReadOnce`). Secrets are masked in output, warnings and errors (`TestHarnessEnvSecretMasked`, `TestHarnessEnvSecretDeclaration`, `TestHarnessEnvSecretPluginAnswer`), in traces, hooks' records and results that are errors (`TestHarnessEnvSecretTrace`), and kept out of a shared result cache (`TestHarnessEnvSecretResultCache`). | Yes, but for the refusals |
+| `harnessenv_test.go` | `Options.HarnessEnv` on real processes, `warm` and `fresh`: what a step, a native step and a host plugin read (`TestHarnessEnvReachesStep`, `TestHarnessEnvReachesPlugin`), the refused names, host mode and a script's own `envs` (`TestHarnessEnvReserved`), and the whole process environment (`TestHarnessEnvDefault`). One read serves entries that name one variable (`TestHarnessEnvReferenceReadOnce`). Secrets are masked in output, warnings and errors (`TestHarnessEnvSecretMasked`, `TestHarnessEnvSecretDeclaration`, `TestHarnessEnvSecretPluginAnswer`), traces and errors in results (`TestHarnessEnvSecretTrace`, `TestHarnessEnvSecretProvenance`) and log tails (`TestHarnessEnvSecretTail`), and kept out of a shared cache (`TestHarnessEnvSecretResultCache`). | Yes, but for the refusals |
 | `plugincases_test.go` | The cases of `conformance/plugins/hooks.yaml`, through the TypeScript case plugin, named by `Options.Plugin` and built into the bundle, and through Go callbacks built from the same plugins | Yes |
 | `bundledplugin_test.go` | A bundle's own plugin. Its `around` wrapper and the step share a host-provided module in 16 concurrent runs (`TestBundledPluginSharesHostModule`), and a bundle with no step starts processes for it (`TestBundledPluginWithoutSteps`). `Open` refuses it with `Options.Plugin` and in `fresh` (`TestOpenRefusesTwoPlugins`), and refuses a manifest that names a module outside the bundle (`TestOpenRefusesUnverifiedPlugin`). A `fetch` wrapper it installs at load reaches an ordinary step and not a native one (`TestPluginFetchWrapperOrder`) | Yes |
 | `rundata_test.go` | `RunOptions.Data` on real runs. Wrappers of an `around`-only plugin read their own run's data and steps `undefined` (`TestRunDataAroundOnly`), a hook reads it frozen (`TestRunDataHook`), and a run that a Go hook starts does not inherit it (`TestRunDataNotInherited`). The process holds it until a flow run or a script job settles (`TestRunDataReleased`), and one without a plugin gets none (`TestRunDataNeedsPlugin`). Data that is not JSON or not UTF-8 is refused (`TestRunDataRefusesInvalid`, `TestRunDataRefusesInvalidUTF8`). | Yes |

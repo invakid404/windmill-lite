@@ -172,20 +172,27 @@ func (s *streamWriter) Write(b []byte) (int, error) {
 		s.buf = s.buf[i+1:]
 	}
 	// A line that grows past 64 KiB is forwarded in parts. With secrets,
-	// a part ends where no secret is cut in two (Secrets.cut), and the
-	// rest, shorter than the longest secret, waits for the next write; the
-	// line may grow by that longest secret before its part goes, so that
-	// a part always holds 64 KiB.
-	limit := 64 << 10
-	if sec := s.lw.secrets; sec != nil {
-		limit += sec.longest
-	}
-	if len(s.buf) > limit {
+	// a part ends where no secret is cut in two, as written or
+	// percent-encoded (Secrets.cut), and the rest, shorter than three times
+	// the longest secret and two bytes, waits for the next write; the line
+	// may grow by that much before its part goes, so that a part always
+	// holds 64 KiB.
+	if len(s.buf) > partLimit(s.lw.secrets) {
 		c := s.lw.secrets.cut(s.buf)
 		s.lw.emit(s.name, string(s.buf[:c]))
 		s.buf = append([]byte(nil), s.buf[c:]...)
 	}
 	return len(b), nil
+}
+
+// partLimit is how long an output line grows before a part of it is
+// forwarded: 64 KiB, and with secrets as much as Secrets.cut may keep.
+func partLimit(sec *Secrets) int {
+	limit := 64 << 10
+	if sec != nil {
+		limit += 3*sec.longest + 2
+	}
+	return limit
 }
 
 // recentInvocations remembers the last settled invocations, so late output

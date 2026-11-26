@@ -169,29 +169,22 @@ func (c secretResults) Put(ctx context.Context, key string, value []byte, expire
 }
 
 // maskErrorParts returns a run's requested result with each secret masked
-// in the parts of it that are errors, the whole result included: those
-// that equal a step's result or carried value whose origin says it is an
-// error, such as a tolerated branch's error inside a branchall's array.
-// The other parts, the host's data, stay as they are.
+// in the parts of it that are errors, as the trace records them: the whole
+// result when its origin says it is one, a cached result's included, or
+// else each error inside it (Trace.ResultErrors), such as a tolerated
+// branch's error inside a branchall's array. The other parts, the host's
+// data, stay as they are, a copy of an error that a step returned among
+// them.
 func maskErrorParts(secrets *harness.Secrets, t *Trace, result jsonval.Value) jsonval.Value {
 	if secrets == nil || result.IsZero() {
 		return result
 	}
-	var parts []any
-	add := func(v jsonval.Value, o engine.Origin) {
-		if o == engine.OriginNone || v.IsZero() {
-			return
-		}
-		if d, ok := harness.DecodeJSON(v.Producer()); ok {
-			parts = append(parts, d)
-		}
-	}
-	for _, s := range t.Steps {
-		add(s.Result, s.ResultOrigin)
-		add(s.Carried, s.CarriedOrigin)
+	pointers := t.ResultErrors
+	if t.ResultOrigin != engine.OriginNone {
+		pointers = []string{""}
 	}
 	text := result.Producer()
-	masked := secrets.MaskJSONParts(text, parts)
+	masked := secrets.MaskJSONAt(text, pointers)
 	if bytes.Equal(masked, text) {
 		return result
 	}

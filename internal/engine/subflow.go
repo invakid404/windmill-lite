@@ -77,7 +77,7 @@ func (r *run) subflow(ctx context.Context, fr *frame, i int, site conformance.Si
 	// value delivered with its completion, which differs after an abort
 	// (CF-23 route 3).
 	r.recordJob(fr, i, e.result)
-	o.rec.Result, o.rec.ResultOrigin, o.rec.ResultNested = e.result.WithoutNUL(), e.origin, e.nested
+	o.rec.Result, o.rec.ResultOrigin, o.rec.ResultNested = e.result.WithoutNUL(), e.origin, e.nested.generated()
 	o = carryOn(o, e)
 	// The step's job status is the subflow job's own: success when its
 	// failure module recovered, skipped when a clean stop with
@@ -105,7 +105,7 @@ func (r *run) subflow(ctx context.Context, fr *frame, i int, site conformance.Si
 func carryOn(o outcome, e flowEnd) outcome {
 	c := e.carried()
 	o.carried, o.origin, o.nested = c.value, c.origin, c.nested
-	o.rec.Carried, o.rec.CarriedNested = c.value, c.nested
+	o.rec.Carried, o.rec.CarriedNested = c.value, c.nested.generated()
 	if e.delivered != nil {
 		o.rec.CarriedOrigin = c.origin
 	}
