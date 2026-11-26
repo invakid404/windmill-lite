@@ -206,32 +206,48 @@ func (it *iterations) add(e flowEnd) {
 	at := "/" + strconv.Itoa(len(it.values))
 	it.values = append(it.values, e.result)
 	if e.origin != OriginNone {
-		it.nested = append(it.nested, errorPart{at, e.origin})
+		it.nested = append(it.nested, errorPart{at, e.origin, false})
 	}
 	for _, p := range e.nested {
-		it.nested = append(it.nested, errorPart{at + p.at, p.origin})
+		it.nested = append(it.nested, errorPart{at + p.at, p.origin, p.unlisted})
 	}
 }
 
 // errorPart is an error inside a value that aggregates others, a loop's or
 // a branchall's array: its JSON pointer relative to the value, and who
-// produced it.
+// produced it. unlisted marks one that ResultNested and CarriedNested leave
+// out, as they did before Trace.ResultErrors: an error inside the value
+// that a failure module's exit returns (errorParts.unlist).
 type errorPart struct {
-	at     string
-	origin Origin
+	at       string
+	origin   Origin
+	unlisted bool
 }
 
 // errorParts are the errors inside an aggregate value.
 type errorParts []errorPart
 
 // generated returns the pointers of the parts windmill-lite generated, as
-// StepRecord.ResultNested lists them, or nil when there is none.
+// StepRecord.ResultNested lists them, or nil when there is none; an
+// unlisted part is not among them.
 func (ps errorParts) generated() []string {
 	var out []string
 	for _, p := range ps {
-		if p.origin.Generated() {
+		if p.origin.Generated() && !p.unlisted {
 			out = append(out, p.at)
 		}
+	}
+	return out
+}
+
+// unlist returns ps with every part unlisted: the errors inside the value
+// that a failure module's exit returns, which ResultNested has never
+// listed, and which Trace.ResultErrors does.
+func (ps errorParts) unlist() errorParts {
+	var out errorParts
+	for _, p := range ps {
+		p.unlisted = true
+		out = append(out, p)
 	}
 	return out
 }
@@ -666,7 +682,7 @@ func parallelDone(fr *frame, o outcome, failed bool) outcome {
 // collapsed body job's its own, the killed step's.
 func canceledChild(ctx context.Context, j *childJob) flowEnd {
 	if j != nil && !j.flow && !j.end.result.IsZero() {
-		return flowEnd{status: conformance.RunFailure, result: j.end.result, origin: j.end.origin, nested: j.end.nested}
+		return flowEnd{status: conformance.RunFailure, result: j.end.result, origin: j.end.origin}
 	}
 	return flowEnd{status: conformance.RunFailure, result: canceledError(cancellationOf(ctx)), origin: OriginEngine}
 }

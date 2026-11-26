@@ -264,7 +264,8 @@ write it.
 
 In a text with `%XX` escapes, such as a URL, it masks the value as written
 and the span that decodes to it. It finds both on the text as it is, so
-that one secret as written cannot hide a longer one as decoded. The
+that one secret as written cannot hide a longer one as decoded, and
+secrets that overlap become one mask. The
 engine masks:
 
 - the harness processes' output lines, which go to `Diagnostics`, and the
@@ -290,13 +291,12 @@ engine masks:
   late output, and its platform calls, their paths and queries as sent
   and as decoded. That holds for the trace that `Run` returns and for
   those and the records that hooks get;
-- in those JSON values, their strings as decoded. A number or literal
-  that holds a secret becomes the string `[secret]`, and so does an object
-  or array equal to a secret that is a JSON document, however each is
-  written, its numbers compared by their exact value. Where a secret still
-  spans the structure, such as an array's strings, written compactly or as
-  the value's own text writes it, the smallest object or array that holds
-  it becomes `[secret]`.
+- in those JSON values, their strings as decoded. An object or array
+  equal to a secret that is a JSON document becomes `[secret]`, however
+  each is written, numbers by exact value. So does the smallest part where
+  a secret still shows, compactly or as the value's own text writes it. A
+  number, string or key can hold it in its JSON, such as a quoted secret,
+  or an object or array across its tokens.
 
 `Result.Result`, the result that the host asked for, keeps the value in
 its other parts, a skipped run's result included, and so do the steps'

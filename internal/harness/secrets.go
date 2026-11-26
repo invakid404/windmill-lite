@@ -36,11 +36,9 @@ const secretMaskEscaped = "%5Bsecret%5D"
 //
 // A nil *Secrets masks nothing, and its methods return their input.
 type Secrets struct {
-	// olds are the strings to mask, the longest first, so that a secret
-	// that holds another is masked whole: a Replacer tries its old strings
-	// in argument order at each position.
+	// olds are the strings to mask, the longest first; longest is the
+	// length of the first.
 	olds    []string
-	r       *strings.Replacer
 	longest int
 	// docs are the values that are JSON objects or arrays, decoded with
 	// json.Number for numbers.
@@ -85,12 +83,8 @@ func NewSecrets(values []string) *Secrets {
 		return nil
 	}
 	slices.SortStableFunc(olds, func(a, b string) int { return len(b) - len(a) })
-	pairs := make([]string, 0, 2*len(olds))
-	for _, o := range olds {
-		pairs = append(pairs, o, SecretMask)
-	}
 	structural := slices.ContainsFunc(olds, func(o string) bool { return strings.ContainsAny(o, "\",:[]{}") })
-	return &Secrets{olds: olds, r: strings.NewReplacer(pairs...), longest: len(olds[0]), docs: docs, structural: structural}
+	return &Secrets{olds: olds, longest: len(olds[0]), docs: docs, structural: structural}
 }
 
 // decodeValue decodes exactly one JSON value, with json.Number for
@@ -151,13 +145,14 @@ func unquote(q string) string {
 // Mask returns text with each occurrence of a secret replaced by
 // SecretMask, also where the text reads a secret once its %XX escapes are
 // decoded: there the escaped span becomes SecretMask, and every other
-// byte stays.
+// byte stays. Secrets that overlap, the end of one the start of another,
+// become one SecretMask.
 func (s *Secrets) Mask(text string) string {
 	if s == nil {
 		return text
 	}
 	if strings.IndexByte(text, '%') < 0 {
-		return s.r.Replace(text)
+		return replaceSpans(text, s.find(text), nil, SecretMask)
 	}
 	return replaceSpans(text, s.spans(text, false), nil, SecretMask)
 }
@@ -216,26 +211,22 @@ func (s *Secrets) MaskTail(tail string) string {
 	return replaceSpans(tail, spans, nil, SecretMask)
 }
 
-// find returns the spans of the secrets in text, as Mask's Replacer finds
-// them: from the left, the longest at one position, without overlaps.
+// find returns the spans of text that hold a secret: every occurrence of
+// each, those that overlap merged, so that two secrets that share bytes,
+// the end of one the start of the other, are masked as one span.
 func (s *Secrets) find(text string) [][2]int {
 	var spans [][2]int
-	for i := 0; i < len(text); {
-		matched := 0
-		for _, o := range s.olds {
-			if strings.HasPrefix(text[i:], o) {
-				matched = len(o)
+	for _, o := range s.olds {
+		for i := 0; i+len(o) <= len(text); {
+			j := strings.Index(text[i:], o)
+			if j < 0 {
 				break
 			}
+			spans = append(spans, [2]int{i + j, i + j + len(o)})
+			i += j + 1
 		}
-		if matched == 0 {
-			i++
-			continue
-		}
-		spans = append(spans, [2]int{i, i + matched})
-		i += matched
 	}
-	return spans
+	return mergeSpans(spans)
 }
 
 // spans returns the spans of text that hold a secret, as written and as
@@ -333,18 +324,19 @@ func unhex(c byte) byte {
 // MaskJSON returns the JSON text with each secret masked, as decoded:
 //
 //   - in its strings and object keys, with Mask;
-//   - in a number or a literal whose text holds a secret, such as a secret
-//     of digits that a step returned as a number: it becomes the string
-//     SecretMask, so the text stays JSON;
 //   - in an object or array that equals a secret that is itself a JSON
 //     object or array, however each is written: it becomes the string
 //     SecretMask.
 //
-// A secret that still shows after that spans the JSON's structure, such as
-// the strings of an array: as the value is written compactly, or as the
-// text itself writes it, with its own spaces. The smallest object or array
-// that holds it then becomes the string SecretMask, and the rest of the
-// value stays. Key order, duplicate keys and the other numbers stay as
+// A secret that still shows after that, as the value is written compactly
+// or as the text itself writes it, is in one token's JSON or spans the
+// JSON's structure. The smallest part that holds it then becomes the
+// string SecretMask, so the text stays JSON, and the rest of the value
+// stays: a number or a literal, such as a secret of digits that a step
+// returned as a number; a string or a key whose JSON holds a secret, such
+// as a secret with its quotes, or one that a JSON escape spells; or else
+// an object or array across whose tokens it lies, such as the strings of
+// an array. Key order, duplicate keys and the other numbers stay as
 // they were, and the result is written compactly. It returns text itself,
 // byte for byte, when nothing holds a secret, and also when text is not
 // JSON.
@@ -455,38 +447,54 @@ func (s *Secrets) maskWhole(n *jnode, occ [][2]int) bool {
 		changed = true
 	}
 	for _, sp := range occ {
-		if c := n.container(sp); c != nil {
-			c.mask()
+		if n.maskSource(sp) {
 			changed = true
 		}
 	}
 	return changed
 }
 
-// container returns the smallest object or array in n whose source holds
-// the span sp of the source across its tokens, or nil when one token, a
-// key or a value, holds sp, when n's source does not, or when the part
-// that holds it is masked already.
-func (n *jnode) container(sp [2]int) *jnode {
-	if !n.src || sp[0] < n.start || sp[1] > n.end || n.kind != '{' && n.kind != '[' {
-		return nil
+// maskSource masks the smallest part of n whose source holds the span sp
+// of the source: a key or a value whose token holds it whole, unless the
+// string rules masked that token already, or else the smallest object or
+// array across whose tokens it lies. It reports whether it changed n.
+func (n *jnode) maskSource(sp [2]int) bool {
+	if !n.src || n.done || sp[0] < n.start || sp[1] > n.end {
+		return false
 	}
-	for _, k := range n.keySrc {
+	if n.kind != '{' && n.kind != '[' {
+		n.mask()
+		return true
+	}
+	for i, k := range n.keySrc {
 		if sp[0] >= k[0] && sp[1] <= k[1] {
-			return nil
+			if slices.Contains(n.keysDone, i) {
+				return false
+			}
+			n.keys[i] = SecretMask
+			n.keyDone(i)
+			return true
 		}
 	}
 	for _, k := range n.kids {
 		if k.src && sp[0] >= k.start && sp[1] <= k.end {
-			return k.container(sp)
+			return k.maskSource(sp)
 		}
 	}
-	return n
+	n.mask()
+	return true
+}
+
+// keyDone records that key i of n is masked.
+func (n *jnode) keyDone(i int) {
+	if !slices.Contains(n.keysDone, i) {
+		n.keysDone = append(n.keysDone, i)
+	}
 }
 
 // mask turns n into the string SecretMask, keeping where its source is.
 func (n *jnode) mask() {
-	*n = jnode{kind: 's', text: SecretMask, src: n.src, start: n.start, end: n.end}
+	*n = jnode{kind: 's', text: SecretMask, src: n.src, start: n.start, end: n.end, done: true}
 }
 
 // holds reports whether text holds one of the strings to mask.
@@ -494,8 +502,9 @@ func (s *Secrets) holds(text []byte) bool {
 	return slices.ContainsFunc(s.olds, func(o string) bool { return bytes.Contains(text, []byte(o)) })
 }
 
-// spill returns n written compactly, after it turns each smallest object
-// or array in n whose writing holds a secret into SecretMask.
+// spill returns n written compactly, after it turns each smallest part of
+// n whose writing holds a secret into SecretMask: a value, a key, or an
+// object or array.
 func (s *Secrets) spill(n *jnode) []byte {
 	var b bytes.Buffer
 	switch n.kind {
@@ -506,18 +515,27 @@ func (s *Secrets) spill(n *jnode) []byte {
 				b.WriteByte(',')
 			}
 			if n.kind == '{' {
-				writeJSONString(&b, n.keys[i])
+				var key bytes.Buffer
+				if writeJSONString(&key, n.keys[i]); s.holds(key.Bytes()) {
+					n.keys[i] = SecretMask
+					n.keyDone(i)
+					key.Reset()
+					writeJSONString(&key, SecretMask)
+				}
+				b.Write(key.Bytes())
 				b.WriteByte(':')
 			}
 			b.Write(s.spill(k))
 		}
 		b.WriteByte(n.kind + 2) // '}' and ']' follow '{' and '[' by two
-		if s.holds(b.Bytes()) {
-			n.mask()
-			b.Reset()
-			n.write(&b)
-		}
 	default:
+		// A token whose JSON holds a secret, such as a secret with its
+		// quotes that a string's quotes write.
+		n.write(&b)
+	}
+	if s.holds(b.Bytes()) {
+		n.mask()
+		b.Reset()
 		n.write(&b)
 	}
 	return b.Bytes()
@@ -533,10 +551,13 @@ type jnode struct {
 	keys []string
 	kids []*jnode
 	// start and end are where the value is in its source text, when src is
-	// set, and keySrc where an object's keys are.
+	// set, and keySrc where an object's keys are. done is set once n is
+	// masked, in part or whole, and keysDone lists the keys that are.
 	src        bool
 	start, end int
 	keySrc     [][2]int
+	done       bool
+	keysDone   []int
 }
 
 // decodeTree decodes one JSON value from dec.
@@ -742,15 +763,14 @@ func (s *Secrets) maskNode(n *jnode) bool {
 		if m := s.Mask(n.text); m != n.text {
 			n.text, changed = m, true
 		}
-	case 'l':
-		if s.r.Replace(n.text) != n.text {
-			n.mask()
-			return true
-		}
+	}
+	if changed {
+		n.done = true
 	}
 	for i, k := range n.keys {
 		if m := s.Mask(k); m != k {
 			n.keys[i], changed = m, true
+			n.keyDone(i)
 		}
 	}
 	for _, k := range n.kids {
@@ -797,33 +817,24 @@ func (s *Secrets) cut(buf []byte) int {
 	return c
 }
 
-// cutAt is cut for one view of the line, buf. It scans buf as Mask's
-// Replacer does, the leftmost secret first and the longest at one
-// position. At each position it first asks whether the rest of buf is the
-// start of a secret longer than that rest: then the Replacer's choice
-// there waits on bytes to come, even when a shorter secret matches there
-// already, so it cuts there.
+// cutAt is cut for one view of the line, buf: before the first position
+// where the rest of buf is the start of a secret longer than that rest,
+// which bytes to come may complete, even where a shorter secret ends at the
+// end already; and then before the start of the span of secrets in buf
+// that the cut would fall inside, secrets that overlap counting as one.
 func (s *Secrets) cutAt(buf []byte) int {
-	for i := 0; i < len(buf); {
-		if rest := len(buf) - i; rest < s.longest {
-			for _, o := range s.olds {
-				if len(o) > rest && strings.HasPrefix(o, string(buf[i:])) {
-					return i
-				}
-			}
+	c := len(buf)
+	for i := max(0, len(buf)-s.longest+1); i < len(buf); i++ {
+		rest := string(buf[i:])
+		if slices.ContainsFunc(s.olds, func(o string) bool { return len(o) > len(rest) && strings.HasPrefix(o, rest) }) {
+			c = i
+			break
 		}
-		matched := 0
-		for _, o := range s.olds {
-			if bytes.HasPrefix(buf[i:], []byte(o)) {
-				matched = len(o)
-				break
-			}
-		}
-		if matched > 0 {
-			i += matched
-			continue
-		}
-		i++
 	}
-	return len(buf)
+	for _, sp := range s.find(string(buf)) {
+		if sp[0] < c && c < sp[1] {
+			c = sp[0]
+		}
+	}
+	return c
 }

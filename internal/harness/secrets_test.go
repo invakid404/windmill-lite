@@ -15,7 +15,9 @@ import (
 //   - two secrets, one the start of the other, the shorter ending at that
 //     point while the longer goes on;
 //   - a secret percent-encoded, cut in two after an escape, inside one,
-//     and right after its %.
+//     and right after its %;
+//   - two secrets that overlap, the first whole before that point and the
+//     second, which starts inside it, going on.
 //
 // Each part must hold only filler, separators and masks, and the two
 // writes one mask in all.
@@ -34,6 +36,7 @@ func TestLineWriterCutsNoSecret(t *testing.T) {
 		{"an escaped secret cut after an escape", []string{spaced}, "|" + enc[:14], enc[14:] + "|\n"},
 		{"an escaped secret cut inside an escape", []string{spaced}, "|" + enc[:11], enc[11:] + "|\n"},
 		{"an escaped secret cut after its %", []string{spaced}, "|" + enc[:10], enc[10:] + "|\n"},
+		{"two secrets that overlap", []string{"synthetic/start", "start/distinctive-tail"}, "|synthetic/start/distinctive-ta", "il|\n"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var out bytes.Buffer
@@ -59,5 +62,18 @@ func TestLineWriterCutsNoSecret(t *testing.T) {
 				t.Errorf("%d parts with %d masks; want 2 parts and 1 mask", len(lines), masks)
 			}
 		})
+	}
+}
+
+// TestLineWriterMasksOverlappingSecrets checks that an output line that
+// holds two secrets that overlap, the end of one the start of the other,
+// reaches the diagnostics with one mask over both and nothing of either.
+func TestLineWriterMasksOverlappingSecrets(t *testing.T) {
+	var out bytes.Buffer
+	lw := &lineWriter{diag: &diagnostics{w: &out}, keep: 20, secrets: NewSecrets([]string{"synthetic/start", "start/distinctive-tail"})}
+	w := lw.stream("stdout")
+	w.Write([]byte("path /synthetic/start/distinctive-tail ends\n"))
+	if got := out.String(); strings.Contains(got, "distinctive") || strings.Contains(got, "synthetic") || !strings.Contains(got, "/"+SecretMask+" ends") {
+		t.Errorf("the diagnostics line: %q; want one mask over both secrets", got)
 	}
 }

@@ -991,7 +991,7 @@ func (r *run) runModules(ctx context.Context, fr *frame) flowEnd {
 		if !ok {
 			// A collapsed iteration's job keeps its result, the killed
 			// step's when a cancellation ended it (CF-28).
-			return flowEnd{status: st, result: o.carried, origin: o.origin, nested: o.nested, unreported: o.unreported}
+			return flowEnd{status: st, result: o.carried, origin: o.origin, unreported: o.unreported}
 		}
 		if o.end == endHalted {
 			return flowEnd{status: conformance.RunHalted}
@@ -1156,13 +1156,13 @@ func (r *run) failure(ctx context.Context, fr *frame, failing carry, prevID stri
 	}
 	switch {
 	case o.end == endSucceeded && recovers(o.carried):
-		return flowEnd{status: conformance.RunSuccess, result: o.carried, origin: o.origin, nested: o.nested, handled: true, recovered: true, stores: true}
+		return flowEnd{status: conformance.RunSuccess, result: o.carried, origin: o.origin, nested: o.nested.unlist(), handled: true, recovered: true, stores: true}
 	case o.end == endSucceeded:
-		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, nested: o.nested, handled: true, stores: true}
+		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, nested: o.nested.unlist(), handled: true, stores: true}
 	case o.end == endChained && o.aborted:
-		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, nested: o.nested, handled: true, delivered: &in}
+		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, nested: o.nested.unlist(), handled: true, delivered: &in}
 	case o.end == endFailed, o.end == endChained, o.end == endUnrecoverable:
-		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, nested: o.nested, handled: true}
+		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, nested: o.nested.unlist(), handled: true}
 	}
 	return flowEnd{status: conformance.RunFailure, result: engineError("InternalErr", "windmill-lite: the failure module was interrupted with no latch or cancellation"), origin: OriginEngine}
 }
@@ -2226,7 +2226,7 @@ func errorStop(o outcome, msg string, s *ir.Stop, own jsonval.Value) outcome {
 	if s.ErrorIncludeResult != nil && *s.ErrorIncludeResult {
 		e = append(e, member{"result", own.Producer()})
 		for _, p := range o.nested {
-			nested = append(nested, errorPart{"/error/result" + p.at, p.origin})
+			nested = append(nested, errorPart{"/error/result" + p.at, p.origin, p.unlisted})
 		}
 	}
 	o.carried, o.origin, o.nested = objectOf(member{"error", objectOf(e...).Producer()}), OriginEngine, nested

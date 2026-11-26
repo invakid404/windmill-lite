@@ -233,10 +233,12 @@ type cacheEntry struct {
 }
 
 // cacheError is an error inside a cached aggregate that windmill-lite did
-// not generate, such as a tolerated branch's thrown error.
+// not generate, such as a tolerated branch's thrown error, or one that
+// ResultNested does not list (errorPart.unlisted).
 type cacheError struct {
-	At     string `json:"at"`
-	Origin Origin `json:"origin"`
+	At       string `json:"at"`
+	Origin   Origin `json:"origin"`
+	Unlisted bool   `json:"unlisted,omitempty"`
 }
 
 // parts returns the errors inside the entry's result. The generated ones
@@ -245,10 +247,10 @@ type cacheError struct {
 func (c cacheEntry) parts() errorParts {
 	var ps errorParts
 	for _, p := range c.Nested {
-		ps = append(ps, errorPart{p, OriginEngine})
+		ps = append(ps, errorPart{p, OriginEngine, false})
 	}
 	for _, e := range c.Errors {
-		ps = append(ps, errorPart{e.At, e.Origin})
+		ps = append(ps, errorPart{e.At, e.Origin, e.Unlisted})
 	}
 	return ps
 }
@@ -292,8 +294,8 @@ func (e *Engine) cachePut(ctx context.Context, key string, now time.Time, ttl ti
 	}
 	entry := cacheEntry{Result: stored, Origin: origin, Nested: nested.generated(), AllErrors: true}
 	for _, p := range nested {
-		if !p.origin.Generated() {
-			entry.Errors = append(entry.Errors, cacheError{p.at, p.origin})
+		if !p.origin.Generated() || p.unlisted {
+			entry.Errors = append(entry.Errors, cacheError{p.at, p.origin, p.unlisted})
 		}
 	}
 	b, err := json.Marshal(entry)

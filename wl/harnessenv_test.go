@@ -217,6 +217,28 @@ export async function main() {
 }
 `,
 	"f/t/prefix.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/prefix","input_transforms":{}}}]}}`,
+	// f/t/failescaping: a step that throws, and a failure module that runs
+	// the flow f/t/escaping, whose array, with the escaped step's error that
+	// windmill-lite generated at /0, ends the run; f/t/cachedfailescaping
+	// is the same with a cache_ttl, which stores what the module returns.
+	"f/t/failescaping.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/thrower","input_transforms":{}}}],` +
+		`"failure_module":{"id":"failure","value":{"type":"flow","path":"f/t/escaping","input_transforms":{}}}}}`,
+	"f/t/cachedfailescaping.flow/flow.yaml": `{"summary":"t","value":{"cache_ttl":600,"modules":[{"id":"a","value":{"type":"script","path":"f/t/thrower","input_transforms":{}}}],` +
+		`"failure_module":{"id":"failure","value":{"type":"flow","path":"f/t/escaping","input_transforms":{}}}}}`,
+	"f/t/overlap.ts": `// Calls a route that the platform facade does not serve with
+// WL_TEST_OVERLAP_A followed by what WL_TEST_OVERLAP_B adds past the
+// start that the two share, as it is in the path.
+export async function main() {
+  const e = process.env;
+  const a = e.WL_TEST_OVERLAP_A ?? "";
+  const b = e.WL_TEST_OVERLAP_B ?? "";
+  const r = await fetch(` + "`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/no/such/route/`" + ` + a + b.slice("start".length), {
+    headers: { Authorization: ` + "`Bearer ${e.WM_TOKEN}`" + ` },
+  });
+  return r.status;
+}
+`,
+	"f/t/overlap.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/overlap","input_transforms":{}}}]}}`,
 	// f/t/failagg: a step that throws, and a failure module that runs the
 	// flow f/t/aggtolerated, whose array ends the run.
 	"f/t/failagg.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/thrower","input_transforms":{}}}],` +
@@ -811,6 +833,9 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 	// and one with the space that JSON written with spaces puts between them.
 	const fragment = `synthetic-left","synthetic-right`
 	const gapFragment = `synthetic-gap-left", "synthetic-gap-right`
+	// A secret that holds a JSON escape as text, which a JSON string can
+	// spell and its value does not hold.
+	const spelled = `\u0073ynthetic-src-4c2d`
 	env := map[string]EnvValue{
 		"WL_TEST_SECRET":         {ValueEnv: ref, Secret: true},
 		"WL_TEST_NUMBER":         {Value: number, Secret: true},
@@ -822,6 +847,8 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 		"WL_TEST_FRAGMENT":       {Value: fragment, Secret: true},
 		"WL_TEST_LITERAL_SECRET": {Value: literal, Secret: true},
 		"WL_TEST_GAP_FRAGMENT":   {Value: gapFragment, Secret: true},
+		"WL_TEST_SPELLED_SECRET": {Value: spelled, Secret: true},
+		"WL_TEST_QUOTED_SECRET":  {Value: `"synthetic&quoted-0d4e"`, Secret: true},
 	}
 	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, HarnessEnv: env})
 	if err != nil {
@@ -1057,6 +1084,59 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 	if c := res.Trace.PlatformCalls[0]; strings.Contains(c.Path, literal) || strings.Contains(c.Query, literal) || strings.Contains(c.Path, "synthetic/literal") ||
 		!strings.Contains(c.Path, url.PathEscape(harness.SecretMask)) || !strings.Contains(c.Query, url.QueryEscape(harness.SecretMask)) || !strings.HasSuffix(c.Query, "&tail=kept") {
 		t.Errorf("f/t/literal's call: path %d bytes, query %d bytes; want the mask, escaped, in both, no form of the secret, and the plain parameter", len(c.Path), len(c.Query))
+	}
+	// A Go hook's answer whose JSON spells the escape secret in a key and in
+	// a value, which hold it only as written, and holds the secret that is a
+	// JSON string with its quotes in a value and in a key, which escape its
+	// ampersand, so that only their JSON written compactly holds it: the
+	// trace's copy masks each key and value, and only those.
+	spelledHook := &Hooks{Intercept: []Interceptor{{Selector: module("f/t/fragment", "a"), Func: func(context.Context, Call) (Outcome, bool, error) {
+		return Outcome{Result: json.RawMessage(`[{"` + spelled + `":1},"` + spelled + `","synthetic\u0026quoted-0d4e",{"synthetic\u0026quoted-0d4e":1}]`)}, true, nil
+	}}}}
+	res, err = callRT.Run(context.Background(), "f/t/fragment", nil, RunOptions{Hooks: spelledHook})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec, ok := res.Trace.Step(mustSite(t, "m:a")); !ok || string(rec.Result.Producer()) != `[{"[secret]":1},"[secret]","[secret]",{"[secret]":1}]` {
+		t.Errorf("f/t/fragment, answered with the escape secret as written: the step result in the trace: %s; want the key and the value masked", shownBytes(rec.Result.Producer(), spelled))
+	}
+	// A secret that is a JSON string with its quotes, which the step parses
+	// and returns: the step's JSON is the secret's own bytes. The requested
+	// result keeps it, and the trace's copy is the mask.
+	quotedRT, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, HarnessEnv: map[string]EnvValue{"WL_TEST_JSON_SECRET": {Value: `"synthetic-quoted-7a1e"`, Secret: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer quotedRT.Close()
+	res, err = quotedRT.Run(context.Background(), "f/t/parsed", nil, RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec, ok := res.Trace.Step(mustSite(t, "m:a")); string(res.Result) != `"synthetic-quoted-7a1e"` || !ok || string(rec.Result.Producer()) != fmt.Sprintf("%q", harness.SecretMask) {
+		t.Errorf("f/t/parsed with a quoted secret: result %s, trace %s; want the value and the mask", shownBytes(res.Result, "synthetic-quoted"), shownBytes(rec.Result.Producer(), "synthetic-quoted"))
+	}
+	// Two secrets that overlap, the end of one the start of the other, as
+	// one span in a path: nothing of the second one's end is left.
+	overlapRT, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, HarnessEnv: map[string]EnvValue{
+		"WL_TEST_OVERLAP_A": {Value: "synthetic/start", Secret: true},
+		"WL_TEST_OVERLAP_B": {Value: "start/distinctive-tail", Secret: true},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer overlapRT.Close()
+	res, err = overlapRT.Run(context.Background(), "f/t/overlap", nil, RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	trace, _ = json.Marshal(traceJSON(res.Trace))
+	if len(res.Trace.PlatformCalls) != 1 || strings.Contains(string(res.Result), "distinctive") || strings.Contains(string(trace), "distinctive") || !strings.Contains(string(res.Result), harness.SecretMask) {
+		t.Errorf("f/t/overlap: %s, %d calls, %s; want the mask and nothing of the second secret's end, in the result and the trace", res.Status, len(res.Trace.PlatformCalls), shownBytes(res.Result, "distinctive"))
+	}
+	for i, c := range res.Trace.PlatformCalls {
+		if strings.Contains(c.Path, "distinctive") || strings.Contains(c.Message, "distinctive") || !strings.Contains(c.Path, url.PathEscape(harness.SecretMask)) {
+			t.Errorf("f/t/overlap's call %d: want the mask, escaped, and nothing of the second secret's end", i)
+		}
 	}
 	// Two secrets, one the start of the other, which holds a slash that the
 	// step alone escapes: the path holds the shorter as it is and the longer
@@ -1346,8 +1426,10 @@ func TestHarnessEnvSecretResultCache(t *testing.T) {
 	}
 	// A secret that is a JSON document with an ampersand, which the cache
 	// entry escapes: a step that returns it parsed has its result kept out
-	// too, and a runtime with another document gets its own.
-	for i, doc := range []string{`["synthetic&doc-55e1"]`, `["another&doc-66f2"]`} {
+	// too, and a runtime with another document gets its own. So with a
+	// secret that is a JSON string with its quotes, whose parsed value the
+	// entry writes as those bytes, but for the escaped ampersand.
+	for i, doc := range []string{`["synthetic&doc-55e1"]`, `["another&doc-66f2"]`, `"synthetic&quoted-8b2f"`, `"another&quoted-9c30"`} {
 		rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Results: cache, HarnessEnv: map[string]EnvValue{"WL_TEST_DOC": {Value: doc, Secret: true}}})
 		if err != nil {
 			t.Fatal(err)
@@ -1594,4 +1676,38 @@ func (c *recordingCache) last() (string, []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.key, c.value
+}
+
+// TestHarnessEnvResultErrors checks the two lists of a run's errors that a
+// trace holds, with no harness environment: ResultNested lists, as it
+// always has, the errors that windmill-lite generated inside the result,
+// and none inside what a failure module returns, also when the result
+// cache answers; ResultErrors lists every error inside the result, whoever
+// produced it, those a failure module returns and a cached result included.
+func TestHarnessEnvResultErrors(t *testing.T) {
+	bun, out, runtimeDir := harnessEnvBundle(t)
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Results: platform.NewMemoryResults()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	for _, c := range []struct {
+		flow           string
+		cached         bool
+		nested, errors []string
+	}{
+		{"f/t/escaping", false, []string{"/0"}, []string{"/0"}},
+		{"f/t/aggtolerated", false, nil, []string{"/1"}},
+		{"f/t/failescaping", false, nil, []string{"/0"}},
+		{"f/t/cachedfailescaping", false, nil, []string{"/0"}},
+		{"f/t/cachedfailescaping", true, nil, []string{"/0"}},
+	} {
+		res, err := rt.Run(context.Background(), c.flow, nil, RunOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tr := res.Trace; tr.Cached != c.cached || !slices.Equal(tr.ResultNested, c.nested) || !slices.Equal(tr.ResultErrors, c.errors) {
+			t.Errorf("%s: cached %v, ResultNested %q, ResultErrors %q; want cached %v, %q and %q", c.flow, tr.Cached, tr.ResultNested, tr.ResultErrors, c.cached, c.nested, c.errors)
+		}
+	}
 }
