@@ -73,28 +73,19 @@ func maskRecord(secrets *harness.Secrets, rec StepRecord) StepRecord {
 	return rec
 }
 
-// maskValue returns v with each secret masked (harness.Secrets.MaskJSON),
-// or v itself when none holds one. A value reads two ways: as its producer
-// wrote it, and as stored, the text that payloads and Stored give, which
-// spells numbers in plain decimal, writes strings its own way and orders
-// keys. When the stored text of the masked value still shows a secret, such
-// as a secret of digits that the producer wrote with an exponent, the copy
-// is that stored text, masked.
+// maskValue returns v with each secret masked, or v itself when none holds
+// one (harness.Secrets.MaskJSON, which reads the value as its producer
+// wrote it and as stored, the text that payloads and Stored give).
 func maskValue(secrets *harness.Secrets, v jsonval.Value) jsonval.Value {
 	if secrets == nil || v.IsZero() {
 		return v
 	}
 	text := v.Producer()
-	out := v
-	if masked := secrets.MaskJSON(text); !bytes.Equal(masked, text) {
-		out = jsonval.FromProducer(masked)
+	masked := secrets.MaskJSON(text)
+	if bytes.Equal(masked, text) {
+		return v
 	}
-	if stored, err := out.Stored(); err == nil {
-		if masked := secrets.MaskJSON(stored); !bytes.Equal(masked, stored) {
-			return jsonval.FromProducer(masked)
-		}
-	}
-	return out
+	return jsonval.FromProducer(masked)
 }
 
 // maskWarnings returns ws with each secret masked in their codes,

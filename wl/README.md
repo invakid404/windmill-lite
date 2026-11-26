@@ -291,10 +291,11 @@ engine masks:
 - the trace: its result, each step's arguments, result, carried value and
   late output, and its platform calls, their paths and queries as sent
   and as decoded. That holds for the trace that `Run` returns and for
-  those and the records that hooks get. A value there reads as its
-  producer wrote it and as stored, which spells numbers in plain decimal;
-  a secret that only the stored text shows makes the copy that text,
-  masked;
+  those and the records that hooks get;
+- each of those JSON values also as stored, the text that payloads and the
+  requested result give, which spells numbers in plain decimal and orders
+  keys its own way. If masking a key moves it so that a secret shows
+  there, the value becomes that stored text, masked again;
 - in those JSON values, their strings as decoded. An object or array
   equal to a secret that is a JSON document becomes `[secret]`, however
   each is written, numbers by exact value. So does the smallest part where

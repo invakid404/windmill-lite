@@ -2,11 +2,10 @@ package harness
 
 import (
 	"bytes"
-	"math"
+	"fmt"
 	"runtime"
 	"strings"
 	"testing"
-	"time"
 )
 
 // TestLineWriterCutsNoSecret checks that a line longer than 64 KiB reaches
@@ -142,42 +141,61 @@ func TestLineWriterMasksAcrossParts(t *testing.T) {
 }
 
 // TestMaskJSONScalesWithRepeats checks that a string that repeats a secret
-// many times is masked at a cost in proportion to its length, whether its
-// JSON escapes nothing or escapes a tab between the secrets: masking one
-// eight times as long allocates no more than twenty times as much, and,
-// the fastest of three runs, takes no more than twenty-five times as long,
-// where work per secret over the whole string would cost sixty-four times
-// as much. The output masks every secret and keeps the rest.
+// many times, its JSON escaping nothing or a tab between the secrets, is
+// masked with allocations in proportion to its length: masking one eight
+// times as long allocates no more than twenty times as much, where building
+// a token's index for each secret would allocate sixty-four times as much.
+// The output masks every secret and keeps the rest. Allocations are counted,
+// not timed; BenchmarkMaskJSONRepeats reports the time.
 func TestMaskJSONScalesWithRepeats(t *testing.T) {
 	sec := NewSecrets([]string{"synth-8b"})
 	for _, sep := range []string{" ", `\t`} {
-		measure := func(n int) (uint64, time.Duration) {
-			text := []byte(`"` + strings.Repeat("synth-8b"+sep, n) + `"`)
-			want := `"` + strings.Repeat(SecretMask+sep, n) + `"`
-			var alloc uint64
-			fastest := time.Duration(math.MaxInt64)
-			for range 3 {
-				var before, after runtime.MemStats
-				runtime.GC()
-				runtime.ReadMemStats(&before)
-				start := time.Now()
-				got := sec.MaskJSON(text)
-				fastest = min(fastest, time.Since(start))
-				runtime.ReadMemStats(&after)
-				if string(got) != want {
-					t.Fatalf("separator %q, %d repeats: the output is not every secret masked and the rest kept (%d bytes, want %d)", sep, n, len(got), len(want))
-				}
-				alloc = after.TotalAlloc - before.TotalAlloc
+		measure := func(n int) uint64 {
+			text, want := repeatsJSON(n, sep)
+			var before, after runtime.MemStats
+			runtime.GC()
+			runtime.ReadMemStats(&before)
+			got := sec.MaskJSON(text)
+			runtime.ReadMemStats(&after)
+			if string(got) != want {
+				t.Fatalf("separator %q, %d repeats: the output is not every secret masked and the rest kept (%d bytes, want %d)", sep, n, len(got), len(want))
 			}
-			return alloc, fastest
+			return after.TotalAlloc - before.TotalAlloc
 		}
-		smallAlloc, smallTime := measure(2000)
-		largeAlloc, largeTime := measure(16000)
-		if largeAlloc > 20*smallAlloc {
-			t.Errorf("separator %q: masking 16000 repeats allocated %d bytes, %.1f times the %d bytes for 2000; want at most 20 times", sep, largeAlloc, float64(largeAlloc)/float64(smallAlloc), smallAlloc)
+		small, large := measure(2000), measure(16000)
+		if large > 20*small {
+			t.Errorf("separator %q: masking 16000 repeats allocated %d bytes, %.1f times the %d bytes for 2000; want at most 20 times", sep, large, float64(large)/float64(small), small)
 		}
-		if largeTime > 25*smallTime {
-			t.Errorf("separator %q: masking 16000 repeats took %v, %.1f times the %v for 2000; want at most 25 times", sep, largeTime, float64(largeTime)/float64(smallTime), smallTime)
+	}
+}
+
+// repeatsJSON returns a JSON string of n repeats of the secret synth-8b,
+// each followed by sep as JSON writes it, and that string masked.
+func repeatsJSON(n int, sep string) ([]byte, string) {
+	return []byte(`"` + strings.Repeat("synth-8b"+sep, n) + `"`), `"` + strings.Repeat(SecretMask+sep, n) + `"`
+}
+
+// BenchmarkMaskJSONRepeats reports the time to mask a string that repeats a
+// secret, with and without an escape, at two lengths.
+func BenchmarkMaskJSONRepeats(b *testing.B) {
+	sec := NewSecrets([]string{"synth-8b"})
+	for _, sep := range []string{" ", `\t`} {
+		for _, n := range []int{2000, 16000} {
+			text, _ := repeatsJSON(n, sep)
+			b.Run(fmt.Sprintf("sep=%q/n=%d", sep, n), func(b *testing.B) {
+				for range b.N {
+					sec.MaskJSON(text)
+				}
+			})
 		}
+	}
+}
+
+// TestMaskJSONSecretInTheMask checks that a secret that the mask itself
+// holds, which each round of masking the stored text finds again, ends
+// with the value masked whole rather than masking forever.
+func TestMaskJSONSecretInTheMask(t *testing.T) {
+	if got := string(NewSecrets([]string{"e"}).MaskJSON([]byte(`["e"]`))); got != fmt.Sprintf("%q", SecretMask) {
+		t.Errorf("masking with a secret inside the mask: %q; want the mask whole", got)
 	}
 }

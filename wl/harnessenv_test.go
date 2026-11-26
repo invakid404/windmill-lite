@@ -854,6 +854,10 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 		"WL_TEST_LEFT":           {Value: "synthetic-left", Secret: true},
 		"WL_TEST_EDGE_LEAD":      {Value: ` "synthetic-edge-lead"`, Secret: true},
 		"WL_TEST_EDGE_TRAIL":     {Value: `"synthetic-edge-trail" `, Secret: true},
+		"WL_TEST_LEFT_NUMBER":    {Value: `synthetic-left",4200`, Secret: true},
+		"WL_TEST_MID":            {Value: "midkey", Secret: true},
+		"WL_TEST_JOIN":           {Value: `SyntheticError","longkey":`, Secret: true},
+		"WL_TEST_ORDER":          {Value: `synthetic-z","a":"synthetic-a`, Secret: true},
 	}
 	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, HarnessEnv: env})
 	if err != nil {
@@ -1166,6 +1170,44 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 	if res.Status != StatusFailure || strings.Contains(string(res.Result), number) || !strings.Contains(string(res.Result), harness.SecretMask) || strings.Contains(string(trace), number) {
 		t.Errorf("f/t/fragment, failing with the digits' exponent spelling: %s %s; want a failure whose result and trace hold the mask", res.Status, shownBytes(res.Result, number))
 	}
+	// A Go hook's answer whose stored text writes its number in plain decimal,
+	// where a secret spans it and the string before it, which is a secret too:
+	// the record and the plugin's form of the trace hold the mask whole, and
+	// the requested result keeps the array.
+	spanHook := &Hooks{Intercept: []Interceptor{{Selector: module("f/t/fragment", "a"), Func: func(context.Context, Call) (Outcome, bool, error) {
+		return Outcome{Result: json.RawMessage(`["synthetic-left",4.2e3]`)}, true, nil
+	}}}}
+	res, err = callRT.Run(context.Background(), "f/t/fragment", nil, RunOptions{Hooks: spanHook})
+	if err != nil {
+		t.Fatal(err)
+	}
+	trace, _ = json.Marshal(traceJSON(res.Trace))
+	if rec, ok := res.Trace.Step(mustSite(t, "m:a")); string(res.Result) != `["synthetic-left",4200]` || !ok || string(rec.Result.Producer()) != fmt.Sprintf("%q", harness.SecretMask) || strings.Contains(string(trace), "4200") {
+		t.Errorf("f/t/fragment, answered with a number that a stored secret spans: result %s, record %s; want the array kept and the mask whole in the trace", res.Result, shownBytes(rec.Result.Producer(), "4200"))
+	}
+	// A failure whose key is a secret, between a name and a key that a
+	// secret joins: masked, the key sorts after the other in the stored text
+	// that the result goes out as, which would join the two. The result
+	// holds no part of either, at the root and inside a branchall's array,
+	// whose other branch's data stays.
+	joinFailure := func(flow, id string) *Hooks {
+		return &Hooks{Intercept: []Interceptor{{Selector: module(flow, id), Func: func(context.Context, Call) (Outcome, bool, error) {
+			return Outcome{Result: json.RawMessage(`{"name":"SyntheticError","midkey":1,"longkey":2}`), Failed: true}, true, nil
+		}}}}
+	}
+	for _, c := range []struct{ flow, id string }{{"f/t/fragment", "a"}, {"f/t/aggtolerated", "y"}} {
+		res, err = callRT.Run(context.Background(), c.flow, nil, RunOptions{Hooks: joinFailure(c.flow, c.id)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := string(res.Result)
+		if strings.Contains(r, `SyntheticError","longkey":`) || strings.Contains(r, "midkey") || !strings.Contains(r, harness.SecretMask) {
+			t.Errorf("%s with a failure whose masked key would move: %s; want the mask and no part of the secrets", c.flow, r)
+		}
+		if c.flow == "f/t/aggtolerated" && (strings.Count(r, secret) != 1 || !strings.Contains(r, fmt.Sprintf(`{"WL_TEST_SECRET":%q}`, secret))) {
+			t.Errorf("%s with a failure whose masked key would move: %s; want the other branch's data whole", c.flow, shownBytes(res.Result, secret))
+		}
+	}
 	// The same string as a failure's message: the result, masked once, holds
 	// both masks too.
 	failKeyHook := &Hooks{Intercept: []Interceptor{{Selector: module("f/t/fragment", "a"), Func: func(context.Context, Call) (Outcome, bool, error) {
@@ -1291,6 +1333,20 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 	}
 	if rec, ok := res.Trace.Step(mustSite(t, "m:a")); !ok || string(rec.Result.Producer()) != fmt.Sprintf("%q", harness.SecretMask) {
 		t.Errorf("f/t/fragment, answered with spaces: the step result in the trace: %s; want the mask", shownBytes(rec.Result.Producer(), "synthetic-right"))
+	}
+	// An answer with spaces whose keys the stored text orders the other way,
+	// where a secret spans the first member's value and the second member:
+	// only the value written compactly, in the answer's own order, shows it.
+	// The trace's copy is the mask as a whole.
+	orderHook := &Hooks{Intercept: []Interceptor{{Selector: module("f/t/fragment", "a"), Func: func(context.Context, Call) (Outcome, bool, error) {
+		return Outcome{Result: json.RawMessage(`{"zz": "synthetic-z", "a": "synthetic-a"}`)}, true, nil
+	}}}}
+	res, err = callRT.Run(context.Background(), "f/t/fragment", nil, RunOptions{Hooks: orderHook})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec, ok := res.Trace.Step(mustSite(t, "m:a")); !ok || string(rec.Result.Producer()) != fmt.Sprintf("%q", harness.SecretMask) {
+		t.Errorf("f/t/fragment, answered with spaces in an order the stored text changes: the step result in the trace: %s; want the mask", shownBytes(rec.Result.Producer(), "synthetic-a"))
 	}
 	// And the other way round: a secret with that space, which the hook's
 	// answer holds as it is and the value written compactly does not.
