@@ -346,7 +346,9 @@ entry that the engine sets itself, or that no environment can carry:
 `ProcessConfig.Secrets` are the values of the secret entries.
 `NewSecrets` makes of them the `Secrets` that replace each value, and each
 line of one that spans lines, with `SecretMask`, `[secret]`. They replace
-it also as a Go quoted string (`%q`) writes it. They do so in the text
+it also as an error text quotes it: as a Go quoted string (`%q`) and
+JavaScript's `JSON.stringify` write it, and as `encodeURIComponent`
+escapes it. They do so in the text
 that the engine takes from the process and passes on as text of its own:
 
 - its output lines, before they are forwarded or kept for errors. A line

@@ -234,13 +234,14 @@ type Options struct {
 //
 // Secret marks a secret. The engine then replaces each occurrence of the
 // value with "[secret]", also quoted or URL-escaped, in what it passes on
-// besides a successful run's requested result (Result.Result): the harness
-// processes' output lines, which go to Diagnostics and into the errors
-// that quote them, the log tail that an escaped step's error quotes, a
-// run's warnings, its latched error and the errors of the host plugin, a
-// failed run's result, the trace's copies of step arguments, results, late
-// output and platform calls, and the trace and records that hooks get.
-// Steps and hooks get their inputs and answers as written.
+// besides a run's requested result (Result.Result) that is no error: the
+// harness processes' output lines, which go to Diagnostics and into the
+// errors that quote them, the log tail that an escaped step's error
+// quotes, a run's warnings, its latched error and the errors of the host
+// plugin, a result that is an error, the trace's copies of step arguments,
+// results, late output and platform calls, and the trace and records that
+// hooks get. A host's result cache (Options.Results) stores no step result
+// that holds one. Steps and hooks get their inputs and answers as written.
 type EnvValue struct {
 	Value    string
 	ValueEnv string
@@ -774,7 +775,13 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 		resourceStore = rt.ownStore
 	}
 	_, rt.memoryStore = resourceStore.(*platform.MemoryResourceStore)
-	rt.services = &platform.Services{Resources: store, Variables: store, Objects: objects, Results: opts.Results, ResourceStore: resourceStore, Workspace: opts.Identity.Workspace}
+	results := opts.Results
+	if results != nil && rt.secrets != nil {
+		// A result that holds a secret stays out of a cache that other
+		// runtimes, with other secrets or none, may read.
+		results = secretResults{ResultCache: results, secrets: rt.secrets}
+	}
+	rt.services = &platform.Services{Resources: store, Variables: store, Objects: objects, Results: results, ResourceStore: resourceStore, Workspace: opts.Identity.Workspace}
 	rt.exec = &recorder{runs: map[string]*callLog{}, invs: map[string]invocation{}}
 	if rt.fac, err = facade.New(facade.Config{Platform: rt.services, Answered: rt.exec.answered, Recorded: rt.exec.released, ResultPollsForAllJobs: opts.ResultPollsForAllJobs}); err != nil {
 		return nil, err

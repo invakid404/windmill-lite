@@ -3,6 +3,7 @@ package harness
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"slices"
 	"strconv"
@@ -18,10 +19,12 @@ const SecretMask = "[secret]"
 // text that it takes from a harness process and passes on. It masks each
 // value, and each line of a value that spans lines, since the process's
 // output reaches the engine one line at a time. It also masks each of them
-// as it reads inside a Go quoted string (%q, strconv.Quote), since an
-// error text can quote a value; for a quote, a backslash, a newline or a
-// tab, a JSON string writes the same. A nil *Secrets masks nothing, and
-// its methods return their input.
+// as an error text can quote it: inside a Go quoted string (%q,
+// strconv.Quote) and inside the JSON string that JavaScript's
+// JSON.stringify writes, which the harness's own errors use; and as
+// JavaScript's encodeURIComponent escapes it for a URL, as a step's
+// request to the platform facade, which the facade quotes as sent, does.
+// A nil *Secrets masks nothing, and its methods return their input.
 type Secrets struct {
 	// olds are the strings to mask, the longest first, so that a secret
 	// that holds another is masked whole: a Replacer tries its old strings
@@ -45,6 +48,8 @@ func NewSecrets(values []string) *Secrets {
 	forms := func(v string) {
 		add(v)
 		add(unquote(strconv.Quote(v)))
+		add(jsonStringify(v))
+		add(encodeURIComponent(v))
 	}
 	for _, v := range values {
 		forms(v)
@@ -63,6 +68,54 @@ func NewSecrets(values []string) *Secrets {
 		pairs = append(pairs, o, SecretMask)
 	}
 	return &Secrets{olds: olds, r: strings.NewReplacer(pairs...), longest: len(olds[0])}
+}
+
+// jsonStringify is s as JavaScript's JSON.stringify writes it inside its
+// quotes: a quote, a backslash and the control characters that have a
+// short escape are escaped so, the other control characters as \u00xx.
+func jsonStringify(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case '"':
+			b.WriteString(`\"`)
+		case '\\':
+			b.WriteString(`\\`)
+		case '\b':
+			b.WriteString(`\b`)
+		case '\f':
+			b.WriteString(`\f`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
+			if r < 0x20 {
+				fmt.Fprintf(&b, `\u%04x`, r)
+			} else {
+				b.WriteRune(r)
+			}
+		}
+	}
+	return b.String()
+}
+
+// encodeURIComponent is s as JavaScript's encodeURIComponent writes it:
+// each byte of its UTF-8 escaped as %XX, but for letters, digits and
+// - _ . ! ~ * ' ( ).
+func encodeURIComponent(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' || strings.IndexByte("-_.!~*'()", c) >= 0 {
+			b.WriteByte(c)
+		} else {
+			fmt.Fprintf(&b, "%%%02X", c)
+		}
+	}
+	return b.String()
 }
 
 // unquote is a quoted string without its quotes.
@@ -87,9 +140,12 @@ func (s *Secrets) Mask(text string) string {
 // with escapes is masked too. A number or a literal whose text holds a
 // secret, such as a secret of digits that a step returned as a number,
 // becomes the string SecretMask, so the text stays JSON. The other numbers
-// and literals, key order and duplicate keys stay as they were. It returns
-// text itself, byte for byte, when nothing holds a secret, and also when
-// text is not JSON.
+// and literals, key order and duplicate keys stay as they were. When a
+// secret still shows in the text after that, it spans the JSON's
+// structure, such as a secret that is itself a JSON document that a step
+// parsed and returned: the whole value becomes the string SecretMask. It
+// returns text itself, byte for byte, when nothing holds a secret, and
+// also when text is not JSON.
 func (s *Secrets) MaskJSON(text []byte) []byte {
 	if s == nil || len(text) == 0 {
 		return text
@@ -157,10 +213,16 @@ func (s *Secrets) MaskJSON(text []byte) []byte {
 			}
 		}
 	}
-	if !changed {
-		return text
+	masked := text
+	if changed {
+		masked = out.Bytes()
 	}
-	return out.Bytes()
+	if slices.ContainsFunc(s.olds, func(o string) bool { return bytes.Contains(masked, []byte(o)) }) {
+		var whole bytes.Buffer
+		writeJSONString(&whole, SecretMask)
+		return whole.Bytes()
+	}
+	return masked
 }
 
 // writeJSONString writes s as a JSON string, without the HTML escapes of

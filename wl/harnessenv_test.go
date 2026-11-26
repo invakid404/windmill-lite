@@ -95,9 +95,9 @@ export async function main() {
 		`{"id":"a","value":{"type":"script","path":"f/t/env","input_transforms":{"names":{"type":"static","value":["WL_TEST_SECRET"]},"hashed":{"type":"static","value":[]}}}},` +
 		`{"id":"b","value":{"type":"script","path":"f/t/echo","input_transforms":{"x":{"type":"javascript","expr":"results.a"}}}}]}}`,
 	"f/t/thrower.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/thrower","input_transforms":{}}}]}}`,
-	"f/t/number.ts": `// Returns its WL_TEST_NUMBER variable as a number.
+	"f/t/number.ts": `// Returns its WL_TEST_NUMBER variable as a number, beside a plain value.
 export async function main() {
-  return Number(process.env.WL_TEST_NUMBER);
+  return { n: Number(process.env.WL_TEST_NUMBER), plain: "kept" };
 }
 `,
 	"f/t/number.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/number","input_transforms":{}}}]}}`,
@@ -114,23 +114,49 @@ export async function main() {
 `,
 	"f/t/late.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/late","input_transforms":{}}}]}}`,
 	"f/t/call.ts": `// Calls the platform facade with WL_TEST_URL_SECRET, escaped, in a path
-// and a query, and with WL_TEST_METHOD_SECRET as a method; returns the
-// statuses.
+// and a query, on a route the facade serves and on one it does not, and
+// as it is in the first call's query, where it spans two pairs; with
+// WL_TEST_METHOD_SECRET as a method; and with WL_TEST_SLASH_SECRET as it
+// is, across a path's segments. Returns the statuses.
 export async function main() {
   const e = process.env;
-  const base = ` + "`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}/variables/get_value/`" + `;
+  const api = ` + "`${e.BASE_URL}/api/w/${e.WM_WORKSPACE}`" + `;
   const headers = { Authorization: ` + "`Bearer ${e.WM_TOKEN}`" + ` };
   const s = encodeURIComponent(e.WL_TEST_URL_SECRET ?? "");
-  const a = await fetch(base + s + "?path=" + s, { headers });
-  const b = await fetch(base + "u/t/x", { method: e.WL_TEST_METHOD_SECRET, headers });
-  return [a.status, b.status];
+  const a = await fetch(api + "/variables/get_value/" + s + "?path=" + s + "&raw=" + e.WL_TEST_URL_SECRET, { headers });
+  const b = await fetch(api + "/variables/get_value/u/t/x", { method: e.WL_TEST_METHOD_SECRET, headers });
+  const c = await fetch(api + "/no/such/route/" + s + "?q=" + s, { headers });
+  const d = await fetch(api + "/variables/get_value/" + e.WL_TEST_SLASH_SECRET, { headers });
+  return [a.status, b.status, c.status, d.status];
 }
 `,
-	// f/t/escaping: the escaping step's error, which its log tail ends, is
-	// the result of a run that succeeds.
-	"f/t/escaping.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","continue_on_error":true,"value":{"type":"script","path":"f/t/escape","input_transforms":{}}}]}}`,
-	"f/t/call.flow/flow.yaml":     `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/call","input_transforms":{}}}]}}`,
-	"f/t/latcher.flow/flow.yaml":  `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/latcher","input_transforms":{}}}]}}`,
+	"f/t/parsed.ts": `// Returns its WL_TEST_JSON_SECRET variable, a JSON document, parsed.
+export async function main() {
+  return JSON.parse(process.env.WL_TEST_JSON_SECRET ?? "null");
+}
+`,
+	"f/t/parsed.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/parsed","input_transforms":{}}}]}}`,
+	// f/t/tolerated: a step's error, which the flow carries on past, is the
+	// result of a run that succeeds; f/t/skipped: a run that a module's
+	// stop_after_if skips keeps that module's ordinary result.
+	"f/t/tolerated.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","continue_on_error":true,"value":{"type":"script","path":"f/t/thrower","input_transforms":{}}}]}}`,
+	"f/t/skipped.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","stop_after_if":{"expr":"true","skip_if_stopped":true},` +
+		`"value":{"type":"script","path":"f/t/env","input_transforms":{"names":{"type":"static","value":["WL_TEST_SECRET"]},"hashed":{"type":"static","value":[]}}}}]}}`,
+	// f/t/cachedsecret: a cache_ttl step returns WL_TEST_SECRET;
+	// f/t/cachedplain: one returns a plain value.
+	"f/t/cachedsecret.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","cache_ttl":600,"value":{"type":"rawscript","language":"bun",` +
+		`"content":"export async function main() { return process.env.WL_TEST_SECRET ?? null }","input_transforms":{}}}]}}`,
+	"f/t/cachedplain.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","cache_ttl":600,"value":{"type":"rawscript","language":"bun",` +
+		`"content":"export async function main() { return 'plain' }","input_transforms":{}}}]}}`,
+	// f/t/escaping: a branchall whose first branch's step escapes, which
+	// the branch tolerates, and whose second returns 1: the escaped error,
+	// which its log tail ends, is part of the result of a run that
+	// succeeds.
+	"f/t/escaping.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"all","value":{"type":"branchall","parallel":false,"branches":[` +
+		`{"skip_failure":true,"modules":[{"id":"x","value":{"type":"script","path":"f/t/escape","input_transforms":{}}}]},` +
+		`{"skip_failure":false,"modules":[{"id":"y","value":{"type":"rawscript","language":"bun","content":"export async function main() { return 1 }","input_transforms":{}}}]}]}}]}}`,
+	"f/t/call.flow/flow.yaml":    `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/call","input_transforms":{}}}]}}`,
+	"f/t/latcher.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/latcher","input_transforms":{}}}]}}`,
 }
 
 // harnessEnvBundle returns the pinned Bun, and a bundle of
@@ -650,7 +676,7 @@ export default {
 // call's escaped path and query and its method hold no secret; late output
 // and a late result in OnRunSettled's trace hold the mask. An escaped
 // step's error quotes its log with the mask, in a warm and in a fresh
-// runtime, also as the result of a run that succeeds.
+// runtime, also as part of the result of a run that succeeds.
 func TestHarnessEnvSecretTrace(t *testing.T) {
 	bun, out, runtimeDir := harnessEnvBundle(t)
 	const ref = "WL_TEST_HARNESS_TRACE_REF"
@@ -661,11 +687,17 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 	const number = "8675309123"
 	const urlSecret = "synthetic/url secret?&=4e2b"
 	const verb = "PATCH"
+	// A secret with slashes that a path holds as it is, and a secret that
+	// is a JSON document, which a step parses and returns.
+	const slashSecret = "synthetic/segment/secret-0b7d"
+	const jsonSecret = `["synthetic-json-secret-7d21"]`
 	env := map[string]EnvValue{
 		"WL_TEST_SECRET":        {ValueEnv: ref, Secret: true},
 		"WL_TEST_NUMBER":        {Value: number, Secret: true},
 		"WL_TEST_URL_SECRET":    {Value: urlSecret, Secret: true},
 		"WL_TEST_METHOD_SECRET": {Value: verb, Secret: true},
+		"WL_TEST_SLASH_SECRET":  {Value: slashSecret, Secret: true},
+		"WL_TEST_JSON_SECRET":   {Value: jsonSecret, Secret: true},
 	}
 	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, HarnessEnv: env})
 	if err != nil {
@@ -739,6 +771,40 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 	if res.Status != StatusFailure || !strings.Contains(string(res.Result), "failed with "+harness.SecretMask) || strings.Contains(string(res.Result), secret) {
 		t.Errorf("the script f/t/thrower: %s %s; want a failure whose result holds the mask instead of the secret", res.Status, shownBytes(res.Result, secret))
 	}
+	// The result is an error, a step's that the flow carried on past, of a
+	// run that succeeds: it holds the mask. A run that a stop_after_if
+	// skips keeps its module's ordinary result, the host's data.
+	res, err = rt.Run(context.Background(), "f/t/tolerated", nil, RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != StatusSuccess || !strings.Contains(string(res.Result), "failed with "+harness.SecretMask) || strings.Contains(string(res.Result), secret) {
+		t.Errorf("f/t/tolerated: %s %s; want success with the error, which holds the mask", res.Status, shownBytes(res.Result, secret))
+	}
+	res, err = rt.Run(context.Background(), "f/t/skipped", nil, RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := fmt.Sprintf(`{"WL_TEST_SECRET":%q}`, secret); res.Status != StatusSkipped || string(res.Result) != want {
+		t.Errorf("f/t/skipped: %s %s; want skipped with its module's result, the secret", res.Status, shownBytes(res.Result, secret))
+	}
+
+	// A secret that is a JSON document, parsed and returned: the requested
+	// result keeps it, and the trace's copy, which spells it as it was, is
+	// the mask as a whole.
+	res, err = rt.Run(context.Background(), "f/t/parsed", nil, RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != StatusSuccess || string(res.Result) != jsonSecret {
+		t.Errorf("f/t/parsed: %s %s; want success with the parsed document", res.Status, shownBytes(res.Result, jsonSecret))
+	}
+	if trace, _ := json.Marshal(traceJSON(res.Trace)); strings.Contains(string(trace), jsonSecret) || !json.Valid(trace) {
+		t.Errorf("f/t/parsed's trace holds the document: %s", shownBytes(trace, jsonSecret))
+	}
+	if rec, ok := res.Trace.Step(mustSite(t, "m:a")); !ok || string(rec.Result.Producer()) != fmt.Sprintf("%q", harness.SecretMask) {
+		t.Errorf("f/t/parsed's step result in the trace: %s; want the mask", shownBytes(rec.Result.Producer(), jsonSecret))
+	}
 
 	// A secret of digits that a step returns as a number: the requested
 	// result keeps the number, and the trace holds the mask, as a string.
@@ -751,11 +817,11 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Status != StatusSuccess || string(res.Result) != number {
+	if want := `{"n":` + number + `,"plain":"kept"}`; res.Status != StatusSuccess || string(res.Result) != want {
 		t.Errorf("f/t/number: %s %s; want success with the number", res.Status, shownBytes(res.Result, number))
 	}
-	if rec, ok := res.Trace.Step(mustSite(t, "m:a")); !ok || string(rec.Result.Producer()) != fmt.Sprintf("%q", harness.SecretMask) {
-		t.Errorf("f/t/number's step result in the trace: %s; want the mask", shownBytes(rec.Result.Producer(), number))
+	if rec, ok := res.Trace.Step(mustSite(t, "m:a")); !ok || string(rec.Result.Producer()) != fmt.Sprintf(`{"n":%q,"plain":"kept"}`, harness.SecretMask) {
+		t.Errorf("f/t/number's step result in the trace: %s; want the number masked and the plain value kept", shownBytes(rec.Result.Producer(), number))
 	}
 	var counts *Warning
 	for i, w := range res.Warnings {
@@ -768,25 +834,33 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 	}
 
 	// The platform calls in the trace: a secret with URL punctuation in a
-	// path and a query, which the step escaped, and a secret as a method.
-	// The second call's route is one that windmill-lite does not serve, so
-	// its answer, 501, fails the step, and the failure quotes the call.
+	// path and a query, which the step escaped, on a route the facade
+	// serves and on one it does not; a secret as a method; a secret with
+	// slashes as it is, across a path's segments. The two unserved routes'
+	// answers, 501, fail the step, and the failure quotes the calls. No
+	// copy holds a secret in any form: the failure, the trace, and each
+	// call's fields, raw and decoded.
 	res, err = rt.Run(context.Background(), "f/t/call", nil, RunOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(res.Result), verb) || strings.Contains(string(res.Result), urlSecret) {
-		t.Errorf("f/t/call's result holds a secret: %d bytes", len(res.Result))
+	if len(res.Trace.PlatformCalls) != 4 {
+		t.Fatalf("f/t/call made %d platform calls, want 4", len(res.Trace.PlatformCalls))
 	}
-	if len(res.Trace.PlatformCalls) != 2 {
-		t.Fatalf("f/t/call made %d platform calls, want 2", len(res.Trace.PlatformCalls))
-	}
+	forms := []string{urlSecret, url.PathEscape(urlSecret), url.QueryEscape(urlSecret), jsEncodeURIComponent(urlSecret), verb, slashSecret}
+	trace, _ = json.Marshal(traceJSON(res.Trace))
+	texts := map[string]string{"the failure": string(res.Result), "the trace": string(trace)}
 	for i, c := range res.Trace.PlatformCalls {
 		path, _ := url.PathUnescape(c.Path)
 		query, _ := url.QueryUnescape(c.Query)
-		for _, field := range []string{c.Method, c.Path, c.Query, path, query, c.Message} {
-			if strings.Contains(field, urlSecret) || strings.Contains(field, url.PathEscape(urlSecret)) || strings.Contains(field, url.QueryEscape(urlSecret)) || strings.Contains(field, verb) {
-				t.Errorf("platform call %d holds a secret: method %s, a path and query of %d and %d bytes", i, shownBytes([]byte(c.Method), verb), len(c.Path), len(c.Query))
+		for name, field := range map[string]string{"method": c.Method, "path": c.Path, "query": c.Query, "decoded path": path, "decoded query": query, "message": c.Message} {
+			texts[fmt.Sprintf("platform call %d's %s", i, name)] = field
+		}
+	}
+	for what, text := range texts {
+		for _, f := range forms {
+			if strings.Contains(text, f) {
+				t.Errorf("%s holds a secret, as %d bytes", what, len(f))
 			}
 		}
 	}
@@ -795,6 +869,12 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 	}
 	if c := res.Trace.PlatformCalls[1]; c.Method != harness.SecretMask {
 		t.Errorf("the second platform call's method: want the mask")
+	}
+	if c := res.Trace.PlatformCalls[2]; !c.Unsupported || !strings.Contains(c.Message, harness.SecretMask) {
+		t.Errorf("the third platform call: unsupported %v; want the 501, its message with the mask", c.Unsupported)
+	}
+	if c := res.Trace.PlatformCalls[3]; !strings.Contains(c.Path, url.PathEscape(harness.SecretMask)) {
+		t.Errorf("the fourth platform call: want the mask in its path")
 	}
 
 	// Late output that the settled callback's own trace holds: the step
@@ -847,8 +927,8 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 			t.Errorf("%s: an escaped step: %s %s; want a failure whose error quotes its log with the mask", mode, res.Status, shownBytes(res.Result, secret))
 		}
 		// The error, an error text that the engine wrote from the log tail,
-		// is the result of a run that succeeds, which keeps its result as
-		// it is: the tail itself holds the mask.
+		// is part of the result of a run that succeeds, which keeps its
+		// result as it is: the tail itself holds the mask.
 		res, err = rt.Run(context.Background(), "f/t/escaping", nil, RunOptions{})
 		if err != nil {
 			t.Fatal(err)
@@ -864,13 +944,14 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 // Open with an error that holds the mask, and the value in no form, raw or
 // quoted: a selector whose branch is the value, still ErrSelector, and a
 // provider named by the value that Options.Providers names too. The value
-// holds a quote and a backslash, which a quoting error escapes.
+// holds a quote, a backslash and an escape character, which a quoting
+// error escapes.
 func TestHarnessEnvSecretDeclaration(t *testing.T) {
 	bun, out, runtimeDir := harnessEnvBundle(t)
 	const ref = "WL_TEST_HARNESS_DECLARATION_REF"
-	// A quote and a backslash, which an error that quotes the value
-	// escapes.
-	const secret = `synthetic"declared\secret-3f58`
+	// A quote, a backslash and an escape character, which an error that
+	// quotes the value escapes: the last one other than JSON.stringify.
+	const secret = "synthetic\"declared\\secret\x1b-3f58"
 	t.Setenv(ref, secret)
 	dir := t.TempDir()
 	branch := filepath.Join(dir, "branch.ts")
@@ -914,4 +995,108 @@ func shownBytes(text []byte, secret string) string {
 		return fmt.Sprintf("(%d bytes that hold the secret)", len(text))
 	}
 	return string(text)
+}
+
+// jsEncodeURIComponent is s as JavaScript's encodeURIComponent writes it.
+func jsEncodeURIComponent(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' || strings.IndexByte("-_.!~*'()", c) >= 0 {
+			b.WriteByte(c)
+		} else {
+			fmt.Fprintf(&b, "%%%02X", c)
+		}
+	}
+	return b.String()
+}
+
+// TestHarnessEnvSecretPluginAnswer checks a host plugin's answer that the
+// harness refuses: an interception whose function returns a Secret entry's
+// value, which is no outcome. The harness's error spells the answer as
+// JSON.stringify does, which escapes the secret's control character other
+// than a Go quoted string does. The latched error, the warnings and the
+// trace hold the mask, and the secret in no form: raw, Go quoted or as
+// JSON.stringify writes it.
+func TestHarnessEnvSecretPluginAnswer(t *testing.T) {
+	bun, out, runtimeDir := harnessEnvBundle(t)
+	const secret = "synthetic\x1besc-secret-2c9a"
+	plugin := filepath.Join(t.TempDir(), "plugin.ts")
+	src := `export default { intercept: [{ selector: { flow: "f/t/env", module: "a" }, fn: () => process.env.WL_TEST_SECRET }] };
+`
+	if err := os.WriteFile(plugin, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, HarnessEnv: map[string]EnvValue{"WL_TEST_SECRET": {Value: secret, Secret: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	res, err := rt.Run(context.Background(), "f/t/env", json.RawMessage(`{"names":[],"hashed":[]}`), RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != StatusLatched || res.Latched == nil || !strings.Contains(res.Latched.Error(), harness.SecretMask) {
+		t.Fatalf("%s, latched %v; want latched by the refused answer, with the mask", res.Status, res.Latched)
+	}
+	quoted := strconv.Quote(secret)
+	forms := []string{secret, quoted[1 : len(quoted)-1], `synthetic\u001besc-secret-2c9a`}
+	trace, _ := json.Marshal(traceJSON(res.Trace))
+	warnings, _ := json.Marshal(res.Warnings)
+	for what, text := range map[string]string{"the latched error": res.Latched.Error(), "the warnings": string(warnings), "the trace": string(trace)} {
+		for _, f := range forms {
+			if strings.Contains(text, f) {
+				t.Errorf("%s holds the secret as %q", what, f)
+			}
+		}
+	}
+}
+
+// TestHarnessEnvSecretResultCache checks a host's result cache that
+// runtimes share (Options.Results): a cache_ttl step's result that holds a
+// Secret entry's value is not stored, so a later runtime of the bundle,
+// whose entry has another value or is gone, runs the step again and
+// returns no earlier secret, in its result or its trace. A result that
+// holds no secret is still stored.
+func TestHarnessEnvSecretResultCache(t *testing.T) {
+	bun, out, runtimeDir := harnessEnvBundle(t)
+	const first = "synthetic-cached-secret-a1f3"
+	const second = "synthetic-cached-secret-b2e4"
+	cache := &countingCache{ResultCache: platform.NewMemoryResults()}
+	for i, c := range []struct {
+		env  map[string]EnvValue
+		want string
+	}{
+		{map[string]EnvValue{"WL_TEST_SECRET": {Value: first, Secret: true}}, fmt.Sprintf("%q", first)},
+		{map[string]EnvValue{"WL_TEST_SECRET": {Value: second, Secret: true}}, fmt.Sprintf("%q", second)},
+		{nil, "null"},
+	} {
+		rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Results: cache, HarnessEnv: c.env})
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := rt.Run(context.Background(), "f/t/cachedsecret", nil, RunOptions{})
+		rt.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		trace, _ := json.Marshal(traceJSON(res.Trace))
+		if res.Status != StatusSuccess || string(res.Result) != c.want {
+			t.Errorf("runtime %d: %s, a result of %d bytes; want its own value", i, res.Status, len(res.Result))
+		}
+		if i > 0 && (strings.Contains(string(res.Result), first) || strings.Contains(string(trace), first)) {
+			t.Errorf("runtime %d returns the first runtime's secret", i)
+		}
+	}
+	if cache.puts != 1 {
+		t.Errorf("%d results stored; want 1, the third runtime's, which holds no secret", cache.puts)
+	}
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Results: cache, HarnessEnv: map[string]EnvValue{"WL_TEST_SECRET": {Value: first, Secret: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	if res, err := rt.Run(context.Background(), "f/t/cachedplain", nil, RunOptions{}); err != nil || res.Status != StatusSuccess || cache.puts != 2 {
+		t.Errorf("a plain cached result: %v, %d stored; want it stored", err, cache.puts)
+	}
 }

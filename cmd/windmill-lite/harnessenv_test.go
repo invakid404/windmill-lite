@@ -236,9 +236,10 @@ func TestPluginHarnessEnvSecretMasked(t *testing.T) {
 		t.Errorf("the engine's standard error, once it exited: want the plugin's line with the mask and not the secret")
 	}
 
-	// The failed starts' secret holds a quote and a backslash, which a
-	// refusal that quotes the value escapes: no form of it may show.
-	const quotedSecret = `synthetic"quoted\secret-77aa`
+	// The failed starts' secret holds a quote, a backslash and an escape
+	// character, which a refusal that quotes the value escapes: no form of
+	// it may show.
+	const quotedSecret = "synthetic\"quoted\\secret\x1b-77aa"
 	quoted := strconv.Quote(quotedSecret)
 	encoded, _ := json.Marshal(quotedSecret)
 	forms := []string{quotedSecret, quoted[1 : len(quoted)-1], string(encoded[1 : len(encoded)-1])}

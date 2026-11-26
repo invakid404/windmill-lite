@@ -568,9 +568,11 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	// rest of what leaves the engine, has the runtime's secrets masked.
 	masked := maskTrace(rt.secrets, tr)
 	result := tr.Result
-	if tr.Status != conformance.RunSuccess {
-		// A run that did not succeed returns an error value, whose text
-		// is an error text: it has the secrets masked too.
+	if tr.ResultOrigin != engine.OriginNone {
+		// The result is an error, an error text, whether the run failed
+		// or a flow carried on past a step's error: it has the secrets
+		// masked too. Other results, a skipped run's included, are the
+		// host's data.
 		result = masked.Result
 	}
 	return &Result{
