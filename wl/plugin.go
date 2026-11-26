@@ -333,10 +333,13 @@ func (p *plugin) goHooks() *Hooks {
 				// none, and the text null for an answer of JSON null.
 				Answer json.RawMessage `json:"answer"`
 				// AnswerBytes is, in a reply without Answer, the size of
-				// the answer that the harness left out because the reply
-				// with it did not fit the harness protocol's message
-				// limit; 0 for none.
-				AnswerBytes int64 `json:"answer_bytes"`
+				// the answer, as a JSON integer, that the harness left out
+				// because the reply with it did not fit the harness
+				// protocol's message limit. It stays raw here, because a
+				// run's hooks on a host's connection may answer any member
+				// beside their warnings, and only the runtime's own plugin
+				// reads it.
+				AnswerBytes json.RawMessage `json:"answer_bytes"`
 			}
 			// A run its context ended, canceled or past a deadline, still
 			// reports its end: the call has the plugin timeout alone.
@@ -353,8 +356,8 @@ func (p *plugin) goHooks() *Hooks {
 				return ws
 			}
 			size := int64(len(r.Answer))
-			if r.Answer == nil {
-				size = r.AnswerBytes
+			if r.Answer == nil && json.Unmarshal(r.AnswerBytes, &size) != nil {
+				size = 0
 			}
 			switch {
 			case r.Answer != nil && size <= MaxRunEndAnswerBytes:

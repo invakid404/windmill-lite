@@ -135,11 +135,11 @@ export type TraceDetail = "full" | "summary" | "none";
 export type Warning = { code: string; message: string };
 
 /** What onRunEnd may return besides warnings or nothing: a plain object
- * whose keys are warnings, answer or both. warnings are added to the run;
- * answer, any JSON value, is the run's answer, which its result carries
- * (wl.Result.Answer). An answer of null is an answer; leaving answer out,
- * or undefined, gives none. */
-export type RunEnd = { warnings?: Warning[]; answer?: unknown };
+ * whose keys are warnings, answer or both, so at least one of them is
+ * present. warnings are added to the run; answer, any JSON value, is the
+ * run's answer, which its result carries (wl.Result.Answer). An answer of
+ * null is an answer; leaving answer out, or undefined, gives none. */
+export type RunEnd = { warnings: Warning[] | undefined; answer?: unknown } | { warnings?: Warning[]; answer: unknown };
 
 /** The JSON text of the answer that onRunEnd gave, as JSON.stringify wrote
  * it once. The reply carries these bytes (replyText), so a getter or a

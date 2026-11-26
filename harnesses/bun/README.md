@@ -743,7 +743,10 @@ A root script's run calls no run-end hook.
 - **A reply too large to send.** When the reply with its answer does not
   fit the harness protocol's message limit, the runtime sends the hook's
   warnings and the answer's size without the answer. The run keeps those
-  warnings and gets a `plugin_error` warning that names the size.
+  warnings and gets a `plugin_error` warning that names the size. When the
+  size does not fit beside the warnings either, the warnings go alone,
+  with no such warning; only warnings too large by themselves fail the
+  reply.
 - **The type.** `RunEnd` is a type that `windmill-lite/bun` exports.
 
 ## Errors and refusals
@@ -1292,8 +1295,9 @@ The registry:
   becomes the reply `{ warnings, answer? }`, its answer an `AnswerText`
   that holds the one serialisation, written into the payload as it is.
   When that payload is over `max_message`, the runtime sends
-  `{ warnings, answer_bytes }` instead. The engine, not the harness,
-  checks the answer's size against its bound.
+  `{ warnings, answer_bytes }` instead, and `{ warnings }` when that is
+  over too. The engine, not the harness, checks the answer's size against
+  its bound.
 - **`around`** (`runAround`). The runtime runs the step inside the
   matching wrappers, outermost first, in the invocation's context. A
   failed wrapper is reported in a `plugin_error` warning before the
@@ -1637,6 +1641,9 @@ its own lockfile:
 - For each set, it runs `tsc` four times: with and without the DOM
   library, each in strict and in non-strict mode. It exits 1 if any of the
   eight runs reports an error.
+- Each run also checks `test/typecheck/examples.ts`: uses of the SDK's
+  public types, such as `RunEnd`. A line under `@ts-expect-error` there
+  must fail to compile, so the examples hold what the types refuse too.
 - CI's `Bun SDK types` job runs it, and does not block a merge.
 - Renovate keeps `@types/bun` at 1.4.3 in both sets, and the oldest set's
   `@types/node` within major version 24.

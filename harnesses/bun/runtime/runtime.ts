@@ -730,13 +730,18 @@ export class Runtime {
       } catch (e) {
         // A run-end answer too large for max_message goes without its
         // answer, and with its size, so that the hook's warnings still
-        // reach the engine, which says why the run has no answer.
+        // reach the engine, which says why the run has no answer. When the
+        // size does not fit beside the warnings either, the warnings go
+        // alone: any reply that fits keeps them.
         if (payload?.answer instanceof AnswerText) {
-          try {
-            this.send({ t: "host_reply", id: m.id, payload: new Raw(replyText(payload, true)) });
-            return;
-          } catch {
-            // Too large without the answer too: the error below.
+          const { answer: _, ...warningsOnly } = payload;
+          for (const text of [replyText(payload, true), replyText(warningsOnly)]) {
+            try {
+              this.send({ t: "host_reply", id: m.id, payload: new Raw(text) });
+              return;
+            } catch {
+              // Too large: the next, smaller, reply.
+            }
           }
         }
         // An answer too large, or not JSON: the engine hears why.

@@ -230,6 +230,20 @@ describe("the runtime", () => {
     runtime.onClose();
   });
 
+  test("a run-end reply whose size does not fit beside its warnings sends the warnings alone, when they fit", async () => {
+    // One warning of 4,010 characters: the reply with it alone fits 4,096
+    // bytes, and the same reply with answer_bytes does not.
+    const w = { code: "c", message: "w".repeat(4010) };
+    const frameOf = (payload: string) => encode({ t: "host_reply", id: "hc1", payload: new Raw(payload) }).length;
+    expect(frameOf(JSON.stringify({ warnings: [w] }))).toBeLessThanOrEqual(4096);
+    expect(frameOf(JSON.stringify({ warnings: [w], answer_bytes: 1048578 }))).toBeGreaterThan(4096);
+    const { runtime, send, messages } = hostRuntime({ onRunEnd: () => ({ warnings: [w], answer: "x".repeat(1048576) }) }, 4096);
+    send({ t: "host_call", id: "hc1", hook: "on_run_end", run: "r", site: "", payload: { trace: { run: "r", status: "success" } } });
+    await Bun.sleep(5);
+    expect(messages().find((m) => m.t === "host_reply")).toEqual({ t: "host_reply", id: "hc1", payload: { warnings: [w] } });
+    runtime.onClose();
+  });
+
   test("a run's outcome carries run_done's answer as JSON text: null is an answer, an absent one none", async () => {
     const { runtime, send } = hostRuntime();
     const runs = [0, 1, 2].map(() => runtime.submit("flow", "f/x", "{}"));

@@ -10,5 +10,5 @@
     "strict": true,
     "skipLibCheck": true
   },
-  "include": ["host/**/*.ts", "runtime/**/*.ts"]
+  "include": ["host/**/*.ts", "runtime/**/*.ts", "examples.ts"]
 }

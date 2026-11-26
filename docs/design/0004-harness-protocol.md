@@ -1060,6 +1060,10 @@ answered by a `host_reply`.
       `answer_bytes`, the answer's size in UTF-8 bytes, without the answer.
       The engine then adds a `plugin_error` warning that names the size,
       so the hook's warnings still arrive.
+    - **The edge of that rule.** When `answer_bytes` does not fit beside the
+      warnings either, the harness sends the warnings alone, and the run
+      has no answer and no warning that says why. Only a reply whose
+      warnings alone are over `max_message` is a `plugin_error`.
     - **One serialisation.** The harness reads the answer once and
       serialises it once, and the reply carries that text, so what the
       harness checked is what the engine gets.

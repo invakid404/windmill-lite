@@ -58,7 +58,8 @@ plugin: f/end/plugin.ts
 // text null for an answer of null, and nothing when onRunEnd returns only
 // warnings, or for a root script's run, which calls no run-end hook. A
 // run's hooks on the broker answer no run: the answer of their on_run_end
-// is ignored, and their warnings stay the run's.
+// and their other members, an answer_bytes that is not a number included,
+// are ignored, and their warnings stay the run's.
 func TestRunnerRunEndAnswer(t *testing.T) {
 	bun := absBun(t)
 	out := filepath.Join(t.TempDir(), "bundle")
@@ -93,7 +94,9 @@ func TestRunnerRunEndAnswer(t *testing.T) {
 			if c.GetHook() != "on_run_end" {
 				return &plugin.HookReply{Payload: []byte(`{}`)}, nil
 			}
-			return &plugin.HookReply{Payload: []byte(`{"warnings":[{"code":"host","message":"the host's hook"}],"answer":"the host's answer"}`)}, nil
+			// Members beside the warnings are the host's own: the engine
+			// ignores them, an answer_bytes that is not a number included.
+			return &plugin.HookReply{Payload: []byte(`{"warnings":[{"code":"host","message":"the host's hook"}],"answer":"the host's answer","answer_bytes":"unknown"}`)}, nil
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
