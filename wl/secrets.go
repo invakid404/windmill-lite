@@ -163,7 +163,7 @@ func (c secretResults) Put(ctx context.Context, key string, value []byte, expire
 	if err := json.Unmarshal(value, &entry); err != nil || len(entry.Result) == 0 {
 		return nil
 	}
-	if !bytes.Equal(c.secrets.MaskJSON(entry.Result), entry.Result) {
+	if c.secrets.HoldsJSON(entry.Result) {
 		return nil
 	}
 	return c.ResultCache.Put(ctx, key, value, expires)
@@ -184,7 +184,7 @@ func (c secretResults) Get(ctx context.Context, key string, now time.Time) ([]by
 		Result    json.RawMessage `json:"result"`
 		AllErrors bool            `json:"all_errors"`
 	}
-	if json.Unmarshal(value, &entry) == nil && !entry.AllErrors && !bytes.Equal(c.secrets.MaskJSON(entry.Result), entry.Result) {
+	if json.Unmarshal(value, &entry) == nil && !entry.AllErrors && c.secrets.HoldsJSON(entry.Result) {
 		return nil, false, nil
 	}
 	return value, ok, err
@@ -205,8 +205,10 @@ func maskErrorParts(secrets *harness.Secrets, t *Trace, result jsonval.Value) js
 	if t.ResultOrigin != engine.OriginNone {
 		pointers = []string{""}
 	}
-	// The result is in stored form already (Trace.Result), the text the host
-	// gets: its errors are masked as it reads.
+	// Trace.Result is the result's stored text, or its producer text when the
+	// engine could not store it, and Run converts it with storedText at the
+	// end. MaskJSONAt reads it as it is and as stored, and masks again until
+	// neither shows a secret, so what the host gets is masked either way.
 	text := result.Producer()
 	masked := secrets.MaskJSONAt(text, pointers)
 	if bytes.Equal(masked, text) {

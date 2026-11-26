@@ -858,6 +858,8 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 		"WL_TEST_MID":            {Value: "midkey", Secret: true},
 		"WL_TEST_JOIN":           {Value: `SyntheticError","longkey":`, Secret: true},
 		"WL_TEST_ORDER":          {Value: `synthetic-z","a":"synthetic-a`, Secret: true},
+		"WL_TEST_DIGITS":         {Value: "86420135", Secret: true},
+		"WL_TEST_QUOTE_EXP":      {Value: `",7.5e2`, Secret: true},
 	}
 	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, HarnessEnv: env})
 	if err != nil {
@@ -1184,6 +1186,22 @@ func TestHarnessEnvSecretTrace(t *testing.T) {
 	trace, _ = json.Marshal(traceJSON(res.Trace))
 	if rec, ok := res.Trace.Step(mustSite(t, "m:a")); string(res.Result) != `["synthetic-left",4200]` || !ok || string(rec.Result.Producer()) != fmt.Sprintf("%q", harness.SecretMask) || strings.Contains(string(trace), "4200") {
 		t.Errorf("f/t/fragment, answered with a number that a stored secret spans: result %s, record %s; want the array kept and the mask whole in the trace", res.Result, shownBytes(rec.Result.Producer(), "4200"))
+	}
+	// A Go hook's answer whose first number is a secret: masked, it becomes a
+	// string, whose closing quote meets the next number as the answer spells
+	// it, which a second secret is. The record holds the mask whole, as
+	// written and as stored, and the requested result keeps the array.
+	quoteHook := &Hooks{Intercept: []Interceptor{{Selector: module("f/t/fragment", "a"), Func: func(context.Context, Call) (Outcome, bool, error) {
+		return Outcome{Result: json.RawMessage(`[86420135,7.5e2]`)}, true, nil
+	}}}}
+	res, err = callRT.Run(context.Background(), "f/t/fragment", nil, RunOptions{Hooks: quoteHook})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec, ok := res.Trace.Step(mustSite(t, "m:a")); string(res.Result) != `[86420135,750]` || !ok || string(rec.Result.Producer()) != fmt.Sprintf("%q", harness.SecretMask) {
+		t.Errorf("f/t/fragment, answered with a number whose mask would meet the next: result %s, record %s; want the array kept and the mask whole", res.Result, shownBytes(rec.Result.Producer(), `",7.5e2`))
+	} else if stored, err := rec.Result.Stored(); err != nil || string(stored) != fmt.Sprintf("%q", harness.SecretMask) {
+		t.Errorf("f/t/fragment, answered with a number whose mask would meet the next: the record as stored: %s, %v; want the mask whole", stored, err)
 	}
 	// A failure whose key is a secret, between a name and a key that a
 	// secret joins: masked, the key sorts after the other in the stored text
@@ -1611,6 +1629,30 @@ func TestHarnessEnvSecretResultCache(t *testing.T) {
 			t.Errorf("fragment runtime %d: %v %s, %d bytes, %d stored; want its own array, not stored", i, err, res.Status, len(res.Result), cache.puts)
 		}
 	}
+	// A secret that is the mask itself: masking its result leaves the bytes
+	// as they were, and the result is still kept out, so a runtime without
+	// the entry runs the step for its own.
+	maskCache := &countingCache{ResultCache: platform.NewMemoryResults()}
+	for i, c := range []struct {
+		env  map[string]EnvValue
+		want string
+	}{
+		{map[string]EnvValue{"WL_TEST_SECRET": {Value: harness.SecretMask, Secret: true}}, fmt.Sprintf("%q", harness.SecretMask)},
+		{nil, "null"},
+	} {
+		rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Results: maskCache, HarnessEnv: c.env})
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := rt.Run(context.Background(), "f/t/cachedsecret", nil, RunOptions{})
+		rt.Close()
+		if err != nil || res.Status != StatusSuccess || string(res.Result) != c.want {
+			t.Errorf("mask-valued runtime %d: %v %s %s; want %s", i, err, res.Status, res.Result, c.want)
+		}
+	}
+	if maskCache.puts != 1 {
+		t.Errorf("%d results stored with a secret that is the mask; want 1, the runtime's without it", maskCache.puts)
+	}
 	// A plain result is stored, also by a runtime whose secret is the
 	// entry's own key, and a second such runtime reads it.
 	for i := range 2 {
@@ -1712,9 +1754,9 @@ func TestHarnessEnvSecretProvenance(t *testing.T) {
 	// the run masks its own result's error and keeps the data; one whose
 	// result holds none is read as it is.
 	for _, c := range []struct {
-		value string
-		hit   bool
-	}{{secret, false}, {"synthetic-unrelated-5e7f", true}} {
+		value, reader string
+		hit           bool
+	}{{secret, secret, false}, {"synthetic-unrelated-5e7f", secret, true}, {harness.SecretMask, harness.SecretMask, false}} {
 		store := &recordingCache{ResultCache: platform.NewMemoryResults()}
 		writer, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Results: store, HarnessEnv: map[string]EnvValue{"WL_TEST_SECRET": {Value: c.value}}})
 		if err != nil {
@@ -1733,7 +1775,7 @@ func TestHarnessEnvSecretProvenance(t *testing.T) {
 		if err := store.ResultCache.Put(context.Background(), key, legacy, time.Now().Add(time.Hour)); err != nil {
 			t.Fatal(err)
 		}
-		reader, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Results: store, HarnessEnv: map[string]EnvValue{"WL_TEST_SECRET": {Value: secret, Secret: true}}})
+		reader, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Results: store, HarnessEnv: map[string]EnvValue{"WL_TEST_SECRET": {Value: c.reader, Secret: true}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1746,7 +1788,7 @@ func TestHarnessEnvSecretProvenance(t *testing.T) {
 		switch {
 		case res.Trace.Cached != c.hit:
 			t.Errorf("an earlier engine's entry holding %d bytes: cached %v, want %v", len(c.value), res.Trace.Cached, c.hit)
-		case !c.hit && (strings.Count(r, secret) != 1 || !strings.Contains(r, sibling) || !strings.Contains(r, "failed with "+harness.SecretMask)):
+		case !c.hit && c.reader == secret && (strings.Count(r, secret) != 1 || !strings.Contains(r, sibling) || !strings.Contains(r, "failed with "+harness.SecretMask)):
 			t.Errorf("an earlier engine's entry with the secret: %s; want the run's own result, the error masked and the data whole", shownBytes(res.Result, secret))
 		case c.hit && !strings.Contains(r, "failed with "+c.value):
 			t.Errorf("an earlier engine's entry without the secret: %s; want it as stored", r)

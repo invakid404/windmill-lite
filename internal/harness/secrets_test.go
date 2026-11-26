@@ -199,3 +199,34 @@ func TestMaskJSONSecretInTheMask(t *testing.T) {
 		t.Errorf("masking with a secret inside the mask: %q; want the mask whole", got)
 	}
 }
+
+// TestMaskJSONSettlesOnlyWhatChanges checks that when masking a selected
+// part never settles, because the mask itself holds its secret, only that
+// part is masked whole: another selected part, which masking left as it
+// was, keeps its text.
+func TestMaskJSONSettlesOnlyWhatChanges(t *testing.T) {
+	got := string(NewSecrets([]string{"cre"}).MaskJSONAt([]byte(`[{"error":"cre"},{"error":"timeout"}]`), []string{"/0", "/1"}))
+	if want := `["[secret]",{"error":"timeout"}]`; got != want {
+		t.Errorf("masking two errors, one whose secret the mask holds: %s; want %s", got, want)
+	}
+}
+
+// BenchmarkMaskJSONWideObject reports the time to mask an object of 20,000
+// members written with spaces, one of whose values is a secret, so that
+// its stored text, read too, carries its find over to the object.
+func BenchmarkMaskJSONWideObject(b *testing.B) {
+	sec := NewSecrets([]string{"synth-8b"})
+	var obj strings.Builder
+	obj.WriteString("{")
+	for i := range 20000 {
+		if i > 0 {
+			obj.WriteString(", ")
+		}
+		fmt.Fprintf(&obj, `"k%d": "v%d"`, i, i)
+	}
+	obj.WriteString(`, "last": "synth-8b"}`)
+	text := []byte(obj.String())
+	for range b.N {
+		sec.MaskJSON(text)
+	}
+}
