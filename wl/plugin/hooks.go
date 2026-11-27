@@ -138,14 +138,16 @@ func (sv *serving) stale() bool {
 // The Client counts the engine's connections at its own end, where the
 // end of a connection can arrive after the engine has dropped it. A run in
 // that window names a broker id that the engine cannot dial again, and the
-// engine refuses it, naming hooks.broker_id in the refusal's metadata
-// (MetadataField). The Client then drops the run's registration, replaces
-// the connection, and sends the run once more, from its checks on, with a
-// new connection and a new token: the run did not start. It returns a
-// second such refusal with ErrNotStarted, as every other refusal. It sends
-// the run once when the run's context, the Client or the engine's
-// generation has ended by the time of the refusal, and against an engine
-// whose refusal names no field.
+// engine refuses it: the refusal's metadata names hooks.broker_id
+// (MetadataField) with the cause CauseBrokerIDUsed (MetadataCause). At
+// that refusal alone the Client drops the run's registration, replaces the
+// connection, and sends the run once more, from its checks on, with a new
+// connection and a new token: the run did not start. It returns a second
+// refusal with ErrNotStarted. It sends the run once when the run's
+// context, the Client or the engine's generation has ended by the time of
+// the refusal, and at every other refusal: one of hooks.broker_id without
+// that cause, such as a failed first dial of a new id, and every refusal
+// of an engine that predates the cause.
 //
 // The Client gives a run without an id a fresh UUID and registers h under
 // it with a fresh token before it sends req, and refuses a run whose id it
@@ -181,11 +183,11 @@ func (c *Client) RunWithHooks(ctx context.Context, req *RunRequest, declaration 
 }
 
 // runWithHooks sends req once as the run id, with a fresh token, on the
-// Client's broker connection. When the engine refuses the run because of
-// its hooks.broker_id, it replaces that connection, and again reports
-// whether RunWithHooks sends the run once more: only after a first try,
-// and while the run's context, the Client and the engine's generation go
-// on.
+// Client's broker connection. When the engine refuses the run because its
+// broker id was used already, it replaces that connection, and again
+// reports whether RunWithHooks sends the run once more: only after a
+// first try, and while the run's context, the Client and the engine's
+// generation go on.
 func (c *Client) runWithHooks(ctx context.Context, req *RunRequest, id string, declaration []byte, h HookHandler, first bool) (res *RunResult, again bool, err error) {
 	token := newUUID()
 	c.hooks.mu.Lock()
@@ -248,7 +250,7 @@ func (c *Client) runWithHooks(ctx context.Context, req *RunRequest, id string, d
 	})
 	res, err = c.run(ctx, send)
 	if err != nil && errors.Is(err, ErrNotStarted) {
-		if refusedBrokerID(err) {
+		if refusedUsedBrokerID(err) {
 			return nil, c.unreachable(ctx, id, token, sv) && first, err
 		}
 		c.drop(id, token)
@@ -259,11 +261,11 @@ func (c *Client) runWithHooks(ctx context.Context, req *RunRequest, id string, d
 }
 
 // unreachable drops the registration of the run id, whose token is token,
-// after the engine refused the run because it could not reach the opening
-// sv. The Client replaces sv as it replaces a stale opening: it retires sv
-// now when no registration names it, and otherwise keeps it until the
-// last of them goes. It reports whether the run's context, the Client and
-// the engine's generation still go on.
+// after the engine refused the run because it can no longer dial the
+// opening sv. The Client replaces sv as it replaces a stale opening: it
+// retires sv now when no registration names it, and otherwise keeps it
+// until the last of them goes. It reports whether the run's context, the
+// Client and the engine's generation still go on.
 func (c *Client) unreachable(ctx context.Context, id, token string, sv *serving) bool {
 	c.hooks.mu.Lock()
 	defer c.hooks.mu.Unlock()
@@ -283,18 +285,20 @@ func (c *Client) unreachable(ctx context.Context, id, token string, sv *serving)
 	return ctx.Err() == nil && !c.hooks.closed && (c.generation == nil || c.generation.Err() == nil)
 }
 
-// refusedBrokerID reports whether err is the engine's refusal of a run
-// because of its hooks.broker_id: INVALID_ARGUMENT with the
-// RUN_NOT_STARTED detail, whose metadata names that field. The message
-// text is not read.
-func refusedBrokerID(err error) bool {
+// refusedUsedBrokerID reports whether err is the engine's refusal of a
+// run because its broker id was used already: INVALID_ARGUMENT with the
+// RUN_NOT_STARTED detail, whose metadata names hooks.broker_id with the
+// cause CauseBrokerIDUsed. The message text is not read.
+func refusedUsedBrokerID(err error) bool {
 	st, ok := status.FromError(err)
 	if !ok || st.Code() != codes.InvalidArgument {
 		return false
 	}
 	for _, d := range st.Details() {
-		if info, ok := d.(*errdetails.ErrorInfo); ok && info.GetDomain() == ErrorDomain && info.GetReason() == ReasonRunNotStarted && info.GetMetadata()[MetadataField] == brokerIDField {
-			return true
+		info, ok := d.(*errdetails.ErrorInfo)
+		if ok && info.GetDomain() == ErrorDomain && info.GetReason() == ReasonRunNotStarted {
+			md := info.GetMetadata()
+			return md[MetadataField] == brokerIDField && md[MetadataCause] == CauseBrokerIDUsed
 		}
 	}
 	return false

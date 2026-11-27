@@ -155,7 +155,13 @@ func (b *brokerHooks) admit(ctx context.Context, id string, h *plugin.Hooks, arr
 			}
 			return nil, nil, refusal(code, fmt.Sprintf("the run ended before the host's hooks service answered: %v", err))
 		}
-		return nil, nil, invalid("hooks.broker_id", err.Error())
+		cause := ""
+		if errors.Is(err, errUsed) {
+			// The host's Client sends the run again on a new broker id
+			// at this cause alone.
+			cause = plugin.CauseBrokerIDUsed
+		}
+		return nil, nil, invalidCause("hooks.broker_id", err.Error(), cause)
 	}
 	call := func(ctx context.Context, hook, run, site string, payload []byte) ([]byte, error) {
 		if bc.closed.Load() {
@@ -231,9 +237,9 @@ func noAnswer(hook string, payload []byte) []byte {
 // it. A run whose deadline had passed when its request arrived waits for
 // the dial alone, and the runtime then ends it canceled, as a run without
 // hooks. A dial that has ended already is taken. An id that needs a new
-// dial although an earlier one succeeded fails at once (errUsed): the
-// engine has dropped that connection, and the host serves a new id once
-// it hears of the refusal.
+// dial although an earlier one succeeded, and that the host has not
+// released, fails at once (errUsed): the engine has dropped that
+// connection, and the host serves a new id once it hears of the refusal.
 func (b *brokerHooks) client(ctx context.Context, id uint32, ends bool) (*brokerConn, error) {
 	b.connMu.Lock()
 	c := b.conns[id]
@@ -414,10 +420,9 @@ func (b *brokerHooks) watch(id uint32, c *brokerConn, conn *grpc.ClientConn) {
 // reports whether it did. gRPC would connect again, and a run in flight
 // keeps that chance. Without one, the engine no longer holds a connection
 // to the host's listener, so the host serves a new broker id at its next
-// run with hooks: go-plugin gives an id's address once, so this one is
-// never dialled again, and an admission that still names it is refused at
-// once (client). The host's Close, which stops its listener, ends here
-// too.
+// run with hooks: go-plugin gives an id's address once. Until the host
+// releases this id, an admission that still names it is refused at once
+// (client). The host's Close, which stops its listener, ends here too.
 func (b *brokerHooks) dropUnused(id uint32) bool {
 	b.connMu.Lock()
 	c := b.conns[id]

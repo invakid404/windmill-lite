@@ -573,10 +573,21 @@ func runRefusal(err error) error {
 // it is not empty: in the message, and in the detail's metadata under
 // plugin.MetadataField, which a host reads without parsing the message.
 func invalid(field, why string) error {
+	return invalidCause(field, why, "")
+}
+
+// invalidCause is invalid with cause, when it is not empty, in the
+// detail's metadata under plugin.MetadataCause: why the engine refused
+// field.
+func invalidCause(field, why, cause string) error {
 	if field == "" {
 		return refusal(codes.InvalidArgument, why)
 	}
-	return refusalWith(codes.InvalidArgument, fmt.Sprintf("the request's %s: %s", field, why), map[string]string{plugin.MetadataField: field})
+	metadata := map[string]string{plugin.MetadataField: field}
+	if cause != "" {
+		metadata[plugin.MetadataCause] = cause
+	}
+	return refusalWith(codes.InvalidArgument, fmt.Sprintf("the request's %s: %s", field, why), metadata)
 }
 
 // refusal is the gRPC error of a run that did not start: code and msg,

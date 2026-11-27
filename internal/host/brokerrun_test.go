@@ -1676,14 +1676,30 @@ func TestBrokerTransientFailure(t *testing.T) {
 }
 
 // refusedField returns the field that the RUN_NOT_STARTED detail of err
-// names in its metadata, "" for none.
-func refusedField(err error) string {
+// names in its metadata, and the cause that it gives, "" for none.
+func refusedField(err error) (field, cause string) {
 	for _, d := range status.Convert(err).Details() {
 		if info, ok := d.(*errdetails.ErrorInfo); ok && info.GetDomain() == plugin.ErrorDomain && info.GetReason() == plugin.ReasonRunNotStarted {
-			return info.GetMetadata()[plugin.MetadataField]
+			return info.GetMetadata()[plugin.MetadataField], info.GetMetadata()[plugin.MetadataCause]
 		}
 	}
-	return ""
+	return "", ""
+}
+
+// usedRefusal reports whether err is the engine's refusal of a broker id
+// that it dialled before: INVALID_ARGUMENT with the RUN_NOT_STARTED
+// detail, naming hooks.broker_id with the cause broker_id_used.
+func usedRefusal(err error) bool {
+	field, cause := refusedField(err)
+	return status.Code(err) == codes.InvalidArgument && hasNotStarted(err) && field == "hooks.broker_id" && cause == plugin.CauseBrokerIDUsed
+}
+
+// dialRefusal reports whether err is the engine's refusal of a run whose
+// dial failed: INVALID_ARGUMENT with the RUN_NOT_STARTED detail, naming
+// hooks.broker_id with no cause.
+func dialRefusal(err error) bool {
+	field, cause := refusedField(err)
+	return status.Code(err) == codes.InvalidArgument && hasNotStarted(err) && field == "hooks.broker_id" && cause == ""
 }
 
 // dialLog records the broker ids that the engine's dials start with, as
@@ -1719,9 +1735,9 @@ func (d *dialLog) of(id uint32) int {
 // connection, so the Client's server sees no end. With no run in flight
 // the engine closes that connection, and the next run on the same Client
 // still names its broker id. The engine refuses that request at once,
-// with INVALID_ARGUMENT and the field hooks.broker_id in the refusal's
-// metadata, and starts no dial of the id, which go-plugin would answer
-// only after its 5 seconds. The Client stops serving that broker id and
+// with INVALID_ARGUMENT, the field hooks.broker_id and the cause
+// broker_id_used in the refusal's metadata, and starts no dial of the id,
+// which go-plugin would answer only after its 5 seconds. The Client stops serving that broker id and
 // sends the run once more, with a new broker id and a new token, and the
 // run is served: one call to RunWithHooks, two requests.
 func TestBrokerStaleBrokerID(t *testing.T) {
@@ -1785,8 +1801,8 @@ func TestBrokerStaleBrokerID(t *testing.T) {
 		t.Fatalf("the next run's requests: %+v; want the refused one and the one sent again", got)
 	}
 	refused, served := got[0], got[1]
-	if refused.broker != used || status.Code(refused.err) != codes.InvalidArgument || !hasNotStarted(refused.err) || refusedField(refused.err) != "hooks.broker_id" {
-		t.Errorf("the first request: broker id %d, %v; want broker id %d refused with INVALID_ARGUMENT naming hooks.broker_id", refused.broker, refused.err, used)
+	if refused.broker != used || !usedRefusal(refused.err) {
+		t.Errorf("the first request: broker id %d, %v; want broker id %d refused with INVALID_ARGUMENT naming hooks.broker_id, cause broker_id_used", refused.broker, refused.err, used)
 	}
 	if served.err != nil || served.broker == used || served.token == refused.token {
 		t.Errorf("the request sent again: broker id %d, token %q, %v; want a new broker id and token, served", served.broker, served.token, served.err)
@@ -1809,11 +1825,12 @@ func TestBrokerStaleBrokerID(t *testing.T) {
 // that names it shares that connection, with no dial. Once the engine has
 // closed that connection, which could not connect, an admission that
 // names the id is refused at once, with INVALID_ARGUMENT, the
-// RUN_NOT_STARTED detail and the field hooks.broker_id in its metadata,
-// and no dial starts. The host's release (ReleaseHooks) makes the engine
-// forget the id, so a later admission dials it again; an id whose dial
-// failed is not remembered either. The dials after the release come from
-// the test's dialBroker, which fails at once.
+// RUN_NOT_STARTED detail, and the field hooks.broker_id and the cause
+// broker_id_used in its metadata, and no dial starts. The host's release
+// (ReleaseHooks) makes the engine forget the id, so a later admission
+// dials it again; an id whose dial failed is not remembered either. The
+// dials after the release come from the test's dialBroker, which fails at
+// once, and their refusals name hooks.broker_id with no cause.
 func TestBrokerUsedIDRefused(t *testing.T) {
 	transport := newHostTransport(t)
 	var tap *tapRunner
@@ -1846,8 +1863,8 @@ func TestBrokerUsedIDRefused(t *testing.T) {
 	transport.heal()
 
 	_, err := admit(id, "used")
-	if status.Code(err) != codes.InvalidArgument || !hasNotStarted(err) || refusedField(err) != "hooks.broker_id" {
-		t.Errorf("an admission that names the used broker id: %v; want INVALID_ARGUMENT with RUN_NOT_STARTED, naming hooks.broker_id", err)
+	if !usedRefusal(err) {
+		t.Errorf("an admission that names the used broker id: %v; want INVALID_ARGUMENT with RUN_NOT_STARTED, naming hooks.broker_id, cause broker_id_used", err)
 	}
 	if n := dials.of(id); n != 1 {
 		t.Errorf("%d dials of the used broker id, want none after the first", n)
@@ -1862,7 +1879,7 @@ func TestBrokerUsedIDRefused(t *testing.T) {
 	if _, err := e.gate.Hooks().ReleaseHooks(context.Background(), &plugin.ReleaseHooksRequest{BrokerId: id}); err != nil {
 		t.Fatalf("the release: %v", err)
 	}
-	if _, err := admit(id, "released"); refusedField(err) != "hooks.broker_id" || !strings.Contains(err.Error(), "the test's broker has no address") {
+	if _, err := admit(id, "released"); !dialRefusal(err) || !strings.Contains(err.Error(), "the test's broker has no address") {
 		t.Errorf("an admission that names the released broker id: %v; want the refusal of its dial", err)
 	}
 	if n := dials.of(id); n != 2 {
@@ -1870,12 +1887,60 @@ func TestBrokerUsedIDRefused(t *testing.T) {
 	}
 	const failed = 4242
 	for _, token := range []string{"failed-1", "failed-2"} {
-		if _, err := admit(failed, token); refusedField(err) != "hooks.broker_id" || !strings.Contains(err.Error(), "the test's broker has no address") {
+		if _, err := admit(failed, token); !dialRefusal(err) || !strings.Contains(err.Error(), "the test's broker has no address") {
 			t.Errorf("admission %s of a broker id whose dial fails: %v; want the refusal of its dial", token, err)
 		}
 	}
 	if n := dials.of(failed); n != 2 {
 		t.Errorf("%d dials of the broker id whose dial failed, want one for each admission", n)
+	}
+}
+
+// TestBrokerFreshIDRefused checks a first run with hooks whose first dial
+// fails, on a broker id that no dial took before: the test's transport
+// fails every dial of the host's listener while it still serves. The
+// engine refuses the run with INVALID_ARGUMENT, naming hooks.broker_id
+// with no cause, after one dial, and the Client returns that refusal with
+// ErrNotStarted after one request, as for every refusal but that of a used
+// broker id. With the dials let through, the next run on the same Client
+// is served.
+func TestBrokerFreshIDRefused(t *testing.T) {
+	transport := newHostTransport(t)
+	var tap *tapRunner
+	e := startEngine(t, engineConfig{
+		lookupAfter: time.Hour,
+		dialOptions: transport.options(),
+		runner:      func(s plugin.RunnerServer) plugin.RunnerServer { tap = newTap(s); return tap },
+	})
+	transport.serving(t)
+	var dials dialLog
+	e.srv.hooks.dialing = dials.dialing
+
+	transport.cut()
+	var rec recorder
+	_, err := e.client.RunWithHooks(context.Background(), one("fresh"), []byte(`{"on_run_end": true}`), rec.handle)
+	if !errors.Is(err, plugin.ErrNotStarted) || !dialRefusal(err) {
+		t.Fatalf("a run whose first dial fails: %v; want ErrNotStarted, INVALID_ARGUMENT naming hooks.broker_id with no cause", err)
+	}
+	if n := tap.runsOf("fresh"); n != 1 {
+		t.Errorf("the Client sent the refused run %d times, want once", n)
+	}
+	if n := dials.of(tap.broker("fresh")); n != 1 {
+		t.Errorf("%d dials of the run's broker id, want one", n)
+	}
+	if n := e.client.Registrations(); n != 0 {
+		t.Errorf("%d registrations after the refusal, want none", n)
+	}
+	if got := rec.heard(); len(got) != 0 {
+		t.Errorf("the host heard %v", got)
+	}
+
+	transport.heal()
+	if res, err := e.client.RunWithHooks(context.Background(), one("next"), []byte(`{"on_run_end": true}`), rec.handle); err != nil || res.GetStatus() != "success" {
+		t.Fatalf("the next run on the same Client: %v, %v", res, err)
+	}
+	if got := set(rec.heard()); len(got) != 1 || got[0] != "on_run_end@" {
+		t.Errorf("the host heard %v, want the next run's onRunEnd", got)
 	}
 }
 
@@ -1984,7 +2049,10 @@ func TestBrokerReleaseRetried(t *testing.T) {
 // engine's admission still dials the run's broker id, between the dial's
 // connection and the dial's end: the dial closes that connection as it
 // ends, so the engine holds no connection while the run is held, and the
-// run's later onRunEnd gets no answer.
+// run's later onRunEnd gets no answer. The dial does not mark that broker
+// id used, since its release has come: a later admission that names the
+// id dials it again, on the test's dialBroker, which fails at once,
+// instead of being refused as a used id.
 func TestBrokerReleaseDuringDial(t *testing.T) {
 	var tap *tapRunner
 	e := startEngine(t, engineConfig{lookupAfter: time.Hour, runner: func(s plugin.RunnerServer) plugin.RunnerServer { tap = newTap(s); return tap }})
@@ -2017,6 +2085,20 @@ func TestBrokerReleaseDuringDial(t *testing.T) {
 	if got := rec.heard(); len(got) != 0 {
 		t.Errorf("the host heard %v", got)
 	}
+
+	var dials dialLog
+	e.srv.hooks.dialing = dials.dialing
+	e.srv.hooks.dialBroker = func(uint32, ...grpc.DialOption) (*grpc.ClientConn, error) {
+		return nil, errors.New("the test's broker has no address")
+	}
+	id := tap.broker("dialled")
+	_, err := e.gate.Runner().Run(context.Background(), &plugin.RunRequest{Id: "again", Path: "f/broker/one", Hooks: &plugin.Hooks{BrokerId: id, Token: "again", Declaration: []byte(interceptOne)}})
+	if !dialRefusal(err) || !strings.Contains(err.Error(), "the test's broker has no address") {
+		t.Errorf("an admission that names the broker id released during its dial: %v; want the refusal of a new dial", err)
+	}
+	if n := dials.of(id); n != 1 {
+		t.Errorf("%d dials of the broker id released during its dial, want a new one", n)
+	}
 }
 
 // countingControl is a fake transport of the HooksControl service that
@@ -2041,8 +2123,8 @@ func (c *countingControl) ReleaseHooks(ctx context.Context, req *plugin.ReleaseH
 // connection comes from the test, a real one to the host's listener, so
 // that the case does not hang on how long go-plugin keeps its address. It
 // cannot get ready, so the run is refused on the dial, naming
-// hooks.broker_id, and the closed Client returns that refusal without
-// sending the run again. The dial's connection is closed, and the engine
+// hooks.broker_id with no cause, and the Client returns that refusal
+// after one request. The dial's connection is closed, and the engine
 // holds no connection and no token.
 func TestBrokerReleaseBeforeAdmission(t *testing.T) {
 	brokerBundle(t)
@@ -2113,7 +2195,7 @@ func TestBrokerReleaseBeforeAdmission(t *testing.T) {
 		t.Errorf("the run whose release came first: %v, %v; want ErrNotStarted for the dial that did not get ready", o.res, o.err)
 	}
 	if n := tap.runsOf("overtaken"); n != 1 {
-		t.Errorf("the closed Client sent the refused run %d times, want once", n)
+		t.Errorf("the Client sent the refused run %d times, want once", n)
 	}
 	if s := conn.GetState(); s != connectivity.Shutdown {
 		t.Errorf("the dial's connection is %v, want closed", s)

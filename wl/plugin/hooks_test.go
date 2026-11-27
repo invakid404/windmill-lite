@@ -688,19 +688,22 @@ func socketDir(t *testing.T) string {
 
 // TestClientBrokerRetryOnce checks, against a fake engine on go-plugin's
 // test connection, the one more try of a run that the engine refuses
-// because of its hooks.broker_id: INVALID_ARGUMENT with the
-// RUN_NOT_STARTED detail whose metadata names that field. The Client lets
-// the refused broker id go, its registration dropped, its listener
-// stopped and its release sent, and sends the run again with a new broker
-// id and token, and the run is served. A second such refusal is returned,
-// both broker ids let go. A Client closed before the refusal arrives
-// returns it without a second request. Every other refusal is returned
-// after one request: one that names another field, one with no field as
-// an older engine sends it with the same message, ALREADY_EXISTS, one with
-// another code that names hooks.broker_id, and an error without the
-// RUN_NOT_STARTED detail, whose outcome is unknown.
+// because its broker id was used already: INVALID_ARGUMENT with the
+// RUN_NOT_STARTED detail whose metadata names hooks.broker_id with the
+// cause broker_id_used. The Client lets the refused broker id go, its
+// registration dropped, its listener stopped and its release sent, and
+// sends the run again with a new broker id and token, and the run is
+// served. A second refusal is returned, both broker ids let go. A Client
+// closed before the refusal arrives returns it without a second request.
+// Every other refusal is returned after one request: hooks.broker_id
+// without the cause, as for a failed first dial of a new id; the cause
+// with another field; another field; no metadata, as an older engine
+// sends it, with the same message; ALREADY_EXISTS; another code with the
+// field and the cause; and an error without the RUN_NOT_STARTED detail,
+// whose outcome is unknown.
 func TestClientBrokerRetryOnce(t *testing.T) {
 	brokerID := map[string]string{MetadataField: "hooks.broker_id"}
+	used := map[string]string{MetadataField: "hooks.broker_id", MetadataCause: CauseBrokerIDUsed}
 	decl := []byte(`{"on_run_end": true}`)
 	var heard atomic.Int32
 	h := func(context.Context, *HookCall) (*HookReply, error) {
@@ -710,7 +713,7 @@ func TestClientBrokerRetryOnce(t *testing.T) {
 
 	t.Run("served on a new broker id", func(t *testing.T) {
 		dir := socketDir(t)
-		e := &refusingEngine{refusals: []error{engineRefusal(t, codes.InvalidArgument, "the request's hooks.broker_id: dial the host's hooks service: lost", brokerID)}}
+		e := &refusingEngine{refusals: []error{engineRefusal(t, codes.InvalidArgument, "the request's hooks.broker_id: dial the host's hooks service: lost", used)}}
 		c := connClient(t, e)
 		heard.Store(0)
 		res, err := c.RunWithHooks(context.Background(), &RunRequest{Id: "r"}, decl, h)
@@ -734,8 +737,8 @@ func TestClientBrokerRetryOnce(t *testing.T) {
 	t.Run("a second refusal", func(t *testing.T) {
 		dir := socketDir(t)
 		e := &refusingEngine{refusals: []error{
-			engineRefusal(t, codes.InvalidArgument, "the request's hooks.broker_id: the first refusal", brokerID),
-			engineRefusal(t, codes.InvalidArgument, "the request's hooks.broker_id: the second refusal", brokerID),
+			engineRefusal(t, codes.InvalidArgument, "the request's hooks.broker_id: the first refusal", used),
+			engineRefusal(t, codes.InvalidArgument, "the request's hooks.broker_id: the second refusal", used),
 		}}
 		c := connClient(t, e)
 		_, err := c.RunWithHooks(context.Background(), &RunRequest{Id: "r"}, decl, h)
@@ -755,7 +758,7 @@ func TestClientBrokerRetryOnce(t *testing.T) {
 
 	t.Run("Close before the refusal", func(t *testing.T) {
 		dir := socketDir(t)
-		e := &refusingEngine{refusals: []error{engineRefusal(t, codes.InvalidArgument, "the request's hooks.broker_id: refused while the Client closed", brokerID)}}
+		e := &refusingEngine{refusals: []error{engineRefusal(t, codes.InvalidArgument, "the request's hooks.broker_id: refused while the Client closed", used)}}
 		c := connClient(t, e)
 		e.mu.Lock()
 		e.refusing = c.Close
@@ -780,12 +783,14 @@ func TestClientBrokerRetryOnce(t *testing.T) {
 		err        error
 		notStarted bool
 	}{
+		{"the field without the cause, as a failed first dial's", engineRefusal(t, codes.InvalidArgument, "the request's hooks.broker_id: dial the host's hooks service: the connection is TRANSIENT_FAILURE", brokerID), true},
+		{"the cause with another field", engineRefusal(t, codes.InvalidArgument, "the request's hooks.token: required", map[string]string{MetadataField: "hooks.token", MetadataCause: CauseBrokerIDUsed}), true},
 		{"another field", engineRefusal(t, codes.InvalidArgument, "the request's hooks.token: required", map[string]string{MetadataField: "hooks.token"}), true},
-		{"no field, as an older engine's", engineRefusal(t, codes.InvalidArgument, "the request's hooks.broker_id: dial the host's hooks service: timeout waiting for connection info", nil), true},
+		{"no metadata, as an older engine's", engineRefusal(t, codes.InvalidArgument, "the request's hooks.broker_id: dial the host's hooks service: timeout waiting for connection info", nil), true},
 		{"ALREADY_EXISTS", engineRefusal(t, codes.AlreadyExists, "a run with the id r is in flight", nil), true},
-		{"another code naming hooks.broker_id", engineRefusal(t, codes.Unavailable, "draining", brokerID), true},
+		{"another code with the field and the cause", engineRefusal(t, codes.Unavailable, "draining", used), true},
 		{"no RUN_NOT_STARTED detail", func() error {
-			st, err := status.New(codes.InvalidArgument, "the request's hooks.broker_id: refused").WithDetails(&errdetails.ErrorInfo{Domain: ErrorDomain, Reason: "RUN_FAILED", Metadata: brokerID})
+			st, err := status.New(codes.InvalidArgument, "the request's hooks.broker_id: refused").WithDetails(&errdetails.ErrorInfo{Domain: ErrorDomain, Reason: "RUN_FAILED", Metadata: used})
 			if err != nil {
 				t.Fatal(err)
 			}
