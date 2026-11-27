@@ -711,6 +711,9 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
   shares, one is dropped, and the next line counts the drops, without
   their process or trigger. A failed start's report to a Go host's callback does
   not wait for its line.
+- **A line can outlive its pool.** It can still be written once the pool
+  has closed. A pool serializes only its own writes, so a writer that a
+  later pool shares must then be safe for concurrent use.
 - **Overlap.** A replacement runs beside the process it replaces until that
   process leaves, which waits for its steps in flight. While one process
   leaves for a recycle trigger, memory or module count alike, another that

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -147,4 +149,86 @@ func TestProcessesRecycleReasons(t *testing.T) {
 			}
 		})
 	}
+}
+
+// lateSink is a Diagnostics writer that records each write once it
+// returns. A write that holds hold, when hold is not empty, waits until
+// release closes, and tells blocked that one waits.
+type lateSink struct {
+	hold    string
+	release chan struct{}
+	blocked chan struct{}
+	once    sync.Once
+	mu      sync.Mutex
+	got     strings.Builder
+}
+
+func (s *lateSink) Write(b []byte) (int, error) {
+	if s.hold != "" && strings.Contains(string(b), s.hold) {
+		s.once.Do(func() { close(s.blocked) })
+		<-s.release
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.got.Write(b)
+}
+
+func (s *lateSink) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.got.String()
+}
+
+// TestDiagnosticsLineAfterFailedOpen checks when a pool's line reaches
+// Options.Diagnostics, as its documentation says, for a warm start that
+// fails, its Bun gone:
+//   - default: the failed start's line is in the writer when Open returns;
+//   - held_age: with a held-age trigger set, the line is best effort and
+//     can come after Open has returned. Here the writer holds it until
+//     after Open has failed, and gets it once it goes on.
+func TestDiagnosticsLineAfterFailedOpen(t *testing.T) {
+	bun := bunOrSkip(t)
+	out, runtimeDir := buildBunBundle(t, bun, lifetimeFiles)
+	const line = "starting a process failed"
+	open := func(t *testing.T, sink *lateSink, recycle RecycleTriggers) {
+		t.Helper()
+		rt, err := Open(out, Options{Bun: filepath.Join(t.TempDir(), "gone"), HarnessRuntime: runtimeDir, Diagnostics: sink,
+			Pool: PoolOptions{WarmStart: true, Recycle: recycle}})
+		if err == nil {
+			rt.Close()
+			t.Fatal("Open with its Bun gone succeeded")
+		}
+	}
+	t.Run("default", func(t *testing.T) {
+		sink := &lateSink{}
+		open(t, sink, RecycleTriggers{})
+		if !strings.Contains(sink.String(), line) {
+			t.Fatalf("when Open returned, the writer lacked the failed start's line:\n%s", sink.String())
+		}
+	})
+	t.Run("held_age", func(t *testing.T) {
+		sink := &lateSink{hold: line, release: make(chan struct{}), blocked: make(chan struct{})}
+		t.Cleanup(func() {
+			select {
+			case <-sink.release:
+			default:
+				close(sink.release)
+			}
+		})
+		open(t, sink, RecycleTriggers{HeldAge: time.Minute})
+		select {
+		case <-sink.blocked:
+		case <-time.After(10 * time.Second):
+			t.Fatal("the failed start's line never reached the writer")
+		}
+		if strings.Contains(sink.String(), line) {
+			t.Fatal("the held line was written before its release")
+		}
+		close(sink.release)
+		for deadline := time.Now().Add(10 * time.Second); !strings.Contains(sink.String(), line); time.Sleep(5 * time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatal("the failed start's line never came after Open failed")
+			}
+		}
+	})
 }

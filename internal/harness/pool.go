@@ -1199,8 +1199,11 @@ func (pl *Pool) reviewLocked(m *member) {
 // blocked writer, so every line of the pool then goes out on a goroutine
 // of its own, within a bound that every pool shares (poolLines), never
 // under the pool's mutex: a line is best effort, and one is dropped while
-// the bound's lines wait, the next one counting the drops. Without them,
-// it is written at once, as it always has been.
+// the bound's lines wait, the next one counting the drops. Such a line can
+// be written after Start has failed or Close has returned, and pools
+// serialize only their own writes, so a writer that pools share in turn
+// must then be safe for concurrent use. Without those triggers, a line is
+// written at once, as it always has been.
 func (pl *Pool) poolLine(s string) {
 	if r := pl.cfg.Recycle; r.UnsettledRun > 0 || r.HeldAge > 0 {
 		pl.poolLines.write(pl.diag(), s)

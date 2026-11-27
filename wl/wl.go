@@ -94,7 +94,11 @@ type Options struct {
 	// owns, and the engine's diagnostics about them; nil means os.Stderr.
 	// With a Pool that is not zero, several processes can write at once,
 	// so the runtime serializes its writes, still calling the writer's
-	// WriteString when it has one.
+	// WriteString when it has one. With Pool.Recycle.UnsettledRun or
+	// HeldAge set, the pool's own lines are best effort and can be written
+	// after Open has failed or Close has returned. Two runtimes do not
+	// serialize their writes with each other, so a writer that a later
+	// runtime shares, as on a retry, must then be safe for concurrent use.
 	Diagnostics io.Writer
 	// ExpressionSlots is the number of evaluation slots of the runtime's
 	// expression engine; zero means its default (ADR 0003).

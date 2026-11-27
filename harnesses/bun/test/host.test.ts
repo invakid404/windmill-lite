@@ -230,9 +230,26 @@ test("connect never reads a heldAge of the bundle's host plugin: an accessor of 
   },
 };
 `);
-  // The stand-in engine passes the check, then ends after a second: connect
-  // gets past the plugin to the handshake, which the engine never answers.
-  expect(await connectIn(dir, standIn(join(tempDir("wl-host-pid-"), "pid"), "sleep 1"))).toBe("rejected");
+  // A stand-in engine that passes the bundle's check, then runs
+  // test/heartbeatengine.ts, which welcomes the host once its hello comes:
+  // the hello follows the plugin's installation, so connect resolves only
+  // once the plugin is installed.
+  const engine = { engine: "/bin/sh", engineArgs: ["-c", `case "$2" in -check-bundle) exit 0;; esac; exec '${process.execPath}' '${join(import.meta.dir, "heartbeatengine.ts")}'`, "sh"] };
+  const back = process.cwd();
+  process.chdir(dir);
+  process.env.WL_TEST_HEARTBEAT_MS = "60000";
+  let host: Host;
+  try {
+    host = await connect({ ...engine, bundle: dir, workdir: dir, diag: () => {} });
+  } finally {
+    delete process.env.WL_TEST_HEARTBEAT_MS;
+    process.chdir(back);
+  }
+  try {
+    expect(existsSync(marker)).toBe(false);
+  } finally {
+    await host.close();
+  }
   expect(existsSync(marker)).toBe(false);
 }, 20_000);
 

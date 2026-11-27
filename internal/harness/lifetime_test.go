@@ -442,9 +442,13 @@ export default { heldAge: () => Number(readFileSync(%q, "utf8")) };
 // host opens pool after pool with a held-age trigger set, each failing to
 // start, as its program is gone, while its writer blocks every failed
 // start's line. Each Start fails and each Close returns, whatever the
-// writer does. Once the writer goes on, it gets maxPendingKillLines of
-// those lines, not one for each pool, and the next line counts the drops.
+// writer does. Once the writer goes on and the budget's writers have all
+// finished, it has got maxPendingKillLines of those lines, not one for
+// each pool, and the next line counts exactly the six dropped.
 func TestPoolLinesBoundAcrossPools(t *testing.T) {
+	if poolLineBudget.pending.Load() != 0 || poolLineBudget.dropped.Load() != 0 {
+		t.Fatalf("the shared budget is in use before the test: %d pending, %d dropped", poolLineBudget.pending.Load(), poolLineBudget.dropped.Load())
+	}
 	cfg, _ := bunConfig(t)
 	cfg.Path = filepath.Join(t.TempDir(), "gone")
 	const line = "starting a process failed"
@@ -477,18 +481,22 @@ func TestPoolLinesBoundAcrossPools(t *testing.T) {
 		open()
 	}
 	close(w.release)
-	waitFor(t, "the waiting lines once the writer goes on", func() bool {
-		return strings.Count(w.buf.String(), line) >= int(maxPendingKillLines)
-	})
-	// Lines past the bound would come by now: they were never dropped.
-	time.Sleep(200 * time.Millisecond)
+	// finished waits until every writer that the budget accepted has
+	// returned: then no line of those pools is still to come.
+	finished := func(what string) {
+		t.Helper()
+		waitFor(t, what, func() bool { return poolLineBudget.pending.Load() == 0 })
+	}
+	finished("the accepted lines' writers once the writer goes on")
 	if n := strings.Count(w.buf.String(), line); n != int(maxPendingKillLines) {
 		t.Fatalf("the writer got %d failed starts' lines from %d pools; want the bound, %d", n, pools, maxPendingKillLines)
 	}
 	open()
-	waitFor(t, "the next line, which counts the drops", func() bool {
-		return strings.Contains(w.buf.String(), fmt.Sprintf("earlier pool lines were dropped while %d waited for blocked diagnostics writers", maxPendingKillLines))
-	})
+	finished("the next line's writer")
+	want := fmt.Sprintf("(6 earlier pool lines were dropped while %d waited for blocked diagnostics writers)", maxPendingKillLines)
+	if n := strings.Count(w.buf.String(), line); n != int(maxPendingKillLines)+1 || !strings.Contains(w.buf.String(), want) {
+		t.Fatalf("after one more failed start the writer has %d such lines, want %d, the last with %q:\n%s", n, maxPendingKillLines+1, want, w.buf.String())
+	}
 }
 
 // TestPoolHeldAgeRejectedPromise checks that a heldAge that answers a

@@ -1003,6 +1003,10 @@ directory of its own, and exits once it has reported the outcome.
   past 64 lines waiting at once, across every pool of the program, one is
   dropped. The next line that goes out counts the drops, without their
   process or reason.
+- **After the pool.** Such a line can still be written after `Start` has
+  failed or `Close` has returned. A pool serializes its own writes only,
+  so a writer that a later pool shares must then be safe for concurrent
+  use.
 - **Which trigger.** `Stats` names the trigger that each process tripped
   (`ProcessStats.Recycle`: `TriggerRSS` and the like).
 - **Serving.** `ProcessStats.Serving` says whether the ordinary pick may
@@ -1282,7 +1286,9 @@ plugin and heartbeats every 20 ms.
   its line too, and the failure is still reported and the pool answers.
 - **`TestPoolLinesBoundAcrossPools`.** Pools that fail to start, opened one
   after another while the writer blocks, leave at most 64 lines waiting
-  in all. Each `Start` fails and each `Close` returns meanwhile.
+  in all. Each `Start` fails and each `Close` returns meanwhile. Once the
+  budget's writers have finished, the writer has 64 lines, and the next
+  line counts the six dropped.
 - **`TestPoolHeldAgeRejectedPromise`.** A `heldAge` that answers a
   rejected promise while a step runs reports no age, counts no error,
   reaches the step with no warning, and writes one line.
