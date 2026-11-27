@@ -323,10 +323,16 @@ type Result struct {
 // which of these, or which deadline, canceled it. An error means the run
 // could not start: the runtime is closed (ErrClosed), no such target, or
 // arguments that are not a JSON object or that cannot be stored.
-func (rt *Runtime) Run(ctx context.Context, path string, args json.RawMessage, opts RunOptions) (_ *Result, err error) {
+func (rt *Runtime) Run(ctx context.Context, path string, args json.RawMessage, opts RunOptions) (res *Result, err error) {
 	// The error can quote a setting or what a harness process wrote: masked
-	// as a whole (the result masks its own parts).
-	defer func() { err = maskError(rt.secrets, err) }()
+	// as a whole. The result masks its own parts; its id and its cause,
+	// the host's, are masked here.
+	defer func() {
+		err = maskError(rt.secrets, err)
+		if res != nil && rt.secrets != nil {
+			res.ID, res.CancelCause = rt.secrets.MaskAfter("", res.ID), rt.secrets.MaskAfter("", res.CancelCause)
+		}
+	}()
 	// The engine's own adapters give a flow run host mode's static
 	// interceptions, and the refusal of the id of a run that a step
 	// dispatched, this way (internal/wlext); no other caller can. The

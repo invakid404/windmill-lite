@@ -30,6 +30,7 @@ import (
 // the engine's process and its exit status.
 type directEngine struct {
 	cmd    *exec.Cmd
+	conn   *grpc.ClientConn
 	runner *plugin.Client
 	health healthpb.HealthClient
 	stderr *syncBuffer
@@ -96,6 +97,7 @@ func startDirect(t *testing.T, cfg map[string]any, serve bool, env ...string) *d
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { conn.Close() })
+	d.conn = conn
 	raw, err := (&plugin.RunnerPlugin{}).GRPCClient(context.Background(), nil, conn)
 	if err != nil {
 		t.Fatal(err)

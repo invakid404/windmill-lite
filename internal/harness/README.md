@@ -380,7 +380,10 @@ as text of its own:
   name the executable, and each error that `NewPool` and the pool's
   methods return, so also the one that `PoolConfig.OnStartFailure` gets.
   `Secrets.MaskErr` masks them: the result still matches the original
-  with `errors.Is`, and a `HostCallError` keeps its type when it can;
+  with `errors.Is`, and a `LateHostCallError` keeps its type and its
+  `Done`. A `HostCallError` whose message it masks comes back as a new
+  `HostCallError` when its text allows: `errors.As` finds it, but
+  `errors.Is` does not match the original;
 - its host plugin's hook errors, so that a `HostCallError` keeps its type.
 
 An invocation's result, other failures and warnings, and a hook's answer,

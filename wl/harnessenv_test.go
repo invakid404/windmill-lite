@@ -505,6 +505,12 @@ func TestHarnessEnvReserved(t *testing.T) {
 	if _, err, _, w := openHost(t, dir, Options{Host: &Host{Workdir: work}, HarnessEnv: map[string]EnvValue{"WL_TEST_X": {Value: "x"}}}, work); err == nil || w.Reject == nil || !strings.Contains(err.Error(), "HarnessEnv") {
 		t.Errorf("host mode with an entry: %v, welcome %+v; want a refusal naming HarnessEnv", err, w)
 	}
+	// With a module state that host mode refuses, which holds a secret
+	// entry's value: the entry is refused first, and neither the error nor
+	// the refusal that the host gets holds the value.
+	if _, err, _, w := openHost(t, dir, Options{Host: &Host{Workdir: work}, ModuleState: "mode-synthetic-21", HarnessEnv: map[string]EnvValue{"WL_TEST_X": {Value: "synthetic-21", Secret: true}}}, work); err == nil || w.Reject == nil || !strings.Contains(err.Error(), "HarnessEnv") || strings.Contains(err.Error(), "synthetic-21") || strings.Contains(w.Reject.Message, "synthetic-21") {
+		t.Errorf("host mode with a secret entry and a refused module state: %v, welcome %+v; want a refusal naming HarnessEnv, with no secret", err, w)
+	}
 
 	bun, out, runtimeDir := harnessEnvBundle(t)
 	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, HarnessEnv: map[string]EnvValue{"WL_TEST_SHARED": {Value: "from-the-host"}}})
@@ -2125,9 +2131,10 @@ func TestHarnessEnvSecretFailedStart(t *testing.T) {
 }
 
 // TestHarnessEnvSecretRefusals checks Open's refusal of an entry whose
-// reference is not set, which sorts after a secret entry that resolved and
-// whose value the refusal's message makes with the name that it quotes: the
-// error names the entry and holds no secret.
+// reference is not set, which sorts after a secret entry that resolved, or
+// after a plain entry that read the secret entry's reference, and whose
+// value the refusal's message makes with the name that it quotes: the error
+// names the entry and holds no secret.
 func TestHarnessEnvSecretRefusals(t *testing.T) {
 	const ref, resolved = "WL_TEST_HARNESS_REFUSAL_REF", `SYNTHETIC_20" is not set`
 	t.Setenv(ref, resolved)
@@ -2137,6 +2144,16 @@ func TestHarnessEnvSecretRefusals(t *testing.T) {
 	}})
 	if err == nil || !strings.Contains(err.Error(), `Options.HarnessEnv["WL_TEST_B"]`) || strings.Contains(err.Error(), resolved) {
 		t.Errorf("a reference not set after a secret resolved: %v; want an error that names the entry and holds no secret", err)
+	}
+	// The secret's reference, read first by a plain entry, A, that sorts
+	// before the refused B, and only after B by the secret entry, Z.
+	_, err = Open(t.TempDir(), Options{HarnessEnv: map[string]EnvValue{
+		"WL_TEST_A": {ValueEnv: ref},
+		"WL_TEST_B": {ValueEnv: "MISSING_SYNTHETIC_20", Secret: true},
+		"WL_TEST_Z": {ValueEnv: ref, Secret: true},
+	}})
+	if err == nil || !strings.Contains(err.Error(), `Options.HarnessEnv["WL_TEST_B"]`) || strings.Contains(err.Error(), resolved) {
+		t.Errorf("a reference not set after a plain entry read the secret's reference: %v; want an error that names the entry and holds no secret", err)
 	}
 }
 
@@ -2155,6 +2172,84 @@ func TestHarnessEnvSecretRunRefusal(t *testing.T) {
 	_, err = rt.Run(context.Background(), path, nil, RunOptions{Kind: KindScript})
 	if err == nil || !errors.Is(err, engine.ErrNoTarget) || !strings.Contains(err.Error(), harness.SecretMask) || strings.Contains(err.Error(), path) {
 		t.Errorf("Run of a missing path that a secret holds: %v; want ErrNoTarget, with the mask and no secret", err)
+	}
+}
+
+// TestHarnessEnvSecretLateHookHoldsSettlement checks a host plugin whose
+// onModuleEnd answers after the plugin timeout, where the timeout's text
+// holds a secret entry's synthetic value (words of the timeout itself): the
+// error is masked, and the run still settles only after the hook ends,
+// which the hook marks by writing a file.
+func TestHarnessEnvSecretLateHookHoldsSettlement(t *testing.T) {
+	bun, out, runtimeDir := harnessEnvBundle(t)
+	marker := filepath.Join(t.TempDir(), "hook-ended")
+	plugin := filepath.Join(t.TempDir(), "plugin.ts")
+	src := `import { writeFileSync } from "node:fs";
+export default {
+  onModuleEnd() { Bun.sleepSync(1500); writeFileSync(process.env.WL_TEST_MARKER ?? "", ""); return {}; },
+};
+`
+	if err := os.WriteFile(plugin, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, PluginTimeout: 300 * time.Millisecond, HarnessEnv: map[string]EnvValue{
+		"WL_TEST_SECRET": {Value: "got no reply from the host plugin", Secret: true},
+		"WL_TEST_MARKER": {Value: marker},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	settled := make(chan bool, 1)
+	hooks := &Hooks{OnRunSettled: func(*Trace) {
+		_, err := os.Stat(marker)
+		settled <- err == nil
+	}}
+	if _, err := rt.Run(context.Background(), "f/t/env", json.RawMessage(`{"names":[],"hashed":[]}`), RunOptions{Hooks: hooks}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case ended := <-settled:
+		if !ended {
+			t.Error("the run settled before its late hook ended")
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("the run did not settle")
+	}
+}
+
+// TestHarnessEnvSecretRunID checks a flow run whose id, the host's, holds a
+// secret entry's synthetic value: the result's id, its trace's run id and
+// the trace as the Runner serializes it hold the mask and no secret, and a
+// host plugin's onRunEnd, which the engine calls by the run's own id, still
+// answers its warning.
+func TestHarnessEnvSecretRunID(t *testing.T) {
+	bun, out, runtimeDir := harnessEnvBundle(t)
+	const secret = "synthetic-21"
+	plugin := filepath.Join(t.TempDir(), "plugin.ts")
+	if err := os.WriteFile(plugin, []byte(`export default { onRunEnd() { return [{ code: "ended", message: "by its id" }] } };`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, HarnessEnv: map[string]EnvValue{"WL_TEST_SECRET": {Value: secret, Secret: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	res, err := rt.Run(context.Background(), "f/t/env", json.RawMessage(`{"names":[],"hashed":[]}`), RunOptions{ID: "job-" + secret})
+	if err != nil {
+		t.Fatal(err)
+	}
+	serialized, err := json.Marshal(traceJSON(res.Trace))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for what, text := range map[string]string{"Result.ID": res.ID, "Trace.RunID": res.Trace.RunID, "the serialized trace": string(serialized)} {
+		if !strings.Contains(text, harness.SecretMask) || strings.Contains(text, secret) {
+			t.Errorf("%s %.200q; want the mask and no secret", what, text)
+		}
+	}
+	if !slices.ContainsFunc(res.Warnings, func(w Warning) bool { return w.Code == "ended" }) {
+		t.Errorf("warnings %v; want the plugin's onRunEnd warning", res.Warnings)
 	}
 }
 

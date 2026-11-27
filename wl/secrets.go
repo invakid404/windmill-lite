@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"maps"
+	"reflect"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/invakid404/windmill-lite/internal/engine"
@@ -48,7 +50,90 @@ func maskTrace(secrets *harness.Secrets, t *Trace) *Trace {
 			c.PlatformCalls[i] = p
 		}
 	}
-	return &c
+	// Every other text in it, the run's id, the bundle's, each step's and
+	// call's site, path, job and route, the cancellation's cause, is the
+	// host's or the bundle's, and is masked too.
+	return maskStrings(secrets, reflect.ValueOf(&c)).Interface().(*Trace)
+}
+
+// jsonValueType and timeType are kept whole by maskStrings.
+var (
+	jsonValueType = reflect.TypeOf(jsonval.Value{})
+	timeType      = reflect.TypeOf(time.Time{})
+)
+
+// maskStrings returns a copy of v in which every string that v holds, in
+// its fields, slices, arrays, maps and pointers, is masked
+// (harness.Secrets.MaskAfter with no prefix, which leaves a secret only
+// inside a mask). What it shares with v it does not change. A JSON value
+// (maskValue), an error (maskError), a time and an unexported field are
+// kept as they are.
+func maskStrings(secrets *harness.Secrets, v reflect.Value) reflect.Value {
+	switch v.Kind() {
+	case reflect.String:
+		out := reflect.New(v.Type()).Elem()
+		out.SetString(secrets.MaskAfter("", v.String()))
+		return out
+	case reflect.Pointer:
+		if v.IsNil() {
+			return v
+		}
+		out := reflect.New(v.Type().Elem())
+		out.Elem().Set(maskStrings(secrets, v.Elem()))
+		return out
+	case reflect.Slice:
+		if v.IsNil() || v.Type().Elem().Kind() == reflect.Uint8 {
+			return v
+		}
+		out := reflect.MakeSlice(v.Type(), v.Len(), v.Len())
+		for i := range v.Len() {
+			out.Index(i).Set(maskStrings(secrets, v.Index(i)))
+		}
+		return out
+	case reflect.Array:
+		out := reflect.New(v.Type()).Elem()
+		for i := range v.Len() {
+			out.Index(i).Set(maskStrings(secrets, v.Index(i)))
+		}
+		return out
+	case reflect.Map:
+		if v.IsNil() {
+			return v
+		}
+		out := reflect.MakeMapWithSize(v.Type(), v.Len())
+		for it := v.MapRange(); it.Next(); {
+			out.SetMapIndex(maskStrings(secrets, it.Key()), maskStrings(secrets, it.Value()))
+		}
+		return out
+	case reflect.Struct:
+		if v.Type() == jsonValueType || v.Type() == timeType {
+			return v
+		}
+		out := reflect.New(v.Type()).Elem()
+		out.Set(v)
+		for i := range v.NumField() {
+			if out.Field(i).CanSet() {
+				out.Field(i).Set(maskStrings(secrets, v.Field(i)))
+			}
+		}
+		return out
+	}
+	return v
+}
+
+// runIDs maps the masked copy of a trace that a hook gets to its run's id,
+// for the duration of the call, so that the host plugin's onRunEnd and
+// onRunSettled route their host_call by the run's own id (traceRunID): the
+// copy's RunID is masked.
+var runIDs sync.Map
+
+// traceRunID returns the id of the run that t, the trace that a hook got,
+// is of.
+func traceRunID(t *Trace) string {
+	if id, ok := runIDs.Load(t); ok {
+		return id.(string)
+	}
+	return t.RunID
 }
 
 // maskRecord returns rec with each secret masked in its arguments, its

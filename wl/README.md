@@ -263,12 +263,17 @@ masks the value also as a Go quoted string (`%q`) and `JSON.stringify`
 write it.
 
 The engine masks every text it emits and every error it returns in full,
-in its final form: a trace, a result, a warning, a diagnostics line, and
-the errors of `Open`, `Run` and `Close`. A refusal of a secret entry while
-the entries resolve masks the secret values that resolved before it. Text
-that a caller adds around a returned error is the caller's to mask; the
-plugin command masks its own final output
+in its final form. That is a trace, every text in it included, such as
+the run's id, a result and its id, a warning, a diagnostics line, and the
+errors of `Open`, `Run` and `Close`. Text that a caller adds around a
+returned error is the caller's to mask; the plugin command masks its own
+final output
 ([Secrets by reference](../cmd/windmill-lite/README.md#secrets-by-reference)).
+
+A refusal while the entries resolve masks the secret values known by
+then: literal ones, and each reference that a secret entry names, however
+an entry first read it. Host mode refuses `HarnessEnv` before any check
+that quotes another option.
 
 In a text with `%XX` escapes, such as a URL, it masks the value as written
 and the span that decodes to it. It finds both on the text as it is, so

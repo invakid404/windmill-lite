@@ -21,6 +21,10 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/emptypb"
+
 	"github.com/invakid404/windmill-lite/internal/harness"
 	"github.com/invakid404/windmill-lite/wl/plugin"
 )
@@ -293,17 +297,24 @@ func show(s *string) string {
 //   - A warm start whose Bun is missing: the command's prefix and the
 //     runtime's error make the second. The engine exits with status 1, and
 //     standard error holds no secret.
+//   - A plain variable that reads the secret's reference first, before a
+//     variable whose reference is not set: the refusal names the variable,
+//     and standard error holds no secret.
 //   - A served engine: the Cancel of an id of no run answers NOT_FOUND,
 //     whose message makes the third with the id, which holds no secret
-//     there. A replacement process then fails to start, and the drain's
-//     reason makes the fourth with the start's error: the engine drains,
-//     and standard error holds no secret.
+//     there. A method that the server does not have answers UNIMPLEMENTED,
+//     whose message makes the fifth with the method's name. The build
+//     information's label, and a run's id in its result and trace, hold the
+//     sixth and the seventh: each holds the mask instead. A replacement
+//     process then fails to start, and the drain's reason makes the fourth
+//     with the start's error: the engine drains, and standard error holds
+//     no secret.
 func TestPluginHarnessEnvSecretBoundaries(t *testing.T) {
 	bun, out := pluginBundle(t)
 	// The references and their synthetic values, declared apart: on one
 	// line, the secret scan's generic rule reads a pair as a key.
-	refs := []string{"WL_TEST_BOUNDARY_A", "WL_TEST_BOUNDARY_B", "WL_TEST_BOUNDARY_C", "WL_TEST_BOUNDARY_D"}
-	values := []string{`SYNTHETIC_20" is not set`, "plugin: wl: the warm start", `the id "synthetic-20`, "a harness process: harness"}
+	refs := []string{"WL_TEST_BOUNDARY_A", "WL_TEST_BOUNDARY_B", "WL_TEST_BOUNDARY_C", "WL_TEST_BOUNDARY_D", "WL_TEST_BOUNDARY_E", "WL_TEST_BOUNDARY_F", "WL_TEST_BOUNDARY_G"}
+	values := []string{`SYNTHETIC_20" is not set`, "plugin: wl: the warm start", `the id "synthetic-20`, "a harness process: harness", "unknown method SyntheticOld", "synthetic-label-21", "synthetic-run-21"}
 	var env []string
 	entries := map[string]any{}
 	for i, ref := range refs {
@@ -322,6 +333,16 @@ func TestPluginHarnessEnvSecretBoundaries(t *testing.T) {
 		t.Errorf("a reference not set after the secrets: exit %d, stderr %q; want 1, naming the entry, and no secret", code, stderr)
 	}
 
+	alias := pluginConfigOf(t, bun, out)
+	alias["variables"] = map[string]any{
+		"f/plugin/a": map[string]any{"value_env": refs[0]},
+		"f/plugin/b": map[string]any{"value_env": "MISSING_SYNTHETIC_20"},
+	}
+	alias["harness_env"] = map[string]any{"WL_TEST_Z": map[string]any{"value_env": refs[0], "is_secret": true}}
+	if code, stderr := runToExit(t, alias, env...); code != 1 || !strings.Contains(stderr, `variables["f/plugin/b"].value_env`) || holds(stderr) {
+		t.Errorf("a reference not set after a plain variable read the secret's: exit %d, stderr %q; want 1, naming the variable, and no secret", code, stderr)
+	}
+
 	missing := pluginConfigOf(t, filepath.Join(t.TempDir(), "bun"), out)
 	missing["pool"] = map[string]any{"min": 1, "max": 1, "warm_start": true}
 	missing["harness_env"] = entries
@@ -338,9 +359,20 @@ func TestPluginHarnessEnvSecretBoundaries(t *testing.T) {
 	cfg := pluginConfigOf(t, fake, out)
 	cfg["pool"] = map[string]any{"min": 1, "max": 1, "warm_start": true}
 	cfg["harness_env"] = entries
+	cfg["labels"] = map[string]any{"component": "component-" + values[5]}
 	d := startDirect(t, cfg, true, env...)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
+	err := d.conn.Invoke(ctx, "/"+plugin.Runner_ServiceDesc.ServiceName+"/SyntheticOldMethod", &emptypb.Empty{}, &emptypb.Empty{})
+	if status.Code(err) != codes.Unimplemented || !strings.Contains(err.Error(), harness.SecretMask) || holds(err.Error()) {
+		t.Errorf("a method that the server does not have: %v; want UNIMPLEMENTED, with the mask and no secret", err)
+	}
+	if bi, err := d.runner.BuildInfo(ctx); err != nil || !strings.Contains(bi.GetLabels()["component"], harness.SecretMask) || holds(fmt.Sprint(bi.GetLabels())) {
+		t.Errorf("the build information's labels: %v, %v; want the mask and no secret", bi.GetLabels(), err)
+	}
+	if r, err := d.runner.Run(ctx, &plugin.RunRequest{Id: "job-" + values[6], Path: "f/plugin/echo", Args: []byte(`{"x":1}`)}); err != nil || !strings.Contains(r.GetId(), harness.SecretMask) || holds(r.GetId()) || holds(string(r.GetTrace())) {
+		t.Errorf("a run whose id holds a secret: %v, %v; want its id with the mask, and no secret in it or its trace", r, err)
+	}
 	if _, err := d.runner.Cancel(ctx, &plugin.CancelRequest{Id: "synthetic-20-run"}); err == nil || !strings.Contains(err.Error(), harness.SecretMask) || holds(err.Error()) {
 		t.Errorf("the Cancel of an id of no run: %v; want NOT_FOUND with the mask and no secret", err)
 	}
@@ -365,9 +397,10 @@ func TestPluginHarnessEnvSecretBoundaries(t *testing.T) {
 
 // TestPluginOptionsMaskRefusal checks the plugin command's resolver alone,
 // as the command calls it: an entry whose reference is not set sorts after
-// a secret entry that resolved, whose value the refusal's message makes
-// with the name that it quotes. The error names the entry and holds no
-// secret, whatever writer it would go to.
+// a secret entry that resolved, or after a plain entry that read the secret
+// entry's reference, whose value the refusal's message makes with the name
+// that it quotes. The error names the entry and holds no secret, whatever
+// writer it would go to.
 func TestPluginOptionsMaskRefusal(t *testing.T) {
 	const ref, resolved = "WL_TEST_OPTIONS_REF", `SYNTHETIC_20" is not set`
 	t.Setenv(ref, resolved)
@@ -387,6 +420,24 @@ func TestPluginOptionsMaskRefusal(t *testing.T) {
 	_, _, err = cfg.options(io.Discard)
 	if err == nil || !strings.Contains(err.Error(), `harness_env["WL_TEST_B"].value_env`) || strings.Contains(err.Error(), resolved) {
 		t.Errorf("a reference not set after a secret resolved: %v; want an error that names the entry and holds no secret", err)
+	}
+	// The secret's reference, read first by a plain entry that sorts before
+	// the refused one, and only after it by the secret entry. The first
+	// resolving unset it, as the command does with what it read.
+	t.Setenv(ref, resolved)
+	raw["harness_env"] = map[string]any{
+		"WL_TEST_A": map[string]any{"value_env": ref},
+		"WL_TEST_B": map[string]any{"value_env": "MISSING_SYNTHETIC_20", "is_secret": true},
+		"WL_TEST_Z": map[string]any{"value_env": ref, "is_secret": true},
+	}
+	if data, err = json.Marshal(raw); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, err = decodePluginConfig(data); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = cfg.options(io.Discard); err == nil || !strings.Contains(err.Error(), `harness_env["WL_TEST_B"].value_env`) || strings.Contains(err.Error(), resolved) {
+		t.Errorf("a reference not set after a plain entry read the secret's reference: %v; want an error that names the entry and holds no secret", err)
 	}
 }
 

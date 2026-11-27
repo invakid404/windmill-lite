@@ -320,7 +320,7 @@ func (p *plugin) goHooks() *Hooks {
 			}
 			// A run its context ended, canceled or past a deadline, still
 			// reports its end: the call has the plugin timeout alone.
-			if err := p.do(context.WithoutCancel(ctx), "on_run_end", t.RunID, nil, p.tracePayload("on_run_end", t), &r); err != nil {
+			if err := p.do(context.WithoutCancel(ctx), "on_run_end", traceRunID(t), nil, p.tracePayload("on_run_end", t), &r); err != nil {
 				// The run's outcome is decided: a failed onRunEnd can only
 				// say so.
 				return []Warning{{Code: harness.HostErrorPlugin, Message: "the host plugin's onRunEnd: " + err.Error()}}
@@ -346,7 +346,7 @@ func (p *plugin) runSettled(ctx context.Context, t *Trace) {
 	if pin, ok := settlingPins.Load(t); ok {
 		ctx = harness.WithPin(ctx, pin.(*harness.Pin))
 	}
-	if err := p.do(ctx, "on_run_settled", t.RunID, nil, p.tracePayload("on_run_settled", t), nil); err != nil {
+	if err := p.do(ctx, "on_run_settled", traceRunID(t), nil, p.tracePayload("on_run_settled", t), nil); err != nil {
 		p.diag(fmt.Sprintf("windmill-lite: run %s: the host plugin's onRunSettled: %v", t.RunID, err))
 	}
 }

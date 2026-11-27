@@ -259,10 +259,16 @@ var lookupEnv = os.LookupEnv
 func harnessEnv(env map[string]EnvValue) (entries, secrets []string, err error) {
 	// A refusal masks the secret values known when it comes: every literal
 	// one, and each that a reference gave before it.
+	// A reference that a secret entry names is a secret however an entry
+	// first reads it: its value joins known on that first read.
 	known := []string{}
+	secretRefs := map[string]bool{}
 	for _, v := range env {
 		if v.Secret && v.Value != "" {
 			known = append(known, v.Value)
+		}
+		if v.Secret && v.ValueEnv != "" {
+			secretRefs[v.ValueEnv] = true
 		}
 	}
 	defer func() {
@@ -284,9 +290,9 @@ func harnessEnv(env map[string]EnvValue) (entries, secrets []string, err error) 
 					return nil, nil, fmt.Errorf("wl: Options.HarnessEnv[%q].ValueEnv: the environment variable %q is not set", name, v.ValueEnv)
 				}
 				read[v.ValueEnv] = value
-			}
-			if v.Secret {
-				known = append(known, value)
+				if secretRefs[v.ValueEnv] {
+					known = append(known, value)
+				}
 			}
 		}
 		if err := harness.CheckEnv(name, value); err != nil {
@@ -649,14 +655,16 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 		if opts.Host.Conn == nil || opts.Host.Workdir == "" {
 			return nil, errors.New("wl: host mode needs Host.Conn and Host.Workdir")
 		}
+		// Refused before any check that quotes an option, which a secret
+		// entry's value could be part of.
+		if len(opts.HarnessEnv) > 0 {
+			return nil, errors.New("wl: host mode spawns no harness process, since the host is its one harness process: Options.HarnessEnv must be empty")
+		}
 		if opts.ModuleState != "" && opts.ModuleState != ModuleStateWarm {
 			return nil, fmt.Errorf("wl: host mode runs warm (ADR 0006), not %s", opts.ModuleState)
 		}
 		if opts.Pool != (PoolOptions{}) {
 			return nil, errors.New("wl: host mode has no harness pool, since the host is its one harness process: Options.Pool must be zero")
-		}
-		if len(opts.HarnessEnv) > 0 {
-			return nil, errors.New("wl: host mode spawns no harness process, since the host is its one harness process: Options.HarnessEnv must be empty")
 		}
 	}
 	if rt.foreign, err = foreignOrigins(opts.ForeignWindmillOrigins); err != nil {

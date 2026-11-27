@@ -176,11 +176,13 @@ func (s *Secrets) settle(text, out, marker string, plus bool) string {
 }
 
 // MaskErr returns err, or, when its text holds a secret outside a mask, an
-// error whose whole text is masked (MaskAfter). A *HostCallError keeps its
-// type, its message masked as its whole text reads it, when that text then
-// shows no secret outside a mask. Any other error comes back wrapped in one
-// that errors.Is still matches as err, and that errors.As does not see
-// through, since err holds the secret.
+// error whose whole text is masked (MaskAfter). A *LateHostCallError keeps
+// its type and its Done, its Err masked. A *HostCallError keeps its type,
+// its message masked as its whole text reads it, when that text then shows
+// no secret outside a mask: a new *HostCallError, which errors.Is does not
+// match as err. Any other error comes back wrapped in one that errors.Is
+// still matches as err, and that errors.As does not see through, since err
+// holds the secret.
 func (s *Secrets) MaskErr(err error) error {
 	if s == nil || err == nil {
 		return err
@@ -188,6 +190,11 @@ func (s *Secrets) MaskErr(err error) error {
 	text := err.Error()
 	if s.MaskAfter("", text) == text {
 		return err
+	}
+	if e, ok := err.(*LateHostCallError); ok {
+		// Its Done still tells when the hook ends, which the run's
+		// settlement waits for.
+		return &LateHostCallError{Err: s.MaskErr(e.Err), Done: e.Done}
 	}
 	if e, ok := err.(*HostCallError); ok {
 		prefix := (&HostCallError{Code: e.Code, Hook: e.Hook}).Error()

@@ -495,10 +495,14 @@ start, naming the provider.
   ([wl](../../wl/README.md#the-harness-environment)).
 - **The command's own output.** Each line that the command writes to
   standard error, its own, the runtime's and go-plugin's logger's, goes
-  through one writer that masks it whole, as written, with each secret
-  value from when it resolves. A refusal while the values resolve masks
-  those that resolved before it. The message of each gRPC status that the
-  engine's server returns is masked whole too.
+  through one writer that masks it whole, as written. It masks each secret
+  value from its first read, by any entry that names its reference. A
+  refusal while the values resolve masks those read before it.
+- **What the server sends.** The message of each gRPC status that the
+  engine's server returns is masked whole, a method that it does not
+  have included. So is each string field of each response, such as a
+  run's id or the build information's labels; a run's result and trace,
+  JSON bytes, are masked by the runtime.
 - **The launch environment.** `wl/plugin` starts the engine with a
   literal environment, so the host puts exactly the named variables there.
 

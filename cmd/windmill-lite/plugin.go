@@ -16,6 +16,7 @@ import (
 	"os/signal"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -24,7 +25,10 @@ import (
 	"github.com/hashicorp/go-hclog"
 	goplugin "github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/invakid404/windmill-lite/internal/bundle"
 	"github.com/invakid404/windmill-lite/internal/harness"
@@ -163,9 +167,11 @@ func runPlugin(args []string, stderr io.Writer) int {
 					beforeHandshake()
 				}
 				o = append(o, grpc.MaxRecvMsgSize(limit), grpc.MaxSendMsgSize(limit))
-				// Outermost, so it masks every status that a handler or the
-				// Gate returns.
-				o = append(o, statusMasking(masked.current)...)
+				// Outermost, so it masks every status and response that a
+				// handler or the Gate returns, and the status of a method
+				// that the server does not have, which unknownMethod gives.
+				o = append(o, outputMasking(masked.current)...)
+				o = append(o, grpc.UnknownServiceHandler(unknownMethod(grpcServer.Load)))
 				s := grpc.NewServer(append(o, gate.ServerOptions()...)...)
 				grpcServer.Store(s)
 				return s
@@ -878,6 +884,27 @@ func (c *pluginConfig) options(stderr io.Writer) (_ wl.Options, _ func(), err er
 			err = harness.NewSecrets(known).MaskErr(err)
 		}
 	}()
+	// A reference that a secret entry names is a secret however the
+	// configuration first reads it, a variable's or the store's included:
+	// read registers its value on that first read.
+	secretRefs := map[string]bool{}
+	for _, v := range c.HarnessEnv {
+		if v.IsSecret && v.ValueEnv != nil {
+			secretRefs[*v.ValueEnv] = true
+		}
+	}
+	env := envReader{}
+	defer env.unset()
+	read := func(name string) (string, error) {
+		v, err := env.read(name)
+		if err == nil && secretRefs[name] {
+			known = append(known, v)
+			if m, ok := stderr.(*maskingWriter); ok {
+				m.add(v)
+			}
+		}
+		return v, err
+	}
 	opts := wl.Options{
 		Bun:                    c.Bun,
 		HarnessRuntime:         c.HarnessRuntime,
@@ -908,8 +935,6 @@ func (c *pluginConfig) options(stderr io.Writer) (_ wl.Options, _ func(), err er
 			opts.Resources[path] = wl.Resource{Type: r.ResourceType, Value: r.Value}
 		}
 	}
-	env := envReader{}
-	defer env.unset()
 	if len(c.Variables) > 0 {
 		opts.Variables = make(map[string]wl.Variable, len(c.Variables))
 		for _, path := range slices.Sorted(maps.Keys(c.Variables)) {
@@ -919,7 +944,7 @@ func (c *pluginConfig) options(stderr io.Writer) (_ wl.Options, _ func(), err er
 				value = *v.Value
 			} else {
 				var err error
-				if value, err = env.read(v.ValueEnv); err != nil {
+				if value, err = read(v.ValueEnv); err != nil {
 					return wl.Options{}, nil, fmt.Errorf("variables[%q].value_env: %w", path, err)
 				}
 			}
@@ -937,14 +962,8 @@ func (c *pluginConfig) options(stderr io.Writer) (_ wl.Options, _ func(), err er
 				value = *v.Value
 			} else {
 				var err error
-				if value, err = env.read(*v.ValueEnv); err != nil {
+				if value, err = read(*v.ValueEnv); err != nil {
 					return wl.Options{}, nil, fmt.Errorf("harness_env[%q].value_env: %w", name, err)
-				}
-			}
-			if v.IsSecret {
-				known = append(known, value)
-				if m, ok := stderr.(*maskingWriter); ok {
-					m.add(value)
 				}
 			}
 			opts.HarnessEnv[name] = wl.EnvValue{Value: value, Secret: v.IsSecret}
@@ -985,7 +1004,7 @@ func (c *pluginConfig) options(stderr io.Writer) (_ wl.Options, _ func(), err er
 	}
 	closeStore := func() {}
 	if s := c.ResourceStore; s != nil && s.Kind == "redis" {
-		url, err := env.read(s.URLEnv)
+		url, err := read(s.URLEnv)
 		if err != nil {
 			return wl.Options{}, nil, fmt.Errorf("resource_store.url_env: %w", err)
 		}
@@ -1061,13 +1080,13 @@ func (m *maskingWriter) flush() {
 	}
 }
 
-// statusMasking returns the server options that mask, as a whole, the
-// message of each gRPC status that the engine's server returns, with the
-// secrets that secrets gives when it returns them; the code and the
-// details stay.
-func statusMasking(secrets func() *harness.Secrets) []grpc.ServerOption {
-	mask := func(err error) error {
-		s := secrets()
+// outputMasking returns the server options that mask what the engine's
+// server sends, with the secrets that secrets gives when it sends it: the
+// message of each gRPC status, as a whole, its code and details kept, and
+// each string field of each response, in a copy (maskProto). A bytes
+// field, such as a run's result or trace as JSON, is wl's to mask.
+func outputMasking(secrets func() *harness.Secrets) []grpc.ServerOption {
+	maskErr := func(s *harness.Secrets, err error) error {
 		if err == nil || s == nil {
 			return err
 		}
@@ -1085,11 +1104,101 @@ func statusMasking(secrets func() *harness.Secrets) []grpc.ServerOption {
 	return []grpc.ServerOption{
 		grpc.ChainUnaryInterceptor(func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, h grpc.UnaryHandler) (any, error) {
 			resp, err := h(ctx, req)
-			return resp, mask(err)
+			s := secrets()
+			return maskResponse(s, resp), maskErr(s, err)
 		}),
 		grpc.ChainStreamInterceptor(func(srv any, ss grpc.ServerStream, _ *grpc.StreamServerInfo, h grpc.StreamHandler) error {
-			return mask(h(srv, ss))
+			return maskErr(secrets(), h(srv, &maskingStream{ServerStream: ss, secrets: secrets}))
 		}),
+	}
+}
+
+// maskingStream masks each message that a streaming method sends.
+type maskingStream struct {
+	grpc.ServerStream
+	secrets func() *harness.Secrets
+}
+
+func (m *maskingStream) SendMsg(msg any) error {
+	return m.ServerStream.SendMsg(maskResponse(m.secrets(), msg))
+}
+
+// maskResponse returns resp, or, when it is a protocol buffer message and
+// there are secrets, a copy with each string field masked (maskProto).
+func maskResponse(s *harness.Secrets, resp any) any {
+	m, ok := resp.(proto.Message)
+	if s == nil || !ok || m == nil {
+		return resp
+	}
+	c := proto.Clone(m)
+	maskProto(s, c.ProtoReflect())
+	return c
+}
+
+// maskProto masks, in m, every string field, in its lists and maps and in
+// its nested messages, a map's keys included, as a whole
+// (harness.Secrets.MaskAfter with no prefix).
+func maskProto(s *harness.Secrets, m protoreflect.Message) {
+	mask := func(fd protoreflect.FieldDescriptor, v protoreflect.Value) protoreflect.Value {
+		switch fd.Kind() {
+		case protoreflect.StringKind:
+			return protoreflect.ValueOfString(s.MaskAfter("", v.String()))
+		case protoreflect.MessageKind, protoreflect.GroupKind:
+			maskProto(s, v.Message())
+		}
+		return v
+	}
+	var fields []protoreflect.FieldDescriptor
+	m.Range(func(fd protoreflect.FieldDescriptor, _ protoreflect.Value) bool {
+		fields = append(fields, fd)
+		return true
+	})
+	for _, fd := range fields {
+		v := m.Get(fd)
+		switch {
+		case fd.IsList():
+			l := v.List()
+			for i := range l.Len() {
+				l.Set(i, mask(fd, l.Get(i)))
+			}
+		case fd.IsMap():
+			mp := v.Map()
+			type entry struct {
+				k protoreflect.MapKey
+				v protoreflect.Value
+			}
+			var entries []entry
+			mp.Range(func(k protoreflect.MapKey, v protoreflect.Value) bool {
+				entries = append(entries, entry{k, v})
+				return true
+			})
+			for _, e := range entries {
+				mp.Clear(e.k)
+				k := e.k
+				if fd.MapKey().Kind() == protoreflect.StringKind {
+					k = protoreflect.ValueOfString(s.MaskAfter("", e.k.String())).MapKey()
+				}
+				mp.Set(k, mask(fd.MapValue(), e.v))
+			}
+		default:
+			m.Set(fd, mask(fd, v))
+		}
+	}
+}
+
+// unknownMethod is the server's handler for a method or service that it
+// does not have: the UNIMPLEMENTED status that gRPC itself would send, in
+// its words, but through the interceptors, so that outputMasking masks it.
+func unknownMethod(server func() *grpc.Server) grpc.StreamHandler {
+	return func(_ any, ss grpc.ServerStream) error {
+		full, _ := grpc.MethodFromServerStream(ss)
+		svc, method, _ := strings.Cut(strings.TrimPrefix(full, "/"), "/")
+		if s := server(); s != nil {
+			if _, ok := s.GetServiceInfo()[svc]; ok {
+				return status.Errorf(codes.Unimplemented, "unknown method %v for service %v", method, svc)
+			}
+		}
+		return status.Errorf(codes.Unimplemented, "unknown service %v", svc)
 	}
 }
 

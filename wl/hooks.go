@@ -529,12 +529,17 @@ func (x *hooks) OnRunEnd(ctx context.Context, t *engine.Trace) []engine.Warning 
 		x.endCalls()
 		return nil
 	}
-	return x.h.OnRunEnd(ctx, maskTrace(x.secrets, x.withCalls(t)))
+	c := maskTrace(x.secrets, x.withCalls(t))
+	runIDs.Store(c, t.RunID)
+	defer runIDs.Delete(c)
+	return x.h.OnRunEnd(ctx, c)
 }
 
 func (x *hooks) OnRunSettled(t *engine.Trace) {
 	if x.h.OnRunSettled != nil {
 		c := maskTrace(x.secrets, x.withCalls(t))
+		runIDs.Store(c, t.RunID)
+		defer runIDs.Delete(c)
 		if x.pin != nil {
 			settlingPins.Store(c, x.pin)
 			defer settlingPins.Delete(c)

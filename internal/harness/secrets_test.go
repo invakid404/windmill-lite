@@ -3,6 +3,7 @@ package harness
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"strings"
@@ -219,6 +220,20 @@ func TestSettingsRefusalsMaskSecrets(t *testing.T) {
 	defer pl.Close(context.Background())
 	if _, err := pl.Execute(context.Background(), engine.Invocation{ID: secret, ModuleState: engine.ModuleStateFresh}); err == nil || !strings.Contains(err.Error(), SecretMask) || strings.Contains(err.Error(), secret) {
 		t.Errorf("Execute of an invocation whose id is a secret, in another module state: %v; want an error with the mask and no secret", err)
+	}
+}
+
+// TestMaskErrKeepsLateCall checks the masking of a late host_call's error
+// whose text holds a synthetic secret: the result is still a
+// *LateHostCallError, with the same Done, which the run's settlement waits
+// for, and its text holds the mask and no secret.
+func TestMaskErrKeepsLateCall(t *testing.T) {
+	const secret = "synthetic-late-21"
+	done := make(chan struct{})
+	err := NewSecrets([]string{secret}).MaskErr(&LateHostCallError{Err: errors.New("hook x: " + secret + " got no reply"), Done: done})
+	var late *LateHostCallError
+	if !errors.As(err, &late) || late.Done != (<-chan struct{})(done) || !strings.Contains(err.Error(), SecretMask) || strings.Contains(err.Error(), secret) {
+		t.Errorf("a late call's masked error: %T %q; want a LateHostCallError with its Done, the mask and no secret", err, err)
 	}
 }
 
