@@ -1105,9 +1105,9 @@ encoder, run `go test ./internal/harness -run TestFrameCases -args -update`.
 Without `-update`, the test fails unless the file is exactly what
 `-update` writes.
 
-CI runs these tests in `Go (ubuntu-latest)` and
-`Go (macos-latest, packages)`, with `go test -race -timeout 45m ./...`
-and `WL_REQUIRE_BUN` set ([docs/ci.md](../../docs/ci.md#the-go-jobs)).
+CI runs these tests in the Go buckets of `ubuntu-latest` and
+`macos-latest`, with `-race` and `WL_REQUIRE_BUN` set
+([docs/ci.md](../../docs/ci.md#the-go-buckets)).
 
 | Variable | Value | Tests that need it | When it is not set |
 |---|---|---|---|

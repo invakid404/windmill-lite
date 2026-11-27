@@ -824,12 +824,12 @@ The tests link [internal/expr/quickjs](quickjs/README.md), which builds
 QuickJS-ng through cgo, so they need a C compiler.
 
 1. Run the package and `internal/expr/quickjs` with the race detector, as
-   CI's `Test` step runs every package: `go test -race ./internal/expr/...`.
+   CI's Go buckets run every package: `go test -race ./internal/expr/...`.
 2. Run it in leak check, as CI's `Test the expression packages in leak
    check` step does: `WL_QJS_LEAK_CHECK=1 go test -race -count=1 ./internal/expr/...`.
 3. Run it with `jsExpr` off, as the `Expression engine` jobs do (CI's
-   `Go (ubuntu-latest, QuickJS only)` part runs the same package with
-   `cmd/wltest`): `WL_TEST_QUICKJS_ONLY=1 go test -race -count=1 ./internal/expr`.
+   QuickJS-only buckets run the same package with `cmd/wltest`):
+   `WL_TEST_QUICKJS_ONLY=1 go test -race -count=1 ./internal/expr`.
 4. Print the budget gate's table, as CI's `Report the expression budget
    gate` step does:
    `WL_EXPR_BUDGET=report WL_EXPR_BUDGET_SECONDS=1 go test -count=1 -run '^TestBudgetGate$' -v ./internal/expr`.

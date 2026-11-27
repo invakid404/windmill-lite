@@ -465,8 +465,8 @@ The tests need no Bun. The minimatch cross-check skips unless
    it or it finds a failure; this form stops after 60 s:
    `go test -run '^$' -fuzz FuzzGlob -fuzztime 60s ./internal/syncfolder`
 
-CI runs the tests (not the cross-check or the fuzzer) in
-`Go (ubuntu-latest)` and `Go (macos-latest, packages)`
+CI runs the tests (not the cross-check or the fuzzer) in the Go buckets
+of `ubuntu-latest` and `macos-latest`
 ([docs/ci.md](../../docs/ci.md#the-go-jobs)).
 
 | Variable | Value | Tests that need it | When it is not set |

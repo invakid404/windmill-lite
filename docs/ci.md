@@ -19,25 +19,28 @@ needs all five to pass on its latest commit before it merges.
 
 | Check | Workflow | What it checks |
 |---|---|---|
-| `Go (ubuntu-latest)` | [CI](../.github/workflows/ci.yml) | Formatting, `go.mod`, `go vet`, the full test suite and the other steps of [The Go jobs](#the-go-jobs), on Linux |
-| `Go (macos-latest)` | [CI](../.github/workflows/ci.yml) | That every macOS part of the Go job passed ([The macOS parts](#the-macos-parts)) |
+| `Go (ubuntu-latest)` | [CI](../.github/workflows/ci.yml) | That the Go plan, every Go bucket and the Go checks job of `ubuntu-latest` passed: the full test suite, formatting, `go.mod`, `go vet` and the other steps of [The Go jobs](#the-go-jobs), on Linux |
+| `Go (macos-latest)` | [CI](../.github/workflows/ci.yml) | The same on `macos-latest`, without the protobuf check |
 | `Expression engine (ubuntu-24.04)` | [CI](../.github/workflows/ci.yml) | The expression engine, built with the C compiler of that image ([The expression engine jobs](#the-expression-engine-jobs)) |
 | `Expression engine (ubuntu-26.04)` | [CI](../.github/workflows/ci.yml) | The same, on `ubuntu-26.04` |
 | `memoria` | [Memoria documentation](../.github/workflows/memoria.yml) | That every README is acknowledged against its current scope ([docs/memoria.md](memoria.md)) |
 
-- **Prerequisites of a required check.** The three macOS parts of the Go
-  job are not required checks themselves, but `Go (macos-latest)` passes
-  only when each of them passed, so a failed part blocks a merge.
+- **Prerequisites of a required check.** The plan, bucket and checks jobs
+  of the Go tests are not required checks themselves. `Go (ubuntu-latest)`
+  and `Go (macos-latest)` pass only when each of their OS's jobs passed, so
+  a failed or skipped plan, bucket or checks job blocks a merge.
 - **Every other check reports,** and does not block a merge.
 - **A skipped job counts as passed.** GitHub reports a required check whose
   job an `if` condition skips as a success
   ([handling skipped but required checks](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/collaborating-on-repositories-with-code-quality-features/troubleshooting-required-status-checks#handling-skipped-but-required-checks)).
-  So `Go (macos-latest)` runs even when a macOS part failed, and fails
-  itself.
+  So `Go (ubuntu-latest)` and `Go (macos-latest)` run whatever the results
+  of the jobs that they need, and fail when one of them did not pass.
+- **A cancelled run fails.** The two checks also run in a cancelled run,
+  such as one that a newer push replaced, and fail there. A cancelled run
+  never passes a required check.
 - **Names matter.** Renaming a required job, or changing the images of the
   `Expression engine` jobs, needs the same change in the branch protection
-  settings. A macOS part's name must keep the prefix `Go (macos-latest, `,
-  which `Go (macos-latest)` looks for.
+  settings.
 - **Up to date is not required.** Branch protection does not require a pull
   request to be up to date with `main` before it merges.
 
@@ -64,10 +67,13 @@ does by default
 
 | Check | Runner | When it runs | What it checks | Required |
 |---|---|---|---|---|
-| `Go (ubuntu-latest)` | `ubuntu-latest` | Always | Every step of [The Go jobs](#the-go-jobs) | Yes |
-| `Go (ubuntu-latest, QuickJS only)` | `ubuntu-latest` | Always | `internal/expr` and `cmd/wltest` again with `WL_TEST_QUICKJS_ONLY=1`, which turns the Go evaluator of expressions (`jsExpr`) off by default, so that the cases pass without it. The shortcuts and member paths still answer in Go, and tests that set the mode themselves still run both ways | No |
-| `Go (macos-latest, packages)`, `Go (macos-latest, flow suite in warm and fresh mode)`, `Go (macos-latest, flow suite in host mode)` | `macos-latest` | Always | The Go job's steps on macOS, in three parts ([The macOS parts](#the-macos-parts)) | Through `Go (macos-latest)` |
-| `Go (macos-latest)` | `ubuntu-latest` | After all five parts of the Go job, unless the run was cancelled | That every macOS part passed | Yes |
+| `Go plan (ubuntu-latest)`, `Go plan (macos-latest)` | Each OS by name | Always | Plans the buckets of the Go tests on that OS ([The Go buckets](#the-go-buckets)) | Through `Go (<os>)` |
+| `Go (ubuntu-latest, bucket <n>)`, `Go (macos-latest, bucket <n>)` | Each OS by name | After the plan of that OS | One bucket of the Go tests ([The Go buckets](#the-go-buckets)) | Through `Go (<os>)` |
+| `Go checks (ubuntu-latest)`, `Go checks (macos-latest)` | Each OS by name | Always | The steps of [The Go jobs](#the-go-jobs) that run once on each OS | Through `Go (<os>)` |
+| `Go (ubuntu-latest)`, `Go (macos-latest)` | `ubuntu-latest` | After the plan, the buckets and the checks job of that OS, whatever their results, a cancelled run included | That each of them passed | Yes |
+| `Go plan (ubuntu-latest, QuickJS only)`, `Go (ubuntu-latest, QuickJS only, bucket <n>)` | `ubuntu-latest` | Always; a bucket after the plan | The plan and the buckets of the QuickJS-only run | No |
+| `Go (ubuntu-latest, QuickJS only)` | `ubuntu-latest` | After its plan and buckets, whatever their results | That its plan and every bucket passed: `internal/expr` and `cmd/wltest` again with `WL_TEST_QUICKJS_ONLY=1`, which turns the Go evaluator of expressions (`jsExpr`) off by default, so that the cases pass without it. The shortcuts and member paths still answer in Go, and tests that set the mode themselves still run both ways | No |
+| `Go record (ubuntu-latest)`, `Go record (macos-latest)`, `Go record (ubuntu-latest, QuickJS only)` | The OS of its plan | On a push to `main`, after the plan and the buckets, unless the run was cancelled or the plan failed | Checks the run's test events against the plan, and records their times in the timing store ([The Go buckets](#the-go-buckets)) | No |
 | `Static Linux engine (amd64)`, `Static Linux engine (arm64)` | `ubuntu-24.04`, `ubuntu-24.04-arm` | Always | [The static Linux engine](#the-static-linux-engine) | No |
 | `Expression engine (ubuntu-24.04)`, `Expression engine (ubuntu-26.04)` | Each image by name | Always | [The expression engine jobs](#the-expression-engine-jobs) | Yes |
 | `jsonb (PostgreSQL)` | `ubuntu-latest` | Always | The jsonb canonicaliser of [internal/jsonval](../internal/jsonval/README.md) against PostgreSQL 16 in the oracle's pinned image, and the bound on a value's stored size that the job reads use | No |
@@ -79,22 +85,24 @@ does by default
 
 ### The Go jobs
 
-Each part of the Go job takes these first steps:
+The Go tests run in time-balanced buckets ([The Go buckets](#the-go-buckets)),
+and the other Go checks run once on each OS, in the checks jobs
+`Go checks (ubuntu-latest)` and `Go checks (macos-latest)`. Each bucket and
+each checks job takes these first steps:
 
 | Step | What it does |
 |---|---|
 | `Check out repository` | Checks out the commit, without keeping credentials |
 | `Set up Go` | Installs the Go of `go.mod` |
 | `Set up Bun` | Installs Bun 1.4.3, the Bun that windmill-lite pins |
+| `Locate Bun` | In a bucket only: sets `WL_BUN` to that Bun. A checks job sets it on each step that needs it |
 | `Set up Node` | Installs Node 24.22.1, the Node of Windmill `v1.862.0`'s image |
 | `Locate Node` | Sets `WL_NODE` to that Node |
 | `Fetch windmill-client 1.862.0` | Downloads the package from npm, checks it against its SHA-512 integrity hash, and sets `WL_WINDMILL_CLIENT` |
 | `Install the build helper's dependencies` | `bun install --frozen-lockfile` in `harnesses/bun/build` |
 
-Then the steps below run in order. Every part runs `Test`;
-`Go (ubuntu-latest)` and `Go (macos-latest, packages)` also run every other
-step, which the workflow marks `if: matrix.checks`, except
-`Check the generated protobuf code`, which only `Go (ubuntu-latest)` runs.
+Then each checks job runs the steps below in order. Only
+`Go checks (ubuntu-latest)` runs `Check the generated protobuf code`.
 
 | Step | What it checks |
 |---|---|
@@ -103,12 +111,11 @@ step, which the workflow marks `if: matrix.checks`, except
 | `Check the generated protobuf code` | With protoc 36.2, which the step downloads and checks against its SHA-256, `go generate ./wl/plugin` changes no file under `wl/plugin` or `proto` ([proto](../proto/README.md#generate-the-go-code)) |
 | `Vet` | `go vet ./...` |
 | `Check that no retarget ledger remains` | `go run ./cmd/wltest ledger`: no retarget ledger and no marker of one exists ([the ledger guard](../cmd/wltest/README.md#the-ledger-guard)) |
-| `Test` | `go test -race -timeout 45m` on the part's packages, with `WL_REQUIRE_BUN=1` and `WL_REQUIRE_NODE=1`, so a test that needs Bun, the client or Node fails instead of skipping. A part that selects tests with `-run` also passes `-v` |
 | `Test the expression packages in leak check` | `go test -race -count=1 ./internal/expr/...` with `WL_QJS_LEAK_CHECK=1`. The engine frees each QuickJS-ng runtime block by block, and a test that checks for leaks fails on one; the tests that make QuickJS-ng leak on purpose opt out |
 | `Build a fixture bundle twice and compare` | Two builds of the fixture bundle, one from the fixture folder and one from a copy of it in another directory, give one digest and the same archive bytes, and `verify` accepts the result |
 | `Measure the expression pool under load` | Prints latency percentiles of the pool of QuickJS-ng runtimes that evaluate expressions ([internal/expr/quickjs](../internal/expr/quickjs/README.md#benchmarks-and-the-load-test)). Report only |
 | `Report the expression budget gate` | Prints the latency of expressions through the whole pipeline, against the bounds of the budget gate ([internal/expr](../internal/expr/README.md#the-budget-gate)). Report only: the bounds hold on the benchmark machine, not on CI's shared runners |
-| `Report the native realms and the process groups` | Runs, by name and with `-v`, the native realm check of [cmd/windmill-lite](../cmd/windmill-lite/README.md#tests) and the tests of the process groups that a job's children join. It fails when one of these tests skips or does not run, which the `Test` step does not show. The workflow lists the tests |
+| `Report the native realms and the process groups` | Runs, by name and with `-v`, the native realm check of [cmd/windmill-lite](../cmd/windmill-lite/README.md#tests) and the tests of the process groups that a job's children join. It fails when one of these tests skips or does not run, which does not fail a bucket. The workflow lists the tests |
 | `Test repository scripts` | `python3 -m unittest discover -s scripts -v`: the tests of the [scripts](../scripts/README.md#run-the-tests) |
 | `Set up Node for the npm package` | Puts Node 22.23.5 on the `PATH` for the next step only; `WL_NODE` keeps naming Node 24 |
 | `Test the npm package` | The [packaging test](../harnesses/README.md#test-the-package) of the npm package. Node 22 is the oldest major version that the SDK's test entry supports |
@@ -117,21 +124,134 @@ The process groups are the ones that a job's children join
 ([WR-55](semantics/languages.md#wr-55)): a child left in a job's group holds
 the job open.
 
-### The macOS parts
+### The Go buckets
 
-On macOS, the Go tests run as three parallel jobs. Complementary `-run` and
-`-skip` patterns split them, so together they run every test that one
-`go test ./...` runs:
+[testbucket](https://github.com/invakid404/testbucket) v0.2.2, a tool
+released under the Unlicense, splits the Go tests into K buckets of about
+equal test time, and each bucket runs as a job. Each of three scopes has a
+plan job, its buckets, a timing store and a record job:
 
-| Part | What it tests |
+| Scope | Runner | Packages | K | Go test timeout, bucket job timeout | On a cold start |
+|---|---|---|---|---|---|
+| `go-ubuntu` | `ubuntu-latest` | Every package | 6 | 45m, 50 minutes | 60m, 75 minutes |
+| `go-macos` | `macos-latest` | Every package | 5 | 45m, 50 minutes | 90m, 120 minutes |
+| `go-quickjs` | `ubuntu-latest` | `internal/expr` and `cmd/wltest`, with `WL_TEST_QUICKJS_ONLY=1` | 3 | 45m, 50 minutes | 60m, 75 minutes |
+
+K on `macos-latest` is 5, the number of macOS jobs that GitHub runs at once
+on the Free, Pro and Team plans
+([job concurrency limits](https://docs.github.com/en/actions/reference/limits#job-concurrency-limits-for-github-hosted-runners)).
+While `Go checks (macos-latest)` runs, one macOS bucket can wait for a
+runner.
+
+#### The plan
+
+A scope's plan job:
+
+1. restores the scope's timing store ([The timing store](#the-timing-store));
+2. lists the scope's packages with `go list`, on its own OS, so that build
+   constraints apply;
+3. puts each package into one of the K buckets, by its recorded test time;
+4. slices a package that alone takes more than the total time over K, such
+   as `cmd/wltest`, into groups of its top-level tests, each run with
+   `-run '^(…)$'`;
+5. fails, and starts no bucket, unless every package, and every top-level
+   test of a sliced package, is in exactly one bucket;
+6. prints its summary in its log and in the job summary.
+
+Before it plans, the job makes the root module a member of a `go.work`
+workspace, which it does not commit. testbucket runs a module outside a
+workspace whole, in one bucket. The buckets run the planned commands, which
+name packages by import path, in module mode.
+
+The flow suite of `cmd/wltest` is five top-level tests, one for each
+configuration ([the flow suite](../cmd/wltest/README.md#the-flow-suite)), so
+that a slice can hold one configuration.
+
+| Line of the summary | What it says |
 |---|---|
-| `Go (macos-latest, packages)` | Every package, without the flow suite `TestFlowSuite` |
-| `Go (macos-latest, flow suite in warm and fresh mode)` | The modes of `TestFlowSuite` in `cmd/wltest` whose names do not start with `host` |
-| `Go (macos-latest, flow suite in host mode)` | The modes of `TestFlowSuite` whose names start with `host` |
+| `timing store: …` | Where the store came from: a cache entry, named by its key, the seed, or none |
+| `*** COLD START: … ***` | The plan has no recorded test time ([The cold start](#the-cold-start)) |
+| `buckets` | Each bucket, with its estimate in seconds and its packages or slices |
+| `split notes` | Each sliced package, with the number of its slices |
+| `coverage gate: PASS …` | Every package, and every top-level test of a sliced package, is in exactly one bucket |
+| `go test timeout: …` | The timeouts that the plan chose |
 
-The job `Go (macos-latest)` runs after them, on Linux. It reads the latest
-attempt of each macOS part, and passes only when each passed. It runs even
-when a part failed, unless the run was cancelled.
+#### A bucket
+
+A bucket runs its `go test` commands with `-race -count=1 -p=1 -json`. With
+`-p=1`, it tests one package at a time, so its time is the sum of its
+packages' times. With `-count=1`, Go's test cache is never used. The job's
+status is the status of the commands.
+
+Each bucket sets `WL_REQUIRE_BUN=1` and `WL_REQUIRE_NODE=1`, so a test that
+needs Bun, the client or Node fails instead of skipping. Its step
+`Run the bucket` fails before any test runs when `WL_BUN`, `WL_NODE` or
+`WL_WINDMILL_CLIENT` is not set.
+
+The step `Run the bucket` writes the commands' `go test -json` output to a
+file for the record job, and prints it as `go test -v` prints:
+
+| Line of the log | What follows it |
+|---|---|
+| `=== bucket-<n> — estimated <s>s ===` | Nothing: the line gives the plan's estimate |
+| `--- invocations ---` | The bucket's commands |
+| `--- output ---` | The output of the tests |
+
+To run a bucket's tests locally, set the variables of
+[Run the tests locally](#run-the-tests-locally), and run a command of the
+bucket without `-json` and without the `| tee -a …` at its end, such as:
+
+```sh
+go test -race -p=1 -count=1 -timeout 45m -run '^(TestFlowSuiteHost|TestFlowSuiteWarm)$' github.com/invakid404/windmill-lite/cmd/wltest
+```
+
+#### The timing store
+
+- **Where it is.** Each scope's store is a cache entry whose key starts
+  with `testbucket-<scope>-v1-`. A plan restores the newest entry.
+- **Who writes it.** On each push to `main`, the scope's record job saves a
+  new entry. A pull request's run restores the newest entry of `main`, and
+  never saves one
+  ([restrictions for accessing a cache](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#restrictions-for-accessing-a-cache)).
+- **What the record job does.** `testbucket audit` fails when a planned
+  package or test of the run reported nothing. Then `testbucket ingest`
+  folds the run's test times into the store, as a moving average; a package
+  that failed adds no time. Last, `testbucket whales` prints why each large
+  package is sliced or not.
+- **How long it stays.** GitHub removes an entry that no run used for 7
+  days, and the oldest entries when the repository's caches pass 10 GB
+  ([usage limits and eviction policy](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#usage-limits-and-eviction-policy)).
+
+#### The cold start
+
+A plan is cold when it has no recorded test time. The cache then has no
+entry for the scope and there is no seed, or the store was recorded under
+other flags than the plan's `-race -count=1`. A cold plan gives each package
+the same estimate, and slices nothing.
+
+On a cold start, `cmd/wltest` runs whole in one bucket: about 27 minutes on
+`ubuntu-latest`, and about 55 on `macos-latest`. So a cold plan sets the
+longer timeouts of the table above. The next record job on `main` saves the
+store that later plans restore.
+
+#### The seed
+
+When the cache restores no entry, the plan reads the scope's seed,
+`.github/testbucket/<scope>.json`, if the file exists. A seed is a timing
+store made from the test events of one run. A plan that reads the seed and
+is still cold fails: testbucket ignores a store recorded under other flags.
+
+To refresh the seed of a scope:
+
+1. Download the artifacts of a green run of the scope's OS:
+   `gh run download <run-id> -p '<scope>-*' -D <dir>`.
+2. Check out the run's commit in a clean clone.
+3. For `go-ubuntu` or `go-macos`, run `go work init .` in the clone, on that
+   OS.
+4. Run `testbucket ingest --runner go --count 1 --race --whale-k <K> --store .github/testbucket/<scope>.json <dir>/*/*.ndjson`
+   with testbucket v0.2.2, from the clone's root. For `go-quickjs`, add
+   `--live` with the file of the two packages that the plan job writes.
+5. Commit the seed.
 
 ### The static Linux engine
 
@@ -361,9 +481,12 @@ Neither check is required.
 | `Check the generated protobuf code` | `go generate ./wl/plugin` with protoc 36.2 on the `PATH`, then commit the changed files |
 | `Vet` | `go vet ./...` |
 | `Check that no retarget ledger remains` | `go run ./cmd/wltest ledger` |
-| `Test`, or `Report the native realms and the process groups` | The failed test, with the variables of [Run the tests locally](#run-the-tests-locally) set: `go test -race -run '^<test>$' ./<package>` |
+| `Go (<os>, bucket <n>)`, or `Report the native realms and the process groups` | The failed test, with the variables of [Run the tests locally](#run-the-tests-locally) set: `go test -race -run '^<test>$' ./<package>`, or the bucket's command ([A bucket](#a-bucket)) |
+| `Go plan (<os>)` | In a clean clone, on that OS, with testbucket v0.2.2: `go work init .`, then the `testbucket plan` command of the job's step in `.github/workflows/ci.yml`. A failed coverage gate names the package or test that no bucket holds |
+| `Go record (<os>)` | Runs on `main` only. Its log names the package or test that the audit missed ([The timing store](#the-timing-store)) |
 | `Test the expression packages in leak check` | `WL_QJS_LEAK_CHECK=1 go test -race -count=1 ./internal/expr/...` |
-| `Go (ubuntu-latest, QuickJS only)` | `WL_TEST_QUICKJS_ONLY=1 go test -race -timeout 45m ./internal/expr ./cmd/wltest`, with the variables of [Run the tests locally](#run-the-tests-locally) set |
+| `Go (ubuntu-latest, QuickJS only, bucket <n>)` | `WL_TEST_QUICKJS_ONLY=1 go test -race -timeout 45m ./internal/expr ./cmd/wltest`, or the bucket's command with `WL_TEST_QUICKJS_ONLY=1`, with the variables of [Run the tests locally](#run-the-tests-locally) set |
+| `Go plan (ubuntu-latest, QuickJS only)` | The `testbucket plan` command of the job's step in `.github/workflows/ci.yml`, with testbucket v0.2.2 and the step's file of packages |
 | `Build a fixture bundle twice and compare` | The step's script in `.github/workflows/ci.yml`, with `RUNNER_TEMP` set to an empty directory and `WL_BUN` and `WL_BUILD_HELPER` set |
 | `Measure the expression pool under load` | `WL_QUICKJS_LOAD=1 WL_QUICKJS_LOAD_SECONDS=1 go test -count=1 -run '^TestPoolUnderLoad$' -v ./internal/expr/quickjs` (report only: it fails only on an error) |
 | `Report the expression budget gate` | `WL_EXPR_BUDGET=report WL_EXPR_BUDGET_SECONDS=1 go test -count=1 -run '^TestBudgetGate$' -v ./internal/expr` (report only) |
@@ -393,7 +516,7 @@ Neither check is required.
 | `Test the npm package` | The packaging test ([harnesses/README.md](../harnesses/README.md#test-the-package)) |
 | `Bun harness checks` | `bun test` in `harnesses/bun`, after `bun install --frozen-lockfile` in `harnesses/bun/build` |
 | `memoria` | The per-session flow of [docs/memoria.md](memoria.md#the-per-session-flow). `memoria explain <README.md>` says why a README is pending |
-| `Go (macos-latest)` | Nothing: open the macOS part that failed |
+| `Go (ubuntu-latest)`, `Go (macos-latest)`, `Go (ubuntu-latest, QuickJS only)` | Nothing: its log gives the result of each job that it needs. Open the plan, bucket or checks job that did not pass |
 | An annotation of `Docs (report only)` | `python3 scripts/check-docs.py <file>` |
 
 ## Re-run a check
@@ -438,8 +561,10 @@ To re-run one job with the GitHub CLI:
    `gh run view <run-id> --json jobs --jq '.jobs[] | {name, databaseId}'`.
 2. Run `gh run rerun --job <databaseId>`.
 
-Re-running a failed macOS part also re-runs `Go (macos-latest)`, which
-depends on it, and that job reads the latest attempt of each part.
+Re-running a failed bucket also re-runs `Go (ubuntu-latest)` or
+`Go (macos-latest)`, which depends on it, and reads the bucket's new result.
+The bucket runs the same commands as before, from the same plan, and its
+test events replace those of its earlier attempt.
 
 ## Run the tests locally
 
@@ -474,9 +599,9 @@ To run the tests, from the repository root, in one shell:
 5. Point `WL_WINDMILL_CLIENT` at the directory:
    `export WL_WINDMILL_CLIENT=/path/to/client`.
 6. Point `WL_NODE` at a Node executable: `export WL_NODE=/path/to/node`.
-7. Run `go test -race -timeout 45m ./...`, as CI's `Test` step does: the
-   flow suite in `cmd/wltest` can take longer than `go test`'s default limit
-   of 10 minutes.
+7. Run `go test -race -timeout 45m ./...`. The flow suite in `cmd/wltest`
+   can take longer than `go test`'s default limit of 10 minutes. CI runs the
+   same tests, split into buckets ([The Go buckets](#the-go-buckets)).
 
 Each package's README gives its own tests and their variables, such as the
 expression packages' leak check and budget gate

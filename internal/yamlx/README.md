@@ -212,8 +212,8 @@ npm `yaml` 2.8.3 is missing.
    or it finds a failure; this form stops after 60 s:
    `go test -run '^$' -fuzz FuzzToJSON -fuzztime 60s ./internal/yamlx`
 
-CI runs the tests in `Go (ubuntu-latest)` and
-`Go (macos-latest, packages)`: `FuzzToJSON` runs on its seed corpus, the
+CI runs the tests in the Go buckets of `ubuntu-latest` and
+`macos-latest`: `FuzzToJSON` runs on its seed corpus, the
 cases of `sy9.json`, but not with `-fuzz`, and the cross-check skips
 ([docs/ci.md](../../docs/ci.md#the-go-jobs)).
 

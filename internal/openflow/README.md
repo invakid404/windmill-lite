@@ -244,8 +244,8 @@ The tests need no environment variable.
    or it finds a failure; this form stops after 60 s:
    `go test -run '^$' -fuzz FuzzDecodeFlowValue -fuzztime 60s ./internal/openflow`
 
-CI runs the tests (not the fuzzer) in `Go (ubuntu-latest)` and
-`Go (macos-latest, packages)` ([docs/ci.md](../../docs/ci.md#the-go-jobs)).
+CI runs the tests (not the fuzzer) in the Go buckets of `ubuntu-latest`
+and `macos-latest` ([docs/ci.md](../../docs/ci.md#the-go-jobs)).
 
 ### Test files
 

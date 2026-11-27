@@ -882,10 +882,10 @@ The tests that need Bun skip without it, unless `WL_REQUIRE_BUN` is set.
    than `go test`'s default 10 minutes. To run one test, use `-run`,
    such as `go test -run '^TestStepSuite$' ./cmd/wltest`.
 
-CI runs it differently: its Go jobs add `-race`, and pick packages and tests
-with `-run` and `-skip` per job, so the flow suite runs on macOS in two
-parts, and the Redis tests in the `Redis` job
-([docs/ci.md](../../docs/ci.md#the-go-jobs)).
+CI runs it differently: its buckets run each package, or groups of its
+top-level tests, with `-race -count=1`, so the five tests of the flow suite
+can run in different jobs. The Redis tests run in the `Redis` job
+([docs/ci.md](../../docs/ci.md#the-go-buckets)).
 
 | Variable | Value | Tests that need it | When it is not set |
 |---|---|---|---|
@@ -968,8 +968,8 @@ also reported on standard error.
 
 In a Go or bun test file, an occurrence of the prefix that is not a
 well-formed marker also fails the guard, because it could still skip a test.
-In any other file a malformed occurrence is prose, such as this section. The CI jobs `Go (ubuntu-latest)` and
-`Go (macos-latest, packages)` run the guard
+In any other file a malformed occurrence is prose, such as this section. The CI jobs `Go checks (ubuntu-latest)` and
+`Go checks (macos-latest)` run the guard
 ([docs/ci.md](../../docs/ci.md#the-go-jobs)).
 
 ## Version
