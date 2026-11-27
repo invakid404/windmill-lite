@@ -75,7 +75,7 @@ import {
   shadow,
 } from "./context.ts";
 import { Native, type NativeJob } from "./native.ts";
-import { AnswerText, declaration, dispatch, HostCallFailure, type Plugin, type ReplyForm, replyText, type Selector, type StepOutcome } from "./plugin.ts";
+import { AnswerText, declaration, dispatch, HostCallFailure, type Plugin, type ReplyForm, replyText, type Selector, type SpawnedPlugin, type StepOutcome } from "./plugin.ts";
 import { HARNESS_VERSION, versionsPair } from "./version.ts";
 import { bind, errorText, patchBigInt, resultText, type Signature, signatureErrorText, signatureOf, stepContext } from "./wrapper.ts";
 
@@ -400,9 +400,16 @@ export class Runtime {
 
   /** Sets the host plugin before start, for a harness that loads it once
    * the runtime has installed its process-wide hooks (main.ts). */
-  usePlugin(p: Plugin) {
+  usePlugin(p: Plugin | SpawnedPlugin) {
     if (this.welcomed) throw new Error("windmill-lite: a plugin is set before the handshake");
     declaration(p);
+    // heldAge is a spawned harness's alone (SpawnedPlugin): host mode
+    // neither reads, checks nor calls it (ADR 0004 §Host plugins item 11),
+    // so a host's plugin may have an accessor of its own by that name.
+    if (!this.opts.host) {
+      const age = (p as SpawnedPlugin).heldAge;
+      if (age !== undefined && typeof age !== "function") throw new Error("windmill-lite plugin: heldAge is not a function");
+    }
     this.opts.plugin = p;
   }
 
@@ -597,7 +604,61 @@ export class Runtime {
       oldest_abandoned_ms: oldest,
       modules: this.modules.size,
       runs_held: this.runData.size,
+      ...this.heldAgeField(),
     };
+  }
+
+  /** The health's held_age_ms, in a harness that the engine spawned and
+   * whose plugin reports an age (heldAge); nothing otherwise, host mode
+   * included. */
+  private heldAgeField(): { held_age_ms?: number } {
+    if (this.opts.host) return {};
+    const ms = this.heldAge();
+    return ms === undefined ? {} : { held_age_ms: ms };
+  }
+
+  /** What the host plugin's heldAge reports, in whole milliseconds, or
+   * undefined when it reports nothing: it has no heldAge, heldAge threw,
+   * or it returned something other than a finite number of at least 0,
+   * such as a promise. It runs outside every invocation. The first
+   * failure goes to stderr, once. */
+  private heldAge(): number | undefined {
+    // Called only in a spawned harness (heldAgeField), whose plugin is a
+    // SpawnedPlugin.
+    const plugin = this.opts.plugin as SpawnedPlugin | undefined;
+    const f = plugin?.heldAge;
+    if (typeof f !== "function") return undefined;
+    let v: unknown;
+    try {
+      // With the plugin as this, as its hooks are called.
+      v = invocations.exit(() => f.call(plugin));
+    } catch (e) {
+      this.heldAgeFailed(`threw: ${e instanceof Error ? e.message : String(e)}`);
+      return undefined;
+    }
+    if (v === undefined) return undefined;
+    if (v !== null && typeof v === "object" && typeof (v as { then?: unknown }).then === "function") {
+      // A promise is not an age. Its rejection is consumed here, so it is
+      // no process-level error and reaches no invocation.
+      (v as PromiseLike<unknown>).then(undefined, () => {});
+      this.heldAgeFailed("returned a promise, not a number of milliseconds");
+      return undefined;
+    }
+    if (typeof v !== "number" || !Number.isFinite(v) || v < 0) {
+      this.heldAgeFailed(`returned ${typeof v === "number" ? String(v) : typeof v}, not a number of milliseconds`);
+      return undefined;
+    }
+    const ms = Math.floor(v);
+    return ms > 0 ? ms : undefined;
+  }
+
+  private heldAgeReported = false;
+
+  /** Writes why heldAge reported nothing to stderr, the first time only. */
+  private heldAgeFailed(why: string) {
+    if (this.heldAgeReported) return;
+    this.heldAgeReported = true;
+    process.stderr.write(`windmill-lite harness: the host plugin's heldAge ${why}; the process reports no held age\n`);
   }
 
   /** Keeps the run data that m carries, if any, under its run_data_id. A

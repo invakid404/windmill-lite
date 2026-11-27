@@ -94,7 +94,11 @@ type Options struct {
 	// owns, and the engine's diagnostics about them; nil means os.Stderr.
 	// With a Pool that is not zero, several processes can write at once,
 	// so the runtime serializes its writes, still calling the writer's
-	// WriteString when it has one.
+	// WriteString when it has one. With Pool.Recycle.UnsettledRun or
+	// HeldAge set, the pool's own lines are best effort and can be written
+	// after Open has failed or Close has returned. Two runtimes do not
+	// serialize their writes with each other, so a writer that a later
+	// runtime shares, as on a retry, must then be safe for concurrent use.
 	Diagnostics io.Writer
 	// ExpressionSlots is the number of evaluation slots of the runtime's
 	// expression engine; zero means its default (ADR 0003).
@@ -355,12 +359,16 @@ type PoolOptions struct {
 
 // RecycleTriggers say when the pool replaces a process that is still
 // serving. A process trips a trigger when its heartbeats report a resident
-// set of RSS bytes or more Samples times in a row, or once it has run steps
-// of more than Modules distinct scripts, whose modules it keeps loaded.
+// set of RSS bytes or more Samples times in a row, once it has run steps
+// of more than Modules distinct scripts, whose modules it keeps loaded,
+// when a host plugin hook of an ended run has held that run unsettled for
+// UnsettledRun, or when its host plugin reports a resource held for
+// HeldAge after its run ended.
 // It then takes no new steps, a replacement starts beside it outside Max,
-// and it leaves once no step is in flight in it. One process leaves for a
-// trigger at a time; another that trips meanwhile keeps serving until the
-// first has exited. A threshold is sampled and does not cap memory.
+// and it leaves once no step is in flight in it and the runs pinned to it
+// have ended. One process leaves for a trigger at a time; another that
+// trips meanwhile keeps serving until the first has exited. A threshold is
+// sampled at each heartbeat and does not cap.
 type RecycleTriggers struct {
 	// RSS is the resident set size, in bytes, that trips the trigger; zero
 	// turns it off.
@@ -370,6 +378,18 @@ type RecycleTriggers struct {
 	// Modules is how many distinct scripts a process may run; the first
 	// step of one more still runs there. Zero turns it off.
 	Modules int
+	// UnsettledRun is how long after a run has ended a host plugin hook of
+	// that run, which the runtime stopped waiting for, may still run in a
+	// process and hold the run unsettled. While the run runs, the hook does
+	// not count, and neither does onRunSettled, whose run has settled.
+	// Zero turns it off.
+	UnsettledRun time.Duration
+	// HeldAge is the age, which the host plugin reports at each heartbeat
+	// (heldAge in harnesses/bun/README.md "Host plugins"), of the oldest
+	// resource it still holds after that resource's run ended, that trips
+	// the trigger. A plugin that reports nothing never trips it. Zero turns
+	// it off.
+	HeldAge time.Duration
 }
 
 // harnessConfig is the pool's configuration in internal/harness, without
@@ -377,7 +397,10 @@ type RecycleTriggers struct {
 func (o PoolOptions) harnessConfig() harness.PoolConfig {
 	return harness.PoolConfig{
 		Min: o.Min, Max: o.Max, Cap: o.Cap, LagThreshold: o.LagThreshold, RecycleTimeout: o.RecycleTimeout, MaxLive: o.MaxLive,
-		Recycle: harness.RecycleTriggers{RSS: o.Recycle.RSS, Samples: o.Recycle.Samples, Modules: o.Recycle.Modules},
+		Recycle: harness.RecycleTriggers{
+			RSS: o.Recycle.RSS, Samples: o.Recycle.Samples, Modules: o.Recycle.Modules,
+			UnsettledRun: o.Recycle.UnsettledRun, HeldAge: o.Recycle.HeldAge,
+		},
 	}
 }
 
@@ -1024,6 +1047,55 @@ func (rt *Runtime) BuildInfo() BuildInfo {
 		Deviations:           bundle.ModeDeviations(rt.manifest.Deviations, rt.state, rt.manifest.SharedCode),
 		NonconformantRuntime: rt.manifest.NonconformantRuntime,
 	}
+}
+
+// ProcessHealth is one harness process of the runtime's warm pool, as
+// Processes reports it.
+type ProcessHealth struct {
+	// PID is the process's id.
+	PID int
+	// Serving is set while the pool's ordinary routing may give the
+	// process new work: the steps of runs that are not pinned, and new
+	// pins. It is unset while an abandoned step of its own still runs,
+	// while the pool has more processes than it needs, and while the
+	// process leaves for a recycle trigger. A process whose abandoned
+	// steps have all ended serves again only if the pool is short of its
+	// maximum without it; otherwise it drains. A live run pinned to the
+	// process keeps starting steps there whatever Serving says. So an unset
+	// Serving promises neither that no more steps start there nor that the
+	// process exits soon.
+	Serving bool
+	// Recycle names the recycle trigger that the process tripped
+	// (PoolOptions.Recycle): "rss", "modules", "unsettled_run" or
+	// "held_age"; empty while it has tripped none. A tripped process stays
+	// so. It stops serving at once, or once another process that leaves
+	// for a trigger has gone, and exits once nothing is in flight in it and
+	// no live run is pinned to it.
+	Recycle string
+	// HeldAge is what its host plugin last reported (heldAge): the age of
+	// the oldest resource that the plugin still holds after that
+	// resource's run ended; zero for none.
+	HeldAge time.Duration
+}
+
+// Processes returns a snapshot of the runtime's warm pool: each harness
+// process, from its admission until its exit is observed, and the recycle
+// trigger it tripped. A runtime with no warm pool returns none: a fresh
+// runtime, host mode, or a bundle with no Bun step.
+func (rt *Runtime) Processes() []ProcessHealth {
+	if rt.pool == nil {
+		return nil
+	}
+	stats := rt.pool.Stats()
+	out := make([]ProcessHealth, 0, len(stats))
+	for _, s := range stats {
+		h := ProcessHealth{PID: s.PID, Serving: s.Serving, Recycle: s.Recycle}
+		if s.Health != nil {
+			h.HeldAge = time.Duration(s.Health.HeldAgeMS) * time.Millisecond
+		}
+		out = append(out, h)
+	}
+	return out
 }
 
 // PlatformOrigin is the origin at which the runtime's steps reach its

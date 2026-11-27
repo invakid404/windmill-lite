@@ -52,6 +52,7 @@ the code.
 | `conn.go` | One socket's writer and reader goroutines, and when the last frame arrived |
 | `process.go` | `Spawn`, `Process`: the handshake, invocations, settlement, death, the watchdog, platform calls, child groups |
 | `procgroup_linux.go`, `procgroup_darwin.go`, `procgroup_other.go` | Listing a process group's members and reading a process's arguments, per system |
+| `tie_linux.go`, `tie_other.go` | `startTied`: on Linux, a spawned process ends with the engine's process |
 | `reap.go` | Reaping the members that the engine adopted |
 | `args.go` | `scriptArgs`: the text of `args.json` |
 | `host.go` | `AttachHost`, `HostConn`, `HostChildren`, `CheckWorkdir`: host mode on the engine's side |
@@ -72,7 +73,7 @@ the code.
 | `Spawn`, `ProcessConfig` | func, struct | Starts a harness process and shakes hands with it | `Pool`, `wltest` (`ProcessConfig` also through `PoolConfig.Process` in `wl`) |
 | `Process` | struct | One harness process or one host connection. `Execute` runs an invocation; `HostCall` asks its plugin; `Drain`, `Kill`, `Done`, `Bye`, `ExitStatus`; `Ping`, `Health`, `Hello`, `Lag`, `Load`, `Silence`, `PID`, `Dir` | `Pool`, `wl`, `wltest` |
 | `NewPool`, `PoolConfig`, `Pool` | func, struct, struct | A set of processes for one `Key`: `Execute`, `Start`, `Close`, `Stats`, `HostCall`, `Plugin`, and `PinRun`, `Unpinned`, `RunEnded`, `ForgetRun` for [pinned runs](#pinned-runs), with `Pin`, `WithPin` and `ErrPinLive`. `PoolConfig.CheckSettings` checks its size, cap, bound on live processes and recycle triggers as `NewPool` does | `wl` |
-| `RecycleTriggers` | struct | `PoolConfig.Recycle`: the resident set and the count of distinct scripts that replace a warm process ([Warm pools](#warm-pools)) | `wl` |
+| `RecycleTriggers` | struct | `PoolConfig.Recycle`: the triggers that replace a warm process: its resident set, the count of distinct scripts, how long a late host call holds an ended run unsettled, and the held age that its host plugin reports ([Warm pools](#warm-pools)) | `wl` |
 | `Key` | struct | What a pool serves: harness class, runtime pin, dependency set, module-state mode | `wl` |
 | `ProcessStats` | struct | One process's figures in `Pool.Stats` | tests |
 | `Health` | struct | A harness's health, from its heartbeat `ping` or a `pong`; `RunsHeld` counts the runs whose data it holds | tests |
@@ -314,6 +315,16 @@ the harness protocol design record lists the fields of `run`, `run_done`,
   `harness pid <pid> stdout:` or `stderr:`.
 - **Working directory.** Each process gets a private working directory
   (mode `0700`) under `WorkRoot`, removed when it exits.
+- **The end of the engine.** On Linux, a process that `Spawn` starts gets
+  `SIGKILL` when the engine's process ends, also while its event loop is
+  stuck: its parent-death signal. Elsewhere, as on macOS, a process exits
+  when its connection to the engine ends, and only while its event loop
+  runs. What the harness itself started is not tied.
+- **The spawning thread.** Linux sends that signal when the thread that
+  forked the process exits, and the Go runtime ends a thread whose
+  goroutine exits while locked to it. So every spawn runs on the thread of
+  one goroutine that locks it and never leaves it, which ends only with the
+  engine's process (`startTied`).
 
 ### The base environment
 
@@ -968,6 +979,40 @@ directory of its own, and exits once it has reported the outcome.
 - **The module trigger.** `Recycle.Modules` trips a process once the
   invocations dispatched to it ran more distinct scripts than that; an
   invocation that was never sent does not count. Zero turns it off.
+- **The unsettled-run trigger.** `Recycle.UnsettledRun` trips a process
+  in which a host call that the engine stopped waiting for still runs,
+  holding its run unsettled, that long after the run ended. The call
+  carries its run's pin (`WithPin`), whose `RunEnded` records the end, for
+  an unpinned run too; while the run runs, it does not count. The age is
+  read on the monotonic clock, so a change of the wall clock does not
+  move it.
+- **What else does not count.** A late `on_run_settled`, whose run has
+  settled, and a late call without its run's pin. Zero turns the trigger
+  off, and then the pool reads no age: its late calls are not scanned. The
+  pool's clock is a test hook.
+- **The held-age trigger.** `Recycle.HeldAge` trips a process whose
+  health report gives a `held_age_ms` of at least that long: what its host
+  plugin reports of the resources it holds past their runs. Zero turns it
+  off.
+- **When they are reviewed.** Both are reviewed at each health report. A
+  process that trips one writes a diagnostics line naming it and the
+  bound.
+- **The pool's lines.** While either is set, every line of the pool, a
+  failed start's included, goes out on a goroutine of its own, so a
+  blocked writer holds up no pool operation. Such a line is best effort:
+  past 64 lines waiting at once, across every pool of the program, one is
+  dropped. The next line that goes out counts the drops, without their
+  process or reason.
+- **After the pool.** Such a line can still be written after `Start` has
+  failed or `Close` has returned. A pool serializes its own writes only,
+  so a writer that a later pool shares must then be safe for concurrent
+  use.
+- **Which trigger.** `Stats` names the trigger that each process tripped
+  (`ProcessStats.Recycle`: `TriggerRSS` and the like).
+- **Serving.** `ProcessStats.Serving` says whether the ordinary pick may
+  route new invocations to the process now. A tainted process serves again
+  only once its last abandoned invocation ends and the pool is short of
+  `Max` without it. A live pinned run's invocations reach it either way.
 - **Past the module threshold,** the invocation of the one more script
   still runs there, and so do invocations picked for the process before
   that one was dispatched. Once the process starts to leave, no later
@@ -1038,9 +1083,10 @@ The tests that run the real Bun harness need the pinned Bun, and the
 protocol's shared cases are in
 [conformance/protocol](../../conformance/README.md). The codec tests, the
 fake-harness tests (with their pool tests) and `TestPoolHostCall` need
-nothing else. The warm pool rules are tested on Bun (`TestBunPool*`), and
-the bound on live processes and the recycle triggers on the fake harness
-(`pool_test.go`).
+nothing else. The warm pool rules are tested on Bun (`TestBunPool*`). The
+bound on live processes and the memory and module triggers are tested on
+the fake harness (`pool_test.go`), and the unsettled-run and held-age
+triggers on Bun (`lifetime_test.go`).
 
 ### Run the tests
 
@@ -1065,10 +1111,10 @@ and `WL_REQUIRE_BUN` set ([docs/ci.md](../../docs/ci.md#the-go-jobs)).
 
 | Variable | Value | Tests that need it | When it is not set |
 |---|---|---|---|
-| `WL_BUN` | The path of a Bun 1.4.3 executable | Every test that runs the real Bun harness: `bun_test.go`, `exchange_test.go`, `children_test.go`, `rundata_test.go`, `reap_linux_test.go` (all but `TestFreshLandedKillReapsALaterOrphan`), `qwa4_test.go`, the `TestBunWarm*` tests of `childgroup_test.go`, `TestTimesHook`, `TestBenchEcho`; and `BenchmarkHarnessCodec` and `BenchmarkTransport`, which fail rather than skip | The test skips, or fails when `WL_REQUIRE_BUN` is set |
+| `WL_BUN` | The path of a Bun 1.4.3 executable | Every test that runs the real Bun harness: `bun_test.go`, `exchange_test.go`, `children_test.go`, `rundata_test.go`, `reap_linux_test.go` (all but `TestFreshLandedKillReapsALaterOrphan`), `qwa4_test.go`, the `TestBunWarm*` tests of `childgroup_test.go`, `TestTimesHook`, `TestBenchEcho`, `TestHarnessEndsWithEngine` and `TestHarnessTieNoEarlyKill` (on Linux), `lifetime_test.go`; and `BenchmarkHarnessCodec` and `BenchmarkTransport`, which fail rather than skip | The test skips, or fails when `WL_REQUIRE_BUN` is set |
 | `WL_WINDMILL_CLIENT` | A directory whose `node_modules` holds `windmill-client@1.862.0` | `qwa4_test.go` | The test skips, or fails when `WL_REQUIRE_BUN` is set |
 | `WL_REQUIRE_BUN` | Any non-empty value | All of the above | Missing tools skip their tests |
-| `WL_FAKE_HARNESS`, `WL_FAKE_CTL`, `WL_SUBREAPER`, `WL_WAIT_ALL`, `WL_DRIP_CHILD` | Set by the tests and their fixture steps (`spawn-waitall` sets `WL_WAIT_ALL`), when they re-run the test binary as a fake harness, a subreaper, a process that waits for all its children, or a child that keeps writing. `WL_FAKE_CTL` is a fake harness's control directory | `fake_test.go`, `pool_test.go`, `reap_linux_test.go`, `children_test.go` | Not for you to set |
+| `WL_FAKE_HARNESS`, `WL_FAKE_CTL`, `WL_SUBREAPER`, `WL_WAIT_ALL`, `WL_DRIP_CHILD`, `WL_TIE_ENGINE` | Set by the tests and their fixture steps (`spawn-waitall` sets `WL_WAIT_ALL`), when they re-run the test binary as a fake harness, a subreaper, a process that waits for all its children or a child that keeps writing. `WL_TIE_ENGINE` re-runs it as an engine that gets `SIGKILL`. `WL_FAKE_CTL` is a fake harness's control directory | `fake_test.go`, `pool_test.go`, `reap_linux_test.go`, `children_test.go`, `tie_test.go` | Not for you to set |
 
 ### Test files
 
@@ -1084,6 +1130,8 @@ and `WL_REQUIRE_BUN` set ([docs/ci.md](../../docs/ci.md#the-go-jobs)).
 | `bun_test.go` | `Process` and `Pool` against the real Bun harness ([below](#what-the-bun-tests-check)) | `WL_BUN` |
 | `children_test.go` | The bundle of `testdata/children`: the base environment as a step sees it, and process groups in `fresh` and `warm` mode ([below](#what-the-bun-tests-check)) | `WL_BUN` |
 | `reap_linux_test.go` | Reaping, with the test binary as a child subreaper, on Linux ([below](#what-the-bun-tests-check)) | Linux; `WL_BUN` for all but `TestFreshLandedKillReapsALaterOrphan` |
+| `lifetime_test.go` | The triggers on what a process holds past its runs, on the real Bun harness ([below](#the-lifetime-tests)) | `WL_BUN` |
+| `tie_test.go`, `tie_linux_test.go`, `tie_other_test.go` | The end of the engine. `TestHarnessEndsWithEngine`: the test binary, re-run as an engine (`WL_TIE_ENGINE`), spawns a harness whose step blocks its event loop and gets `SIGKILL`; the harness is gone within 20 s. `TestHarnessTieNoEarlyKill`: a goroutine that locks its thread spawns a harness and returns, so its thread ends; once it has, the harness still runs a step. Both skip elsewhere, saying why | Linux; `WL_BUN` |
 | `childgroup_test.go` | Child groups on a fake process table: their identity, the guardian and its tokens (`hasGuardArg`), undecided looks, ending once, release, `groupMembersOf`; the reaping rules (`TestReapChildGroups`); a real guardian, the test's own child, reaped once the watcher releases its group (`TestReviewOwnedGuardianReaped`) | `WL_BUN` for `TestBunWarm*` |
 | `fake_test.go` | A fake harness, for what Bun cannot be made to do on demand ([below](#what-the-fake-harness-tests-check)) | |
 | `pool_test.go` | A warm pool's settings on the fake harness of mode `pool`, whose invocations and drains the tests hold; the pool's own events (spawns begun and failed, exits observed, drains begun, waits) give the order. The tests are listed [below](#what-the-pool-tests-check) | |
@@ -1220,6 +1268,35 @@ unattributed warning, and a signature that did not parse. Others hold:
 | `TestUnpinnedRunLateCalls`, `TestPinOfAnotherPool`, `TestPinRunRefusesALivePin` | An unpinned run's late call neither binds nor uses a later pinned run's pin; another pool's pin in a call's context is ignored; one live pin per id |
 | `TestPinRebindsAfterACallThatWasNotSent`, `TestPinFirstCallsAcrossAnExit` | A first call that ended before it was sent frees the pin; a second call waits for a first one under way on a process whose exit the pool has observed, then runs elsewhere |
 | `TestPoolAliveCount` | With pins, `Max: 1`, `MaxLive: 2` and drains held: a surplus process serving its pin drains only after the pin ends and its unrelated work, held past `RecycleTimeout`, completes. A new invocation waits through the held drain and starts the third process at the exit, and the live count never passes 2 |
+
+#### The lifetime tests
+
+`lifetime_test.go` runs a warm pool of the real Bun harness, with a host
+plugin and heartbeats every 20 ms.
+
+- **`TestPoolRecycleUnsettledRun`.** The plugin's `onModuleStart` never
+  returns, and the engine stops waiting for it. With the trigger at 1
+  minute on a fake clock, the process stays 1 ms short of the bound. At the
+  bound a replacement starts, and the process leaves only once the run
+  pinned to it has ended, with a diagnostics line; off, it stays.
+- **`TestPoolRecycleUnsettledSettlementHook`.** A late `onRunSettled`
+  does not trip the trigger: its run has settled.
+- **`TestPoolTripLineDoesNotHoldThePool`.** A diagnostics writer blocks on
+  a trip's line. While the line waits, the process is replaced and the pool
+  answers. When the replacement fails to start instead, the writer blocks
+  its line too, and the failure is still reported and the pool answers.
+- **`TestPoolLinesBoundAcrossPools`.** Pools that fail to start, opened one
+  after another while the writer blocks, leave at most 64 lines waiting
+  in all. Each `Start` fails and each `Close` returns meanwhile. Once the
+  budget's writers have finished, the writer has 64 lines, and the next
+  line counts the six dropped.
+- **`TestPoolHeldAgeRejectedPromise`.** A `heldAge` that answers a
+  rejected promise while a step runs reports no age, counts no error,
+  reaches the step with no warning, and writes one line.
+- **`TestPoolRecycleHeldAge`.** The plugin's `heldAge` reports what the
+  test writes. Ages under the bound of 2 minutes, which rise and fall,
+  keep the process; an age at the bound replaces it, with a diagnostics
+  line. With the trigger off, it stays.
 
 #### What the fake-harness tests check
 

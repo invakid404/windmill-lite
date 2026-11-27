@@ -1276,6 +1276,40 @@
       "payload": "{\"t\":\"ping\",\"id\":\"h3\"}"
     },
     {
+      "case": "pong-held-age",
+      "title": "a pong whose health reports what the host plugin reports: the age, in milliseconds, of the oldest resource it still holds after that resource's run ended",
+      "message": {
+        "t": "pong",
+        "id": "e1",
+        "in_flight": 0,
+        "abandoned": 0,
+        "errors": 0,
+        "lag_ms": 0,
+        "rss": 1,
+        "runs_held": 2,
+        "held_age_ms": 120000
+      },
+      "payload": "{\"t\":\"pong\",\"id\":\"e1\",\"in_flight\":0,\"abandoned\":0,\"errors\":0,\"lag_ms\":0,\"rss\":1,\"runs_held\":2,\"held_age_ms\":120000}"
+    },
+    {
+      "case": "ping-held-age-zero",
+      "title": "held_age_ms of 0 is left out: a plugin that holds nothing past its run, or reports nothing",
+      "message_text": "{\"t\":\"ping\",\"id\":\"h4\",\"in_flight\":0,\"abandoned\":0,\"errors\":0,\"lag_ms\":0,\"rss\":1,\"held_age_ms\":0}",
+      "payload": "{\"t\":\"ping\",\"id\":\"h4\",\"in_flight\":0,\"abandoned\":0,\"errors\":0,\"lag_ms\":0,\"rss\":1}"
+    },
+    {
+      "case": "ping-held-age-null",
+      "title": "a null held_age_ms counts as absent",
+      "message_text": "{\"t\":\"ping\",\"id\":\"h5\",\"in_flight\":0,\"abandoned\":0,\"errors\":0,\"lag_ms\":0,\"rss\":1,\"held_age_ms\":null}",
+      "payload": "{\"t\":\"ping\",\"id\":\"h5\",\"in_flight\":0,\"abandoned\":0,\"errors\":0,\"lag_ms\":0,\"rss\":1}"
+    },
+    {
+      "case": "ping-held-age-alone",
+      "title": "held_age_ms belongs to the health group: without it, the ping is bare",
+      "message_text": "{\"t\":\"ping\",\"id\":\"h6\",\"held_age_ms\":5}",
+      "payload": "{\"t\":\"ping\",\"id\":\"h6\"}"
+    },
+    {
       "case": "health-one-null",
       "title": "a null health field is absent: a bare ping",
       "message_text": "{\"t\":\"ping\",\"id\":\"p\",\"in_flight\":null}",

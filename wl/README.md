@@ -156,7 +156,7 @@ The zero value of each field is its default.
 | `Resources`, `Variables` | The host's resources and variables. They replace the bundle's at the same paths. | The bundle's `data/` | To give secrets, which a bundle never holds, and values that differ by deployment |
 | `Results` | The store of the results of steps that have a `cache_ttl` (a `ResultCache`) | One in memory for each runtime | To share cached results between runtimes |
 | `ResourceStore` | The store of the resources that steps write, such as the state of the stock client's `setState` ([The resource store](#the-resource-store)) | A new memory store for each runtime | To share them between runtimes, or to keep them in a store of the host's |
-| `Diagnostics` | Where the harness output that no step owns, and the engine's diagnostics about it, go. With a `Pool` that is not zero, the runtime serializes its writes, so the writer need not be safe for concurrent use, and still calls its `WriteString`. | `os.Stderr` | To capture them |
+| `Diagnostics` | Where the harness output that no step owns, and the engine's diagnostics about it, go. With a `Pool` that is not zero, the runtime serializes its writes, so the writer need not be safe for concurrent use, and still calls its `WriteString`. With `Recycle.UnsettledRun` or `Recycle.HeldAge` set, a pool line can come after `Open` fails or `Close` returns, so a writer that a later runtime shares, as on a retry, must be safe for concurrent use. | `os.Stderr` | To capture them |
 | `ExpressionSlots` | The number of evaluation slots of the expression engine | `min(GOMAXPROCS, 8)` | To change how many expressions can evaluate at once |
 | `QuickJSOnly` | Turns off the engine's Go evaluator of templates, arithmetic, comparisons and predicates over JSON values. Every expression that the shortcuts and the member paths do not answer then runs in QuickJS-ng. Nothing observable changes. | Off | To compare the two evaluators, or to rule the Go evaluator out when a result looks wrong |
 | `Providers` | The named providers of the bundle's [provided sites](../docs/glossary.md#provided-site) | None | When the host contract names providers ([Providers](#providers)) |
@@ -450,6 +450,8 @@ there.
 | `RecycleTimeout` | How long a leaving process may drain, after its last step in flight, before it is killed | 5 s |
 | `Recycle.RSS`, `Recycle.Samples` | A process whose heartbeats report a resident set of `RSS` bytes or more `Samples` times in a row is replaced | Off; 2 heartbeats |
 | `Recycle.Modules` | A process that has run steps of more distinct scripts than this is replaced. The step of the one more still runs there. | Off |
+| `Recycle.UnsettledRun` | A process is replaced when a host plugin hook that the runtime stopped waiting for still runs, holding its run unsettled, this long after that run ended. While the run runs, the hook does not count, and neither does `onRunSettled`, whose run has settled. | Off |
+| `Recycle.HeldAge` | A process is replaced when its host plugin reports, at a heartbeat, a resource held this long after its run ended (`heldAge`, [the Bun harness README](../harnesses/bun/README.md#host-plugins)). A plugin that reports nothing never trips it. | Off |
 | `MaxLive` | The processes alive at once, each from its start until its exit. No process starts while `MaxLive` are alive. `Open` refuses a value below `Max`. | No bound |
 | `WarmStart` | `Open` starts `Min` processes, and returns once `Min` serve, their handshakes done. A bundle with no step has no pool, so nothing starts. | Off |
 | `PinRuns` | Pins every run of the runtime, as `RunOptions.Pin` pins one ([Pinned runs](#pinned-runs)) | Off |
@@ -470,6 +472,21 @@ there.
   steps that wait on each other can wait until their timeout under a cap.
   The [trace](../docs/glossary.md#trace) that `Run` returns for each flow
   run of a runtime with a cap lists `D15`.
+- **Which trigger.** `Runtime.Processes` returns a snapshot of the pool:
+  a `ProcessHealth` for each process from its admission until its exit.
+  It holds the process's `PID`, the `HeldAge` that its host plugin last
+  reported, and in `Recycle` the trigger that it tripped: `rss`, `modules`,
+  `unsettled_run` or `held_age`.
+- **`Serving`** says whether the pool's ordinary routing may give the
+  process new work now. It promises neither its exit nor an end to its
+  steps: a live run pinned to it keeps starting steps there. A process out
+  of service for an abandoned step serves again only once its last such
+  step ends and the pool is short of its maximum without it; otherwise it
+  drains.
+- **A process that trips the last two** also writes a line to
+  `Diagnostics` that names the bound. The line is best effort: one that
+  would wait behind 64 others, of any pool, is dropped, and a later line
+  only counts it.
 
 #### Pinned runs
 
@@ -978,7 +995,7 @@ This section is for contributors who change `wl`.
 | File | Contents |
 |---|---|
 | `foreign.go` | The check of `Options.ForeignWindmillOrigins`, and the one form of each origin that the welcome carries |
-| `wl.go` | `Options`, `PoolOptions`, `RecycleTriggers`, `Resource`, `Variable`, `ResultCache`, `ResourceStore`, `MemoryResourceStore`, `NewMemoryResourceStore`, `Runtime`, `Open`, `BuildInfo`, `PlatformOrigin`, `Close`, `Version`, and `ErrUnsupported`, `ErrEngineVersion`, `ErrClosed` |
+| `wl.go` | `Options`, `PoolOptions`, `RecycleTriggers`, `Resource`, `Variable`, `ResultCache`, `ResourceStore`, `MemoryResourceStore`, `NewMemoryResourceStore`, `Runtime`, `Open`, `BuildInfo`, `PlatformOrigin`, `Processes`, `ProcessHealth`, `Close`, `Version`, and `ErrUnsupported`, `ErrEngineVersion`, `ErrClosed` |
 | `run.go` | `RunOptions`, `RunPlatform`, `Result`, `Run`; the causes of a canceled run; the clock and jitter types; `ErrPreWriteDeadline`, `ErrRunInFlight`; the trace types, which alias the engine's; the executor that collects each run's platform calls |
 | `hooks.go` | `Hooks` and the types of their callbacks, `Selector`, `Site`, `FatalError` and the selector and provider errors; selector matching, and the adapter to the engine's hook interface |
 | `host.go` | `Host`, `Runtime.Done`, `Host.Refuse`, `HandshakeError` and the reject codes: host mode, its handshake, and the runs that it serves |
@@ -1139,6 +1156,8 @@ build helper's dependencies, and skip without them unless
 | `settled_test.go` | The run-settlement hooks | No |
 | `bun_test.go` | A real bundle in `warm` and `fresh`: platform calls in the trace, cached results shared between runtimes, cancellation, `InvocationEnv`, per-run variables, the first write and the pre-write deadline, the step API (`TestStepAPI`), plugin trace parity and `around` | Yes |
 | `outside_test.go` | A bundle whose host contract lists two modules outside the [sync folder](../docs/glossary.md#sync-folder), without a host | Yes |
+| `lifetime_test.go` | `Runtime.Processes` names the trigger that a warm process tripped: a host plugin's held age at the bound, and a run whose `onRunEnd` never returns past the plugin timeout, once it has ended. A run pinned to the process keeps it in the pool. Before a trip, the process serves and names none. | Yes |
+| `lifetime_test.go`, the diagnostics | A warm start whose Bun is gone fails `Open`. By default its failed start's line is in `Diagnostics` when `Open` returns; with a held-age trigger set, the line can come after. | Yes |
 | `harnessenv_test.go` | `Options.HarnessEnv` on real processes, `warm` and `fresh`: what a step, a native step and a host plugin read (`TestHarnessEnvReachesStep`, `TestHarnessEnvReachesPlugin`), the refused names, host mode and a script's own `envs` (`TestHarnessEnvReserved`), and the whole process environment (`TestHarnessEnvDefault`). One read serves entries that name one variable (`TestHarnessEnvReferenceReadOnce`). The `TestHarnessEnvSecret…` tests mask secrets in each text and error that leaves the engine, and keep them out of a shared cache; `TestHarnessEnvResultErrors` checks where a result's errors are. | Yes, but for the refusals, `TestHarnessEnvSecretRefusals` and `TestHarnessEnvSecretErrorPartsKeepData` |
 | `plugincases_test.go` | The cases of `conformance/plugins/hooks.yaml`, through the TypeScript case plugin, named by `Options.Plugin` and built into the bundle, and through Go callbacks built from the same plugins | Yes |
 | `bundledplugin_test.go` | A bundle's own plugin. Its `around` wrapper and the step share a host-provided module in 16 concurrent runs (`TestBundledPluginSharesHostModule`), and a bundle with no step starts processes for it (`TestBundledPluginWithoutSteps`). `Open` refuses it with `Options.Plugin` and in `fresh` (`TestOpenRefusesTwoPlugins`), and refuses a manifest that names a module outside the bundle (`TestOpenRefusesUnverifiedPlugin`). A `fetch` wrapper it installs at load reaches an ordinary step and not a native one (`TestPluginFetchWrapperOrder`) | Yes |

@@ -457,13 +457,17 @@ every platform. A supervisor would have to read a tree of processes, in a
 way that differs by platform.
 
 **What retirement bounds.** The supervisor's stop bounds the engine's
-process. A harness process exits when its connection to the engine ends
-only if its event loop still runs, and it leads a process group of its own.
+process. On Linux, a harness process that the engine spawned gets `SIGKILL`
+when the engine's process ends, also while its event loop is stuck
+([harness protocol](0004-harness-protocol.md#lifecycle) item 5). On macOS,
+it exits when its connection to the engine ends only if its event loop
+still runs, so a killed engine can leave a wedged one running.
 
-So when a killed engine leaves a wedged harness process, that process and
-the groups its steps left run on beside the next generation. A host that
-needs a bound on them too gives each generation a cgroup of its own, on
-Linux, and kills it whole.
+The signal reaches the harness process alone. The processes that steps
+start can outlive it on every system, whatever process group they are in,
+and run on beside the next generation: the tie gives them no bound. A host
+that needs a bound on them too gives each generation a cgroup of its own,
+on Linux, and kills it whole.
 
 #### Hooks across the plugin boundary
 
@@ -585,7 +589,10 @@ A request's `pin` and `limits` set one run's affinity and limits.
 Their rules are the pool's
 ([harness protocol](0004-harness-protocol.md#pooling-processes-the-engine-spawns)):
 a pinned run keeps one process, a process that trips a recycle trigger is
-replaced, and a run's limits act on that run alone.
+replaced, and a run's limits act on that run alone. The triggers include
+two on what a process holds past its runs: a plugin hook that holds an
+ended run unsettled, and a resource that the plugin reports held after
+its run ended.
 
 #### Licence and notices
 

@@ -366,10 +366,16 @@ engine's own recycle triggers, replaces it. go-plugin's `Kill` sends a
 shutdown call that the engine answers by stopping at once, so the
 supervisor sends it only after the drain.
 
-The stop bounds the engine's process, not the harness processes that it
-started. A harness process exits with its connection to the engine only
-while its event loop runs, so a host that needs a bound on them gives each
-generation a cgroup of its own, on Linux
+The stop bounds the engine's process. On Linux, it bounds the harness
+processes that the engine started too: each gets `SIGKILL` when the
+engine's process ends, also while its event loop is stuck. On macOS, a
+harness process exits with its connection to the engine only while its
+event loop runs.
+
+The signal reaches the harness process alone. The processes that steps
+start can outlive it on every system, whatever process group they are in:
+the tie gives them no bound. So a host that needs a bound on them gives
+each generation a cgroup of its own, on Linux
 ([the supervisor](../../docs/design/0009-host-adapters.md#the-supervisor)).
 
 ### The configuration

@@ -23,6 +23,10 @@ func (e *HostCallError) Error() string {
 	return fmt.Sprintf("%s: host plugin hook %s: %s", e.Code, e.Hook, e.Message)
 }
 
+// hookOnRunSettled is the hook of a run's settlement, which holds nothing
+// (ADR 0004 §Host plugins item 2).
+const hookOnRunSettled = "on_run_settled"
+
 // ErrNoPlugin is the error of a host_call to a harness that loaded no
 // host plugin: the engine asks a plugin only for what it declared.
 var ErrNoPlugin = errors.New("harness: the harness loaded no host plugin")
@@ -103,9 +107,15 @@ func (p *Process) hostCall(ctx context.Context, hook, run, site string, payload 
 		} else {
 			delete(p.hostCalls, id)
 			if p.lateHostCalls == nil {
-				p.lateHostCalls = map[string]chan struct{}{}
+				p.lateHostCalls = map[string]lateHostCall{}
 			}
-			p.lateHostCalls[id] = replied
+			// The run's pin, which records when the run ends, when the
+			// call carries it.
+			pin, _ := ctx.Value(pinKey{}).(*Pin)
+			if pin != nil && pin.run != run {
+				pin = nil
+			}
+			p.lateHostCalls[id] = lateHostCall{replied: replied, pin: pin, settles: hook != hookOnRunSettled}
 		}
 		p.mu.Unlock()
 		done := make(chan struct{})
@@ -135,9 +145,9 @@ func (p *Process) onHostReply(r HostReply) error {
 		ch <- r
 		return nil
 	}
-	if done, ok := p.lateHostCalls[r.ID]; ok {
+	if late, ok := p.lateHostCalls[r.ID]; ok {
 		delete(p.lateHostCalls, r.ID)
-		close(done)
+		close(late.replied)
 		return nil
 	}
 	return protoErr(CodeUnexpected, "host_reply %q answers no host_call", r.ID)

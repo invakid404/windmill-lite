@@ -218,6 +218,41 @@ test("a plugin whose connect fails before it is copied does not hold its path: a
   expect(readFileSync(marker, "utf8")).toBe("second");
 }, 20_000);
 
+test("connect never reads a heldAge of the bundle's host plugin: an accessor of the host's own by that name does not run", async () => {
+  const marker = join(tempDir("wl-host-marker-"), "read");
+  // Its getter would throw, which connect would take as a plugin that does
+  // not load.
+  const dir = pluginBundle(`export default {
+  onRunEnd() {},
+  get heldAge() {
+    require("node:fs").writeFileSync(${JSON.stringify(marker)}, "read");
+    throw new Error("the host's own heldAge");
+  },
+};
+`);
+  // A stand-in engine that passes the bundle's check, then runs
+  // test/heartbeatengine.ts, which welcomes the host once its hello comes:
+  // the hello follows the plugin's installation, so connect resolves only
+  // once the plugin is installed.
+  const engine = { engine: "/bin/sh", engineArgs: ["-c", `case "$2" in -check-bundle) exit 0;; esac; exec '${process.execPath}' '${join(import.meta.dir, "heartbeatengine.ts")}'`, "sh"] };
+  const back = process.cwd();
+  process.chdir(dir);
+  process.env.WL_TEST_HEARTBEAT_MS = "60000";
+  let host: Host;
+  try {
+    host = await connect({ ...engine, bundle: dir, workdir: dir, diag: () => {} });
+  } finally {
+    delete process.env.WL_TEST_HEARTBEAT_MS;
+    process.chdir(back);
+  }
+  try {
+    expect(existsSync(marker)).toBe(false);
+  } finally {
+    await host.close();
+  }
+  expect(existsSync(marker)).toBe(false);
+}, 20_000);
+
 test("connect removes its identity file when the engine's check refuses the bundle", async () => {
   const dir = pluginBundle("export default {};\n");
   const args = join(tempDir("wl-host-args-"), "args");
