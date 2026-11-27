@@ -158,9 +158,9 @@ class DecideTest(unittest.TestCase):
                 '"Test":"TestRedis","Elapsed":0,"Output":null,"OutputType":"frame"}\n' % PKG)
         self.assertEqual(rule.decide(1, out, [line]), [(PKG, "TestRedis")])
 
-    def test_a_malformed_record_is_no_evidence(self) -> None:
-        # Each line is the only skip of TestRedis, and testbucket's decoder
-        # would not read it as an event.
+    def test_a_record_that_testbucket_drops_is_no_evidence(self) -> None:
+        # Each line is the only skip of TestRedis, and testbucket would drop
+        # it: its decoder refuses the line, or its Elapsed is implausible.
         out = failed(never(PKG, "TestRedis"))
         head = '{"Action":"skip","Package":"%s","Test":"TestRedis"' % PKG
         for line in (
@@ -169,15 +169,29 @@ class DecideTest(unittest.TestCase):
             head + ',"Elapsed":0,"Time":NaN}',
             head + ',"Elapsed":Infinity}',
             head + ',"Elapsed":1e400}',
+            head + ',"Elapsed":1' + "0" * 400 + '}',
             head + ',"Elapsed":true}',
             head + ',"Elapsed":1e12}',
             '{"Action":1,"Package":"%s","Test":"TestRedis"}' % PKG,
-            '{"Action":"skip","Package":null,"Test":"TestRedis"}',
-            '{"action":"skip","Package":"%s","Test":"TestRedis"}' % PKG,
-            '{"Action":"pass","Action":"skip","Package":"%s","Test":"TestRedis"}' % PKG,
             head + '} trailing',
         ):
-            with self.subTest(line=line), self.assertRaisesRegex(rule.RuleError, "not an event that testbucket reads"):
+            with self.subTest(line=line), self.assertRaisesRegex(rule.RuleError, "testbucket would drop it"):
+                rule.decide(1, out, [line + "\n"])
+
+    def test_a_record_that_go_test_never_writes_is_no_evidence(self) -> None:
+        # testbucket's decoder reads each of these lines as a skip of
+        # TestRedis (Go matches a field name in any letter case, keeps the
+        # last of a repeated field, and leaves a null field at its zero
+        # value), but go test never writes them, so the script refuses them
+        # as evidence.
+        out = failed(never(PKG, "TestRedis"))
+        for line in (
+            '{"action":"skip","Package":"%s","Test":"TestRedis"}' % PKG,
+            '{"Action":"pass","Action":"skip","Package":"%s","Test":"TestRedis"}' % PKG,
+            '{"Action":"skip","Package":"%s","Test":"TestRedis","Elapsed":null}' % PKG,
+            '{"Action":"skip","Package":null,"Test":"TestRedis"}',
+        ):
+            with self.subTest(line=line), self.assertRaisesRegex(rule.RuleError, "go test never writes it"):
                 rule.decide(1, out, [line + "\n"])
 
     def test_events_that_are_not_json_fail(self) -> None:

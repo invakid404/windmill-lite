@@ -16,8 +16,8 @@ test that it accepts, and appends them to the GitHub step summary.
 Anything else exits 1: another kind of discrepancy, such as a package that
 reported nothing, a test that reported nothing and did not skip, an output
 line of the audit that this script does not know, or a line of the events
-that testbucket would not read as an event. The script reads the events
-only when the audit failed.
+that testbucket would drop or that go test never writes. The script reads
+the events only when the audit failed.
 
 Usage: check-bucket-audit.py --shard-plan <shard-plan.json> [--testbucket <path>] <events.ndjson>...
 """
@@ -107,36 +107,53 @@ def _no_constant(name: str) -> float:
     raise ValueError(f"{name} is not JSON")
 
 
-def event(line: str) -> dict[str, object]:
-    """Decodes one line of `go test -json` output as testbucket does.
+# The two kinds of event line that the script refuses as evidence.
+DROPPED = "testbucket would drop it"
+UNUSUAL = "go test never writes it"
 
-    It returns the fields that testbucket reads. It raises ValueError for a
-    line that testbucket would not read as an event: not a JSON object, a
-    field of the wrong type, NaN or Infinity, an Elapsed beyond testbucket's
-    bound, and also a field name in another letter case or given twice,
-    which go test never writes.
+
+def event(line: str) -> dict[str, object]:
+    """Decodes one line of `go test -json` output, and returns the fields
+    that testbucket reads.
+
+    It raises ValueError for two kinds of line. testbucket would drop the
+    first kind: a line that is not one JSON object, holds NaN or Infinity,
+    gives one of those fields the wrong type, or gives an Elapsed beyond
+    testbucket's bound. testbucket would read the second kind, but go test
+    never writes it, so this script refuses it too: one of those field names
+    in another letter case, given twice, or null.
     """
     if not line.startswith("{"):
-        raise ValueError("not a JSON object")
-    pairs = json.loads(line, object_pairs_hook=list, parse_constant=_no_constant)
+        raise ValueError(f"{DROPPED}: not a JSON object")
+    try:
+        pairs = json.loads(line, object_pairs_hook=list, parse_constant=_no_constant)
+    except ValueError as err:
+        raise ValueError(f"{DROPPED}: not JSON: {err}") from None
     if not isinstance(pairs, list):
-        raise ValueError("not a JSON object")
+        raise ValueError(f"{DROPPED}: not a JSON object")
     fields: dict[str, object] = {}
     for key, value in pairs:
         name = EVENT_FIELDS.get(key.casefold())
         if name is None:
             continue
-        if key != name or name in fields:
-            raise ValueError(f"field {key!r}")
+        if key != name:
+            raise ValueError(f"{UNUSUAL}: the field name {key!r}")
+        if name in fields:
+            raise ValueError(f"{UNUSUAL}: {name} given twice")
+        if value is None:
+            raise ValueError(f"{UNUSUAL}: {name} is null")
         if name == "Elapsed":
             if isinstance(value, bool) or not isinstance(value, (int, float)):
-                raise ValueError(f"{name} is not a number")
-            seconds = float(value)
+                raise ValueError(f"{DROPPED}: {name} is not a number")
+            try:
+                seconds = float(value)
+            except OverflowError:
+                raise ValueError(f"{DROPPED}: {name} is out of range") from None
             # NaN and the infinities fail the comparison too.
             if seconds != 0 and not -MAX_PLAUSIBLE_SECONDS <= seconds <= MAX_PLAUSIBLE_SECONDS:
-                raise ValueError(f"{name} {value} is not a plausible duration")
+                raise ValueError(f"{DROPPED}: {name} {value} is not a plausible duration")
         elif not isinstance(value, str):
-            raise ValueError(f"{name} is not a string")
+            raise ValueError(f"{DROPPED}: {name} is not a string")
         fields[name] = value
     return fields
 
@@ -156,8 +173,8 @@ def skips(texts: list[str]) -> set[tuple[str, str]]:
                 continue
             try:
                 fields = event(line)
-            except (ValueError, OverflowError) as err:
-                raise RuleError(f"line {number} of the events is not an event that testbucket reads: {err}") from None
+            except ValueError as err:
+                raise RuleError(f"line {number} of the events is refused: {err}") from None
             test = fields.get("Test") or ""
             if fields.get("Action") == "skip" and test:
                 found.add((fields.get("Package") or "", test))

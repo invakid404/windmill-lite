@@ -211,11 +211,11 @@ only when it passes, so a test that skips fails its audit.
   reported" for a top-level test whose `skip` event in that package the
   events hold. It then lists each such test, and appends the list to the
   file of `GITHUB_STEP_SUMMARY` when that variable is set.
-- **Exit 1 after a failed audit.** The script exits 1 for any other
-  discrepancy, a test that reported nothing and did not skip, or an output
-  line of the audit that it does not know. It also exits 1 for a line of the
-  events that testbucket would not read as an event, such as a field of the
-  wrong type, NaN, or an implausible `Elapsed`.
+- **Exit 1 after a failed audit.** Any other discrepancy, a test that
+  reported nothing and did not skip, or an audit line that the script does
+  not know fails it. So does an events line that testbucket would drop, such
+  as one with NaN or a field of the wrong type, or that go test never
+  writes, such as one that gives a field twice.
 - **Its tests.** `test_check_bucket_audit.py` runs the rule on audit
   outputs of testbucket v0.2.2's form and on malformed events, and runs the
   script with a stand-in for `testbucket`.
