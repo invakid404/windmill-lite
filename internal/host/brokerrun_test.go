@@ -2191,8 +2191,8 @@ func TestBrokerReleaseBeforeAdmission(t *testing.T) {
 	letGo()
 	o := within(t, "the overtaken run", run)
 	conn := within(t, "the dial's connection", acquired)
-	if !errors.Is(o.err, plugin.ErrNotStarted) || status.Code(o.err) != codes.InvalidArgument || !strings.Contains(o.err.Error(), "dial the host's hooks service") {
-		t.Errorf("the run whose release came first: %v, %v; want ErrNotStarted for the dial that did not get ready", o.res, o.err)
+	if !errors.Is(o.err, plugin.ErrNotStarted) || !dialRefusal(o.err) || !strings.Contains(o.err.Error(), "dial the host's hooks service") {
+		t.Errorf("the run whose release came first: %v, %v; want ErrNotStarted for the dial that did not get ready, naming hooks.broker_id with no cause", o.res, o.err)
 	}
 	if n := tap.runsOf("overtaken"); n != 1 {
 		t.Errorf("the Client sent the refused run %d times, want once", n)

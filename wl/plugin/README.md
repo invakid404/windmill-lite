@@ -271,11 +271,13 @@ engine refuses.
   more, with a new connection and a new token: the run did not start. The
   host sees one `RunWithHooks` call, which returns the second try's
   outcome, or its refusal with `ErrNotStarted`.
-- **No second try.** The `Client` sends the run once when the run's
-  context, the `Client` or the engine's generation has ended by the time
-  of the refusal. It sends it once at every other refusal too: one of
-  `hooks.broker_id` without the cause, such as a failed first dial of a
-  new broker id, and every refusal of an engine that predates the cause.
+- **No second try.** Every other refusal starts no further request: the
+  first try's comes back after one request, the one more try's after
+  two. Among them are a refusal of `hooks.broker_id` without the cause,
+  such as a failed first dial of a new broker id, and every refusal of
+  an engine that predates the keys. A used broker id's refusal starts
+  none either when the run's context, the `Client` or the engine's
+  generation has ended by then.
 - **Its end.** A replaced connection keeps serving the registrations that
   still name it. When the last of them goes, and for every connection at
   `Close`, the `Client` stops the server at once, ending its handlers'

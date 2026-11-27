@@ -143,11 +143,11 @@ func (sv *serving) stale() bool {
 // that refusal alone the Client drops the run's registration, replaces the
 // connection, and sends the run once more, from its checks on, with a new
 // connection and a new token: the run did not start. It returns a second
-// refusal with ErrNotStarted. It sends the run once when the run's
+// refusal with ErrNotStarted. It starts no further request when the run's
 // context, the Client or the engine's generation has ended by the time of
-// the refusal, and at every other refusal: one of hooks.broker_id without
-// that cause, such as a failed first dial of a new id, and every refusal
-// of an engine that predates the cause.
+// that refusal, and at every other refusal, whichever try it comes from:
+// one of hooks.broker_id without that cause, such as a failed first dial
+// of a new id, and every refusal of an engine that predates the cause.
 //
 // The Client gives a run without an id a fresh UUID and registers h under
 // it with a fresh token before it sends req, and refuses a run whose id it

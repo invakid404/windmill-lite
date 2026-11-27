@@ -565,9 +565,10 @@ A hook takes the cheapest of three routes that serves it:
   count stays the first check, and the refusal covers its lag and a
   connection that the engine closes while a request is in flight.
 - **One try otherwise.** Every other refusal of `hooks.broker_id`, such
-  as a failed first dial of a new id, is returned after one request, so a
-  host whose listener is really down does not wait twice. The retry
-  targets the lag alone.
+  as a failed first dial of a new id, starts no further request. On a
+  run's first try it is returned after one request, so a host whose
+  listener is really down does not wait twice. The retry targets the lag
+  alone.
 - **Providers on the broker.** A named provider that the configuration
   marks `broker` is answered by the hooks service of the run that reaches
   it, and a run that serves none latches there. So `wl.Open` still finds
