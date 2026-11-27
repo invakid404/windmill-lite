@@ -233,7 +233,7 @@ use.
 | [internal/platform](internal/platform/README.md) | Job identity and the platform services: resources, variables, the job registry | Contributors to the platform |
 | [internal/platform/facade](internal/platform/facade/README.md) | Which of Windmill's API routes the facade serves | Contributors to the platform |
 | [internal/bench](internal/bench/README.md) | What the benchmarks share | Contributors who measure |
-| [scripts](scripts/README.md) | The documentation check, the release helper, the auto-ack scripts, the Redis test containers and the audit of the Go buckets | Every contributor |
+| [scripts](scripts/README.md) | The documentation check, the release helper, the auto-ack scripts and the Redis test containers | Every contributor |
 
 ## Compatibility
 
