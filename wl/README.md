@@ -1,8 +1,8 @@
 # wl
 
 **Current state:** `wl` opens a bundle and runs its flows and root
-scripts, with host hooks, providers, budgets, pool settings, host mode and
-host plugins.
+scripts, with host hooks, providers, budgets, pool settings, environment
+variables for its harness processes, host mode and host plugins.
 Only Bun steps run.
 
 Of the adapters of the
@@ -168,6 +168,7 @@ The zero value of each field is its default.
 | `Identity` | The [job identity](#job-identity) of every job: its workspace, user and the instance's public URL | windmill-lite's placeholders, such as the workspace `windmill-lite` | To give steps the workspace and user that their code expects |
 | `ForeignWindmillOrigins` | The origins of real [Windmill](../docs/glossary.md#windmill) instances that steps call through their own client, such as `https://windmill.example.com`. A step's dispatch to one of them loses its links to the step's own [job](../docs/glossary.md#job) ids ([Job ids on a real Windmill](#job-ids-on-a-real-windmill)). | None | When steps dispatch jobs on a real Windmill |
 | `ResultPollsForAllJobs` | A step's result polls (`getResultMaybe` and `getResult`, which `waitJob` uses) answer for every job of a live run that its job read answers for, as Windmill answers them, and not only for the runs that steps dispatched ([internal/platform/facade](../internal/platform/facade/README.md#dispatch-and-results)) | Off | When steps poll the result of another job of their run |
+| `HarnessEnv` | Environment variables, by name, that every harness process starts with beside its base environment: settings and secrets that steps and a host plugin read as process variables. Each `EnvValue` holds a `Value`, or `ValueEnv`, the name of a variable of the engine's own environment, and `Secret` marks a secret ([The harness environment](#the-harness-environment)). | None | When steps or a host plugin read settings or secrets from their environment |
 | `Host` | Opens the runtime in [host mode](#host-mode) | Nil | Only for host mode |
 
 A `Variable` holds its `Value`, and `Secret` marks a secret. With
@@ -222,6 +223,214 @@ a resource or variable again for each step and each call. The
 [equivalence contract](../docs/design/0001-equivalence-contract.md#5-named-deviations)
 names it, and the [trace](../docs/glossary.md#trace) of a run with it
 lists `D21`.
+
+### The harness environment
+
+`Options.HarnessEnv` gives every harness process that the runtime spawns
+environment variables of the host's, by name. Step code and a
+[host plugin](../docs/glossary.md#host-plugin) read them as process
+variables, as Windmill's workers pass the variables that they are
+configured with to each job process
+([WA-2](../docs/semantics/client-api.md#wa-2)). Empty, the default, a
+process starts with its base environment alone
+([internal/harness](../internal/harness/README.md#the-base-environment)).
+
+- **The value.** An `EnvValue` holds a `Value`, or `ValueEnv`: the name of
+  a variable of the engine's own environment. `Open` reads each such
+  variable once, however many entries name it, so they all get one value.
+  In a Go host, that is the host process's environment, which `Open`
+  leaves as it is.
+- **A step** reads them under its invocation's own variables. Its reserved
+  `WM_*` variables, its script's own `envs` and what a host plugin's
+  `invocationEnv` returns win for that invocation. On Windmill, a worker's
+  configured variables win over a script's own `envs`
+  ([WA-4](../docs/semantics/client-api.md#wa-4)).
+- **A native step** (`nativets` or `//native`) reads none of them. Its
+  `process.env` is built from its base URLs and its invocation's own
+  variables, such as what `invocationEnv` returns, never from the process
+  environment.
+- **A host plugin** reads them when it loads, and in its hooks.
+- **Every spawned process.** A `fresh` runtime's processes, one for each
+  step, take them too. Host mode refuses them: it spawns no harness
+  process, and the host's environment is its own.
+- **No value is repeated.** The engine writes no entry's value to a
+  trace, a warning, an error or the diagnostics writer itself.
+
+`Secret` marks a secret. The engine then replaces each occurrence of its
+value, and of each line of a value that spans lines, with `[secret]` in
+what it passes on besides the host's data in a run's requested result. It
+masks the value also as a Go quoted string (`%q`) and `JSON.stringify`
+write it.
+
+A warning's text, and each plain text of a trace, is also masked where
+its JSON encoding would hold the value, as a run's warnings and trace are
+sent. That covers a value that spells a line feed as `\n`, and one that
+the escape of an ampersand begins. Other encoded fields fall under the
+escape limit below.
+
+A secret's value never leaves the engine through data that a harness
+process produced, or through the engine's own messages: its errors, its
+diagnostics, its warnings, and the data fields of traces and results.
+Each is masked in full, in its final form, the errors of `Open`, `Run`
+and `Close` included.
+
+The requested result is the exception: it is the host's data, so a step
+that returns the secret returns it there, while its copy in the trace,
+and each error in the result, is masked.
+
+Text that a caller adds around a returned error is the caller's to mask;
+the plugin command masks its own final output
+([Secrets by reference](../cmd/windmill-lite/README.md#secrets-by-reference)).
+
+The engine does not promise to alter, and a host that marks entries as
+secret should choose them knowing it:
+
+- identity that the host supplies and the engine echoes back: module
+  ids, site paths, contract paths, run ids and labels. Where masking
+  does no harm, such as a run's id, it is masked all the same;
+- the protocol's fixed words and structure: status values, which keep
+  one of their values, field names, and the punctuation between texts
+  masked apart;
+- a value that appears only through the escape sequences that the JSON
+  encoder writes, such as one that starts with `u0026`, the tail of the
+  escape for `&`, beyond the warnings and trace texts checked above;
+- the replies that grpc-go's transport writes itself, such as one that
+  echoes the caller's own request or one about a response's size.
+
+A refusal while the entries resolve masks the secret values known by
+then: literal ones, and each reference that a secret entry names, however
+an entry first read it. Host mode refuses `HarnessEnv` before any check
+that quotes another option.
+
+In a text with `%XX` escapes, such as a URL, it masks the value as written
+and the span that decodes to it. It finds both on the text as it is, so
+that one secret as written cannot hide a longer one as decoded, and
+secrets that overlap become one mask.
+
+In a text, a mask can make a secret with the text beside it, as a secret
+that starts with `]` does with the text after the mask. So the engine
+reads what it masked again until a round changes nothing, and masks a
+secret that crosses a mask's edge with all of that mask. After 32 rounds
+it masks the whole text, or the whole part of a long line.
+
+The engine masks:
+
+- every line that the engine writes to `Diagnostics`, as a whole: a
+  secret that a line's own words, such as the process and stream that
+  prefix an output line, make with what follows is masked too;
+- the error of a harness process that fails to start, which can name
+  its executable: as `Open` returns it, masked as a whole, as a run fails
+  with it, and in the pool's line in `Diagnostics`;
+- the harness processes' output lines, which go to `Diagnostics`, and the
+  errors that quote them, such as that of a process that exits before its
+  handshake. A line longer than 64 KiB goes in parts; a secret that a
+  part's end splits is masked on both sides, as written or
+  percent-encoded;
+- an escaped step's log tail, which its error quotes: the last 600
+  characters of its log, which may start inside a secret. A leading piece
+  of 3 bytes or more that ends a secret is masked too, with any whole
+  secret that it starts;
+- a run's warnings: their codes, messages and the keys of their counts,
+  as written and as JSON encodes them, where keys that mask alike add
+  their counts;
+- the errors of the host plugin, those of its declaration's checks
+  included, and a run's latched error ([Latched errors](#latched-errors));
+- the errors in a run's requested result, where the trace places them.
+  That is the whole result when it is an error (`Trace.ResultOrigin`): of
+  a failed run, of a flow that carried on past it, or read from the
+  result cache. Otherwise it is each error inside it
+  (`Trace.ResultErrors`), such as a tolerated branch's error in a
+  branchall's array. A step's copy of an error, returned as data, is the
+  host's data;
+- the trace: its result, each step's arguments, result, carried value and
+  late output, and its platform calls, their paths and queries as sent
+  and as decoded. That holds for the trace that `Run` returns and for
+  those and the records that hooks get;
+- a flow run's run-end answer (`Result.Answer`), a JSON value that the
+  host plugin's process produced. An answer that holds no secret stays
+  as the plugin wrote it. An answer of `null` whose text holds a secret,
+  such as one of `ull`, becomes the string `[secret]`: it is still an
+  answer, never none;
+- each of those JSON values also as stored, the text that payloads and the
+  requested result give, which spells numbers in plain decimal and orders
+  keys its own way;
+- in those JSON values, their strings as decoded. An object or array
+  equal to a secret that is a JSON document becomes `[secret]`, however
+  each is written, numbers by exact value. So does the smallest part where
+  a secret still shows, compactly or as written with any spaces around it.
+  That is a number, the part of a string or key under it, such as a quoted
+  secret, or an object or array across its tokens.
+
+A JSON value that masking changes is written compactly. What it found no
+secret in keeps its tokens as written, escapes included, so that two keys
+that decode alike, such as lone surrogates, stay apart. A key or string
+that held a secret is written from its decoded text, also when its mask
+reads as before.
+
+A secret can show only in the value's stored text, such as across a
+number that the stored text spells in plain decimal. Masking then marks
+the same places in the value as written, whose other tokens stay as they
+were.
+
+A later round can find a secret only by masking the stored text itself,
+read compactly too, as when a number's stored spelling meets a character
+that only the compact reading escapes. The value then returns as that
+stored text, masked, so each of its tokens is as jsonval stores it:
+`1e-8` reads `0.00000001`, and keys are in its order.
+
+Masking can make a secret, as when a mask's quote meets the next token.
+So the masked value is read again, as it is and as stored, until a round
+changes nothing. An error masked whole whose mask would join the data
+beside it in a secret is written as `null`. If one still crosses its edge,
+the object or array around both is masked and read in turn.
+
+The rounds stop after 32. Each error, and each object or array that one
+gave way to, is then masked whole, or written as `null` if its mask would
+join a secret, and the rest is kept. Only if a secret shows still is the
+whole value masked.
+
+The mask is the string `[secret]`, so a secret that its text holds, such
+as `cre`, shows in every mask; masking does not go on for it.
+
+`Result.Result`, the result that the host asked for, keeps the value in
+its other parts, a skipped run's result included. It loses only an object
+or array that an error's mask gave way to, or, in the last case above, the
+whole value. The steps' arguments and the hooks' answers keep it as the
+engine runs them.
+
+A host's result cache (`Results`) stores no step result in which masking
+finds a secret, judged on the result itself as decoded, also a secret that
+reads like its mask. So a runtime that shares the cache with other
+secrets, or none, never reads one there. It also misses an entry that an
+earlier engine wrote, which does not name every error in its result,
+when that result holds a secret: the step runs again.
+
+#### Latched errors
+
+A latched error whose text holds a secret can keep its type as step
+code's latch (`wl.latch`), a `HostCallError` or an `around` wrapper's
+error. Its message is masked as its whole text reads it, after the words
+that its type writes before the message. It keeps its type when that text
+then shows no secret outside a mask.
+
+Any other error, such as a Go hook's own type latched through
+`RunHandle.Latch`, comes back as an error with the masked text. So does
+one of those three whose words, or its words with the mask, show a secret.
+It still matches the original error and its chain with `errors.Is`. But
+`errors.As` does not see through it, since the original holds the secret.
+
+`Open` refuses an entry that names a variable that the engine sets itself:
+
+| Name | Why |
+|---|---|
+| A name that starts with `WM_` | The job's reserved variables, which the engine sets for each invocation ([WA-4](../docs/semantics/client-api.md#wa-4)) |
+| `BASE_URL`, `BASE_INTERNAL_URL` | The engine gives each step the [platform facade](../docs/glossary.md#platform-facade)'s origin as `BASE_URL`, and the stock client prefers `BASE_INTERNAL_URL` to `BASE_URL` |
+| `PATH`, `HOME`, `TZ`, `FORCE_COLOR`, `DO_NOT_TRACK`, `BUN_INSTALL_CACHE_DIR`, `BUN_RUNTIME_TRANSPILER_CACHE_PATH`, `NODE_PATH` | The base environment sets them, from the engine's own environment where it has them. Set `PATH`, `HOME`, `TZ` or `NODE_PATH` there. |
+| An empty name, or one with `=` or a NUL byte | No process environment can carry it |
+
+`Open` also refuses a value with a NUL byte, an entry with both `Value`
+and `ValueEnv`, and one whose `ValueEnv` is not set. Each refusal names
+the entry, never a value.
 
 ### The harness pool
 
@@ -420,7 +629,7 @@ A script run uses only `Kind`, `ID`, `Identity`, `Data`, `Pin` and
 | `Latched` | For a `latched` run, the error that was latched |
 | `CancelCause` | For a `canceled` run, why it was canceled (table below); empty otherwise |
 | `Started` | For a script run, `true` once the script's invocation was sent to a harness process, whose writes windmill-lite cannot see. `false` when the script never ran, such as on a cache hit or a deadline that passed before the send. A flow run leaves it `false`. |
-| `Answer` | For a flow run, the JSON text of the run-end answer that the host plugin's `onRunEnd` returned ([Host plugins](#host-plugins)). `nil` means no answer, and the text `null` an answer of JSON null. `encoding/json` leaves a `nil` answer out. |
+| `Answer` | For a flow run, the JSON text of the run-end answer that the host plugin's `onRunEnd` returned ([Host plugins](#host-plugins)). `nil` means no answer, and the text `null` an answer of JSON null, unless a secret entry's mask changed it ([Host plugins](#host-plugins)). `encoding/json` leaves a `nil` answer out. |
 
 | Status | Constant | Meaning |
 |---|---|---|
@@ -714,6 +923,9 @@ to write one.
   `{ warnings?, answer? }`, and a flow run's `Result.Answer` then holds the
   answer's JSON text, whatever the run's status
   ([the Bun harness README](../harnesses/bun/README.md#the-run-end-answer)).
+  A secret entry's value in it is masked
+  ([The harness environment](#the-harness-environment)), which can turn
+  an answer of `null` into a string, but never into none.
   - A run has no answer when `onRunEnd` returns warnings or nothing,
     fails, gets no reply within the plugin timeout, or cannot reach a
     pinned run's process. A failure adds its `plugin_error` warning.
@@ -772,6 +984,7 @@ This section is for contributors who change `wl`.
 | `host.go` | `Host`, `Runtime.Done`, `Host.Refuse`, `HandshakeError` and the reject codes: host mode, its handshake, and the runs that it serves |
 | `plugin.go` | `DefaultPluginTimeout`, `ErrHostCallTimeout`, `HostCallError`, `MaxRunEndAnswerBytes`: host plugins, their declaration as `Hooks` and `Providers`, their resources and variables, `around`, and the merge of a run's hooks with the plugin's |
 | `payload.go` | The encoding of the payloads that the runtime sends to a host plugin |
+| `secrets.go` | The masking of the secret entries of `HarnessEnv` in traces, hooks' records and traces, warnings and errors |
 | `example_test.go` | The README's example, compiled by `go test` |
 | `storetest/` | The contract suite of `ResourceStore` ([its README](storetest/README.md)) |
 | `redisstore/` | The resource store on Redis ([its README](redisstore/README.md)) |
@@ -926,6 +1139,7 @@ build helper's dependencies, and skip without them unless
 | `settled_test.go` | The run-settlement hooks | No |
 | `bun_test.go` | A real bundle in `warm` and `fresh`: platform calls in the trace, cached results shared between runtimes, cancellation, `InvocationEnv`, per-run variables, the first write and the pre-write deadline, the step API (`TestStepAPI`), plugin trace parity and `around` | Yes |
 | `outside_test.go` | A bundle whose host contract lists two modules outside the [sync folder](../docs/glossary.md#sync-folder), without a host | Yes |
+| `harnessenv_test.go` | `Options.HarnessEnv` on real processes, `warm` and `fresh`: what a step, a native step and a host plugin read (`TestHarnessEnvReachesStep`, `TestHarnessEnvReachesPlugin`), the refused names, host mode and a script's own `envs` (`TestHarnessEnvReserved`), and the whole process environment (`TestHarnessEnvDefault`). One read serves entries that name one variable (`TestHarnessEnvReferenceReadOnce`). The `TestHarnessEnvSecret…` tests mask secrets in each text and error that leaves the engine, and keep them out of a shared cache; `TestHarnessEnvResultErrors` checks where a result's errors are. | Yes, but for the refusals, `TestHarnessEnvSecretRefusals` and `TestHarnessEnvSecretErrorPartsKeepData` |
 | `plugincases_test.go` | The cases of `conformance/plugins/hooks.yaml`, through the TypeScript case plugin, named by `Options.Plugin` and built into the bundle, and through Go callbacks built from the same plugins | Yes |
 | `bundledplugin_test.go` | A bundle's own plugin. Its `around` wrapper and the step share a host-provided module in 16 concurrent runs (`TestBundledPluginSharesHostModule`), and a bundle with no step starts processes for it (`TestBundledPluginWithoutSteps`). `Open` refuses it with `Options.Plugin` and in `fresh` (`TestOpenRefusesTwoPlugins`), and refuses a manifest that names a module outside the bundle (`TestOpenRefusesUnverifiedPlugin`). A `fetch` wrapper it installs at load reaches an ordinary step and not a native one (`TestPluginFetchWrapperOrder`) | Yes |
 | `rundata_test.go` | `RunOptions.Data` on real runs. Wrappers of an `around`-only plugin read their own run's data and steps `undefined` (`TestRunDataAroundOnly`), a hook reads it frozen (`TestRunDataHook`), and a run that a Go hook starts does not inherit it (`TestRunDataNotInherited`). The process holds it until a flow run or a script job settles (`TestRunDataReleased`), and one without a plugin gets none (`TestRunDataNeedsPlugin`). Data that is not JSON or not UTF-8 is refused (`TestRunDataRefusesInvalid`, `TestRunDataRefusesInvalidUTF8`). | Yes |

@@ -536,6 +536,24 @@ step, never releases them.
   `BASE_INTERNAL_URL` is not set for Bun, as in Windmill. Both are set before
   any step module loads, because the client captures its base URL at import
   ([WA-1](../semantics/client-api.md#wa-1)).
+- **The host's variables.** A host may give every process that the engine
+  spawns environment variables of its own: settings and secrets that steps
+  and its host plugin read as process variables, as Windmill's workers pass
+  their configured variables to each job ([WA-2](../semantics/client-api.md#wa-2)).
+  The engine adds them after the base environment, before `BASE_URL`.
+- **Names the host cannot set.** The engine refuses a variable that it
+  sets itself: a `WM_*` name, which each invocation sets over the
+  process's own, `BASE_URL`, `BASE_INTERNAL_URL`, and a name of the base
+  environment. A step's own variables, such as its script's `envs`, win
+  over the host's for its invocation. A native step reads none of them,
+  since its `process.env` is built from its invocation's variables.
+- **Secrets among them.** The engine replaces each secret's value with
+  `[secret]` in what it passes on besides the host's data in a requested
+  result. It masks output lines and the errors that quote them, warnings,
+  latched errors, the plugin's errors and its run-end answer, the errors
+  in a requested result, and the trace's copies of step data and platform
+  calls. What steps and hooks run with stays as it is.
+- **Host mode** takes none: the host's environment is its own.
 
 ### Lifecycle
 
@@ -1045,6 +1063,9 @@ answered by a `host_reply`.
       mean it. An absent field is none, and every layer writes none so: no
       `answer` in the reply and in `run_done`, an empty `answer` in a
       `RunResult`, whose JSON text is never empty, and `nil` in Go.
+    - **Masked null.** A secret entry of the host's variables is masked in
+      an answer, so an answer of `null` whose text holds a secret becomes
+      the string `[secret]`: still an answer, never none.
     - **No answer** comes from a hook that fails, gets no reply within the
       plugin timeout (item 2), or cannot reach a pinned run's process; its
       `plugin_error` warning says why. A reply that comes after the engine

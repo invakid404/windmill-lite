@@ -39,13 +39,21 @@ type diagnostics struct {
 	mu  sync.Mutex
 	w   io.Writer
 	pid atomic.Int64
+	// secrets are masked in every line written, the engine's own lines
+	// about the process, which can quote what the process sent, and the
+	// process's output lines; nil when it has none.
+	secrets *Secrets
 }
 
 func (d *diagnostics) printf(format string, args ...any) {
 	d.line(fmt.Sprintf("windmill-lite: harness pid %d: %s", d.pid.Load(), fmt.Sprintf(format, args...)))
 }
 
+// line writes s, a whole line, with each secret masked in it as written,
+// its prefix included: a secret that the prefix, such as the process's id
+// and stream, makes with the text after it is masked too.
 func (d *diagnostics) line(s string) {
+	s = d.secrets.Mask(s)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	io.WriteString(d.w, s+"\n")
@@ -120,6 +128,9 @@ func (b *killLineBudget) write(d *diagnostics, line string) {
 type lineWriter struct {
 	diag *diagnostics
 	keep int
+	// secrets are masked in each line before it is forwarded or kept;
+	// nil when the process has none.
+	secrets *Secrets
 
 	mu   sync.Mutex
 	last []string
@@ -127,6 +138,9 @@ type lineWriter struct {
 
 func (lw *lineWriter) stream(name string) io.Writer { return &streamWriter{lw: lw, name: name} }
 
+// emit forwards line, with its secrets masked already, and keeps it. The
+// line that goes out, its prefix included, is masked again as a whole
+// (diagnostics.line).
 func (lw *lineWriter) emit(name, line string) {
 	lw.diag.line(fmt.Sprintf("harness pid %d %s: %s", lw.diag.pid.Load(), name, line))
 	lw.mu.Lock()
@@ -151,6 +165,13 @@ type streamWriter struct {
 	lw   *lineWriter
 	name string
 	buf  []byte
+	// ctx is the end of the line's part that went out already, when a long
+	// line went out in parts: a secret that starts there and ends in buf is
+	// masked in what follows too.
+	ctx []byte
+	// sent is the end of that part as it went out, masked: a part is read
+	// again after it (Secrets.maskPart).
+	sent []byte
 }
 
 func (s *streamWriter) Write(b []byte) (int, error) {
@@ -160,14 +181,41 @@ func (s *streamWriter) Write(b []byte) (int, error) {
 		if i < 0 {
 			break
 		}
-		s.lw.emit(s.name, string(s.buf[:i]))
-		s.buf = s.buf[i+1:]
+		s.lw.emit(s.name, s.lw.secrets.maskPart(s.ctx, s.sent, s.buf[:i], i))
+		s.buf, s.ctx, s.sent = s.buf[i+1:], nil, nil
 	}
-	if len(s.buf) > 64<<10 {
-		s.lw.emit(s.name, string(s.buf))
-		s.buf = nil
+	// A line that grows past 64 KiB is forwarded in parts. With secrets,
+	// a part ends before the first secret that the bytes to come could
+	// still complete, as written or percent-encoded (Secrets.pending), so
+	// what is kept, shorter than three times the longest secret and two
+	// bytes, waits for the next write, and each part holds 64 KiB. A part
+	// masks each secret that the line holds so far, also one that the cut
+	// splits: its start in this part, its end in the next, which ctx, the
+	// end of what went out, lets the next part's masking see.
+	if len(s.buf) > partLimit(s.lw.secrets) {
+		c := s.lw.secrets.pending(s.buf)
+		part := s.lw.secrets.maskPart(s.ctx, s.sent, s.buf, c)
+		s.lw.emit(s.name, part)
+		if sec := s.lw.secrets; sec != nil {
+			out := append(s.ctx, s.buf[:c]...)
+			s.ctx = append([]byte(nil), out[max(0, len(out)-sec.lookBack()):]...)
+			sent := append(s.sent, part...)
+			s.sent = append([]byte(nil), sent[max(0, len(sent)-sec.lookBack()-len(SecretMask)):]...)
+		}
+		s.buf = append([]byte(nil), s.buf[c:]...)
 	}
 	return len(b), nil
+}
+
+// partLimit is how long an output line grows before a part of it is
+// forwarded: 64 KiB, and with secrets as much as Secrets.pending may keep,
+// which is also how much of what went out a part's masking looks back at.
+func partLimit(sec *Secrets) int {
+	limit := 64 << 10
+	if sec != nil {
+		limit += sec.lookBack()
+	}
+	return limit
 }
 
 // recentInvocations remembers the last settled invocations, so late output

@@ -250,6 +250,7 @@ func (r *run) snapshot() *Trace {
 		t.Steps[i] = st
 	}
 	t.ResultNested = append([]string(nil), r.trace.ResultNested...)
+	t.ResultErrors = append([]string(nil), r.trace.ResultErrors...)
 	t.Children = make([]ChildFlow, len(r.trace.Children))
 	for i, c := range r.trace.Children {
 		c.Modules = append([]string(nil), c.Modules...)
@@ -265,9 +266,9 @@ func (r *run) snapshot() *Trace {
 
 // end records the run's outcome. A latched run records its latched error
 // and no result, and a halted run no result either. The final result is
-// stored as jsonb (FX-36, FX-42 item 5); nested points to the generated
-// errors inside it (Trace.ResultNested).
-func (r *run) end(status conformance.RunStatus, result jsonval.Value, origin Origin, nested []string) {
+// stored as jsonb (FX-36, FX-42 item 5); nested are the errors inside it
+// (Trace.ResultNested, Trace.ResultErrors).
+func (r *run) end(status conformance.RunStatus, result jsonval.Value, origin Origin, nested errorParts) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.trace.Status = status
@@ -281,7 +282,7 @@ func (r *run) end(status conformance.RunStatus, result jsonval.Value, origin Ori
 	if result.IsZero() {
 		return
 	}
-	r.trace.ResultOrigin, r.trace.ResultNested = origin, nested
+	r.trace.ResultOrigin, r.trace.ResultNested, r.trace.ResultErrors = origin, nested.generated(), nested.pointers()
 	// The flow's result is stored without its NUL escapes (FX-48 case 1).
 	result = result.WithoutNUL()
 	if stored, err := result.Stored(); err == nil {
@@ -386,10 +387,11 @@ type outcome struct {
 	// when it is an error.
 	carried jsonval.Value
 	origin  Origin
-	// nested are the pointers, relative to carried, of the errors
-	// windmill-lite generated inside it when it aggregates others: a loop's
-	// array (StepRecord.CarriedNested).
-	nested []string
+	// nested are the errors inside carried when it aggregates others, such
+	// as a loop's array, with their pointers relative to it and their
+	// origins, whoever produced them; the generated ones are
+	// StepRecord.CarriedNested.
+	nested errorParts
 	// chain is a chaining error's text, which a collapsed iteration hands
 	// to its loop to route (FX-15).
 	chain string
@@ -500,7 +502,7 @@ type decision struct {
 	status conformance.RunStatus
 	result jsonval.Value
 	origin Origin
-	nested []string
+	nested errorParts
 	// abort is set, for nextEnd, when the decision re-entered a failed
 	// parallel container, which cannot start again: the flow aborts with
 	// result, an InternalError, and hands the container's value to its
@@ -638,18 +640,18 @@ func unrecognizedStatus(m *ir.Module) string {
 }
 
 // carry is a value a flow carries on, with who produced it when it is an
-// error and the pointers of the errors windmill-lite generated inside it
-// (outcome.carried, outcome.origin and outcome.nested).
+// error and the errors inside it (outcome.carried, outcome.origin and
+// outcome.nested).
 type carry struct {
 	value  jsonval.Value
 	origin Origin
-	nested []string
+	nested errorParts
 }
 
 // flowEnd is how a frame's flow ended: its status and result (a host
 // verdict's status has none), whether a stop ended it (CF-12), errorStop
 // for a failure that a stop ended, handled when its failure module ended
-// it, and the generated errors inside the result.
+// it, and the errors inside the result, whoever produced them.
 type flowEnd struct {
 	status    conformance.RunStatus
 	result    jsonval.Value
@@ -682,7 +684,7 @@ type flowEnd struct {
 	//
 	// [FX-33]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-33
 	recovered bool
-	nested    []string
+	nested    errorParts
 	// chain is set when a collapsed iteration's push failed (outcome.chain).
 	chain string
 	// args are a collapsed iteration's body job's stored arguments, the
@@ -821,7 +823,7 @@ func (r *run) runList(ctx context.Context, fr *frame) (e flowEnd) {
 			if st, end := r.hostEnd(ctx, false); end {
 				return flowEnd{status: st}
 			}
-			return flowEnd{status: conformance.RunSuccess, result: c.value(), origin: c.Origin, nested: c.Nested, cached: true}
+			return flowEnd{status: conformance.RunSuccess, result: c.value(), origin: c.Origin, nested: c.parts(), cached: true}
 		}
 	}
 	e = r.runModules(ctx, fr)
@@ -933,7 +935,7 @@ func (r *run) runModules(ctx context.Context, fr *frame) flowEnd {
 	// prevOrigin and prevNested go with prev, the last carried value,
 	// which an abort delivers (flowEnd.delivered).
 	var prevOrigin Origin
-	var prevNested []string
+	var prevNested errorParts
 	// A child flow scheduled for later, by the sleep before its container
 	// or a retry's delay (CF-21, FX-23, FX-26), is picked up then: none of
 	// its modules starts before. A cancellation while it is queued fails
@@ -1154,13 +1156,13 @@ func (r *run) failure(ctx context.Context, fr *frame, failing carry, prevID stri
 	}
 	switch {
 	case o.end == endSucceeded && recovers(o.carried):
-		return flowEnd{status: conformance.RunSuccess, result: o.carried, origin: o.origin, handled: true, recovered: true, stores: true}
+		return flowEnd{status: conformance.RunSuccess, result: o.carried, origin: o.origin, nested: o.nested.unlist(), handled: true, recovered: true, stores: true}
 	case o.end == endSucceeded:
-		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, handled: true, stores: true}
+		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, nested: o.nested.unlist(), handled: true, stores: true}
 	case o.end == endChained && o.aborted:
-		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, handled: true, delivered: &in}
+		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, nested: o.nested.unlist(), handled: true, delivered: &in}
 	case o.end == endFailed, o.end == endChained, o.end == endUnrecoverable:
-		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, handled: true}
+		return flowEnd{status: conformance.RunFailure, result: o.carried, origin: o.origin, nested: o.nested.unlist(), handled: true}
 	}
 	return flowEnd{status: conformance.RunFailure, result: engineError("InternalErr", "windmill-lite: the failure module was interrupted with no latch or cancellation"), origin: OriginEngine}
 }
@@ -1348,7 +1350,7 @@ func (r *run) attempt(fr *frame, i int, o outcome, idx int, site conformance.Sit
 		}
 		r.supersedeLocked(fr.sites[i], j.site, site)
 		*rec = StepRecord{Site: site, Attempt: rec.Attempt, Ran: true, Status: flowStepStatus(j.end.status), Start: rec.Start, Duration: rec.Duration,
-			RecordedArgs: j.input, ResolvedArgs: j.input, Result: j.end.result, ResultOrigin: j.end.origin, ResultNested: j.end.nested, Late: rec.Late}
+			RecordedArgs: j.input, ResolvedArgs: j.input, Result: j.end.result, ResultOrigin: j.end.origin, ResultNested: j.end.nested.generated(), Late: rec.Late}
 		return true
 	case m.Kind == ir.KindSubflow && rec.Job != "":
 		r.supersedeLocked(fr.sites[i], fr.sites[i], site)
@@ -2216,20 +2218,19 @@ func applyStop(s *ir.Stop, o outcome, own jsonval.Value) outcome {
 
 // errorStop fails the module with an EarlyStopError whose message is msg,
 // with own as its result when s asks for it (FX-19, FX-V2). own is o's
-// carried value: when it is included, the generated errors inside it keep
-// their provenance below /error/result (ADR 0011); otherwise they go with
-// it.
+// carried value: when it is included, the errors inside it keep their
+// provenance below /error/result (ADR 0011); otherwise they go with it.
 func errorStop(o outcome, msg string, s *ir.Stop, own jsonval.Value) outcome {
 	e := []member{{"name", jsonString("EarlyStopError")}, {"message", jsonString(msg)}}
-	var nested []string
+	var nested errorParts
 	if s.ErrorIncludeResult != nil && *s.ErrorIncludeResult {
 		e = append(e, member{"result", own.Producer()})
 		for _, p := range o.nested {
-			nested = append(nested, "/error/result"+p)
+			nested = append(nested, errorPart{"/error/result" + p.at, p.origin, p.unlisted})
 		}
 	}
 	o.carried, o.origin, o.nested = objectOf(member{"error", objectOf(e...).Producer()}), OriginEngine, nested
-	o.rec.Module, o.rec.Carried, o.rec.CarriedOrigin, o.rec.CarriedNested, o.end = conformance.ModuleFailure, o.carried, OriginEngine, nested, endErrorStop
+	o.rec.Module, o.rec.Carried, o.rec.CarriedOrigin, o.rec.CarriedNested, o.end = conformance.ModuleFailure, o.carried, OriginEngine, nested.generated(), endErrorStop
 	return o
 }
 

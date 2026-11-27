@@ -88,7 +88,7 @@ func (p *Process) hostCall(ctx context.Context, hook, run, site string, payload 
 	select {
 	case r := <-reply:
 		if r.Error != nil {
-			return jsonval.Value{}, true, &HostCallError{Hook: hook, Code: r.Error.Code, Message: r.Error.Message}
+			return jsonval.Value{}, true, &HostCallError{Hook: hook, Code: r.Error.Code, Message: p.secrets.Mask(r.Error.Message)}
 		}
 		return r.Payload, true, nil
 	case <-ctx.Done():
@@ -146,7 +146,8 @@ func (p *Process) onHostReply(r HostReply) error {
 // HostCall asks the host plugin of one of the pool's processes, the run's
 // own when it has one, to answer hook (Process.HostCall). The pool starts
 // a process when none serves.
-func (pl *Pool) HostCall(ctx context.Context, hook, run, site string, payload jsonval.Value) (jsonval.Value, error) {
+func (pl *Pool) HostCall(ctx context.Context, hook, run, site string, payload jsonval.Value) (_ jsonval.Value, err error) {
+	defer func() { err = pl.secrets.MaskErr(err) }()
 	if pl.isFresh() {
 		return jsonval.Value{}, errors.New("harness: a fresh pool has no process to ask a host plugin")
 	}
@@ -168,7 +169,8 @@ func (pl *Pool) HostCall(ctx context.Context, hook, run, site string, payload js
 // Plugin returns the declaration of the host plugin the pool's processes
 // loaded, as the first of them said in its hello, starting it if need be;
 // zero when they loaded none.
-func (pl *Pool) Plugin(ctx context.Context) (jsonval.Value, error) {
+func (pl *Pool) Plugin(ctx context.Context) (_ jsonval.Value, err error) {
+	defer func() { err = pl.secrets.MaskErr(err) }()
 	if pl.isFresh() {
 		return jsonval.Value{}, nil
 	}

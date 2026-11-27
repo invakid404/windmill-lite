@@ -323,7 +323,10 @@ type Result struct {
 	// hooks give no answer, and neither does a script run, which calls no
 	// run-end hook. encoding/json leaves the field out when it is nil: a
 	// Result without an answer has no Answer member, and one with an answer
-	// of null has "Answer":null.
+	// of null has "Answer":null. A Secret entry's value (Options.HarnessEnv)
+	// is masked in it, as in the trace's values (maskAnswer). So an answer
+	// of null whose text holds a secret, such as one of ull, is the string
+	// "[secret]": still an answer, never nil.
 	Answer json.RawMessage `json:",omitempty"`
 }
 
@@ -373,7 +376,17 @@ func (a *runEndAnswer) get() json.RawMessage {
 // which of these, or which deadline, canceled it. An error means the run
 // could not start: the runtime is closed (ErrClosed), no such target, or
 // arguments that are not a JSON object or that cannot be stored.
-func (rt *Runtime) Run(ctx context.Context, path string, args json.RawMessage, opts RunOptions) (*Result, error) {
+func (rt *Runtime) Run(ctx context.Context, path string, args json.RawMessage, opts RunOptions) (res *Result, err error) {
+	// The error can quote a setting or what a harness process wrote: masked
+	// as a whole. The result masks its own parts; its id, the host's, is
+	// masked here. Its status and its cancellation's cause are the
+	// protocol's fixed words, and stay as they are.
+	defer func() {
+		err = maskError(rt.secrets, err)
+		if res != nil && rt.secrets != nil {
+			res.ID = rt.secrets.MaskAfter("", res.ID)
+		}
+	}()
 	// The engine's own adapters give a flow run host mode's static
 	// interceptions, and the refusal of the id of a run that a step
 	// dispatched, this way (internal/wlext); no other caller can. The
@@ -500,16 +513,20 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 			rt.forgetPin(p)
 			return nil, err
 		}
-		out := &Result{ID: res.ID, Status: StatusSuccess, Result: storedText(res.Result), Warnings: calls.warned(), Started: sent.sent()}
+		out := &Result{ID: res.ID, Status: StatusSuccess, Result: storedText(res.Result), Warnings: maskWarnings(rt.secrets, calls.warned()), Started: sent.sent()}
 		switch {
 		case res.Latched != nil:
 			// Its step latched the run (H5): wl.latch, or a failed around.
-			out.Status, out.Result, out.Latched = StatusLatched, nil, res.Latched
+			out.Status, out.Result, out.Latched = StatusLatched, nil, maskError(rt.secrets, res.Latched)
 		case res.Failed && ctx.Err() != nil:
 			// The script failed because the run's context ended (FX-38).
 			out.Status, out.CancelCause = StatusCanceled, engine.CancelCauseOf(ctx)
 		case res.Failed:
 			out.Status = StatusFailure
+		}
+		if res.Failed {
+			// A failed script returns its error value, an error text.
+			out.Result = storedText(maskValue(rt.secrets, res.Result))
 		}
 		// The run settles once its outcome is decided: in host mode the
 		// settlement's callback releases the run's hard deadline, which
@@ -559,7 +576,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 	defer unpin()
 	ctx = harness.WithPin(ctx, p)
 	if h != nil {
-		h.pin = p
+		h.pin, h.secrets = p, rt.secrets
 	}
 	var services *platform.Services
 	bind := &runBinding{id: id, pin: p}
@@ -611,16 +628,25 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		tr.PlatformCalls = calls.taken()
 	}
 	tr.Warnings = append(tr.Warnings, calls.warned()...)
+	// The requested result is the run's; its copy in the trace, like the
+	// rest of what leaves the engine, has the runtime's secrets masked.
+	masked := maskTrace(rt.secrets, tr)
+	// The result is the host's data, but for the errors in it, which are
+	// error texts: the result itself when it is a step's error, of a run
+	// that failed or of a flow that carried on past it, or a part of it,
+	// such as a tolerated branch's error in a branchall's array.
+	result := maskErrorParts(rt.secrets, tr, tr.Result)
 	return &Result{
 		ID:             tr.RunID,
 		Status:         string(tr.Status),
-		Result:         storedText(tr.Result),
+		Result:         storedText(result),
 		MayHaveMutated: tr.MayHaveMutated,
-		Trace:          tr,
-		Warnings:       tr.Warnings,
-		Latched:        tr.Latched,
+		Trace:          masked,
+		Warnings:       masked.Warnings,
+		Latched:        masked.Latched,
 		CancelCause:    tr.CancelCause,
-		Answer:         answer.get(),
+		// The answer is data that the host plugin's process produced.
+		Answer: maskAnswer(rt.secrets, answer.get()),
 	}, nil
 }
 

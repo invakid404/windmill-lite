@@ -219,11 +219,40 @@ func (e *Engine) objectETag(ctx context.Context, stored []byte) (string, bool) {
 // cacheEntry is a cached result as the engine encodes it for the store:
 // its stored text, and the provenance the trace keeps for it (an origin
 // for a value a flow ended with, such as an error stop's EarlyStopError,
-// and the generated errors inside an aggregate).
+// the generated errors inside an aggregate, and its other errors, with
+// their origins). AllErrors marks an entry that lists every error inside
+// its result, as this engine writes each: an entry that an earlier engine
+// wrote has none, and its result may hold errors that neither Nested nor
+// Errors names (wl misses such an entry when its result holds a secret).
 type cacheEntry struct {
-	Result json.RawMessage `json:"result"`
-	Origin Origin          `json:"origin,omitempty"`
-	Nested []string        `json:"nested,omitempty"`
+	Result    json.RawMessage `json:"result"`
+	Origin    Origin          `json:"origin,omitempty"`
+	Nested    []string        `json:"nested,omitempty"`
+	Errors    []cacheError    `json:"errors,omitempty"`
+	AllErrors bool            `json:"all_errors,omitempty"`
+}
+
+// cacheError is an error inside a cached aggregate that windmill-lite did
+// not generate, such as a tolerated branch's thrown error, or one that
+// ResultNested does not list (errorPart.unlisted).
+type cacheError struct {
+	At       string `json:"at"`
+	Origin   Origin `json:"origin"`
+	Unlisted bool   `json:"unlisted,omitempty"`
+}
+
+// parts returns the errors inside the entry's result. The generated ones
+// are stored without their origin, so they come back as the engine's,
+// which counts the same (Origin.Generated).
+func (c cacheEntry) parts() errorParts {
+	var ps errorParts
+	for _, p := range c.Nested {
+		ps = append(ps, errorPart{p, OriginEngine, false})
+	}
+	for _, e := range c.Errors {
+		ps = append(ps, errorPart{e.At, e.Origin, e.Unlisted})
+	}
+	return ps
 }
 
 // value is the entry's result.
@@ -258,12 +287,18 @@ func (e *Engine) cacheGet(ctx context.Context, key string, now time.Time) (cache
 //
 // [FX-48]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-48
 // [FX-40]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/execution.md#fx-40
-func (e *Engine) cachePut(ctx context.Context, key string, now time.Time, ttl time.Duration, v jsonval.Value, origin Origin, nested []string) error {
+func (e *Engine) cachePut(ctx context.Context, key string, now time.Time, ttl time.Duration, v jsonval.Value, origin Origin, nested errorParts) error {
 	stored, err := v.WithoutNUL().Stored()
 	if err != nil {
 		return nil
 	}
-	b, err := json.Marshal(cacheEntry{Result: stored, Origin: origin, Nested: nested})
+	entry := cacheEntry{Result: stored, Origin: origin, Nested: nested.generated(), AllErrors: true}
+	for _, p := range nested {
+		if !p.origin.Generated() || p.unlisted {
+			entry.Errors = append(entry.Errors, cacheError{p.at, p.origin, p.unlisted})
+		}
+	}
+	b, err := json.Marshal(entry)
 	if err != nil {
 		return err
 	}
@@ -282,7 +317,7 @@ func (r *run) lookup(ctx context.Context, key string) (cacheEntry, bool) {
 
 // store is cachePut for a run: on its clock, with a store's failure a
 // warning in the trace.
-func (r *run) store(ctx context.Context, key string, ttl time.Duration, v jsonval.Value, origin Origin, nested []string) {
+func (r *run) store(ctx context.Context, key string, ttl time.Duration, v jsonval.Value, origin Origin, nested errorParts) {
 	if err := r.e.cachePut(ctx, key, r.clock.Now(), ttl, v, origin, nested); err != nil {
 		r.cacheWarning("the result cache failed to store a result: " + err.Error())
 	}
@@ -354,7 +389,7 @@ func (r *run) cachedJob(ctx context.Context, fr *frame, i, idx int, site conform
 	r.recordJob(fr, i, v)
 	o.rec.Status, o.rec.Module, o.rec.Result, o.rec.Carried = conformance.StepSuccess, conformance.ModuleSuccess, v, v
 	o.rec.ResultOrigin, o.rec.ResultNested, o.rec.CarriedNested = c.Origin, c.Nested, c.Nested
-	o.carried, o.origin, o.nested = v, c.Origin, c.Nested
+	o.carried, o.origin, o.nested = v, c.Origin, c.parts()
 	return r.stop(ctx, fr, i, site, o)
 }
 

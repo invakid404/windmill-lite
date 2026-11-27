@@ -16,6 +16,7 @@ import (
 	"os/signal"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -24,6 +25,10 @@ import (
 	"github.com/hashicorp/go-hclog"
 	goplugin "github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/invakid404/windmill-lite/internal/bundle"
 	"github.com/invakid404/windmill-lite/internal/harness"
@@ -48,6 +53,12 @@ const pluginUsage = "usage: windmill-lite plugin -config <file>"
 // standard error, which go-plugin passes to the host's logger, and exits
 // with status 1.
 func runPlugin(args []string, stderr io.Writer) int {
+	// Everything the command writes to standard error goes through one
+	// masking writer, which the secret entries arm as they resolve: each
+	// line is masked whole, in its final form.
+	masked := &maskingWriter{w: stderr}
+	defer masked.flush()
+	stderr = masked
 	fs := newFlagSet("plugin", stderr)
 	configPath := fs.String("config", "", "the configuration `file`, JSON, which the host writes")
 	pos, ok := parse(fs, args)
@@ -156,6 +167,15 @@ func runPlugin(args []string, stderr io.Writer) int {
 					beforeHandshake()
 				}
 				o = append(o, grpc.MaxRecvMsgSize(limit), grpc.MaxSendMsgSize(limit))
+				// Outermost, so it masks every status and response that a
+				// handler or the Gate returns. With secret entries, the
+				// status of a method that the server does not have comes
+				// from unknownMethod, through it; without, gRPC answers it
+				// as it always has.
+				o = append(o, outputMasking(masked.current)...)
+				if cfg.hasSecretEntries() {
+					o = append(o, grpc.UnknownServiceHandler(unknownMethod(grpcServer.Load)))
+				}
 				s := grpc.NewServer(append(o, gate.ServerOptions()...)...)
 				grpcServer.Store(s)
 				return s
@@ -566,6 +586,7 @@ type pluginConfig struct {
 	MaxMessageBytes        *int64                    `json:"max_message_bytes"`
 	BytesTotal             *int64                    `json:"bytes_total"`
 	Labels                 map[string]string         `json:"labels"`
+	HarnessEnv             map[string]configEnv      `json:"harness_env"`
 }
 
 // configResource is a resource of the configuration, as in a bundle's
@@ -583,6 +604,62 @@ type configVariable struct {
 	ValueEnv  string  `json:"value_env"`
 	IsSecret  bool    `json:"is_secret"`
 	Encrypted bool    `json:"encrypted"`
+}
+
+// configEnv is an environment variable of the harness processes
+// (wl.Options.HarnessEnv): a value written in the file, or one that names a
+// variable of the engine's environment (value_env). A secret must. Value
+// and ValueEnv are nil only for a field left out.
+type configEnv struct {
+	Value    *string
+	ValueEnv *string
+	IsSecret bool
+	// bad says, after the entry's name, why the entry is not usable as
+	// written, naming its field and never a value; "" when it is.
+	bad string
+}
+
+// UnmarshalJSON decodes an entry field by field, so that a field given as
+// null or as another type than its own, and a field that the entry does
+// not have, are told apart from a field left out. It does not fail: the
+// decoding of the configuration goes on, and decodePluginConfig refuses an
+// entry with bad set, naming it.
+func (e *configEnv) UnmarshalJSON(b []byte) error {
+	*e = configEnv{}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(b, &fields); err != nil || fields == nil {
+		e.bad = ": not an object of value or value_env, and is_secret"
+		return nil
+	}
+	str := func(k string) *string {
+		raw := bytes.TrimSpace(fields[k])
+		var s string
+		if len(raw) == 0 || raw[0] != '"' || json.Unmarshal(raw, &s) != nil {
+			e.bad = "." + k + ": not a string"
+			return nil
+		}
+		return &s
+	}
+	for _, k := range slices.Sorted(maps.Keys(fields)) {
+		switch k {
+		case "value":
+			e.Value = str(k)
+		case "value_env":
+			e.ValueEnv = str(k)
+		case "is_secret":
+			if raw := bytes.TrimSpace(fields[k]); string(raw) != "true" && string(raw) != "false" {
+				e.bad = ".is_secret: not true or false"
+			} else {
+				e.IsSecret = string(raw) == "true"
+			}
+		default:
+			e.bad = fmt.Sprintf(": unknown field %q", k)
+		}
+		if e.bad != "" {
+			return nil
+		}
+	}
+	return nil
 }
 
 // configStore is the resource store: memory, or Redis, whose URL names a
@@ -680,6 +757,28 @@ func decodePluginConfig(data []byte) (*pluginConfig, error) {
 			return nil, fmt.Errorf("variables[%q].value: a secret is never written in the file; name a variable of the engine's environment with value_env", path)
 		case v.Value == nil && v.ValueEnv == "":
 			return nil, fmt.Errorf("variables[%q]: value or value_env is required", path)
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(c.HarnessEnv)) {
+		v := c.HarnessEnv[name]
+		switch {
+		case v.bad != "":
+			return nil, fmt.Errorf("harness_env[%q]%s", name, v.bad)
+		case v.Value != nil && v.ValueEnv != nil:
+			return nil, fmt.Errorf("harness_env[%q]: value and value_env are exclusive", name)
+		case v.IsSecret && v.Value != nil:
+			return nil, fmt.Errorf("harness_env[%q].value: a secret is never written in the file; name a variable of the engine's environment with value_env", name)
+		case v.Value == nil && v.ValueEnv == nil:
+			return nil, fmt.Errorf("harness_env[%q]: value or value_env is required", name)
+		case v.ValueEnv != nil && *v.ValueEnv == "":
+			return nil, fmt.Errorf("harness_env[%q].value_env: empty; name a variable of the engine's environment", name)
+		}
+		value := ""
+		if v.Value != nil {
+			value = *v.Value
+		}
+		if err := harness.CheckEnv(name, value); err != nil {
+			return nil, fmt.Errorf("harness_env[%q]: %w", name, err)
 		}
 	}
 	for _, path := range slices.Sorted(maps.Keys(c.Resources)) {
@@ -780,7 +879,36 @@ func (c *pluginConfig) maxMessageBytes() int {
 // resource store. Each variable of the environment that the configuration
 // names is read here, once, and then unset, so no process that the engine
 // starts inherits it; one that is not set fails the start, naming it.
-func (c *pluginConfig) options(stderr io.Writer) (wl.Options, func(), error) {
+func (c *pluginConfig) options(stderr io.Writer) (_ wl.Options, _ func(), err error) {
+	// A refusal masks the secret values that resolved before it, and so
+	// does stderr from each one's resolving on (maskingWriter.add).
+	var known []string
+	defer func() {
+		if err != nil {
+			err = harness.NewSecrets(known).MaskErr(err)
+		}
+	}()
+	// A reference that a secret entry names is a secret however the
+	// configuration first reads it, a variable's or the store's included:
+	// read registers its value on that first read.
+	secretRefs := map[string]bool{}
+	for _, v := range c.HarnessEnv {
+		if v.IsSecret && v.ValueEnv != nil {
+			secretRefs[*v.ValueEnv] = true
+		}
+	}
+	env := envReader{}
+	defer env.unset()
+	read := func(name string) (string, error) {
+		v, err := env.read(name)
+		if err == nil && secretRefs[name] {
+			known = append(known, v)
+			if m, ok := stderr.(*maskingWriter); ok {
+				m.add(v)
+			}
+		}
+		return v, err
+	}
 	opts := wl.Options{
 		Bun:                    c.Bun,
 		HarnessRuntime:         c.HarnessRuntime,
@@ -811,8 +939,6 @@ func (c *pluginConfig) options(stderr io.Writer) (wl.Options, func(), error) {
 			opts.Resources[path] = wl.Resource{Type: r.ResourceType, Value: r.Value}
 		}
 	}
-	env := envReader{}
-	defer env.unset()
 	if len(c.Variables) > 0 {
 		opts.Variables = make(map[string]wl.Variable, len(c.Variables))
 		for _, path := range slices.Sorted(maps.Keys(c.Variables)) {
@@ -822,11 +948,29 @@ func (c *pluginConfig) options(stderr io.Writer) (wl.Options, func(), error) {
 				value = *v.Value
 			} else {
 				var err error
-				if value, err = env.read(v.ValueEnv); err != nil {
+				if value, err = read(v.ValueEnv); err != nil {
 					return wl.Options{}, nil, fmt.Errorf("variables[%q].value_env: %w", path, err)
 				}
 			}
 			opts.Variables[path] = wl.Variable{Value: value, Secret: v.IsSecret, Ciphertext: v.Encrypted}
+		}
+	}
+	if len(c.HarnessEnv) > 0 {
+		// The runtime gets each value itself: the reference is unset once
+		// read, before the runtime opens.
+		opts.HarnessEnv = make(map[string]wl.EnvValue, len(c.HarnessEnv))
+		for _, name := range slices.Sorted(maps.Keys(c.HarnessEnv)) {
+			v := c.HarnessEnv[name]
+			value := ""
+			if v.Value != nil {
+				value = *v.Value
+			} else {
+				var err error
+				if value, err = read(*v.ValueEnv); err != nil {
+					return wl.Options{}, nil, fmt.Errorf("harness_env[%q].value_env: %w", name, err)
+				}
+			}
+			opts.HarnessEnv[name] = wl.EnvValue{Value: value, Secret: v.IsSecret}
 		}
 	}
 	if len(c.Providers) > 0 {
@@ -864,7 +1008,7 @@ func (c *pluginConfig) options(stderr io.Writer) (wl.Options, func(), error) {
 	}
 	closeStore := func() {}
 	if s := c.ResourceStore; s != nil && s.Kind == "redis" {
-		url, err := env.read(s.URLEnv)
+		url, err := read(s.URLEnv)
 		if err != nil {
 			return wl.Options{}, nil, fmt.Errorf("resource_store.url_env: %w", err)
 		}
@@ -883,6 +1027,215 @@ func (c *pluginConfig) options(stderr io.Writer) (wl.Options, func(), error) {
 		closeStore = func() { store.Close() }
 	}
 	return opts, closeStore, nil
+}
+
+// maskingWriter is the plugin command's standard error: it writes each
+// line whole, with every secret it holds masked in its final, fully
+// formatted text (harness.Secrets.MaskAfter with no prefix, which leaves
+// only a secret that lies wholly inside a mask). A line waits for its end;
+// flush writes what is left when the command ends.
+type maskingWriter struct {
+	mu      sync.Mutex
+	w       io.Writer
+	known   []string
+	secrets *harness.Secrets
+	buf     []byte
+}
+
+// add makes value a secret of the writer, from the next line it writes.
+func (m *maskingWriter) add(value string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.known = append(m.known, value)
+	m.secrets = harness.NewSecrets(m.known)
+}
+
+// current returns the secrets that the writer masks, nil while none.
+func (m *maskingWriter) current() *harness.Secrets {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.secrets
+}
+
+func (m *maskingWriter) Write(p []byte) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.buf = append(m.buf, p...)
+	for {
+		i := bytes.IndexByte(m.buf, '\n')
+		if i < 0 {
+			return len(p), nil
+		}
+		line := m.secrets.MaskAfter("", string(m.buf[:i])) + "\n"
+		m.buf = m.buf[i+1:]
+		if _, err := io.WriteString(m.w, line); err != nil {
+			return len(p), err
+		}
+	}
+}
+
+// flush writes a last line that has no end, masked.
+func (m *maskingWriter) flush() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.buf) > 0 {
+		io.WriteString(m.w, m.secrets.MaskAfter("", string(m.buf)))
+		m.buf = nil
+	}
+}
+
+// outputMasking returns the server options that mask what the engine's
+// server sends, with the secrets that secrets gives when it sends it: the
+// message of each gRPC status, as a whole, its code and details kept, and
+// each string field of each response, in a copy (maskProto). A bytes
+// field, such as a run's result or trace as JSON, is wl's to mask.
+func outputMasking(secrets func() *harness.Secrets) []grpc.ServerOption {
+	maskErr := func(s *harness.Secrets, err error) error {
+		if err == nil || s == nil {
+			return err
+		}
+		st, ok := status.FromError(err)
+		if !ok {
+			return s.MaskErr(err)
+		}
+		if m := s.MaskAfter("", st.Message()); m != st.Message() {
+			p := st.Proto()
+			p.Message = m
+			return status.FromProto(p).Err()
+		}
+		return err
+	}
+	return []grpc.ServerOption{
+		grpc.ChainUnaryInterceptor(func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, h grpc.UnaryHandler) (any, error) {
+			resp, err := h(ctx, req)
+			s := secrets()
+			return maskResponse(s, resp), maskErr(s, err)
+		}),
+		grpc.ChainStreamInterceptor(func(srv any, ss grpc.ServerStream, _ *grpc.StreamServerInfo, h grpc.StreamHandler) error {
+			return maskErr(secrets(), h(srv, &maskingStream{ServerStream: ss, secrets: secrets}))
+		}),
+	}
+}
+
+// maskingStream masks each message that a streaming method sends.
+type maskingStream struct {
+	grpc.ServerStream
+	secrets func() *harness.Secrets
+}
+
+func (m *maskingStream) SendMsg(msg any) error {
+	return m.ServerStream.SendMsg(maskResponse(m.secrets(), msg))
+}
+
+// maskResponse returns resp, or, when it is a protocol buffer message and
+// there are secrets, a copy with each string field masked (maskProto).
+func maskResponse(s *harness.Secrets, resp any) any {
+	m, ok := resp.(proto.Message)
+	if s == nil || !ok || m == nil {
+		return resp
+	}
+	c := proto.Clone(m)
+	maskProto(s, c.ProtoReflect())
+	return c
+}
+
+// fixedWords are the response fields whose values the protocol fixes, such
+// as a run's status: maskProto keeps them, so they keep one of their
+// values.
+var fixedWords = map[protoreflect.FullName]bool{
+	"windmill_lite.v1.RunResult.status":       true,
+	"windmill_lite.v1.RunResult.cancel_cause": true,
+	"windmill_lite.v1.GetRunResponse.state":   true,
+	"windmill_lite.v1.BuildInfo.module_state": true,
+	"windmill_lite.v1.RunResult.deviations":   true,
+	"windmill_lite.v1.BuildInfo.deviations":   true,
+}
+
+// maskProto masks, in m, every string field, in its lists and maps and in
+// its nested messages, a map's keys included, as a whole
+// (harness.Secrets.MaskAfter with no prefix), but for fixedWords.
+func maskProto(s *harness.Secrets, m protoreflect.Message) {
+	mask := func(fd protoreflect.FieldDescriptor, v protoreflect.Value) protoreflect.Value {
+		switch fd.Kind() {
+		case protoreflect.StringKind:
+			return protoreflect.ValueOfString(s.MaskAfter("", v.String()))
+		case protoreflect.MessageKind, protoreflect.GroupKind:
+			maskProto(s, v.Message())
+		}
+		return v
+	}
+	var fields []protoreflect.FieldDescriptor
+	m.Range(func(fd protoreflect.FieldDescriptor, _ protoreflect.Value) bool {
+		fields = append(fields, fd)
+		return true
+	})
+	for _, fd := range fields {
+		if fixedWords[fd.FullName()] {
+			continue
+		}
+		v := m.Get(fd)
+		switch {
+		case fd.IsList():
+			l := v.List()
+			for i := range l.Len() {
+				l.Set(i, mask(fd, l.Get(i)))
+			}
+		case fd.IsMap():
+			mp := v.Map()
+			type entry struct {
+				k protoreflect.MapKey
+				v protoreflect.Value
+			}
+			var entries []entry
+			mp.Range(func(k protoreflect.MapKey, v protoreflect.Value) bool {
+				entries = append(entries, entry{k, v})
+				return true
+			})
+			for _, e := range entries {
+				mp.Clear(e.k)
+				k := e.k
+				if fd.MapKey().Kind() == protoreflect.StringKind {
+					k = protoreflect.ValueOfString(s.MaskAfter("", e.k.String())).MapKey()
+				}
+				mp.Set(k, mask(fd.MapValue(), e.v))
+			}
+		default:
+			m.Set(fd, mask(fd, v))
+		}
+	}
+}
+
+// unknownMethod is the server's handler, with secret entries, for a method
+// or service that it does not have: the UNIMPLEMENTED status that gRPC
+// itself would send, in its words, but through the interceptors, so that
+// outputMasking masks it.
+func unknownMethod(server func() *grpc.Server) grpc.StreamHandler {
+	return func(_ any, ss grpc.ServerStream) error {
+		full, _ := grpc.MethodFromServerStream(ss)
+		// Split at the last slash, as gRPC does.
+		name := strings.TrimPrefix(full, "/")
+		svc, method := name, ""
+		if i := strings.LastIndex(name, "/"); i >= 0 {
+			svc, method = name[:i], name[i+1:]
+		}
+		if s := server(); s != nil {
+			if _, ok := s.GetServiceInfo()[svc]; ok {
+				return status.Errorf(codes.Unimplemented, "unknown method %v for service %v", method, svc)
+			}
+		}
+		return status.Errorf(codes.Unimplemented, "unknown service %v", svc)
+	}
+}
+
+// hasSecretEntries reports whether the configuration has a secret
+// harness_env entry.
+func (c *pluginConfig) hasSecretEntries() bool {
+	for _, v := range c.HarnessEnv {
+		if v.IsSecret {
+			return true
+		}
+	}
+	return false
 }
 
 // envReader reads the variables of the engine's environment that the

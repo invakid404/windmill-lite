@@ -38,6 +38,12 @@ type Trace struct {
 	// iteration's (see StepRecord.ResultNested).
 	ResultOrigin Origin
 	ResultNested []string
+	// ResultErrors lists the JSON pointers, relative to Result, of every
+	// error inside it, whoever produced it: those of ResultNested, and also
+	// the errors that step code threw or a host produced, such as a
+	// tolerated branch's error inside a branchall's array. A cached result
+	// keeps them. Result as a whole is an error when ResultOrigin is set.
+	ResultErrors []string
 	// Latched is the error the run latched (H5) when Status is
 	// conformance.RunLatched: the first one latched.
 	Latched error

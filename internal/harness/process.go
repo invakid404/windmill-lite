@@ -58,8 +58,25 @@ type ProcessConfig struct {
 	// program name; see BunCommand.
 	Path string
 	Args []string
-	// Env is the process's entire environment; nil means BaseEnv().
+	// Env is the process's environment before ExtraEnv; nil means
+	// BaseEnv(), read again at each spawn.
 	Env []string
+	// ExtraEnv are NAME=value entries that the process starts with after
+	// Env and before BASE_URL: a host's settings and secrets for its
+	// harness processes (wl's Options.HarnessEnv), each one that CheckEnv
+	// accepts. nil adds none.
+	ExtraEnv []string
+	// Secrets are the values of the secret entries of ExtraEnv. The engine
+	// masks them (NewSecrets) in the text that it takes from the process
+	// and passes on as text of its own: the process's output lines, which
+	// go to Diagnostics and into the errors that quote them, the engine's
+	// diagnostics about it, the errors of its host plugin's hooks, and an
+	// escaped invocation's log tail, before the log is cut and after the
+	// harness cut it (Secrets.MaskTail). Results, other failures, warnings
+	// and hook answers stay as the process sent them: wl masks their
+	// copies in a trace, a run's result and its warnings. nil masks
+	// nothing.
+	Secrets []string
 	// WorkRoot is the directory in which the process's private working
 	// directory is created; empty means os.TempDir().
 	WorkRoot string
@@ -219,6 +236,46 @@ func BaseEnv() []string {
 	return env
 }
 
+// baseEnvNames are the names of the variables that BaseEnv can set,
+// whether or not the engine's environment gives TZ and NODE_PATH.
+var baseEnvNames = []string{"PATH", "HOME", "TZ", "FORCE_COLOR", "DO_NOT_TRACK", "BUN_INSTALL_CACHE_DIR", "BUN_RUNTIME_TRANSPILER_CACHE_PATH", "NODE_PATH"}
+
+// CheckEnv returns nil when a harness process may start with the
+// environment entry name=value (ProcessConfig.ExtraEnv), and otherwise an
+// error that says why, which names neither the entry nor its value: the
+// caller names the entry, and the value may be a secret. It refuses:
+//
+//   - a name that is empty or holds "=" or a NUL byte, and a value that
+//     holds a NUL byte, which no process environment can carry;
+//   - a name that starts with WM_: the job's reserved variables, which the
+//     engine sets for each invocation, over the process's own ([WA-4]);
+//   - BASE_URL, which the engine sets last to the platform facade's
+//     origin, and BASE_INTERNAL_URL, which the stock client prefers to
+//     BASE_URL for its platform calls ([WA-2]);
+//   - a name of the base environment (BaseEnv), whose values come from the
+//     engine's own environment, as Windmill's worker sets its common Bun
+//     variables after the variables configured for a job ([WA-2]).
+//
+// [WA-2]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-2
+// [WA-4]: https://github.com/invakid404/windmill-lite/blob/main/docs/semantics/client-api.md#wa-4
+func CheckEnv(name, value string) error {
+	switch {
+	case name == "":
+		return errors.New("an empty name")
+	case strings.ContainsAny(name, "=\x00"):
+		return errors.New(`a name holds "=" or a NUL byte`)
+	case strings.ContainsRune(value, 0):
+		return errors.New("the value holds a NUL byte")
+	case strings.HasPrefix(name, "WM_"):
+		return errors.New("WM_ variables are the job's reserved variables, which the engine sets for each invocation")
+	case name == "BASE_URL" || name == "BASE_INTERNAL_URL":
+		return errors.New("the engine gives steps the platform facade's origin as BASE_URL, and the stock client would prefer BASE_INTERNAL_URL to it")
+	case slices.Contains(baseEnvNames, name):
+		return errors.New("the base environment sets it from the engine's own environment")
+	}
+	return nil
+}
+
 // HandshakeError is a harness the engine refused in the handshake.
 type HandshakeError struct {
 	Code    string // a Reject code
@@ -264,6 +321,9 @@ type Process struct {
 	diag       *diagnostics
 	killLines  *killLineBudget
 	stdio      *lineWriter
+	// secrets are ProcessConfig.Secrets, which the engine masks in the
+	// text that it takes from the process; nil when it has none.
+	secrets *Secrets
 
 	// group is whether the process leads a process group of its own, as
 	// every process the engine spawns does (WR-55), and groupGone whether
@@ -412,9 +472,16 @@ type execResult struct {
 func Spawn(ctx context.Context, cfg ProcessConfig) (*Process, error) {
 	p, timeout, err := newProcess(cfg)
 	if err != nil {
-		return nil, err
+		// The settings' checks quote what they refuse.
+		return nil, NewSecrets(cfg.Secrets).MaskErr(err)
 	}
-	return p.spawn(ctx, timeout)
+	q, err := p.spawn(ctx, timeout)
+	if err != nil {
+		// The error can name what the process was started with, such as
+		// its executable's path, and quote what it wrote.
+		return q, NewSecrets(cfg.Secrets).MaskErr(err)
+	}
+	return q, nil
 }
 
 // newProcess applies cfg's defaults and checks them.
@@ -470,7 +537,8 @@ func newProcess(cfg ProcessConfig) (*Process, time.Duration, error) {
 	if diag == nil {
 		diag = os.Stderr
 	}
-	p.diag = &diagnostics{w: diag}
+	p.secrets = NewSecrets(cfg.Secrets)
+	p.diag = &diagnostics{w: diag, secrets: p.secrets}
 	p.killLines = cfg.killLines
 	if p.killLines == nil {
 		p.killLines = runtimeKillLines
@@ -500,6 +568,9 @@ func (p *Process) spawn(ctx context.Context, timeout time.Duration) (*Process, e
 	if cmd.Env == nil {
 		cmd.Env = BaseEnv()
 	}
+	if len(cfg.ExtraEnv) > 0 {
+		cmd.Env = append(slices.Clone(cmd.Env), cfg.ExtraEnv...)
+	}
 	if cfg.Facade != "" {
 		// WA-2: the worker sets BASE_URL last, over any value of the same
 		// name, before any module loads (WA-1).
@@ -519,7 +590,7 @@ func (p *Process) spawn(ctx context.Context, timeout time.Duration) (*Process, e
 	// stdout and stderr are pipes of the engine's own, read by its own
 	// goroutines, so Wait returns as soon as the harness exits, even while
 	// a child of it still holds them open.
-	p.stdio = &lineWriter{diag: p.diag, keep: 20}
+	p.stdio = &lineWriter{diag: p.diag, keep: 20, secrets: p.secrets}
 	outR, outW, err := os.Pipe()
 	if err != nil {
 		parent.Close()
@@ -846,6 +917,8 @@ func (p *Process) onResult(r Result) (*invocation, []func(), bool, error) {
 	if inv == nil {
 		return nil, nil, false, protoErr(CodeUnexpected, "result for invocation %q, which is not in flight", r.ID)
 	}
+	// The harness cut an escaped invocation's tail from its log.
+	r.Tail = p.secrets.MaskTail(r.Tail)
 	switch inv.state {
 	case invPending:
 		if inv.times != nil {
@@ -916,7 +989,9 @@ func (p *Process) onLog(l Log) (*invocation, []func()) {
 	inv := p.invs[l.ID]
 	if inv != nil && inv.state == invPending {
 		for _, line := range l.Lines {
-			inv.tail.add(line)
+			// Masked before the tail cuts the log, which could leave the
+			// end of a secret no matcher knows.
+			inv.tail.add(p.secrets.Mask(line))
 		}
 		return nil, nil
 	}

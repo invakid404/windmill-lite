@@ -213,7 +213,9 @@ A flow run's `RunResult` can carry the run-end answer of the bundle's
 host plugin: `GetAnswer()` is the JSON text of the answer that the
 plugin's `onRunEnd` returned beside its warnings
 ([wl](../README.md#host-plugins)). An empty field means no answer, and the
-text `null` an answer of JSON null.
+text `null` an answer of JSON null. A secret entry of the engine's
+`harness_env` is masked in it, which can turn `null` into a string, but
+never into no answer.
 
 - **Every outcome of a flow run.** The engine calls `onRunEnd` however a
   flow run ended, a failed, latched or canceled run included, and one

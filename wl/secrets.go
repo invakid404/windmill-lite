@@ -1,0 +1,371 @@
+package wl
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"maps"
+	"reflect"
+	"slices"
+	"sync"
+	"time"
+
+	"github.com/invakid404/windmill-lite/internal/engine"
+	"github.com/invakid404/windmill-lite/internal/harness"
+	"github.com/invakid404/windmill-lite/internal/jsonval"
+)
+
+// The masking of a runtime's secret harness entries (EnvValue.Secret) in
+// what leaves the engine besides a run's requested result: the copies of a
+// step's arguments, results and late output in a trace and in the records
+// hooks get, the run's warnings, the errors it latched and the host
+// plugin's run-end answer. The harness
+// processes' own output is masked in internal/harness (harness.Secrets).
+// Every function here returns its input unchanged when secrets is nil.
+
+// maskTrace returns a copy of t whose values, warnings, platform calls and
+// latched error have each secret masked, or t itself when secrets is nil.
+// The engine's trace stays as it was: Run's requested result comes from it.
+func maskTrace(secrets *harness.Secrets, t *Trace) *Trace {
+	if secrets == nil || t == nil {
+		return t
+	}
+	c := *t
+	c.Result = maskValue(secrets, t.Result)
+	c.Latched = maskError(secrets, t.Latched)
+	if t.Steps != nil {
+		c.Steps = make([]StepRecord, len(t.Steps))
+		for i, s := range t.Steps {
+			c.Steps[i] = maskRecord(secrets, s)
+		}
+	}
+	c.Warnings = maskWarnings(secrets, t.Warnings)
+	if t.PlatformCalls != nil {
+		c.PlatformCalls = make([]PlatformCall, len(t.PlatformCalls))
+		for i, p := range t.PlatformCalls {
+			p.Method, p.Message = secrets.Mask(p.Method), secrets.Mask(p.Message)
+			// The path and query as sent: masked as decoded, each span that
+			// holds a secret escaped again around the mask.
+			p.Path, p.Query = secrets.MaskURL(p.Path, false), secrets.MaskURL(p.Query, true)
+			c.PlatformCalls[i] = p
+		}
+	}
+	// Every other text in it, such as the run's id, each step's and call's
+	// job, path and route, is masked too where it holds a secret. The
+	// protocol's fixed words stay as they are, so a status keeps one of
+	// its values: each value of a named string type (a status, a module
+	// state, an origin, a kind), the cancellation's cause and the
+	// deviations' codes.
+	m := maskStrings(secrets, reflect.ValueOf(&c)).Interface().(*Trace)
+	m.CancelCause, m.Deviations = t.CancelCause, t.Deviations
+	return m
+}
+
+// jsonValueType and timeType are kept whole by maskStrings, which masks
+// only strings of stringType.
+var (
+	jsonValueType = reflect.TypeOf(jsonval.Value{})
+	timeType      = reflect.TypeOf(time.Time{})
+	stringType    = reflect.TypeOf("")
+)
+
+// maskStrings returns a copy of v in which every string that v holds, in
+// its fields, slices, arrays, maps and pointers, is masked as written
+// (harness.Secrets.MaskAfter with no prefix, which leaves a secret only
+// inside a mask) and as JSON encodes it (harness.Secrets.MaskEncoded). What it shares with v it does not change. A value of a
+// named string type, the engine's fixed vocabulary such as a status, a
+// JSON value (maskValue), an error (maskError), a time and an unexported
+// field are kept as they are.
+func maskStrings(secrets *harness.Secrets, v reflect.Value) reflect.Value {
+	switch v.Kind() {
+	case reflect.String:
+		if v.Type() != stringType {
+			return v
+		}
+		out := reflect.New(v.Type()).Elem()
+		out.SetString(secrets.MaskEncoded(secrets.MaskAfter("", v.String())))
+		return out
+	case reflect.Pointer:
+		if v.IsNil() {
+			return v
+		}
+		out := reflect.New(v.Type().Elem())
+		out.Elem().Set(maskStrings(secrets, v.Elem()))
+		return out
+	case reflect.Slice:
+		if v.IsNil() || v.Type().Elem().Kind() == reflect.Uint8 {
+			return v
+		}
+		out := reflect.MakeSlice(v.Type(), v.Len(), v.Len())
+		for i := range v.Len() {
+			out.Index(i).Set(maskStrings(secrets, v.Index(i)))
+		}
+		return out
+	case reflect.Array:
+		out := reflect.New(v.Type()).Elem()
+		for i := range v.Len() {
+			out.Index(i).Set(maskStrings(secrets, v.Index(i)))
+		}
+		return out
+	case reflect.Map:
+		if v.IsNil() {
+			return v
+		}
+		out := reflect.MakeMapWithSize(v.Type(), v.Len())
+		for it := v.MapRange(); it.Next(); {
+			out.SetMapIndex(maskStrings(secrets, it.Key()), maskStrings(secrets, it.Value()))
+		}
+		return out
+	case reflect.Struct:
+		if v.Type() == jsonValueType || v.Type() == timeType {
+			return v
+		}
+		out := reflect.New(v.Type()).Elem()
+		out.Set(v)
+		for i := range v.NumField() {
+			if out.Field(i).CanSet() {
+				out.Field(i).Set(maskStrings(secrets, v.Field(i)))
+			}
+		}
+		return out
+	}
+	return v
+}
+
+// runIDs maps the masked copy of a trace that a hook gets to its run's id,
+// for the duration of the call, so that the host plugin's onRunEnd and
+// onRunSettled route their host_call by the run's own id (traceRunID): the
+// copy's RunID is masked.
+var runIDs sync.Map
+
+// traceRunID returns the id of the run that t, the trace that a hook got,
+// is of.
+func traceRunID(t *Trace) string {
+	if id, ok := runIDs.Load(t); ok {
+		return id.(string)
+	}
+	return t.RunID
+}
+
+// maskRecord returns rec with each secret masked in its arguments, its
+// result, its carried value and its late output.
+func maskRecord(secrets *harness.Secrets, rec StepRecord) StepRecord {
+	if secrets == nil {
+		return rec
+	}
+	rec.ArgsBeforeRewrite = maskValue(secrets, rec.ArgsBeforeRewrite)
+	rec.RecordedArgs = maskValue(secrets, rec.RecordedArgs)
+	rec.ResolvedArgs = maskValue(secrets, rec.ResolvedArgs)
+	rec.Result = maskValue(secrets, rec.Result)
+	rec.Carried = maskValue(secrets, rec.Carried)
+	if rec.Late != nil {
+		late := make([]engine.Late, len(rec.Late))
+		for i, l := range rec.Late {
+			l.Body = maskValue(secrets, l.Body)
+			late[i] = l
+		}
+		rec.Late = late
+	}
+	return rec
+}
+
+// maskValue returns v with each secret masked, or v itself when none holds
+// one (harness.Secrets.MaskJSON, which reads the value as its producer
+// wrote it and as stored, the text that payloads and Stored give).
+func maskValue(secrets *harness.Secrets, v jsonval.Value) jsonval.Value {
+	if secrets == nil || v.IsZero() {
+		return v
+	}
+	text := v.Producer()
+	masked := secrets.MaskJSON(text)
+	if bytes.Equal(masked, text) {
+		return v
+	}
+	return jsonval.FromProducer(masked)
+}
+
+// maskAnswer returns a run's run-end answer (Result.Answer), the JSON text
+// that the host plugin's onRunEnd returned from its harness process, with
+// each secret masked (harness.Secrets.MaskJSON): the answer itself when it
+// holds none, byte for byte, and nil, no answer, as nil.
+func maskAnswer(secrets *harness.Secrets, answer json.RawMessage) json.RawMessage {
+	if secrets == nil || answer == nil {
+		return answer
+	}
+	return secrets.MaskJSON(answer)
+}
+
+// maskWarnings returns ws with each secret masked in their codes,
+// messages and the keys of their counts, in a new slice when secrets is not
+// nil.
+func maskWarnings(secrets *harness.Secrets, ws []Warning) []Warning {
+	if secrets == nil || ws == nil {
+		return ws
+	}
+	out := make([]Warning, len(ws))
+	for i, w := range ws {
+		// Masked as written and as JSON encodes them, which a run's
+		// warnings and trace are sent as.
+		w.Code, w.Message = secrets.MaskEncoded(secrets.Mask(w.Code)), secrets.MaskEncoded(secrets.Mask(w.Message))
+		w.Left, w.Untracked = maskCounts(secrets, w.Left), maskCounts(secrets, w.Untracked)
+		out[i] = w
+	}
+	return out
+}
+
+// maskCounts returns counts with each secret masked in its keys, as
+// written and as JSON encodes them (countKey), in a new map when a key
+// holds one. Keys that mask to one key, such as two secrets, add their
+// counts there. The keys are final: masking them again, as maskStrings
+// does, changes none, so no count is lost.
+func maskCounts(secrets *harness.Secrets, counts map[string]int) map[string]int {
+	if !slices.ContainsFunc(slices.Collect(maps.Keys(counts)), func(k string) bool { return countKey(secrets, k) != k }) {
+		return counts
+	}
+	out := make(map[string]int, len(counts))
+	for k, n := range counts {
+		out[countKey(secrets, k)] += n
+	}
+	return out
+}
+
+// countKey is a count's key masked as written and as JSON encodes it.
+func countKey(secrets *harness.Secrets, k string) string {
+	return secrets.MaskEncoded(secrets.Mask(k))
+}
+
+// maskError returns err, or, when its text holds a secret, an error whose
+// text has it masked. A *engine.StepLatch, *engine.PluginError or
+// *harness.HostCallError keeps its type, with its message masked as its
+// whole text reads it (maskTyped). Any other error, such as a Go hook's own
+// type latched through RunHandle.Latch, and one of those three whose text
+// still holds a secret, comes back wrapped in one that errors.Is still
+// matches as err, and that errors.As does not see through, since the error
+// it wraps holds the secret in its text.
+func maskError(secrets *harness.Secrets, err error) error {
+	if secrets == nil || err == nil {
+		return err
+	}
+	text := err.Error()
+	masked := secrets.Mask(text)
+	if masked == text {
+		return err
+	}
+	var typed error
+	switch e := err.(type) {
+	case *engine.StepLatch:
+		typed = maskTyped(secrets, e.Message, func(m string) error { return &engine.StepLatch{Message: m} })
+	case *engine.PluginError:
+		typed = maskTyped(secrets, e.Message, func(m string) error { return &engine.PluginError{Message: m} })
+	case *harness.HostCallError:
+		typed = maskTyped(secrets, e.Message, func(m string) error { return &harness.HostCallError{Hook: e.Hook, Code: e.Code, Message: m} })
+	}
+	if typed != nil {
+		return typed
+	}
+	return &maskedError{text: masked, err: err}
+}
+
+// maskTyped returns the error that build makes of msg, its message, masked
+// as the error's whole text reads it: after the words that its type writes
+// before the message, so that a secret that those words make with the
+// message is masked in the message too (harness.Secrets.MaskAfter). It
+// returns nil when that text still holds a secret outside its masks, as
+// when those words hold one.
+func maskTyped(secrets *harness.Secrets, msg string, build func(string) error) error {
+	prefix := build("").Error()
+	e := build(secrets.MaskAfter(prefix, secrets.Mask(msg)))
+	if text := e.Error(); secrets.MaskAfter("", text) != text {
+		return nil
+	}
+	return e
+}
+
+// secretResults is a host's result cache seen through a runtime with
+// secret harness entries: it stores no value that holds a secret, raw or
+// in the forms that Secrets masks, so no runtime that shares the cache,
+// whose own secrets may differ, reads one from it. A result that holds a
+// secret is therefore not cached, and its step runs again next time.
+type secretResults struct {
+	ResultCache
+	secrets *harness.Secrets
+}
+
+// Put judges the result itself, decoded from the engine's entry, whatever
+// its spelling there: the entry's own fields, such as the key "result",
+// do not count. An entry it cannot decode is not stored.
+func (c secretResults) Put(ctx context.Context, key string, value []byte, expires time.Time) error {
+	var entry struct {
+		Result json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(value, &entry); err != nil || len(entry.Result) == 0 {
+		return nil
+	}
+	if c.secrets.HoldsJSON(entry.Result) {
+		return nil
+	}
+	return c.ResultCache.Put(ctx, key, value, expires)
+}
+
+// Get reads an entry as the store holds it, but misses one that does not
+// list every error in its result (an earlier engine's, without
+// "all_errors") when that result holds a secret: the run could not tell
+// its errors, which it masks, from the host's data, which it keeps. The
+// step then runs again. An entry whose result holds no secret is read as
+// before.
+func (c secretResults) Get(ctx context.Context, key string, now time.Time) ([]byte, bool, error) {
+	value, ok, err := c.ResultCache.Get(ctx, key, now)
+	if err != nil || !ok {
+		return value, ok, err
+	}
+	var entry struct {
+		Result    json.RawMessage `json:"result"`
+		AllErrors bool            `json:"all_errors"`
+	}
+	if json.Unmarshal(value, &entry) == nil && !entry.AllErrors && c.secrets.HoldsJSON(entry.Result) {
+		return nil, false, nil
+	}
+	return value, ok, err
+}
+
+// maskErrorParts returns a run's requested result with each secret masked
+// in the parts of it that are errors, as the trace records them: the whole
+// result when its origin says it is one, a cached result's included, or
+// else each error inside it (Trace.ResultErrors), such as a tolerated
+// branch's error inside a branchall's array. The other parts, the host's
+// data, stay as they are, a copy of an error that a step returned among
+// them, but for an object or array that an error's mask gives way to
+// (harness.Secrets.MaskJSON).
+func maskErrorParts(secrets *harness.Secrets, t *Trace, result jsonval.Value) jsonval.Value {
+	if secrets == nil || result.IsZero() {
+		return result
+	}
+	pointers := t.ResultErrors
+	if t.ResultOrigin != engine.OriginNone {
+		pointers = []string{""}
+	}
+	// Trace.Result is the result's stored text, or its producer text when the
+	// engine could not store it, and Run converts it with storedText at the
+	// end. MaskJSONAt reads it as it is and as stored, and masks again until a
+	// round changes nothing or a bound on the rounds masks the errors whole,
+	// so what the host gets is masked either way, but for a secret that the
+	// mask's own text holds (harness.Secrets.MaskJSON).
+	text := result.Producer()
+	masked := secrets.MaskJSONAt(text, pointers)
+	if bytes.Equal(masked, text) {
+		return result
+	}
+	return jsonval.FromProducer(masked)
+}
+
+// maskedError is an error whose text has the runtime's secrets masked.
+type maskedError struct {
+	text string
+	err  error
+}
+
+func (e *maskedError) Error() string { return e.text }
+
+// Is reports whether the error it masks is target, or wraps it.
+func (e *maskedError) Is(target error) bool { return errors.Is(e.err, target) }

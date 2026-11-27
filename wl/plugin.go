@@ -348,7 +348,7 @@ func (p *plugin) goHooks() *Hooks {
 			}
 			// A run its context ended, canceled or past a deadline, still
 			// reports its end: the call has the plugin timeout alone.
-			if err := p.do(context.WithoutCancel(ctx), "on_run_end", t.RunID, nil, p.tracePayload("on_run_end", t), &r); err != nil {
+			if err := p.do(context.WithoutCancel(ctx), "on_run_end", traceRunID(t), nil, p.tracePayload("on_run_end", t), &r); err != nil {
 				// The run's outcome is decided: a failed onRunEnd can only
 				// say so, and gives no answer.
 				return []Warning{{Code: harness.HostErrorPlugin, Message: "the host plugin's onRunEnd: " + err.Error()}}
@@ -401,7 +401,7 @@ func (p *plugin) runSettled(ctx context.Context, t *Trace) {
 	if pin, ok := settlingPins.Load(t); ok {
 		ctx = harness.WithPin(ctx, pin.(*harness.Pin))
 	}
-	if err := p.do(ctx, "on_run_settled", t.RunID, nil, p.tracePayload("on_run_settled", t), nil); err != nil {
+	if err := p.do(ctx, "on_run_settled", traceRunID(t), nil, p.tracePayload("on_run_settled", t), nil); err != nil {
 		p.diag(fmt.Sprintf("windmill-lite: run %s: the host plugin's onRunSettled: %v", t.RunID, err))
 	}
 }
@@ -881,6 +881,15 @@ func (rt *Runtime) answersPlatform() bool {
 // checking that every provider the host contract names is a Go provider or
 // the plugin's (missing_provider), and that none is both.
 func (rt *Runtime) usePlugin(decl jsonval.Value, call hostCaller, timeout time.Duration, diag func(string)) error {
+	// The checks of the declaration quote what the plugin declared.
+	if err := rt.checkPlugin(decl, call, timeout, diag); err != nil {
+		return maskError(rt.secrets, err)
+	}
+	return nil
+}
+
+// checkPlugin is usePlugin before the masking of its error.
+func (rt *Runtime) checkPlugin(decl jsonval.Value, call hostCaller, timeout time.Duration, diag func(string)) error {
 	p, err := newPlugin(decl, rt.prog, call, timeout, diag)
 	if err != nil {
 		return err
@@ -974,10 +983,12 @@ func (rt *Runtime) hostCheck(opts Options) func(h harness.Hello) *harness.Reject
 	}
 }
 
-// diagLine writes one diagnostic line to w, or os.Stderr.
+// diagLine writes one diagnostic line to w, or os.Stderr, with each of the
+// runtime's secrets masked in the whole line (harness.Secrets.Mask), so
+// also one that the line's own words make with an error that it quotes.
 func (rt *Runtime) diagLine(w io.Writer) func(string) {
 	if w == nil {
 		w = os.Stderr
 	}
-	return func(line string) { fmt.Fprintln(w, line) }
+	return func(line string) { fmt.Fprintln(w, rt.secrets.Mask(line)) }
 }

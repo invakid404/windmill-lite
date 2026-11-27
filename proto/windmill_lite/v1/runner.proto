@@ -256,10 +256,12 @@ message RunResult {
   // answer is, for a flow run, the run-end answer of the bundle's host
   // plugin, as JSON text: the answer that its onRunEnd returned beside its
   // warnings. It is empty when the run has no answer, and the text null
-  // for an answer of JSON null. A run has no answer when onRunEnd returned
-  // only warnings or nothing, failed, got no reply within the plugin
-  // timeout or from a lost process, or answered more than 1 MiB; the hooks
-  // of RunRequest.hooks give none.
+  // for an answer of JSON null. A secret entry of the engine's harness_env
+  // is masked in it, which can make an answer of null a string, but never
+  // empty. A run has no answer when onRunEnd returned only warnings or
+  // nothing, failed, got no reply within the plugin timeout or from a lost
+  // process, or answered more than 1 MiB; the hooks of RunRequest.hooks
+  // give none.
   bytes answer = 10;
 }
 

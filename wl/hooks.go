@@ -417,6 +417,9 @@ type hooks struct {
 	// pin is the run's pin, nil for none, which the host plugin's
 	// onRunSettled carries (settlingPins).
 	pin *harness.Pin
+	// secrets are the runtime's secret harness entries, masked in the
+	// records and traces the hooks get (maskTrace); nil for none.
+	secrets *harness.Secrets
 
 	mu    sync.Mutex
 	ended bool
@@ -511,7 +514,7 @@ func (x *hooks) OnModuleEnd(ctx context.Context, r engine.Run, s engine.Site, re
 	if x.h.OnModuleEnd == nil {
 		return nil
 	}
-	return x.h.OnModuleEnd(ctx, r, s, rec)
+	return x.h.OnModuleEnd(ctx, r, s, maskRecord(x.secrets, rec))
 }
 
 func (x *hooks) InvocationEnv(ctx context.Context, r engine.Run, s engine.Site, env map[string]string) error {
@@ -526,12 +529,17 @@ func (x *hooks) OnRunEnd(ctx context.Context, t *engine.Trace) []engine.Warning 
 		x.endCalls()
 		return nil
 	}
-	return x.h.OnRunEnd(ctx, x.withCalls(t))
+	c := maskTrace(x.secrets, x.withCalls(t))
+	runIDs.Store(c, t.RunID)
+	defer runIDs.Delete(c)
+	return x.h.OnRunEnd(ctx, c)
 }
 
 func (x *hooks) OnRunSettled(t *engine.Trace) {
 	if x.h.OnRunSettled != nil {
-		c := x.withCalls(t)
+		c := maskTrace(x.secrets, x.withCalls(t))
+		runIDs.Store(c, t.RunID)
+		defer runIDs.Delete(c)
 		if x.pin != nil {
 			settlingPins.Store(c, x.pin)
 			defer settlingPins.Delete(c)

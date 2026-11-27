@@ -59,6 +59,7 @@ the code.
 | `target_linux.go`, `target_other.go` | What host mode's watchdog signals: a pidfd of the host on Linux, kill(2) elsewhere |
 | `pool.go` | `Pool`: routing, lag, the cap, tainting and recycling, recycle triggers, the bound on live processes, replacement, `Close` |
 | `util.go` | The log tail, diagnostics lines and the kill-line budget, the recent settled invocations, the `serial` call queue, the stdout and stderr line writer, signal names |
+| `secrets.go` | `Secrets`, `NewSecrets`, `SecretMask`: the masking of a host's secret environment entries |
 | `timings.go` | `SetTimesHook`, `InvocationTimes`: each invocation's clock readings, for benchmarks |
 | `doc.go` | The package comment |
 
@@ -78,6 +79,8 @@ the code.
 | `RunData`, `NewRunData`, `WithRunData`, `RunDataOf` | struct, funcs | One run's data, which the plugins of the processes it reaches read, carried in the run's context ([Run data](#run-data)); `Release` | `wl` |
 | `ExitStatus` | struct | How a process ended: code or signal | tests |
 | `BaseEnv` | func | The base environment of a spawned process | `ProcessConfig`'s default, `wltest` |
+| `CheckEnv` | func | Whether a spawned process may start with a host's environment entry (`ProcessConfig.ExtraEnv`): the error says why not, without the value ([The base environment](#the-base-environment)) | `wl`, `windmill-lite plugin` |
+| `Secrets`, `NewSecrets`, `SecretMask` | struct, func, const | The secret values of `ProcessConfig.Secrets`, which `Mask` replaces with `[secret]` in a text, `MaskURL` in a path or a query, `MaskTail` in a log tail, and `MaskJSON` and `MaskJSONAt` in a JSON value | `Process`, `wl` |
 | `BunCommand` | func | The command line that starts the Bun harness runtime on a bundle, with `--umask` after `SetLaunchUmask` | `wl`, `wltest` |
 | `SetLaunchUmask` | func | Makes every harness that `BunCommand` starts afterwards set that umask first ([harnesses/bun](../../harnesses/bun/README.md#start-a-spawned-harness)); without it, a harness keeps the umask that it inherits | `windmill-lite plugin` |
 | `PinnedBun`, `ProtocolVersion` | const | `1.4.3`; `1` | `PinnedBun`: `wl`, `internal/bundle`, `wltest`. `ProtocolVersion`: the handshake, tests |
@@ -317,7 +320,8 @@ the harness protocol design record lists the fields of `run`, `run_done`,
 A process's environment is `ProcessConfig.Env`, or `BaseEnv()`: the base
 set that Windmill's worker gives a Bun job
 ([WR-22](../../docs/semantics/languages.md#wr-22)), as far as the engine
-stands in for the worker.
+stands in for the worker. `BaseEnv()` reads the engine's environment again
+at each spawn.
 
 | Variable | Value |
 |---|---|
@@ -330,6 +334,71 @@ stands in for the worker.
 | `NODE_PATH` | The engine's, set only when the engine has one |
 | `BASE_URL` | `ProcessConfig.Facade`, when set. It is appended over any value of the same name, as Windmill's worker sets it last ([WA-2](../../docs/semantics/client-api.md#wa-2)) |
 | `BASE_INTERNAL_URL` | Never set for Bun |
+
+`ProcessConfig.ExtraEnv` follows the base set, before `BASE_URL`: the
+host's own `NAME=value` entries (`HarnessEnv` in
+[wl](../../wl/README.md#the-harness-environment)). `CheckEnv` refuses an
+entry that the engine sets itself, or that no environment can carry:
+
+- a name that starts with `WM_`, the job's reserved variables, which each
+  invocation sets over the process's own;
+- `BASE_URL` and `BASE_INTERNAL_URL`;
+- a name of the base set, whether or not the engine has `TZ` or
+  `NODE_PATH`;
+- an empty name, a name with `=` or a NUL byte, and a value with a NUL
+  byte.
+
+`ProcessConfig.Secrets` are the values of the secret entries.
+`NewSecrets` makes of them the `Secrets` that replace each value, each
+line of one that spans lines, and its `%q` and `JSON.stringify` forms,
+with `SecretMask`, `[secret]`. `MaskEncoded` masks a text where its
+encoding by `json.Marshal` would hold a secret, also one that begins or
+ends inside an escape.
+
+In a text with `%XX` escapes they mask a value as written and the span
+that decodes to one, both found on the text as it is, and secrets that
+overlap become one mask.
+
+A mask can make a secret with the text beside it, as a secret that starts
+with `]` does with the text after the mask. So each text is read again
+until a round changes nothing, and a secret that crosses a mask's edge is
+masked with all of that mask. A long line's part is read after the end of
+what went out before it, as masked. After 32 rounds the text, or the
+part, is masked whole.
+
+They mask the text that the engine takes from the process and passes on
+as text of its own:
+
+- its output lines, before they are forwarded or kept for errors. A line
+  past 64 KiB goes in parts, each ending before the first secret or escape
+  that the next bytes could complete, as written or decoded. What follows,
+  under three times the longest secret, waits, so each write past the
+  limit sends a part. A part masks the secrets that the line holds so far,
+  also one that its end splits, whose rest the next part masks;
+- an escaped invocation's log tail, which its error quotes. Each log line
+  is masked before the engine keeps the last 600 characters, and so is
+  the tail that the harness cut from its own log, whose start may be the
+  end of a secret (`MaskTail`);
+- every diagnostics line, the engine's own about the process, each output
+  line it forwards and the pool's, as a whole: a secret that the line's
+  prefix, such as the process and stream, makes with what follows is
+  masked too;
+- the error of a failed `Spawn`, its settings' refusal included, which can
+  name the executable, and each error that `NewPool` and the pool's
+  methods return, so also the one that `PoolConfig.OnStartFailure` gets.
+  `Secrets.MaskErr` masks them, and the result still matches the original
+  with `errors.Is`, but for the two types below;
+- a late host plugin call's error, which comes back as a new
+  `LateHostCallError` with the same `Done` and its cause masked:
+  `errors.Is` matches what that cause matches, not the original pointer;
+- its host plugin's hook errors, so that a `HostCallError` keeps its type.
+  One whose message `MaskErr` masks comes back as a new one when its text
+  allows: `errors.As` finds it, `errors.Is` does not match the original.
+
+An invocation's result, other failures and warnings, and a hook's answer,
+stay as the process sent them:
+[wl](../../wl/README.md#the-harness-environment) masks their copies in a
+trace, a run's result and its warnings.
 
 ### Process groups
 
@@ -1006,6 +1075,7 @@ and `WL_REQUIRE_BUN` set ([docs/ci.md](../../docs/ci.md#the-go-jobs)).
 | File | What it checks | Needs |
 |---|---|---|
 | `frames_test.go` | The codec cases of `conformance/protocol/frames.json`; `-args -update` rewrites their payloads. An empty or null `foreign_windmill_origins` decodes as none (`TestWelcomeEmptyForeignOriginsAreNone`). | |
+| `secrets_test.go` | A line past 64 KiB goes out in parts that hold no piece of a secret (`TestLineWriterCutsNoSecret`). The cases: a secret cut in two where a part must go, and a secret that ends there while a longer one that starts with it goes on. Also a percent-encoded secret cut after an escape, inside one and after its `%` | |
 | `args_test.go` | `scriptArgs`: the two internal keys dropped, a key written with an escape included, every other member's raw text and place kept. Arguments with nothing to drop, or that are not an object, stay unchanged | |
 | `conn_test.go` | The writer's ordering rules, the barrier behind open run streams (with a `pong` still overtaking them), and the exchange matcher. `TestFlushWritesTheFrameItself` and `TestFlushKeepsFramesWholeAndInOrder` (a sender's own write, under `-race`, on a 4 KiB socket buffer) | |
 | `host_test.go` | A host on a socketpair: the handshake's parent check, a host gone before its hello, runs and their invocations, `run_cancel`, a lost host (also with a gap, `hostLostGap`), the watchdog, and the 502 for a bad platform answer | |

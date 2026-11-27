@@ -187,19 +187,24 @@ the configuration names no plugin of its own.
 | `foreign_windmill_origins` | The origins of real Windmill instances, whose requests from steps lose windmill-lite's job ids ([platform interface](0007-platform-interface.md#async-dispatch)) | none |
 | `engine_recycle_rss` | The engine's own resident set, in bytes, at which it stops serving | off |
 | `drain_timeout_ms` | How long a drain lets the runs in flight go on | 60000 |
+| `harness_env` | Environment variables of every harness process, by name: a value, or a reference to a variable of the engine's environment ([harness protocol](0004-harness-protocol.md#per-invocation-identity-logs-and-environment)) | none |
 | `max_message_bytes` | The largest gRPC message in either direction | 536870912, the harness protocol's limit |
 | `bytes_total` | The runtime's byte total, which every run's reservations share ([harness protocol](0004-harness-protocol.md#pooling-processes-the-engine-spawns)) | off |
 | `labels` | Names and values that build information echoes, such as a deployment's region | none |
 
 - **Secrets by reference.** A secret variable's value names a variable of
-  the engine's environment (`value_env`), and so does the resource store's
-  URL (`url_env`), which may hold a credential. A secret written in the
+  the engine's environment (`value_env`), and so do a secret entry of
+  `harness_env` and the resource store's URL (`url_env`), which may hold a
+  credential. A secret written in the
   file refuses the start, naming the field but not the value.
 - **Reading them.** The engine reads each reference once, at start, and
   writes the value to no file, build information or diagnostic. A variable
   that is not set fails the start, naming the variable. A resource reaches a
   secret through a `$var:` reference to a secret variable, as on Windmill
   ([WA-12](../semantics/client-api.md#wa-12)).
+- **Secret entries of `harness_env`.** The engine masks their values in
+  the output of the harness processes that it passes on
+  ([harness protocol](0004-harness-protocol.md#per-invocation-identity-logs-and-environment)).
 - **The launch environment.** A go-plugin host usually starts its plugin
   with a literal environment (go-plugin's `SkipHostEnv`), so it puts
   exactly the referenced variables there.
@@ -267,7 +272,7 @@ A `RunResult` holds:
 | `latched` | A latched run's error ([H5](0008-host-hooks.md#the-hooks)) |
 | `warnings`, `deviations` | The run's warnings, and the deviations of its trace |
 | `trace` | The trace at the level that the request asked for |
-| `answer` | For a flow run, the run-end answer of the bundle's host plugin: the JSON text of the answer that its `onRunEnd` returned. Empty means no answer, and the text `null` an answer of JSON null ([harness protocol](0004-harness-protocol.md#host-plugins) item 10) |
+| `answer` | For a flow run, the run-end answer of the bundle's host plugin: the JSON text of the answer that its `onRunEnd` returned. Empty means no answer, and the text `null` an answer of JSON null, unless a secret entry of `harness_env` masked it ([harness protocol](0004-harness-protocol.md#host-plugins) item 10) |
 
 - **JSON values.** Arguments, results, run data, selectors and the trace
   are JSON text in `bytes` fields, which neither side decodes to pass on
