@@ -207,8 +207,9 @@ func maskErrorParts(secrets *harness.Secrets, t *Trace, result jsonval.Value) js
 	}
 	// Trace.Result is the result's stored text, or its producer text when the
 	// engine could not store it, and Run converts it with storedText at the
-	// end. MaskJSONAt reads it as it is and as stored, and masks again until
-	// neither shows a secret, so what the host gets is masked either way.
+	// end. MaskJSONAt reads it as it is and as stored, and masks again until a
+	// round changes nothing, so what the host gets is masked either way, but
+	// for a secret that the mask's own text holds (harness.Secrets).
 	text := result.Producer()
 	masked := secrets.MaskJSONAt(text, pointers)
 	if bytes.Equal(masked, text) {

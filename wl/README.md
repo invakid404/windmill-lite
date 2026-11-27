@@ -295,13 +295,18 @@ engine masks:
 - each of those JSON values also as stored, the text that payloads and the
   requested result give, which spells numbers in plain decimal and orders
   keys its own way. The masked value is read again, as it is and as
-  stored, and masked again until neither shows a secret;
+  stored, and masked again until a round changes nothing. An error masked
+  whole whose mask would join the data beside it in a secret is written as
+  `null`, or the object or array around both is masked;
 - in those JSON values, their strings as decoded. An object or array
   equal to a secret that is a JSON document becomes `[secret]`, however
   each is written, numbers by exact value. So does the smallest part where
   a secret still shows, compactly or as written with any spaces around it.
   That is a number, the part of a string or key under it, such as a quoted
   secret, or an object or array across its tokens.
+
+The mask is the string `[secret]`, so a secret that its text holds, such
+as `cre`, shows in every mask; masking does not go on for it.
 
 `Result.Result`, the result that the host asked for, keeps the value in
 its other parts, a skipped run's result included, and so do the steps'

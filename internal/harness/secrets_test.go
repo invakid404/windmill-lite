@@ -192,28 +192,113 @@ func BenchmarkMaskJSONRepeats(b *testing.B) {
 }
 
 // TestMaskJSONSecretInTheMask checks that a secret that the mask itself
-// holds, which each round of masking the stored text finds again, ends
-// with the value masked whole rather than masking forever.
+// holds, such as e in [secret], shows in the mask and is not masked again:
+// the rounds that read the masked text pass over it, and end at once, well
+// within a guard lowered to four rounds.
 func TestMaskJSONSecretInTheMask(t *testing.T) {
-	if got := string(NewSecrets([]string{"e"}).MaskJSON([]byte(`["e"]`))); got != fmt.Sprintf("%q", SecretMask) {
-		t.Errorf("masking with a secret inside the mask: %q; want the mask whole", got)
+	defer func(n int) { maskRounds = n }(maskRounds)
+	maskRounds = 4
+	if got := string(NewSecrets([]string{"e"}).MaskJSON([]byte(`["e"]`))); got != `["[secret]"]` {
+		t.Errorf("masking with a secret inside the mask: %s; want the string masked once", got)
 	}
 }
 
-// TestMaskJSONSettlesOnlyWhatChanges checks that when masking a selected
-// part never settles, because the mask itself holds its secret, only that
-// part is masked whole: another selected part, which masking left as it
-// was, keeps its text.
-func TestMaskJSONSettlesOnlyWhatChanges(t *testing.T) {
-	got := string(NewSecrets([]string{"cre"}).MaskJSONAt([]byte(`[{"error":"cre"},{"error":"timeout"}]`), []string{"/0", "/1"}))
-	if want := `["[secret]",{"error":"timeout"}]`; got != want {
+// TestMaskJSONKeepsOtherErrors checks two selected errors, one whose
+// secret the mask itself holds: that error's string is masked once, and the
+// other keeps its text, also with a second secret that would join a mask's
+// closing quote to the other error were the first one masked whole.
+func TestMaskJSONKeepsOtherErrors(t *testing.T) {
+	defer func(n int) { maskRounds = n }(maskRounds)
+	maskRounds = 4
+	sec := NewSecrets([]string{"cre", `",{"error":"timeout"}`})
+	got := string(sec.MaskJSONAt([]byte(`[{"error":"cre"},{"error":"timeout"}]`), []string{"/0", "/1"}))
+	if want := `[{"error":"[secret]"},{"error":"timeout"}]`; got != want {
 		t.Errorf("masking two errors, one whose secret the mask holds: %s; want %s", got, want)
 	}
 }
 
-// BenchmarkMaskJSONWideObject reports the time to mask an object of 20,000
-// members written with spaces, one of whose values is a secret, so that
-// its stored text, read too, carries its find over to the object.
+// TestMaskJSONAtCrossesIntoData checks a selected error that a secret
+// document masks whole, whose mask's closing quote then meets the data
+// beside it, which a second secret is: the error is written as null, and
+// the data stays. With a third secret that the null meets the data in, the
+// smallest array around both is masked, and the member beside the array
+// stays.
+func TestMaskJSONAtCrossesIntoData(t *testing.T) {
+	for _, c := range []struct {
+		text, pointer string
+		secrets       []string
+		want          string
+	}{
+		{`[{"error":"synthetic"},98765]`, "/0", []string{`{"error":"synthetic"}`, `",98765`}, `[null,98765]`},
+		{`{"keep":1,"list":[{"error":"synthetic"},98765]}`, "/list/0", []string{`{"error":"synthetic"}`, `",98765`, `null,98765`}, `{"keep":1,"list":"[secret]"}`},
+	} {
+		if got := string(NewSecrets(c.secrets).MaskJSONAt([]byte(c.text), []string{c.pointer})); got != c.want {
+			t.Errorf("secrets %q: %s; want %s", c.secrets, got, c.want)
+		}
+	}
+}
+
+// TestMaskJSONRoundsBound checks the guard on the rounds that read masked
+// text again: lowered to one round, masking that needs a second, as when
+// a mask is written as null, masks the whole value instead.
+func TestMaskJSONRoundsBound(t *testing.T) {
+	defer func(n int) { maskRounds = n }(maskRounds)
+	maskRounds = 1
+	sec := NewSecrets([]string{`{"error":"synthetic"}`, `",98765`})
+	if got := string(sec.MaskJSONAt([]byte(`[{"error":"synthetic"},98765]`), []string{"/0"})); got != fmt.Sprintf("%q", SecretMask) {
+		t.Errorf("masking past the bound: %s; want the whole value masked", got)
+	}
+}
+
+// TestMaskJSONManyErrorsScale checks that a result of many selected errors,
+// one of which holds a secret that the mask itself holds, is masked with
+// allocations in proportion to its size: eight times as many errors
+// allocate no more than twenty times as much, where a pass over the whole
+// result for each error would allocate sixty-four times as much. Every
+// other error keeps its text.
+func TestMaskJSONManyErrorsScale(t *testing.T) {
+	sec := NewSecrets([]string{"cre"})
+	measure := func(n int) uint64 {
+		var text, want strings.Builder
+		pointers := make([]string, n)
+		text.WriteString("[")
+		want.WriteString("[")
+		for i := range n {
+			if i > 0 {
+				text.WriteString(",")
+				want.WriteString(",")
+			}
+			pointers[i] = fmt.Sprintf("/%d", i)
+			if i == n/2 {
+				text.WriteString(`{"error":"cre"}`)
+				want.WriteString(`{"error":"[secret]"}`)
+				continue
+			}
+			fmt.Fprintf(&text, `{"error":"timeout %d"}`, i)
+			fmt.Fprintf(&want, `{"error":"timeout %d"}`, i)
+		}
+		text.WriteString("]")
+		want.WriteString("]")
+		var before, after runtime.MemStats
+		runtime.GC()
+		runtime.ReadMemStats(&before)
+		got := sec.MaskJSONAt([]byte(text.String()), pointers)
+		runtime.ReadMemStats(&after)
+		if string(got) != want.String() {
+			t.Fatalf("%d errors: the output is not the one error masked and the rest kept", n)
+		}
+		return after.TotalAlloc - before.TotalAlloc
+	}
+	small, large := measure(200), measure(1600)
+	if large > 20*small {
+		t.Errorf("masking 1600 errors allocated %d bytes, %.1f times the %d bytes for 200; want at most 20 times", large, float64(large)/float64(small), small)
+	}
+}
+
+// BenchmarkMaskJSONWideObject reports the time to mask an object written
+// with spaces, of 20,000 numbered members and one more whose value is a
+// secret, so that its stored text, read too, carries its find over to the
+// object.
 func BenchmarkMaskJSONWideObject(b *testing.B) {
 	sec := NewSecrets([]string{"synth-8b"})
 	var obj strings.Builder

@@ -362,8 +362,14 @@ func unhex(c byte) byte {
 // Masking can make a secret where there was none, as when a masked number's
 // quote meets the next token, or a masked key moves in the stored order: the
 // masked text is read again, as it is and as stored, and masked again until
-// neither shows a secret; the result is the stored text when that is where
-// one showed.
+// a round changes nothing; the result is the stored text when that is where
+// one showed. A selected part masked whole whose mask then meets the data
+// beside it in a secret is written as null instead, and if a secret still
+// crosses its edge, the smallest object or array around both is masked. The
+// rounds pass over a secret wholly inside a mask, its quotes included, or
+// inside such a null: a secret that the mask's own text holds, such as cre
+// in [secret], therefore shows in every mask. They end by themselves; a
+// guard of maskRounds rounds masks the whole value if reached.
 //
 // Cost: each escaped string's index from its bytes to the decoded bytes
 // they spell is built once, in one pass, so placing a match is two lookups;
@@ -396,60 +402,42 @@ func (s *Secrets) MaskJSONAt(text []byte, pointers []string) []byte {
 	return out
 }
 
+// maskRounds bounds how many times maskJSON reads its masked text again.
+// The rounds end by themselves, since each masks more of the value or
+// moves a mask outward, so the bound is a guard: reaching it masks the
+// whole value. Tests lower it to see that.
+var maskRounds = 32
+
 // maskJSON masks the parts of text at pointers, or all of it when pointers
 // is nil, and reports whether it found a secret. Masking can make a secret
 // that was not there: a masked number becomes a string, whose quote can
 // meet the next token, and a masked key can move in the stored order
-// (jsonval) next to another. So the masked text is read again, as it is
-// and as stored, until neither shows a secret, and what returns is the last
-// text masked: the stored text when that is where a secret showed. Rounds
-// that do not settle, as with a secret that the mask itself holds, end with
-// the parts that still change masked whole.
+// (jsonval) next to another. So the masked text is read again, as it is and
+// as stored, until a round changes nothing, and what returns is the last
+// text masked: the stored text when that is where a secret showed. Those
+// later rounds pass over a secret that lies wholly inside a mask, its
+// quotes included, or inside a null written for one: such a secret, as one
+// that the mask's own text holds, shows in every mask (mask's comment).
 func (s *Secrets) maskJSON(text []byte, pointers []string) ([]byte, bool) {
 	if s == nil || len(text) == 0 {
 		return text, false
 	}
-	out, found := s.maskOnce(text, pointers)
-	for round := 0; ; round++ {
-		next, f := s.maskOnce(out, pointers)
+	out, found := s.maskOnce(text, pointers, false)
+	for range maskRounds {
+		next, f := s.maskOnce(out, pointers, true)
 		if bytes.Equal(next, out) {
 			st, ok := storedForm(out)
 			if !ok {
 				return out, found
 			}
-			if next, f = s.maskOnce(st, pointers); bytes.Equal(next, st) {
+			if next, f = s.maskOnce(st, pointers, true); bytes.Equal(next, st) {
 				return out, found
 			}
 		}
 		found = found || f
-		if round == 3 {
-			return s.settle(next, pointers), true
-		}
 		out = next
 	}
-}
-
-// settle returns out with each part at pointers, or all of out, that
-// masking still changes, as it is or as stored, masked whole; the other
-// parts stay as they are.
-func (s *Secrets) settle(out []byte, pointers []string) []byte {
-	if pointers == nil {
-		return wholeParts(out, nil)
-	}
-	st, stored := storedForm(out)
-	var affected []string
-	for _, p := range pointers {
-		one := []string{p}
-		if m, _ := s.maskOnce(out, one); !bytes.Equal(m, out) {
-			affected = append(affected, p)
-		} else if m, _ := s.maskOnce(st, one); stored && !bytes.Equal(m, st) {
-			affected = append(affected, p)
-		}
-	}
-	if len(affected) == 0 {
-		return out
-	}
-	return wholeParts(out, affected)
+	return wholeParts(text, nil), true
 }
 
 // storedForm returns the stored text of the JSON text b (jsonval), or false
@@ -495,8 +483,10 @@ func (n *jnode) parts(pointers []string) []*jnode {
 
 // maskOnce masks the parts of text at pointers, or all of it, as it reads:
 // as written, written compactly, its strings and keys as decoded, and its
-// stored text, all read before anything changes.
-func (s *Secrets) maskOnce(text []byte, pointers []string) ([]byte, bool) {
+// stored text, all read before anything changes. again is set for the
+// rounds that read masked text again: they pass over a secret wholly
+// inside a mask or a null written for one (masked).
+func (s *Secrets) maskOnce(text []byte, pointers []string, again bool) ([]byte, bool) {
 	st, stored := storedForm(text)
 	stored = stored && !bytes.Equal(st, text)
 	// A secret can appear in a string only as itself, with escapes or
@@ -530,7 +520,7 @@ func (s *Secrets) maskOnce(text []byte, pointers []string) ([]byte, bool) {
 	}{{buf: text}, {buf: compact.Bytes(), compact: true}}
 	for i := range views {
 		if s.holds(views[i].buf) {
-			views[i].occ = s.occurrences(string(views[i].buf))
+			views[i].occ = s.occurrencesOutside(views[i].buf, again)
 		}
 	}
 	idx := tokenIndex{}
@@ -543,13 +533,11 @@ func (s *Secrets) maskOnce(text []byte, pointers []string) ([]byte, bool) {
 				case oc.start >= lo && oc.end <= hi:
 					n.mark(oc.start, oc.end, v.compact, v.buf, idx)
 				case oc.start < hi && oc.end > lo:
-					// Across the part's edge, such as into the spaces
-					// around a value: the part is masked whole.
-					n.all = true
+					n.cross(root, oc, v.compact, v.buf, idx, again)
 				}
 			}
 		}
-		s.markText(n)
+		s.markText(n, again)
 	}
 	// The stored text spells numbers in plain decimal, writes strings its own
 	// way and orders keys, so it can hold a secret that the other readings do
@@ -558,7 +546,7 @@ func (s *Secrets) maskOnce(text []byte, pointers []string) ([]byte, bool) {
 		sdec := json.NewDecoder(bytes.NewReader(st))
 		sdec.UseNumber()
 		if sroot, err := decodeTree(sdec, st); err == nil {
-			occ := s.occurrences(string(st))
+			occ := s.occurrencesOutside(st, again)
 			sidx := tokenIndex{}
 			for _, n := range sroot.parts(pointers) {
 				for _, oc := range occ {
@@ -566,7 +554,7 @@ func (s *Secrets) maskOnce(text []byte, pointers []string) ([]byte, bool) {
 					case oc.start >= n.start && oc.end <= n.end:
 						n.mark(oc.start, oc.end, false, st, sidx)
 					case oc.start < n.end && oc.end > n.start:
-						n.all = true
+						n.cross(sroot, oc, false, st, sidx, again)
 					}
 				}
 			}
@@ -574,12 +562,10 @@ func (s *Secrets) maskOnce(text []byte, pointers []string) ([]byte, bool) {
 			transfer(sroot, root)
 		}
 	}
-	found, changed := false, false
-	for _, n := range parts {
-		found = n.flagMarks() || found
-		changed = n.apply() || changed
-	}
-	if !changed {
+	// The marks lie in the parts, and in an object or array around a part
+	// that a crossing secret gave way to (cross).
+	found := root.flagMarks()
+	if !root.apply() {
 		return text, found
 	}
 	var b bytes.Buffer
@@ -621,6 +607,8 @@ func (n *jnode) at(ptr string) *jnode {
 }
 
 // mask turns n into the string SecretMask, keeping where its source is.
+// SecretMask is what a reader sees in place of a secret; a secret that it
+// holds, such as cre or ]", shows in it and is not masked again (maskJSON).
 func (n *jnode) mask() {
 	*n = jnode{kind: 's', text: SecretMask, src: n.src, start: n.start, end: n.end}
 }
@@ -651,15 +639,33 @@ type jnode struct {
 	// a string's text, and of each key's, as decoded; marked when any of
 	// that holds for n or a part of it (flagMarks).
 	all      bool
+	null     bool
 	spans    [][2]int
 	keySpans map[int][][2]int
 	marked   bool
 }
 
+// cross records a secret oc in buf that crosses the edge of n, a part
+// being masked, into what lies beside it, which root holds: n is masked
+// whole; a part masked whole already, whose mask then meets the data beside
+// it, is written as null instead; and a null written so, when the secret
+// still crosses its edge (again), gives way to the smallest object or array
+// around both, which root masks whole.
+func (n *jnode) cross(root *jnode, oc occurrence, compact bool, buf []byte, idx tokenIndex, again bool) {
+	switch {
+	case n.kind == 's' && n.text == SecretMask:
+		n.null = true
+	case again && n.kind == 'l' && n.text == "null":
+		root.mark(oc.start, oc.end, compact, buf, idx)
+	default:
+		n.all = true
+	}
+}
+
 // flagMarks sets marked on n and each of its parts where masking found
 // something, and reports n's.
 func (n *jnode) flagMarks() bool {
-	n.marked = n.all || len(n.spans) > 0 || len(n.keySpans) > 0
+	n.marked = n.all || n.null || len(n.spans) > 0 || len(n.keySpans) > 0
 	for _, k := range n.kids {
 		if k.flagMarks() {
 			n.marked = true
@@ -1018,12 +1024,12 @@ func (s *Secrets) markDocs(n *jnode) {
 
 // markText records, in each string and key of n, the spans of its text
 // that hold a secret as Mask finds them.
-func (s *Secrets) markText(n *jnode) {
+func (s *Secrets) markText(n *jnode, again bool) {
 	if n.kind == 's' {
-		n.spans = append(n.spans, s.spans(n.text, false)...)
+		n.spans = append(n.spans, outsideMasks(n.text, s.spans(n.text, false), again)...)
 	}
 	for i, k := range n.keys {
-		if sp := s.spans(k, false); len(sp) > 0 {
+		if sp := outsideMasks(k, s.spans(k, false), again); len(sp) > 0 {
 			if n.keySpans == nil {
 				n.keySpans = map[int][][2]int{}
 			}
@@ -1031,13 +1037,99 @@ func (s *Secrets) markText(n *jnode) {
 		}
 	}
 	for _, k := range n.kids {
-		s.markText(k)
+		s.markText(k, again)
 	}
+}
+
+// outsideMasks returns spans, the secrets in text, less those wholly inside
+// a mask in text when again is set (maskOnce).
+func outsideMasks(text string, spans [][2]int, again bool) [][2]int {
+	if !again || !strings.Contains(text, SecretMask) {
+		return spans
+	}
+	var out [][2]int
+	for _, sp := range spans {
+		if !insideAny(sp[0], sp[1], maskRegions([]byte(text), false)) {
+			out = append(out, sp)
+		}
+	}
+	return out
+}
+
+// occurrencesOutside returns the occurrences of each secret in b, a JSON
+// text, less, when again is set (maskOnce), those wholly inside a mask, its
+// quotes included, or inside a null literal: masking wrote those, and a
+// secret there is one that the mask or the null itself holds.
+func (s *Secrets) occurrencesOutside(b []byte, again bool) []occurrence {
+	occ := s.occurrences(string(b))
+	if !again {
+		return occ
+	}
+	regions := maskRegions(b, true)
+	var out []occurrence
+	for _, oc := range occ {
+		if !insideAny(oc.start, oc.end, regions) {
+			out = append(out, oc)
+		}
+	}
+	return out
+}
+
+// maskRegions returns where SecretMask is in b and, when json is set, the
+// quotes right around it and each null literal.
+func maskRegions(b []byte, json bool) [][2]int {
+	var out [][2]int
+	for i := 0; ; {
+		j := bytes.Index(b[i:], []byte(SecretMask))
+		if j < 0 {
+			break
+		}
+		a, e := i+j, i+j+len(SecretMask)
+		if json && a > 0 && b[a-1] == '"' {
+			a--
+		}
+		if json && e < len(b) && b[e] == '"' {
+			e++
+		}
+		out = append(out, [2]int{a, e})
+		i = i + j + 1
+	}
+	if json {
+		word := func(c byte) bool {
+			return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '"'
+		}
+		for i := 0; ; {
+			j := bytes.Index(b[i:], []byte("null"))
+			if j < 0 {
+				break
+			}
+			a, e := i+j, i+j+4
+			if (a == 0 || !word(b[a-1])) && (e == len(b) || !word(b[e])) {
+				out = append(out, [2]int{a, e})
+			}
+			i = i + j + 1
+		}
+	}
+	return out
+}
+
+// insideAny reports whether [a, b) lies wholly inside one of regions.
+func insideAny(a, b int, regions [][2]int) bool {
+	for _, r := range regions {
+		if a >= r[0] && b <= r[1] {
+			return true
+		}
+	}
+	return false
 }
 
 // apply masks what mark, markDocs and markText found in n, and reports
 // whether it changed n.
 func (n *jnode) apply() bool {
+	if n.null {
+		*n = jnode{kind: 'l', text: "null", src: n.src, start: n.start, end: n.end}
+		return true
+	}
 	if n.all {
 		n.mask()
 		return true
@@ -1068,6 +1160,10 @@ func (n *jnode) apply() bool {
 // per object. A part of t with nothing found (flagMarks) is passed over.
 func transfer(t, n *jnode) {
 	if !t.marked {
+		return
+	}
+	if t.null {
+		n.null = true
 		return
 	}
 	if t.all {
