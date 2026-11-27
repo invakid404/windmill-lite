@@ -350,8 +350,17 @@ with `SecretMask`, `[secret]`.
 
 In a text with `%XX` escapes they mask a value as written and the span
 that decodes to one, both found on the text as it is, and secrets that
-overlap become one mask. They mask the text that the engine takes from
-the process and passes on as text of its own:
+overlap become one mask.
+
+A mask can make a secret with the text beside it, as a secret that starts
+with `]` does with the text after the mask. So each text is read again
+until a round changes nothing, and a secret that crosses a mask's edge is
+masked with all of that mask. A long line's part is read after the end of
+what went out before it, as masked. After 32 rounds the text, or the
+part, is masked whole.
+
+They mask the text that the engine takes from the process and passes on
+as text of its own:
 
 - its output lines, before they are forwarded or kept for errors. A line
   past 64 KiB goes in parts, each ending before the first secret or escape

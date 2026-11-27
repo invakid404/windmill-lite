@@ -1852,6 +1852,53 @@ func TestHarnessEnvSecretTail(t *testing.T) {
 	}
 }
 
+// TestHarnessEnvSecretRemadeByTheMask checks a synthetic secret that
+// starts with "]", the mask's last byte, written followed by its own tail,
+// so that masking the secret makes it again out of the mask and the tail.
+// A host plugin writes it so on its standard error at load and in a
+// warning's message: the engine's diagnostics, its standard error, and the
+// warning hold one mask, and the secret in no form, as written or
+// percent-encoded.
+func TestHarnessEnvSecretRemadeByTheMask(t *testing.T) {
+	bun, out, runtimeDir := harnessEnvBundle(t)
+	const secret = "]synthetic-tail"
+	plugin := filepath.Join(t.TempDir(), "plugin.ts")
+	src := `const secret = process.env.WL_TEST_SECRET ?? "";
+console.error("loaded with " + secret + secret.slice(1) + " end");
+export default {
+  onRunEnd() { return [{ code: "remade", message: "ended with " + secret + secret.slice(1) }] },
+};
+`
+	if err := os.WriteFile(plugin, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diag := &syncBuf{}
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, Diagnostics: diag, HarnessEnv: map[string]EnvValue{"WL_TEST_SECRET": {Value: secret, Secret: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := rt.Run(context.Background(), "f/t/env", json.RawMessage(`{"names":[],"hashed":[]}`), RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.Close(); err != nil {
+		t.Fatal(err)
+	}
+	warnings, _ := json.Marshal(res.Warnings)
+	if !slices.ContainsFunc(res.Warnings, func(w Warning) bool { return w.Code == "remade" && w.Message == "ended with "+harness.SecretMask }) {
+		t.Errorf("warnings %s; want onRunEnd's with one mask in its message", warnings)
+	}
+	d := diag.String()
+	if !strings.Contains(d, "loaded with "+harness.SecretMask+" end") {
+		t.Errorf("the diagnostics: want the plugin's line with one mask")
+	}
+	for name, text := range map[string]string{"the diagnostics": d, "the warnings": string(warnings)} {
+		if strings.Contains(text, secret) || strings.Contains(strings.ToUpper(text), "%5D"+strings.ToUpper(secret[1:])) {
+			t.Errorf("%s hold the secret: %s", name, shownBytes([]byte(text), secret[1:]))
+		}
+	}
+}
+
 // recordingCache is a result cache that remembers the last entry stored.
 type recordingCache struct {
 	ResultCache

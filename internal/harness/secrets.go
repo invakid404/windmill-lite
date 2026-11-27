@@ -151,27 +151,90 @@ func unquote(q string) string {
 // SecretMask, also where the text reads a secret once its %XX escapes are
 // decoded: there the escaped span becomes SecretMask, and every other
 // byte stays. Secrets that overlap, the end of one the start of another,
-// become one SecretMask.
+// become one SecretMask. A secret that a mask makes with the text beside
+// it is masked too (settleText).
 func (s *Secrets) Mask(text string) string {
 	if s == nil {
 		return text
 	}
 	if strings.IndexByte(text, '%') < 0 {
-		return replaceSpans(text, s.find(text), nil, SecretMask)
+		return s.settle(text, replaceSpans(text, s.find(text), nil, SecretMask), SecretMask, false)
 	}
-	return replaceSpans(text, s.spans(text, false), nil, SecretMask)
+	return s.settle(text, replaceSpans(text, s.spans(text, false), nil, SecretMask), SecretMask, false)
+}
+
+// settle returns out, what masking made of text, with each secret that a
+// mask, marker, makes with the text beside it masked too (settleText), as
+// spans finds them, with + as a space when plus is set. When masking
+// changed nothing, it made no secret.
+func (s *Secrets) settle(text, out, marker string, plus bool) string {
+	if out == text {
+		return out
+	}
+	return settleText("", out, marker, func(t string) [][2]int { return s.spans(t, plus) })
+}
+
+// settleText masks again what masking made of out, the part of a text
+// that goes out after prev, the end of what went out of it before (empty
+// for a whole text), until a round changes nothing: a mask, marker, can
+// make a secret with the text beside it, as a secret that starts with "]"
+// makes with the text after the mask. find returns the spans of a text that
+// hold a secret. A round masks a secret that overlaps a mask with all of
+// that mask, so no piece of a mask is left, and one that lies wholly inside
+// a mask, such as one that the mask's own text holds, changes nothing;
+// prev went out already and stays as it is. Past maskRounds rounds, out is
+// masked whole.
+func settleText(prev, out, marker string, find func(string) [][2]int) string {
+	for range maskRounds {
+		full := prev + out
+		regions := markerRegions(full, marker)
+		var spans [][2]int
+		for _, sp := range find(full) {
+			a, b := sp[0], sp[1]
+			if i := sort.Search(len(regions), func(i int) bool { return regions[i][1] > a }); i < len(regions) && regions[i][0] < b {
+				a = min(a, regions[i][0])
+			}
+			if j := sort.Search(len(regions), func(j int) bool { return regions[j][0] >= b }) - 1; j >= 0 && regions[j][1] > a {
+				b = max(b, regions[j][1])
+			}
+			if a, b = max(a, len(prev))-len(prev), b-len(prev); a < b {
+				spans = append(spans, [2]int{a, b})
+			}
+		}
+		next := replaceSpans(out, mergeSpans(spans), nil, marker)
+		if next == out {
+			return out
+		}
+		out = next
+	}
+	return marker
+}
+
+// markerRegions returns where marker is in text, in order. A marker does
+// not overlap itself, so the regions do not overlap.
+func markerRegions(text, marker string) [][2]int {
+	var out [][2]int
+	for i := 0; ; {
+		j := strings.Index(text[i:], marker)
+		if j < 0 {
+			return out
+		}
+		out = append(out, [2]int{i + j, i + j + len(marker)})
+		i += j + len(marker)
+	}
 }
 
 // MaskURL returns a URL's escaped path, or its raw query when query is
 // set, with each secret masked as it reads raw and as decoded, + as a
 // space in a query: each span that holds one becomes SecretMask, escaped,
 // and every other byte stays, so other segments and parameters keep their
-// escapes and their boundaries.
+// escapes and their boundaries. A secret that a mask makes with the text
+// beside it, as written or decoded, is masked too (settleText).
 func (s *Secrets) MaskURL(text string, query bool) string {
 	if s == nil {
 		return text
 	}
-	return replaceSpans(text, s.spans(text, query), nil, secretMaskEscaped)
+	return s.settle(text, replaceSpans(text, s.spans(text, query), nil, secretMaskEscaped), secretMaskEscaped, query)
 }
 
 // MaskTail returns the log tail of an escaped invocation, which its error
@@ -213,7 +276,7 @@ func (s *Secrets) MaskTail(tail string) string {
 		// secret whose start is also its end is masked whole.
 		spans = mergeSpans(append(spans, [2]int{0, cut}))
 	}
-	return replaceSpans(tail, spans, nil, SecretMask)
+	return s.settle(tail, replaceSpans(tail, spans, nil, SecretMask), SecretMask, false)
 }
 
 // find returns the spans of text that hold a secret: every occurrence of
@@ -1007,7 +1070,10 @@ func (s *Secrets) pendingAt(buf []byte) int {
 // with each secret masked as Mask masks it, found in ctx, the end of what
 // went out of the line before, followed by buf, the line since: so also a
 // secret that ctx starts, or one that starts before c and ends after it.
-func (s *Secrets) maskPart(ctx, buf []byte, c int) string {
+// The part is then read again after sent, the end of what went out as
+// masked, so that a secret that a mask makes with the text beside it, the
+// part's own mask or one that went out, is masked too (settleText).
+func (s *Secrets) maskPart(ctx, sent, buf []byte, c int) string {
 	if s == nil {
 		return string(buf[:c])
 	}
@@ -1019,7 +1085,11 @@ func (s *Secrets) maskPart(ctx, buf []byte, c int) string {
 			spans = append(spans, [2]int{a - len(ctx), b - len(ctx)})
 		}
 	}
-	return replaceSpans(string(buf[:c]), spans, nil, SecretMask)
+	part := replaceSpans(string(buf[:c]), spans, nil, SecretMask)
+	if len(spans) == 0 && !bytes.Contains(sent, []byte(SecretMask)) {
+		return part
+	}
+	return settleText(string(sent), part, SecretMask, func(t string) [][2]int { return s.spans(t, false) })
 }
 
 // writeIndexed writes n compactly, as write does, and records where each

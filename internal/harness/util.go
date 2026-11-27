@@ -163,6 +163,9 @@ type streamWriter struct {
 	// line went out in parts: a secret that starts there and ends in buf is
 	// masked in what follows too.
 	ctx []byte
+	// sent is the end of that part as it went out, masked: a part is read
+	// again after it (Secrets.maskPart).
+	sent []byte
 }
 
 func (s *streamWriter) Write(b []byte) (int, error) {
@@ -172,8 +175,8 @@ func (s *streamWriter) Write(b []byte) (int, error) {
 		if i < 0 {
 			break
 		}
-		s.lw.emit(s.name, s.lw.secrets.maskPart(s.ctx, s.buf[:i], i))
-		s.buf, s.ctx = s.buf[i+1:], nil
+		s.lw.emit(s.name, s.lw.secrets.maskPart(s.ctx, s.sent, s.buf[:i], i))
+		s.buf, s.ctx, s.sent = s.buf[i+1:], nil, nil
 	}
 	// A line that grows past 64 KiB is forwarded in parts. With secrets,
 	// a part ends before the first secret that the bytes to come could
@@ -185,10 +188,13 @@ func (s *streamWriter) Write(b []byte) (int, error) {
 	// end of what went out, lets the next part's masking see.
 	if len(s.buf) > partLimit(s.lw.secrets) {
 		c := s.lw.secrets.pending(s.buf)
-		s.lw.emit(s.name, s.lw.secrets.maskPart(s.ctx, s.buf, c))
+		part := s.lw.secrets.maskPart(s.ctx, s.sent, s.buf, c)
+		s.lw.emit(s.name, part)
 		if sec := s.lw.secrets; sec != nil {
 			out := append(s.ctx, s.buf[:c]...)
 			s.ctx = append([]byte(nil), out[max(0, len(out)-sec.lookBack()):]...)
+			sent := append(s.sent, part...)
+			s.sent = append([]byte(nil), sent[max(0, len(sent)-sec.lookBack()-len(SecretMask)):]...)
 		}
 		s.buf = append([]byte(nil), s.buf[c:]...)
 	}

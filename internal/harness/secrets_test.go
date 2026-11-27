@@ -140,6 +140,62 @@ func TestLineWriterMasksAcrossParts(t *testing.T) {
 	}
 }
 
+// TestMaskTextRemadeByTheMask checks the masking of text where a mask makes
+// a secret again with the text after it: the secret starts with "]", the
+// mask's last byte, and its own tail follows it. In a text, one with %XX
+// escapes, a path, a query, a log tail and an output line, also split
+// between two parts of a long line, the secret and its tail become one
+// mask, and no line, nor two parts joined, holds the secret. A second
+// secret that the mask's own text holds is masked once. The bound on the
+// rounds, lowered to one round, masks whole a text that needs a second, and
+// keeps one that does not.
+func TestMaskTextRemadeByTheMask(t *testing.T) {
+	const secret = "]synthetic-tail"
+	tail := secret[1:]
+	sec := NewSecrets([]string{secret, "cre"})
+	for _, c := range []struct{ name, got, want string }{
+		{"a text", sec.Mask("a " + secret + tail + " b"), "a [secret] b"},
+		{"an escaped text", sec.Mask("a %5D" + tail + tail + " b"), "a [secret] b"},
+		{"a path", sec.MaskURL("/p/%5D"+tail+tail, false), "/p/%5Bsecret%5D"},
+		{"a query", sec.MaskURL("q=%5D"+tail+tail+"&r=1", true), "q=%5Bsecret%5D&r=1"},
+		{"a log tail", sec.MaskTail("logged " + secret + tail), "logged [secret]"},
+		{"the mask's own text", sec.Mask("a cre b"), "a [secret] b"},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s: %q; want %q", c.name, c.got, c.want)
+		}
+	}
+	var out bytes.Buffer
+	lw := &lineWriter{diag: &diagnostics{w: &out}, keep: 20, secrets: sec}
+	w := lw.stream("stderr")
+	w.Write([]byte("x " + secret + tail + "\n"))
+	// A long line whose first part ends with the secret and whose second
+	// starts with its tail.
+	w.Write([]byte(strings.Repeat("y", partLimit(sec)+1-len(secret)) + secret))
+	w.Write([]byte(tail + "|\n"))
+	var payloads []string
+	for _, line := range strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n") {
+		_, payload, _ := strings.Cut(line, " stderr: ")
+		payloads = append(payloads, payload)
+	}
+	if len(payloads) != 3 || payloads[0] != "x [secret]" || payloads[2] != "[secret]|" {
+		t.Errorf("output lines %.200q; want the line, then the long line's two parts, each with the secret and its tail as one mask", payloads)
+	}
+	for i := range payloads {
+		if joined := strings.Join(payloads[max(0, i-1):i+1], ""); strings.Contains(joined, secret) {
+			t.Errorf("output line %d, joined to the one before, holds the secret", i)
+		}
+	}
+	defer func(n int) { maskRounds = n }(maskRounds)
+	maskRounds = 1
+	if got := sec.Mask("a " + secret + tail + " b"); got != SecretMask {
+		t.Errorf("past the bound: %q; want the text masked whole", got)
+	}
+	if got := sec.Mask("a cre b"); got != "a [secret] b" {
+		t.Errorf("within the bound: %q; want %q", got, "a [secret] b")
+	}
+}
+
 // TestMaskJSONScalesWithRepeats checks that a string that repeats a secret
 // many times, its JSON escaping nothing or a tab between the secrets, is
 // masked with allocations in proportion to its length: masking one eight
