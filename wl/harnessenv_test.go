@@ -1899,6 +1899,133 @@ export default {
 	}
 }
 
+// TestHarnessEnvSecretAcrossAPrefix checks a synthetic secret that starts
+// with a space, which a host plugin writes trimmed on its standard error at
+// load and throws, trimmed and as a string, from onRunSettled: the text that
+// the plugin sends holds no secret, but each line that the engine writes
+// about it puts a space before it, after the line's prefix (the output
+// line's process and stream; the failed hook's run and error). The engine's
+// diagnostics, its standard error, hold the mask right after each prefix and
+// the secret nowhere.
+func TestHarnessEnvSecretAcrossAPrefix(t *testing.T) {
+	bun, out, runtimeDir := harnessEnvBundle(t)
+	const secret = " synthetic-tail-19"
+	plugin := filepath.Join(t.TempDir(), "plugin.ts")
+	src := `const secret = (process.env.WL_TEST_SECRET ?? "").trim();
+process.stderr.write(secret + "\n");
+export default {
+  onRunSettled() { throw secret },
+};
+`
+	if err := os.WriteFile(plugin, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diag := &syncBuf{}
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, Diagnostics: diag, HarnessEnv: map[string]EnvValue{"WL_TEST_SECRET": {Value: secret, Secret: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.Run(context.Background(), "f/t/env", json.RawMessage(`{"names":[],"hashed":[]}`), RunOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.Close(); err != nil {
+		t.Fatal(err)
+	}
+	d := diag.String()
+	if !strings.Contains(d, " stderr:"+harness.SecretMask+"\n") {
+		t.Errorf("the diagnostics: want the plugin's output line with the mask right after its prefix")
+	}
+	if !strings.Contains(d, "onRunSettled: ") || !strings.Contains(d, " on_run_settled:"+harness.SecretMask+"\n") {
+		t.Errorf("the diagnostics: want the failed onRunSettled's line with the mask right after its error's prefix")
+	}
+	if strings.Contains(d, secret) {
+		t.Errorf("the diagnostics hold the secret: %s", shownBytes([]byte(d), secret))
+	}
+}
+
+// TestHarnessEnvSecretLatchedWithPrefix checks runs that a host plugin
+// latches by throwing a string: an around wrapper, whose latched error, a
+// PluginError, reads "plugin_error: " and then a message that names the
+// wrapper and what it threw, and an argument rewrite, whose latched error, a
+// HostCallError, reads its code and hook and then what it threw. Each
+// secret is one of those whole texts, so the message alone holds none of
+// it, and the plugin throws the secret's last word. The latched error that
+// Run returns, and the trace's, keep their type and read the words that
+// their type writes before the message, and then the mask. A secret that is the type's own word, plugin_error,
+// latches an error with the masked text, not a PluginError.
+func TestHarnessEnvSecretLatchedWithPrefix(t *testing.T) {
+	bun, out, runtimeDir := harnessEnvBundle(t)
+	plugin := filepath.Join(t.TempDir(), "plugin.ts")
+	src := `const value = process.env.WL_TEST_SECRET ?? "";
+const last = () => { throw value.split(" ").pop() };
+export default {
+  around: [{ selector: { flow: "f/t/env", module: "a" }, fn: last }],
+  rewriteArgs: [{ selector: { flow: "f/t/shared", module: "a" }, fn: last }],
+};
+`
+	if err := os.WriteFile(plugin, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	latched := func(env EnvValue, flow string) *Result {
+		t.Helper()
+		rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, HarnessEnv: map[string]EnvValue{"WL_TEST_SECRET": env}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rt.Close()
+		res, err := rt.Run(context.Background(), flow, json.RawMessage(`{"names":[],"hashed":[]}`), RunOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Status != StatusLatched || res.Latched == nil || res.Trace == nil {
+			t.Fatalf("%s: %s, latched %v; want it latched", flow, res.Status, res.Latched)
+		}
+		return res
+	}
+	views := func(res *Result) map[string]error {
+		return map[string]error{"Result.Latched": res.Latched, "Trace.Latched": res.Trace.Latched}
+	}
+	const word = "synthetic-tail"
+	// words returns the words that err's type writes before its message,
+	// or false when err is not of that type.
+	for _, c := range []struct {
+		flow  string
+		words func(error) (string, bool)
+	}{
+		{"f/t/env", func(err error) (string, bool) {
+			var e *engine.PluginError
+			return (&engine.PluginError{}).Error(), errors.As(err, &e)
+		}},
+		{"f/t/shared", func(err error) (string, bool) {
+			var e *HostCallError
+			if !errors.As(err, &e) {
+				return "", false
+			}
+			return (&HostCallError{Code: e.Code, Hook: e.Hook}).Error(), true
+		}},
+	} {
+		// The latched text, with the thrown word a plain setting.
+		first := latched(EnvValue{Value: word}, c.flow).Latched
+		text := first.Error()
+		words, ok := c.words(first)
+		if !ok || !strings.HasPrefix(text, words) || !strings.HasSuffix(text, " "+word) {
+			t.Fatalf("%s: the latched error is a %T that reads %q; want its type's words and then a message that ends with the thrown word", c.flow, first, text)
+		}
+		want := words + harness.SecretMask
+		for what, err := range views(latched(EnvValue{Value: text, Secret: true}, c.flow)) {
+			if _, ok := c.words(err); !ok || err.Error() != want {
+				t.Errorf("%s, %s: %T that reads %s; want its type, reading %q", c.flow, what, err, shownBytes([]byte(err.Error()), text), want)
+			}
+		}
+	}
+	for what, err := range views(latched(EnvValue{Value: "plugin_error", Secret: true}, "f/t/env")) {
+		var pe *engine.PluginError
+		if errors.As(err, &pe) || strings.Contains(err.Error(), "plugin_error") || !strings.HasSuffix(err.Error(), "threw "+harness.SecretMask) {
+			t.Errorf("a secret that is the type's own word, %s: %T that reads %q; want an error with the masked text", what, err, err.Error())
+		}
+	}
+}
+
 // recordingCache is a result cache that remembers the last entry stored.
 type recordingCache struct {
 	ResultCache

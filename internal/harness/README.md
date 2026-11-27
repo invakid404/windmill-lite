@@ -372,7 +372,9 @@ as text of its own:
   is masked before the engine keeps the last 600 characters, and so is
   the tail that the harness cut from its own log, whose start may be the
   end of a secret (`MaskTail`);
-- the engine's diagnostics about the process;
+- every diagnostics line, the engine's own about the process and each
+  output line it forwards, as a whole: a secret that the line's prefix,
+  such as the process and stream, makes with what follows is masked too;
 - its host plugin's hook errors, so that a `HostCallError` keeps its type.
 
 An invocation's result, other failures and warnings, and a hook's answer,

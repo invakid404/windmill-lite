@@ -927,10 +927,12 @@ func (rt *Runtime) hostCheck(opts Options) func(h harness.Hello) *harness.Reject
 	}
 }
 
-// diagLine writes one diagnostic line to w, or os.Stderr.
+// diagLine writes one diagnostic line to w, or os.Stderr, with each of the
+// runtime's secrets masked in the whole line (harness.Secrets.Mask), so
+// also one that the line's own words make with an error that it quotes.
 func (rt *Runtime) diagLine(w io.Writer) func(string) {
 	if w == nil {
 		w = os.Stderr
 	}
-	return func(line string) { fmt.Fprintln(w, line) }
+	return func(line string) { fmt.Fprintln(w, rt.secrets.Mask(line)) }
 }

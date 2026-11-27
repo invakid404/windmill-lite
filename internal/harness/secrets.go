@@ -174,6 +174,20 @@ func (s *Secrets) settle(text, out, marker string, plus bool) string {
 	return settleText("", out, marker, func(t string) [][2]int { return s.spans(t, plus) })
 }
 
+// MaskAfter returns text, which masking returned, with each secret that
+// prefix and text make together masked in text too, as masking reads its
+// own output again (settleText): text follows prefix in what goes out, such
+// as an error's message after the words that its type writes before it,
+// and prefix stays as it is. A secret wholly in prefix, or wholly inside a
+// mask, changes nothing, so with an empty prefix text comes back as it is
+// exactly when it holds a secret nowhere but inside its masks.
+func (s *Secrets) MaskAfter(prefix, text string) string {
+	if s == nil {
+		return text
+	}
+	return settleText(prefix, text, SecretMask, func(t string) [][2]int { return s.spans(t, false) })
+}
+
 // settleText masks again what masking made of out, the part of a text
 // that goes out after prev, the end of what went out of it before (empty
 // for a whole text), until a round changes nothing: a mask, marker, can

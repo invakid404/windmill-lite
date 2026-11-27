@@ -119,12 +119,13 @@ func maskCounts(secrets *harness.Secrets, counts map[string]int) map[string]int 
 }
 
 // maskError returns err, or, when its text holds a secret, an error whose
-// text has it masked. A *engine.StepLatch or *engine.PluginError keeps its
-// type, with its message masked (a *harness.HostCallError arrives masked
-// already, so it is returned as it is). Any other error, such as a Go
-// hook's own type latched through RunHandle.Latch, comes back wrapped in
-// one that errors.Is still matches as err, and that errors.As does not see
-// through, since the error it wraps holds the secret in its text.
+// text has it masked. A *engine.StepLatch, *engine.PluginError or
+// *harness.HostCallError keeps its type, with its message masked as its
+// whole text reads it (maskTyped). Any other error, such as a Go hook's own
+// type latched through RunHandle.Latch, and one of those three whose text
+// still holds a secret, comes back wrapped in one that errors.Is still
+// matches as err, and that errors.As does not see through, since the error
+// it wraps holds the secret in its text.
 func maskError(secrets *harness.Secrets, err error) error {
 	if secrets == nil || err == nil {
 		return err
@@ -134,13 +135,34 @@ func maskError(secrets *harness.Secrets, err error) error {
 	if masked == text {
 		return err
 	}
+	var typed error
 	switch e := err.(type) {
 	case *engine.StepLatch:
-		return &engine.StepLatch{Message: secrets.Mask(e.Message)}
+		typed = maskTyped(secrets, e.Message, func(m string) error { return &engine.StepLatch{Message: m} })
 	case *engine.PluginError:
-		return &engine.PluginError{Message: secrets.Mask(e.Message)}
+		typed = maskTyped(secrets, e.Message, func(m string) error { return &engine.PluginError{Message: m} })
+	case *harness.HostCallError:
+		typed = maskTyped(secrets, e.Message, func(m string) error { return &harness.HostCallError{Hook: e.Hook, Code: e.Code, Message: m} })
+	}
+	if typed != nil {
+		return typed
 	}
 	return &maskedError{text: masked, err: err}
+}
+
+// maskTyped returns the error that build makes of msg, its message, masked
+// as the error's whole text reads it: after the words that its type writes
+// before the message, so that a secret that those words make with the
+// message is masked in the message too (harness.Secrets.MaskAfter). It
+// returns nil when that text still holds a secret outside its masks, as
+// when those words hold one.
+func maskTyped(secrets *harness.Secrets, msg string, build func(string) error) error {
+	prefix := build("").Error()
+	e := build(secrets.MaskAfter(prefix, secrets.Mask(msg)))
+	if text := e.Error(); secrets.MaskAfter("", text) != text {
+		return nil
+	}
+	return e
 }
 
 // secretResults is a host's result cache seen through a runtime with

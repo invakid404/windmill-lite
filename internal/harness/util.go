@@ -39,17 +39,21 @@ type diagnostics struct {
 	mu  sync.Mutex
 	w   io.Writer
 	pid atomic.Int64
-	// secrets are masked in the engine's own lines about the process,
-	// which can quote what the process sent; nil when it has none.
+	// secrets are masked in every line written, the engine's own lines
+	// about the process, which can quote what the process sent, and the
+	// process's output lines; nil when it has none.
 	secrets *Secrets
 }
 
 func (d *diagnostics) printf(format string, args ...any) {
-	msg := d.secrets.Mask(fmt.Sprintf(format, args...))
-	d.line(fmt.Sprintf("windmill-lite: harness pid %d: %s", d.pid.Load(), msg))
+	d.line(fmt.Sprintf("windmill-lite: harness pid %d: %s", d.pid.Load(), fmt.Sprintf(format, args...)))
 }
 
+// line writes s, a whole line, with each secret masked in it as written,
+// its prefix included: a secret that the prefix, such as the process's id
+// and stream, makes with the text after it is masked too.
 func (d *diagnostics) line(s string) {
+	s = d.secrets.Mask(s)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	io.WriteString(d.w, s+"\n")
@@ -134,7 +138,9 @@ type lineWriter struct {
 
 func (lw *lineWriter) stream(name string) io.Writer { return &streamWriter{lw: lw, name: name} }
 
-// emit forwards line, with its secrets masked already, and keeps it.
+// emit forwards line, with its secrets masked already, and keeps it. The
+// line that goes out, its prefix included, is masked again as a whole
+// (diagnostics.line).
 func (lw *lineWriter) emit(name, line string) {
 	lw.diag.line(fmt.Sprintf("harness pid %d %s: %s", lw.diag.pid.Load(), name, line))
 	lw.mu.Lock()
