@@ -355,12 +355,16 @@ type PoolOptions struct {
 
 // RecycleTriggers say when the pool replaces a process that is still
 // serving. A process trips a trigger when its heartbeats report a resident
-// set of RSS bytes or more Samples times in a row, or once it has run steps
-// of more than Modules distinct scripts, whose modules it keeps loaded.
+// set of RSS bytes or more Samples times in a row, once it has run steps
+// of more than Modules distinct scripts, whose modules it keeps loaded,
+// when a host plugin hook of an ended run has held that run unsettled for
+// UnsettledRun, or when its host plugin reports a resource held for
+// HeldAge after its run ended.
 // It then takes no new steps, a replacement starts beside it outside Max,
-// and it leaves once no step is in flight in it. One process leaves for a
-// trigger at a time; another that trips meanwhile keeps serving until the
-// first has exited. A threshold is sampled and does not cap memory.
+// and it leaves once no step is in flight in it and the runs pinned to it
+// have ended. One process leaves for a trigger at a time; another that
+// trips meanwhile keeps serving until the first has exited. A threshold is
+// sampled at each heartbeat and does not cap.
 type RecycleTriggers struct {
 	// RSS is the resident set size, in bytes, that trips the trigger; zero
 	// turns it off.
@@ -370,6 +374,17 @@ type RecycleTriggers struct {
 	// Modules is how many distinct scripts a process may run; the first
 	// step of one more still runs there. Zero turns it off.
 	Modules int
+	// UnsettledRun is how long a host plugin hook that the runtime stopped
+	// waiting for, which ends its run, may still run in a process and hold
+	// the run unsettled, counted from when the wait ended. onRunSettled,
+	// whose run has settled, does not count. Zero turns it off.
+	UnsettledRun time.Duration
+	// HeldAge is the age, which the host plugin reports at each heartbeat
+	// (heldAge in harnesses/bun/README.md "Host plugins"), of the oldest
+	// resource it still holds after that resource's run ended, that trips
+	// the trigger. A plugin that reports nothing never trips it. Zero turns
+	// it off.
+	HeldAge time.Duration
 }
 
 // harnessConfig is the pool's configuration in internal/harness, without
@@ -377,7 +392,10 @@ type RecycleTriggers struct {
 func (o PoolOptions) harnessConfig() harness.PoolConfig {
 	return harness.PoolConfig{
 		Min: o.Min, Max: o.Max, Cap: o.Cap, LagThreshold: o.LagThreshold, RecycleTimeout: o.RecycleTimeout, MaxLive: o.MaxLive,
-		Recycle: harness.RecycleTriggers{RSS: o.Recycle.RSS, Samples: o.Recycle.Samples, Modules: o.Recycle.Modules},
+		Recycle: harness.RecycleTriggers{
+			RSS: o.Recycle.RSS, Samples: o.Recycle.Samples, Modules: o.Recycle.Modules,
+			UnsettledRun: o.Recycle.UnsettledRun, HeldAge: o.Recycle.HeldAge,
+		},
 	}
 }
 

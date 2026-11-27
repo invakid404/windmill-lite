@@ -597,7 +597,41 @@ export class Runtime {
       oldest_abandoned_ms: oldest,
       modules: this.modules.size,
       runs_held: this.runData.size,
+      held_age_ms: this.heldAge(),
     };
+  }
+
+  /** What the host plugin's heldAge reports, in whole milliseconds, or
+   * undefined when it reports nothing: it has no heldAge, heldAge threw,
+   * or it returned something other than a finite number of at least 0,
+   * such as a promise. It runs outside every invocation. The first
+   * failure goes to stderr, once. */
+  private heldAge(): number | undefined {
+    const f = this.opts.plugin?.heldAge;
+    if (typeof f !== "function") return undefined;
+    let v: unknown;
+    try {
+      v = invocations.exit(() => f());
+    } catch (e) {
+      this.heldAgeFailed(`threw: ${e instanceof Error ? e.message : String(e)}`);
+      return undefined;
+    }
+    if (v === undefined) return undefined;
+    if (typeof v !== "number" || !Number.isFinite(v) || v < 0) {
+      this.heldAgeFailed(`returned ${typeof v === "number" ? String(v) : typeof v}, not a number of milliseconds`);
+      return undefined;
+    }
+    const ms = Math.floor(v);
+    return ms > 0 ? ms : undefined;
+  }
+
+  private heldAgeReported = false;
+
+  /** Writes why heldAge reported nothing to stderr, the first time only. */
+  private heldAgeFailed(why: string) {
+    if (this.heldAgeReported) return;
+    this.heldAgeReported = true;
+    process.stderr.write(`windmill-lite harness: the host plugin's heldAge ${why}; the process reports no held age\n`);
   }
 
   /** Keeps the run data that m carries, if any, under its run_data_id. A

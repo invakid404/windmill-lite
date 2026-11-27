@@ -197,6 +197,13 @@ export type Plugin = {
    * interpolation, errors and the 501 policy. */
   resource?: (path: string, e: { run: string }) => MaybePromise<{ type: string; value: unknown } | undefined>;
   variable?: (path: string, e: { run: string }) => MaybePromise<{ value: string; secret?: boolean } | undefined>;
+  /** The age, in milliseconds, of the oldest resource that the plugin
+   * still holds after that resource's run ended, or undefined (or 0) when
+   * it holds none. The runtime calls it at every health report, at once
+   * and outside every run, and reports the whole milliseconds in the
+   * process's health; a warm pool's held-age trigger replaces the process
+   * once the age reaches its bound. A plugin without it reports nothing. */
+  heldAge?: () => number | undefined;
 };
 
 /** A plugin's failure to answer a host_call: code is plugin_error or
@@ -230,6 +237,8 @@ function fn(where: string, f: unknown) {
 export function declaration(p: Plugin): Record<string, unknown> {
   if (!p || typeof p !== "object") throw new Error("windmill-lite plugin: a plugin is an object");
   const d: Record<string, unknown> = {};
+  // heldAge answers no host_call, so the declaration does not name it.
+  if (p.heldAge !== undefined) fn("heldAge", p.heldAge);
   if (p.intercept) {
     d.intercept = p.intercept.map((x, i) => {
       const where = `intercept[${i}]`;

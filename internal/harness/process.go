@@ -157,6 +157,14 @@ type ProcessConfig struct {
 	// for a pool's recycle triggers. The pool sets them.
 	rssLimit     int64
 	countScripts bool
+	// unsettledLimit and heldAgeLimit, when positive, make the process call
+	// notify after each health report too, for a pool's unsettled-run and
+	// held-age triggers (unsettledAge, heldAge). The pool sets them. now is
+	// the clock that times late host calls; nil means time.Now. Tests set
+	// their own.
+	unsettledLimit time.Duration
+	heldAgeLimit   time.Duration
+	now            func() time.Time
 	// killLines bounds the goroutines that write kill lines; nil means
 	// runtimeKillLines, which every process in the program shares. Tests
 	// set their own.
@@ -381,10 +389,21 @@ type Process struct {
 
 	// hostCalls are the host_calls waiting for their replies, by id, under
 	// mu; lateHostCalls those the engine stopped waiting
-	// for, until their replies come, each with what closes then.
+	// for, until their replies come.
 	hostCalls     map[string]chan HostReply
 	hostCallSeq   uint64
-	lateHostCalls map[string]chan struct{}
+	lateHostCalls map[string]lateHostCall
+}
+
+// lateHostCall is a host_call that the engine stopped waiting for: replied
+// closes when its reply comes; since is when the engine stopped waiting;
+// settles is set when the call holds its run's settlement, which every
+// hook does but onRunSettled, whose run has settled (ADR 0004 §Host
+// plugins item 2).
+type lateHostCall struct {
+	replied chan struct{}
+	since   time.Time
+	settles bool
 }
 
 type procState int
@@ -2411,21 +2430,59 @@ func (p *Process) Load() (inFlight, abandoned int) {
 }
 
 // noteHealthLocked records a health report, if h is one, and reports
-// whether the pool's recycle trigger counts it (ProcessConfig.rssLimit).
+// whether a pool's recycle trigger reviews it (ProcessConfig.rssLimit,
+// unsettledLimit, heldAgeLimit).
 func (p *Process) noteHealthLocked(h *Health) bool {
 	if h == nil {
 		return false
 	}
 	p.health = h
-	if p.cfg.rssLimit <= 0 {
-		return false
+	if p.cfg.rssLimit > 0 {
+		if h.RSS >= p.cfg.rssLimit {
+			p.rssOver++
+		} else {
+			p.rssOver = 0
+		}
 	}
-	if h.RSS >= p.cfg.rssLimit {
-		p.rssOver++
-	} else {
-		p.rssOver = 0
+	return p.cfg.rssLimit > 0 || p.cfg.unsettledLimit > 0 || p.cfg.heldAgeLimit > 0
+}
+
+// clock returns the time by the process's clock (ProcessConfig.now).
+func (p *Process) clock() time.Time {
+	if p.cfg.now != nil {
+		return p.cfg.now()
 	}
-	return true
+	return time.Now()
+}
+
+// unsettledAge returns how long ago the engine stopped waiting for the
+// oldest host_call that still holds its run's settlement, or 0 when no
+// such call is late: a hook that the engine stopped waiting for, whose run
+// has therefore ended, and that still runs.
+func (p *Process) unsettledAge() time.Duration {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var oldest time.Time
+	for _, c := range p.lateHostCalls {
+		if c.settles && (oldest.IsZero() || c.since.Before(oldest)) {
+			oldest = c.since
+		}
+	}
+	if oldest.IsZero() {
+		return 0
+	}
+	return p.clock().Sub(oldest)
+}
+
+// heldAge returns the age that the last health report gave of the oldest
+// resource the host plugin still holds after its run ended, 0 for none.
+func (p *Process) heldAge() time.Duration {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.health == nil {
+		return 0
+	}
+	return time.Duration(p.health.HeldAgeMS) * time.Millisecond
 }
 
 // rssStreak returns how many health reports in a row had an rss of at

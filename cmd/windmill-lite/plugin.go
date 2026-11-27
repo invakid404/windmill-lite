@@ -716,9 +716,11 @@ type configPool struct {
 
 // configRecycle are a pool's recycle triggers (wl.RecycleTriggers).
 type configRecycle struct {
-	RSS     int64 `json:"rss"`
-	Samples int   `json:"samples"`
-	Modules int   `json:"modules"`
+	RSS            int64 `json:"rss"`
+	Samples        int   `json:"samples"`
+	Modules        int   `json:"modules"`
+	UnsettledRunMS int64 `json:"unsettled_run_ms"`
+	HeldAgeMS      int64 `json:"held_age_ms"`
 }
 
 // strictJSON decodes exactly one JSON value into v, refusing a field that
@@ -818,6 +820,14 @@ func decodePluginConfig(data []byte) (*pluginConfig, error) {
 		}
 		if p.RecycleTimeoutMS < -maxMS || p.RecycleTimeoutMS > maxMS {
 			return nil, fmt.Errorf("pool.recycle_timeout_ms: not between %d and %d", -maxMS, maxMS)
+		}
+		if r := p.Recycle; r != nil {
+			if r.UnsettledRunMS < 0 || r.UnsettledRunMS > maxMS {
+				return nil, fmt.Errorf("pool.recycle.unsettled_run_ms: not between 0 and %d", maxMS)
+			}
+			if r.HeldAgeMS < 0 || r.HeldAgeMS > maxMS {
+				return nil, fmt.Errorf("pool.recycle.held_age_ms: not between 0 and %d", maxMS)
+			}
 		}
 	}
 	if c.MaxMessageBytes != nil && (*c.MaxMessageBytes <= 0 || *c.MaxMessageBytes > int64(maxInt)) {
@@ -997,7 +1007,11 @@ func (c *pluginConfig) options(stderr io.Writer) (_ wl.Options, _ func(), err er
 			RecycleTimeout: time.Duration(p.RecycleTimeoutMS) * time.Millisecond,
 		}
 		if r := p.Recycle; r != nil {
-			opts.Pool.Recycle = wl.RecycleTriggers{RSS: r.RSS, Samples: r.Samples, Modules: r.Modules}
+			opts.Pool.Recycle = wl.RecycleTriggers{
+				RSS: r.RSS, Samples: r.Samples, Modules: r.Modules,
+				UnsettledRun: time.Duration(r.UnsettledRunMS) * time.Millisecond,
+				HeldAge:      time.Duration(r.HeldAgeMS) * time.Millisecond,
+			}
 		}
 		if p.MaxLive != nil {
 			opts.Pool.MaxLive = *p.MaxLive

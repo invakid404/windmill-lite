@@ -556,6 +556,11 @@ type Health struct {
 	// RunsHeld counts the runs whose data the process holds, until their
 	// run_released (optional: zero is left out).
 	RunsHeld int
+	// HeldAgeMS is what the host plugin reports: the age, in whole
+	// milliseconds, of the oldest resource it still holds after that
+	// resource's run ended (optional: zero, or a plugin that reports
+	// nothing, is left out).
+	HeldAgeMS int64
 }
 
 // Ping is a health request. A harness also sends one on its own every
@@ -972,6 +977,9 @@ func appendHealth(e *envelope, h *Health) {
 	e.int("rss", h.RSS)
 	if h.RunsHeld != 0 {
 		e.int("runs_held", int64(h.RunsHeld))
+	}
+	if h.HeldAgeMS != 0 {
+		e.int("held_age_ms", h.HeldAgeMS)
 	}
 }
 
@@ -1606,7 +1614,7 @@ func (d *decoder) runData() (id string, data jsonval.Value) {
 }
 
 // health decodes the optional health group: all five fields or none, and
-// runs_held, which only the group may carry.
+// runs_held and held_age_ms, which only the group may carry.
 func (d *decoder) health() *Health {
 	n := 0
 	for _, k := range []string{"in_flight", "abandoned", "errors", "lag_ms", "rss"} {
@@ -1626,6 +1634,9 @@ func (d *decoder) health() *Health {
 	}
 	if d.present("runs_held") {
 		h.RunsHeld = d.int("runs_held")
+	}
+	if d.present("held_age_ms") {
+		h.HeldAgeMS = d.int64("held_age_ms")
 	}
 	return h
 }

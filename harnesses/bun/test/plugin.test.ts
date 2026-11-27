@@ -404,6 +404,56 @@ describe("the runtime", () => {
     runtime.onClose();
   });
 
+  test("reports what heldAge gives in each health report, in whole milliseconds, and nothing for 0 or undefined", async () => {
+    let age: number | undefined = 120_000.9;
+    const { runtime, send, messages } = hostRuntime({ heldAge: () => age });
+    send({ t: "ping", id: "e1" });
+    await Bun.sleep(5);
+    age = 0;
+    send({ t: "ping", id: "e2" });
+    await Bun.sleep(5);
+    age = undefined;
+    send({ t: "ping", id: "e3" });
+    await Bun.sleep(5);
+    expect(messages().filter((m) => m.t === "pong").map((m) => m.held_age_ms ?? "none")).toEqual([120000, "none", "none"]);
+    age = 7;
+    expect(runtime.hostHealth().held_age_ms).toBe(7);
+    runtime.onClose();
+  });
+
+  test("reports no held age when heldAge throws or answers what is not a number of milliseconds, and says so on stderr once", async () => {
+    const answers: (() => unknown)[] = [
+      () => {
+        throw new Error("the plugin's table is gone");
+      },
+      () => -1,
+      () => Number.NaN,
+      () => Promise.resolve(5),
+      () => "5",
+    ];
+    let next = 0;
+    const lines: string[] = [];
+    const write = process.stderr.write;
+    process.stderr.write = ((chunk: string | Uint8Array) => (lines.push(String(chunk)), true)) as typeof process.stderr.write;
+    try {
+      const { runtime, send, messages } = hostRuntime({ heldAge: () => answers[next++]() as number });
+      for (let i = 0; i < answers.length; i++) {
+        send({ t: "ping", id: `e${i}` });
+        await Bun.sleep(5);
+      }
+      expect(messages().filter((m) => m.t === "pong").map((m) => m.held_age_ms ?? "none")).toEqual(answers.map(() => "none"));
+      runtime.onClose();
+    } finally {
+      process.stderr.write = write;
+    }
+    expect(lines.filter((l) => l.includes("heldAge"))).toEqual(["windmill-lite harness: the host plugin's heldAge threw: the plugin's table is gone; the process reports no held age\n"]);
+  });
+
+  test("takes heldAge only as a function, and never names it in the declaration, since it answers no host_call", () => {
+    expect(() => declaration({ heldAge: 5 } as unknown as Plugin)).toThrow("windmill-lite plugin: heldAge is not a function");
+    expect(declaration({ heldAge: () => 0 })).toEqual({});
+  });
+
   test("keeps the data of two runs of one id apart by run_data_id, and empties a run's data for plugin code that runs on past its release", async () => {
     const seen: unknown[] = [];
     let later: unknown = "not read";

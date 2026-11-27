@@ -91,13 +91,19 @@ type PoolConfig struct {
 	// takes its lock to admit it. Tests set them.
 	observe   func(poolEvent)
 	admitting func(*Process)
+	// now, when not nil, is the clock that times the processes' late host
+	// calls (UnsettledRun). Tests set it.
+	now func() time.Time
 }
 
 // RecycleTriggers say when a warm pool replaces a process that is still
 // serving. A process trips a trigger when its heartbeats report a resident
-// set of RSS bytes or more Samples times in a row, or once the engine has
+// set of RSS bytes or more Samples times in a row, once the engine has
 // sent it invocations of more than Modules distinct scripts, whose modules
-// it keeps loaded.
+// it keeps loaded, when a hook of an ended run has held that run unsettled
+// for UnsettledRun, or when its host plugin reports a resource held for
+// HeldAge after its run ended. The last two are reviewed at each health
+// report.
 //
 // A process that trips takes no new invocations, a replacement starts
 // beside it outside Max, and it leaves once nothing the engine waits for
@@ -119,6 +125,18 @@ type RecycleTriggers struct {
 	// it before that one was dispatched still run there too. Zero turns it
 	// off.
 	Modules int
+	// UnsettledRun is how long a host plugin hook that the engine stopped
+	// waiting for may still run, holding its run unsettled (ADR 0004 §Host
+	// plugins item 2), counted from when the engine stopped waiting, which
+	// ends the run. onRunSettled, whose run has settled, does not count.
+	// Zero turns it off.
+	UnsettledRun time.Duration
+	// HeldAge is the age, reported in the process's health by its host
+	// plugin (heldAge in the Bun harness), of the oldest resource the
+	// plugin still holds after that resource's run ended, that trips the
+	// trigger. A plugin that reports nothing never trips it. Zero turns it
+	// off.
+	HeldAge time.Duration
 }
 
 // poolEvent is something a pool did, which PoolConfig.observe is told.
@@ -325,6 +343,9 @@ func NewPool(cfg PoolConfig) (_ *Pool, err error) {
 		pl.cfg.Process.notify = pl.processChanged
 		pl.cfg.Process.rssLimit = cfg.Recycle.RSS
 		pl.cfg.Process.countScripts = cfg.Recycle.Modules > 0
+		pl.cfg.Process.unsettledLimit = cfg.Recycle.UnsettledRun
+		pl.cfg.Process.heldAgeLimit = cfg.Recycle.HeldAge
+		pl.cfg.Process.now = cfg.now
 	}
 	return pl, nil
 }
@@ -368,9 +389,9 @@ func (cfg PoolConfig) CheckSettings() error {
 		return fmt.Errorf("harness: pool's MaxLive %d is negative", cfg.MaxLive)
 	case cfg.MaxLive > 0 && cfg.MaxLive < cfg.Max:
 		return fmt.Errorf("harness: pool's MaxLive %d is below its Max %d: the pool could not reach its size", cfg.MaxLive, cfg.Max)
-	case cfg.Recycle.RSS < 0 || cfg.Recycle.Samples < 0 || cfg.Recycle.Modules < 0:
-		return fmt.Errorf("harness: pool's recycle triggers cannot be negative (RSS %d, Samples %d, Modules %d)",
-			cfg.Recycle.RSS, cfg.Recycle.Samples, cfg.Recycle.Modules)
+	case cfg.Recycle.RSS < 0 || cfg.Recycle.Samples < 0 || cfg.Recycle.Modules < 0 || cfg.Recycle.UnsettledRun < 0 || cfg.Recycle.HeldAge < 0:
+		return fmt.Errorf("harness: pool's recycle triggers cannot be negative (RSS %d, Samples %d, Modules %d, UnsettledRun %s, HeldAge %s)",
+			cfg.Recycle.RSS, cfg.Recycle.Samples, cfg.Recycle.Modules, cfg.Recycle.UnsettledRun, cfg.Recycle.HeldAge)
 	}
 	return nil
 }
@@ -1094,7 +1115,7 @@ func (pl *Pool) pruneExitedLocked() (int, []*spawnAttempt) {
 // applyTriggersLocked applies the recycle triggers to every serving member
 // that has reached one and has not been reviewed since.
 func (pl *Pool) applyTriggersLocked() {
-	if pl.cfg.Recycle.RSS == 0 && pl.cfg.Recycle.Modules == 0 {
+	if r := pl.cfg.Recycle; r.RSS == 0 && r.Modules == 0 && r.UnsettledRun == 0 && r.HeldAge == 0 {
 		return
 	}
 	for _, m := range pl.members {
@@ -1123,6 +1144,9 @@ func (pl *Pool) reviewLocked(m *member) {
 	}
 	if !m.tripped && pl.trippedLocked(m) {
 		m.tripped = true
+		if why := pl.lifetimeTripLocked(m); why != "" {
+			pl.diag().line(fmt.Sprintf("windmill-lite: harness pool: process %d leaves the pool: %s", m.p.PID(), why))
+		}
 	}
 	if m.tripped && m.inService() && pl.recycler == nil {
 		// It leaves for its trigger now, and its replacement starts beside
@@ -1140,10 +1164,25 @@ func (pl *Pool) reviewLocked(m *member) {
 	}
 }
 
+// lifetimeTripLocked says which of the triggers on what a process holds
+// past its runs m has reached, UnsettledRun or HeldAge, for the pool's
+// diagnostics line, or "" for neither.
+func (pl *Pool) lifetimeTripLocked(m *member) string {
+	r := pl.cfg.Recycle
+	if d := m.p.unsettledAge(); r.UnsettledRun > 0 && d >= r.UnsettledRun {
+		return fmt.Sprintf("a host plugin hook has held its ended run unsettled for %s (the bound is %s)", d.Round(time.Millisecond), r.UnsettledRun)
+	}
+	if d := m.p.heldAge(); r.HeldAge > 0 && d >= r.HeldAge {
+		return fmt.Sprintf("its host plugin reports a resource held %s after its run ended (the bound is %s)", d, r.HeldAge)
+	}
+	return ""
+}
+
 // trippedLocked reports whether m has reached a recycle trigger.
 func (pl *Pool) trippedLocked(m *member) bool {
 	r := pl.cfg.Recycle
-	return (r.RSS > 0 && m.p.rssStreak() >= r.Samples) || (r.Modules > 0 && m.p.scriptCount() > r.Modules)
+	return (r.RSS > 0 && m.p.rssStreak() >= r.Samples) || (r.Modules > 0 && m.p.scriptCount() > r.Modules) ||
+		(r.UnsettledRun > 0 && m.p.unsettledAge() >= r.UnsettledRun) || (r.HeldAge > 0 && m.p.heldAge() >= r.HeldAge)
 }
 
 func (pl *Pool) broadcastLocked() {

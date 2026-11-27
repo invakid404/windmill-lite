@@ -39,6 +39,10 @@ export type Health = {
   /** How many runs' data the process holds, until their run_released;
    * written only when not 0. */
   runs_held?: number;
+  /** What the host plugin's heldAge reports: the age, in whole
+   * milliseconds, of the oldest resource it still holds after that
+   * resource's run ended; written only when not 0. */
+  held_age_ms?: number;
 };
 
 /** A message as it is encoded: raw values are Raw, the rest plain. */
@@ -66,8 +70,8 @@ const FIELDS: Record<string, readonly string[]> = {
   run_released: ["run", "run_data_id"],
   reserve: ["id", "inv", "bytes"],
   reserve_reply: ["id", "refused"],
-  ping: ["id", "in_flight", "abandoned", "errors", "lag_ms", "rss", "runs_held"],
-  pong: ["id", "in_flight", "abandoned", "errors", "lag_ms", "rss", "runs_held"],
+  ping: ["id", "in_flight", "abandoned", "errors", "lag_ms", "rss", "runs_held", "held_age_ms"],
+  pong: ["id", "in_flight", "abandoned", "errors", "lag_ms", "rss", "runs_held", "held_age_ms"],
   part: ["id", "seq", "last", "chunk"],
   drain: [],
   bye: [],
@@ -123,7 +127,7 @@ const WRITTEN_WHEN_TRUE = new Set(["run_done.may_have_mutated", "invoke.budget"]
  * one counts as absent, on decoding too. */
 const WRITTEN_WHEN_NOT_EMPTY = new Set(["run_done.cancel_cause", "run_cancel.reason", "run_cancel.canceler", "reserve_reply.refused"]);
 /** Integer fields that Go writes only when they are not 0. */
-const WRITTEN_WHEN_NOT_ZERO = new Set(["ping.runs_held", "pong.runs_held"]);
+const WRITTEN_WHEN_NOT_ZERO = new Set(["ping.runs_held", "pong.runs_held", "ping.held_age_ms", "pong.held_age_ms"]);
 
 /** The canonical payload text of a message. */
 export function encodeText(m: Outgoing): string {
@@ -402,8 +406,10 @@ export function decode(payload: Uint8Array): Message {
       // Null counts as absent here too, as everywhere outside raw values.
       const present = ["in_flight", "abandoned", "errors", "lag_ms", "rss"].filter((k) => m[k] !== undefined && m[k] !== null);
       if (present.length > 0) for (const k of ["in_flight", "abandoned", "errors", "lag_ms", "rss"]) checkField(m.t, m, k, "int");
-      if (m.runs_held === null) m.runs_held = undefined;
-      if (present.length > 0 && m.runs_held !== undefined) checkField(m.t, m, "runs_held", "int");
+      for (const k of ["runs_held", "held_age_ms"]) {
+        if (m[k] === null) m[k] = undefined;
+        if (present.length > 0 && m[k] !== undefined) checkField(m.t, m, k, "int");
+      }
       break;
     }
     case "part":
