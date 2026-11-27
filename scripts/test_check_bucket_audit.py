@@ -152,6 +152,34 @@ class DecideTest(unittest.TestCase):
             with self.subTest(out=out), self.assertRaises(rule.RuleError):
                 rule.decide(1, out, [SKIPPED])
 
+    def test_a_skip_with_the_fields_of_go_test_is_accepted(self) -> None:
+        out = failed(never(PKG, "TestRedis"))
+        line = ('{"Time":"2026-11-27T20:01:07.6+02:00","Action":"skip","Package":"%s",'
+                '"Test":"TestRedis","Elapsed":0,"Output":null,"OutputType":"frame"}\n' % PKG)
+        self.assertEqual(rule.decide(1, out, [line]), [(PKG, "TestRedis")])
+
+    def test_a_malformed_record_is_no_evidence(self) -> None:
+        # Each line is the only skip of TestRedis, and testbucket's decoder
+        # would not read it as an event.
+        out = failed(never(PKG, "TestRedis"))
+        head = '{"Action":"skip","Package":"%s","Test":"TestRedis"' % PKG
+        for line in (
+            head + ',"Elapsed":"0.01"}',
+            head + ',"Elapsed":NaN}',
+            head + ',"Elapsed":0,"Time":NaN}',
+            head + ',"Elapsed":Infinity}',
+            head + ',"Elapsed":1e400}',
+            head + ',"Elapsed":true}',
+            head + ',"Elapsed":1e12}',
+            '{"Action":1,"Package":"%s","Test":"TestRedis"}' % PKG,
+            '{"Action":"skip","Package":null,"Test":"TestRedis"}',
+            '{"action":"skip","Package":"%s","Test":"TestRedis"}' % PKG,
+            '{"Action":"pass","Action":"skip","Package":"%s","Test":"TestRedis"}' % PKG,
+            head + '} trailing',
+        ):
+            with self.subTest(line=line), self.assertRaisesRegex(rule.RuleError, "not an event that testbucket reads"):
+                rule.decide(1, out, [line + "\n"])
+
     def test_events_that_are_not_json_fail(self) -> None:
         out = failed(never(PKG, "TestRedis"))
         for bad in (SKIPPED + "ok  \texample.com/m/cmd/tool\t0.1s\n", SKIPPED + "[1, 2]\n"):
@@ -162,7 +190,7 @@ class DecideTest(unittest.TestCase):
 class MainTest(unittest.TestCase):
     """The script as the record job runs it, with a stand-in for testbucket."""
 
-    def run_script(self, audit_output: str, audit_status: int, event_text: str) -> tuple[int, str, str]:
+    def run_script(self, audit_output: str, audit_status: int, event_text: str, raw: bytes = b"") -> tuple[int, str, str]:
         with tempfile.TemporaryDirectory() as tmp:
             tmp = pathlib.Path(tmp)
             (tmp / "audit.txt").write_text(audit_output, encoding="utf-8")
@@ -170,7 +198,7 @@ class MainTest(unittest.TestCase):
             fake.write_text(f'#!/bin/sh\ncat "{tmp / "audit.txt"}"\nexit {audit_status}\n', encoding="utf-8")
             fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
             ev = tmp / "bucket-0-00.ndjson"
-            ev.write_text(event_text, encoding="utf-8")
+            ev.write_bytes(event_text.encode("utf-8") + raw)
             summary = tmp / "summary.md"
             env = dict(os.environ, GITHUB_STEP_SUMMARY=str(summary))
             proc = subprocess.run(
@@ -197,6 +225,12 @@ class MainTest(unittest.TestCase):
         self.assertEqual(status, 0, out)
         self.assertIn("PASS", out)
         self.assertEqual(summary, "")
+
+    def test_a_passing_audit_reads_no_events(self) -> None:
+        # testbucket reads events that hold a byte that is not UTF-8; when its
+        # audit passes, the script must not read them again.
+        status, out, _ = self.run_script(PASSED, 0, SKIPPED, raw=b"\xff not an event\n")
+        self.assertEqual(status, 0, out)
 
 
 if __name__ == "__main__":

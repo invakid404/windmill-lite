@@ -205,17 +205,20 @@ only when it passes, so a test that skips fails its audit.
 | `--testbucket PATH` | The `testbucket` executable; the default is `testbucket` on the `PATH` |
 | `EVENTS ...` | The buckets' `go test -json` files |
 
-- **Exit 0.** The audit passed. Or the audit failed, and each discrepancy is
-  "`<package>`: `<test>` was in a -run slice but never reported" for a
-  top-level test whose `skip` event in that package the events hold. The
-  script then lists each such test, and appends the list to the file of
-  `GITHUB_STEP_SUMMARY` when that variable is set.
-- **Exit 1.** Any other discrepancy, a test that reported nothing and did
-  not skip, an output line of the audit that the script does not know, or
-  a line of the events that is not a JSON object.
+- **The audit passed.** The script exits 0, and reads nothing else.
+- **The audit failed.** The script reads the events, and exits 0 only when
+  each discrepancy is "`<package>`: `<test>` was in a -run slice but never
+  reported" for a top-level test whose `skip` event in that package the
+  events hold. It then lists each such test, and appends the list to the
+  file of `GITHUB_STEP_SUMMARY` when that variable is set.
+- **Exit 1 after a failed audit.** The script exits 1 for any other
+  discrepancy, a test that reported nothing and did not skip, or an output
+  line of the audit that it does not know. It also exits 1 for a line of the
+  events that testbucket would not read as an event, such as a field of the
+  wrong type, NaN, or an implausible `Elapsed`.
 - **Its tests.** `test_check_bucket_audit.py` runs the rule on audit
-  outputs of testbucket v0.2.2's form, and runs the script with a stand-in
-  for `testbucket`.
+  outputs of testbucket v0.2.2's form and on malformed events, and runs the
+  script with a stand-in for `testbucket`.
 
 ## Run the tests
 

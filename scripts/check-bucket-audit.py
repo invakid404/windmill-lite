@@ -15,8 +15,9 @@ test that it accepts, and appends them to the GitHub step summary.
 
 Anything else exits 1: another kind of discrepancy, such as a package that
 reported nothing, a test that reported nothing and did not skip, an output
-line of the audit that this script does not know, or an events file that is
-not `go test -json` output.
+line of the audit that this script does not know, or a line of the events
+that testbucket would not read as an event. The script reads the events
+only when the audit failed.
 
 Usage: check-bucket-audit.py --shard-plan <shard-plan.json> [--testbucket <path>] <events.ndjson>...
 """
@@ -52,6 +53,12 @@ TRAILER_LINES = (
     "invisible to the gate and is exactly what this catches.",
 )
 NEVER_REPORTED = re.compile(r"^    - (\S+): (\S+) was in a -run slice but never reported$")
+
+# The fields of a `go test -json` event that testbucket v0.2.2 decodes
+# (internal/runner/gorunner/ingest.go, testEvent), and the bound beyond which
+# it drops an event's Elapsed as implausible (internal/runner/summary.go).
+EVENT_FIELDS = {"action": "Action", "package": "Package", "test": "Test", "elapsed": "Elapsed"}
+MAX_PLAUSIBLE_SECONDS = 1 << 30
 
 
 class RuleError(Exception):
@@ -96,27 +103,64 @@ def never_reported(output: str) -> list[tuple[str, str]]:
     return pairs
 
 
+def _no_constant(name: str) -> float:
+    raise ValueError(f"{name} is not JSON")
+
+
+def event(line: str) -> dict[str, object]:
+    """Decodes one line of `go test -json` output as testbucket does.
+
+    It returns the fields that testbucket reads. It raises ValueError for a
+    line that testbucket would not read as an event: not a JSON object, a
+    field of the wrong type, NaN or Infinity, an Elapsed beyond testbucket's
+    bound, and also a field name in another letter case or given twice,
+    which go test never writes.
+    """
+    if not line.startswith("{"):
+        raise ValueError("not a JSON object")
+    pairs = json.loads(line, object_pairs_hook=list, parse_constant=_no_constant)
+    if not isinstance(pairs, list):
+        raise ValueError("not a JSON object")
+    fields: dict[str, object] = {}
+    for key, value in pairs:
+        name = EVENT_FIELDS.get(key.casefold())
+        if name is None:
+            continue
+        if key != name or name in fields:
+            raise ValueError(f"field {key!r}")
+        if name == "Elapsed":
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"{name} is not a number")
+            seconds = float(value)
+            # NaN and the infinities fail the comparison too.
+            if seconds != 0 and not -MAX_PLAUSIBLE_SECONDS <= seconds <= MAX_PLAUSIBLE_SECONDS:
+                raise ValueError(f"{name} {value} is not a plausible duration")
+        elif not isinstance(value, str):
+            raise ValueError(f"{name} is not a string")
+        fields[name] = value
+    return fields
+
+
 def skips(texts: list[str]) -> set[tuple[str, str]]:
     """Returns the (package, test) pairs of the tests' `skip` events.
 
     A subtest's name holds a `/`, and never_reported refuses such a name, so
-    only a top-level test's skip can match. It raises RuleError when a
-    non-empty line is not a JSON object.
+    only a top-level test's skip can match. It raises RuleError for any
+    non-empty line that event refuses.
     """
     found: set[tuple[str, str]] = set()
     for text in texts:
         for number, line in enumerate(text.splitlines(), 1):
-            if not line.strip():
+            line = line.strip()
+            if not line:
                 continue
             try:
-                event = json.loads(line)
-            except json.JSONDecodeError as err:
-                raise RuleError(f"line {number} of the events is not JSON: {err}") from None
-            if not isinstance(event, dict):
-                raise RuleError(f"line {number} of the events is not a JSON object")
-            test = event.get("Test") or ""
-            if event.get("Action") == "skip" and test:
-                found.add((event.get("Package") or "", test))
+                fields = event(line)
+            except (ValueError, OverflowError) as err:
+                raise RuleError(f"line {number} of the events is not an event that testbucket reads: {err}") from None
+            test = fields.get("Test") or ""
+            if fields.get("Action") == "skip" and test:
+                found.add((fields.get("Package") or "", test))
     return found
 
 
@@ -150,6 +194,8 @@ def main(argv: list[str]) -> int:
     output = audit.stdout + audit.stderr
     sys.stdout.write(output)
     sys.stdout.flush()
+    if audit.returncode == 0:
+        return 0
     try:
         events = []
         for path in args.events:
@@ -159,8 +205,6 @@ def main(argv: list[str]) -> int:
     except (RuleError, OSError, UnicodeDecodeError) as err:
         print(f"check-bucket-audit: the run fails the audit: {err}", file=sys.stderr)
         return 1
-    if audit.returncode == 0:
-        return 0
     lines = [f"accepted, skipped: {pkg}: {name}" for pkg, name in accepted]
     print("check-bucket-audit: the audit's only discrepancies are top-level tests that skipped:")
     for line in lines:
