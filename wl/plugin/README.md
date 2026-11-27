@@ -202,12 +202,23 @@ included. A `Run` error says whether the run started:
 
 | Error | When | What the host may do |
 |---|---|---|
-| `ErrNotStarted` | The engine refused the run with a gRPC error whose details hold a `google.rpc.ErrorInfo` with the domain `windmill-lite` (`ErrorDomain`) and the reason `RUN_NOT_STARTED` (`ReasonRunNotStarted`), or the context had ended | Retry the run |
+| `ErrNotStarted` | The engine refused the run with a gRPC error whose details hold a `google.rpc.ErrorInfo` with the domain `windmill-lite` (`ErrorDomain`) and the reason `RUN_NOT_STARTED` (`ReasonRunNotStarted`), or the context had ended | Retry the run. `RunWithHooks` returns a refusal of a used broker id after its one more try, or after one request when the run's context, the `Client` or the engine's generation had ended ([A run's hooks](#a-runs-hooks)) |
 | `ErrOutcomeUnknown` | Any other error: the call's deadline, a lost connection, a transport's `UNAVAILABLE` without that detail, `INTERNAL` | Treat the run as one that may have mutated |
 
 The error of a call that `Run` made also wraps the call's gRPC error, so
 `status.Code(err)` gives its code, such as `ALREADY_EXISTS` for an id that
 a run in flight has.
+
+The metadata of that `ErrorInfo` can name the refused field, so a host
+reads it without parsing the message:
+
+| Key | Value | Refusals that carry it |
+|---|---|---|
+| `field` (`MetadataField`) | The one field of the request that the refusal names, such as `kind` or `hooks.broker_id` | The `INVALID_ARGUMENT` refusals of the engine's own checks that name one field ([internal/host](../../internal/host/README.md#refusals)). Not the refusal of a token that `GetRun` answered `gone` for, although its message names `hooks.token` |
+| `cause` (`MetadataCause`) | `broker_id_used` (`CauseBrokerIDUsed`) | Only the refusal of a broker id that the engine dialled before and has since lost ([A run's hooks](#a-runs-hooks)) |
+
+Every other refusal has no metadata, and neither has an engine's that
+predates these keys.
 
 A flow run's `RunResult` can carry the run-end answer of the bundle's
 host plugin: `GetAnswer()` is the JSON text of the answer that the
@@ -249,6 +260,24 @@ engine refuses.
   with `ErrNotStarted`. The next run opens a new connection when the last
   one ended, or when the engine holds no connection to it and no request
   naming it is in flight.
+- **A used broker id.** The `Client` counts the engine's connections at
+  its own end, where the end of a connection can arrive after the engine
+  has dropped it. A run in that window names a broker id that the engine
+  cannot dial again: go-plugin gives an id's address once. The engine
+  refuses the run with `INVALID_ARGUMENT`, and its metadata names
+  `hooks.broker_id` with the cause `broker_id_used`.
+- **One more try.** At that refusal alone the `Client` drops the run's
+  registration and replaces the connection. It then sends the run once
+  more, with a new connection and a new token: the run did not start. The
+  host sees one `RunWithHooks` call, which returns the second try's
+  outcome, or its refusal with `ErrNotStarted`.
+- **No second try.** Every other refusal starts no further request: the
+  first try's comes back after one request, the one more try's after
+  two. Among them are a refusal of `hooks.broker_id` without the cause,
+  such as a failed first dial of a new broker id, and every refusal of
+  an engine that predates the keys. A used broker id's refusal starts
+  none either when the run's context, the `Client` or the engine's
+  generation has ended by then.
 - **Its end.** A replaced connection keeps serving the registrations that
   still name it. When the last of them goes, and for every connection at
   `Close`, the `Client` stops the server at once, ending its handlers'
@@ -488,6 +517,7 @@ are in [cmd/windmill-lite](../../cmd/windmill-lite/README.md#plugin-tests).
 | `TestClientGenerationEnd` | On go-plugin's test connection, the end of the engine's generation closes a `Client` that serves hooks: its registration is dropped and a later run with hooks is refused. In a generation that has ended, a first run with hooks is refused without reaching the engine |
 | `TestClientGenerationKeepsNoClient` | While the generation goes on, 100 `Client`s never used for hooks are collected, and so are a `Client` closed after a run with hooks and a `Client` whose first listen failed |
 | `TestClientListenRetry` | A first run with hooks whose broker connection cannot listen is refused without reaching the engine; the next run on the same `Client` opens the connection and is served |
+| `TestClientBrokerRetryOnce` | On go-plugin's test connection, a fake engine refuses a run because its broker id was used. The `Client` sends it once more with a new broker id and token, and it is served; the refused id is released and its listener gone. A second refusal is returned, as is one that comes while the `Client` closes. Every other refusal comes back after one request: `hooks.broker_id` without the cause, the cause with another field, another field, no metadata, `ALREADY_EXISTS`, another code |
 | `TestClientLookupTimeout` | A lookup that gets no reply ends at its bound and is tried again; a drop ends a waiting lookup at once, and no wait follows |
 | `TestClientRunRefusesRegisteredID` | `Run` refuses an id whose hooks are registered, without a call |
 | `TestClientCloseAtFirstUse` | On go-plugin's test connection, `Close` at the same time as a first `RunWithHooks`: the run is refused, or Close stops the broker connection that it opened |
@@ -519,8 +549,8 @@ Run them with `go test -race ./wl/plugin`.
 |---|---|
 | `doc.go` | The package documentation, and the `go:generate` line that regenerates the code ([proto](../../proto/README.md#generate-the-go-code)) |
 | `plugin.go` | `PluginName`, `ProtocolVersion`, `Handshake`, `DefaultReplyMargin`, `VersionedPlugins`, `RunnerPlugin` |
-| `client.go` | `Client` and its calls, `ErrNotStarted`, `ErrOutcomeUnknown`, `ErrorDomain`, `ReasonRunNotStarted` |
-| `hooks.go` | `RunWithHooks`, `HookHandler`, `Registrations`, `Close`, `DefaultPluginTimeout`, the hook codes, and the `HostHooks` server |
+| `client.go` | `Client` and its calls, `ErrNotStarted`, `ErrOutcomeUnknown`, `ErrorDomain`, `ReasonRunNotStarted`, `MetadataField`, `MetadataCause`, `CauseBrokerIDUsed` |
+| `hooks.go` | `RunWithHooks` and its one more try after the refusal of a used broker id, `HookHandler`, `Registrations`, `Close`, `DefaultPluginTimeout`, the hook codes, and the `HostHooks` server |
 | `launch.go` | `Launch`, `ClientConfig` and its cleanup, `ErrChecksumMismatch`, `DefaultMaxMessageBytes`, and the runner that pins and starts the executable |
 | `supervisor.go` | `Supervisor`, `NewSupervisor`, `SupervisorConfig`, `PinnedIdentity`, `ErrNotAdmitted`, `ErrNotServing`, `ErrSupervisorStopped` |
 | `runner.pb.go`, `runner_grpc.pb.go` | Generated from `runner.proto`; do not edit |

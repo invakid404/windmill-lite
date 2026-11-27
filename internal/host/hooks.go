@@ -30,6 +30,11 @@ const DefaultTokenBound = 65536
 // errDial is the error of a dial of the host's hooks service that failed.
 var errDial = errors.New("dial the host's hooks service")
 
+// errUsed is the error of an admission that needs a new dial of a broker
+// id whose earlier dial succeeded: go-plugin gives an id's address once, so
+// a second dial would only wait out go-plugin's 5 seconds and fail.
+var errUsed = errors.New("the engine has dialled this broker id before and lost that connection, and go-plugin gives a broker id's address once")
+
 // releasedHook is the name of the internal call that tells the host that a
 // run has settled, so that it drops the run's registration.
 const releasedHook = "released"
@@ -41,9 +46,10 @@ const (
 )
 
 // brokerHooks serves the runs' hooks on go-plugin's broker: it dials each
-// connection of the host's HostHooks once, holds the token of each run
-// from its admission until it has sent the run's release call, and keeps
-// the tokens that GetRun answered gone for.
+// connection of the host's HostHooks once, refusing an id whose connection
+// it has dropped, holds the token of each run from its admission until it
+// has sent the run's release call, and keeps the tokens that GetRun
+// answered gone for.
 type brokerHooks struct {
 	broker  func() *goplugin.GRPCBroker
 	timeout time.Duration
@@ -66,11 +72,14 @@ type brokerHooks struct {
 	published   func(id uint32)
 	dialOptions []grpc.DialOption
 
-	// connMu guards conns: the dial of each broker connection, made once.
-	// A dial waits without it, so one broker id that does not answer
-	// stalls neither the other ids nor the tokens.
+	// connMu guards conns, the dial of each broker connection, made once,
+	// and used, the broker ids whose dial succeeded and that the host has
+	// not released: one entry for each such id, which ReleaseHooks
+	// removes. A dial waits without connMu, so one broker id that does not
+	// answer stalls neither the other ids nor the tokens.
 	connMu sync.Mutex
 	conns  map[uint32]*brokerConn
+	used   map[uint32]struct{}
 
 	mu   sync.Mutex
 	held map[string]heldToken
@@ -146,7 +155,13 @@ func (b *brokerHooks) admit(ctx context.Context, id string, h *plugin.Hooks, arr
 			}
 			return nil, nil, refusal(code, fmt.Sprintf("the run ended before the host's hooks service answered: %v", err))
 		}
-		return nil, nil, invalid("hooks.broker_id", err.Error())
+		cause := ""
+		if errors.Is(err, errUsed) {
+			// The host's Client sends the run again on a new broker id
+			// at this cause alone.
+			cause = plugin.CauseBrokerIDUsed
+		}
+		return nil, nil, invalidCause("hooks.broker_id", err.Error(), cause)
 	}
 	call := func(ctx context.Context, hook, run, site string, payload []byte) ([]byte, error) {
 		if bc.closed.Load() {
@@ -221,11 +236,18 @@ func noAnswer(hook string, payload []byte) []byte {
 // deadline, which leaves the dial to the admissions that still wait on
 // it. A run whose deadline had passed when its request arrived waits for
 // the dial alone, and the runtime then ends it canceled, as a run without
-// hooks. A dial that has ended already is taken.
+// hooks. A dial that has ended already is taken. An id that needs a new
+// dial although an earlier one succeeded, and that the host has not
+// released, fails at once (errUsed): the engine has dropped that
+// connection, and the host serves a new id once it hears of the refusal.
 func (b *brokerHooks) client(ctx context.Context, id uint32, ends bool) (*brokerConn, error) {
 	b.connMu.Lock()
 	c := b.conns[id]
 	first := c == nil
+	if _, used := b.used[id]; first && used {
+		b.connMu.Unlock()
+		return nil, fmt.Errorf("%w: %w", errDial, errUsed)
+	}
 	if first {
 		c = &brokerConn{done: make(chan struct{})}
 		b.conns[id] = c
@@ -262,7 +284,9 @@ func (b *brokerHooks) client(ctx context.Context, id uint32, ends bool) (*broker
 // then one until the connection is ready, at most the plugin timeout. A
 // connection that cannot connect fails the dial, so a listener that the
 // host has stopped refuses the run instead of leaving a connection that
-// only tries again. A failed dial is not kept: a later run dials again.
+// only tries again. A failed dial is not kept: a later run dials again. A
+// dial that succeeds marks id used, unless the host released id while it
+// was dialled.
 func (b *brokerHooks) dial(id uint32, c *brokerConn) {
 	if b.dialing != nil {
 		b.dialing(id)
@@ -293,6 +317,9 @@ func (b *brokerHooks) dial(id uint32, c *brokerConn) {
 		if b.wrap != nil {
 			c.client = b.wrap(c.client)
 		}
+		if !c.released {
+			b.used[id] = struct{}{}
+		}
 	}
 	released := c.released && err == nil
 	if released {
@@ -320,13 +347,16 @@ func (b *brokerHooks) dial(id uint32, c *brokerConn) {
 // no answer, as a call of a dropped registration does. go-plugin gives
 // no such word, and the word comes on the HooksControl service, so it
 // arrives also while the broker connection is down. A dial of id still
-// under way closes its connection as it ends. An id that the engine
-// holds no connection to is ignored, so the word may come again.
+// under way closes its connection as it ends. The engine forgets that id
+// was used, since the host never names a released id again. An id that
+// the engine holds no connection to is otherwise ignored, so the word may
+// come again.
 func (b *brokerHooks) letGo(id uint32) {
 	if b == nil {
 		return
 	}
 	b.connMu.Lock()
+	delete(b.used, id)
 	c := b.conns[id]
 	ended := false
 	if c != nil {
@@ -390,9 +420,9 @@ func (b *brokerHooks) watch(id uint32, c *brokerConn, conn *grpc.ClientConn) {
 // reports whether it did. gRPC would connect again, and a run in flight
 // keeps that chance. Without one, the engine no longer holds a connection
 // to the host's listener, so the host serves a new broker id at its next
-// run with hooks: go-plugin gives an id's address once, so this one is
-// never dialled again. The host's Close, which stops its listener, ends
-// here too.
+// run with hooks: go-plugin gives an id's address once. Until the host
+// releases this id, an admission that still names it is refused at once
+// (client). The host's Close, which stops its listener, ends here too.
 func (b *brokerHooks) dropUnused(id uint32) bool {
 	b.connMu.Lock()
 	c := b.conns[id]
