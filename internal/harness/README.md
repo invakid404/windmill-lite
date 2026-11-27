@@ -73,7 +73,7 @@ the code.
 | `Spawn`, `ProcessConfig` | func, struct | Starts a harness process and shakes hands with it | `Pool`, `wltest` (`ProcessConfig` also through `PoolConfig.Process` in `wl`) |
 | `Process` | struct | One harness process or one host connection. `Execute` runs an invocation; `HostCall` asks its plugin; `Drain`, `Kill`, `Done`, `Bye`, `ExitStatus`; `Ping`, `Health`, `Hello`, `Lag`, `Load`, `Silence`, `PID`, `Dir` | `Pool`, `wl`, `wltest` |
 | `NewPool`, `PoolConfig`, `Pool` | func, struct, struct | A set of processes for one `Key`: `Execute`, `Start`, `Close`, `Stats`, `HostCall`, `Plugin`, and `PinRun`, `Unpinned`, `RunEnded`, `ForgetRun` for [pinned runs](#pinned-runs), with `Pin`, `WithPin` and `ErrPinLive`. `PoolConfig.CheckSettings` checks its size, cap, bound on live processes and recycle triggers as `NewPool` does | `wl` |
-| `RecycleTriggers` | struct | `PoolConfig.Recycle`: the resident set and the count of distinct scripts that replace a warm process ([Warm pools](#warm-pools)) | `wl` |
+| `RecycleTriggers` | struct | `PoolConfig.Recycle`: the triggers that replace a warm process: its resident set, the count of distinct scripts, how long a late host call holds an ended run unsettled, and the held age that its host plugin reports ([Warm pools](#warm-pools)) | `wl` |
 | `Key` | struct | What a pool serves: harness class, runtime pin, dependency set, module-state mode | `wl` |
 | `ProcessStats` | struct | One process's figures in `Pool.Stats` | tests |
 | `Health` | struct | A harness's health, from its heartbeat `ping` or a `pong`; `RunsHeld` counts the runs whose data it holds | tests |
@@ -1083,9 +1083,10 @@ The tests that run the real Bun harness need the pinned Bun, and the
 protocol's shared cases are in
 [conformance/protocol](../../conformance/README.md). The codec tests, the
 fake-harness tests (with their pool tests) and `TestPoolHostCall` need
-nothing else. The warm pool rules are tested on Bun (`TestBunPool*`), and
-the bound on live processes and the recycle triggers on the fake harness
-(`pool_test.go`).
+nothing else. The warm pool rules are tested on Bun (`TestBunPool*`). The
+bound on live processes and the memory and module triggers are tested on
+the fake harness (`pool_test.go`), and the unsettled-run and held-age
+triggers on Bun (`lifetime_test.go`).
 
 ### Run the tests
 
