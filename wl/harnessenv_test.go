@@ -2560,3 +2560,72 @@ func TestHarnessEnvSecretErrorPartsKeepData(t *testing.T) {
 		}
 	}
 }
+
+// TestHarnessEnvSecretInAnswer checks that a run's run-end answer, which
+// the host plugin's onRunEnd returns from its harness process, has each
+// Secret entry's value masked and is otherwise the plugin's own. The plugin
+// reads two synthetic secrets at load, one with a quote and a backslash
+// that the answer's JSON escapes, and the run's data chooses its answer: an
+// object that holds both beside plain words, the secret alone, plain words,
+// null, or warnings alone. A masked answer is valid JSON that holds the
+// mask and no secret, as written or decoded; the others are the plugin's
+// text byte for byte, null is an answer of null, and no answer stays none.
+func TestHarnessEnvSecretInAnswer(t *testing.T) {
+	bun, out, runtimeDir := harnessEnvBundle(t)
+	// The reference and its synthetic value, declared apart: on one line,
+	// the secret scan's generic rule reads the pair as a key.
+	const ref = "WL_TEST_HARNESS_ANSWER_REF"
+	const secret = "synthetic-answer-secret-3c9b"
+	const quoted = "synthetic\"answer\\secret-71"
+	t.Setenv(ref, secret)
+	plugin := filepath.Join(t.TempDir(), "plugin.ts")
+	src := `const secret = process.env.WL_TEST_SECRET ?? "";
+const quoted = process.env.WL_TEST_QUOTED ?? "";
+export default {
+  onRunEnd() {
+    const warning = { code: "ended", message: "the run ended" };
+    switch ((globalThis as any).wl.run.data?.mode) {
+      case "secrets": return { warnings: [warning], answer: { token: secret, note: "ended with " + secret, q: [quoted], kept: "plain words" } };
+      case "alone": return { answer: secret };
+      case "plain": return { warnings: [warning], answer: { ok: true, note: "nothing secret" } };
+      case "null": return { answer: null };
+    }
+    return [warning];
+  },
+};
+`
+	if err := os.WriteFile(plugin, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]EnvValue{"WL_TEST_SECRET": {ValueEnv: ref, Secret: true}, "WL_TEST_QUOTED": {Value: quoted, Secret: true}}
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, HarnessEnv: env})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	m := harness.SecretMask
+	for _, c := range []struct{ mode, want string }{
+		{"secrets", `{"token":"` + m + `","note":"ended with ` + m + `","q":["` + m + `"],"kept":"plain words"}`},
+		{"alone", `"` + m + `"`},
+		{"plain", `{"ok":true,"note":"nothing secret"}`},
+		{"null", "null"},
+		{"warnings", ""},
+	} {
+		res, err := rt.Run(context.Background(), "f/t/shared", nil, RunOptions{Data: json.RawMessage(`{"mode":"` + c.mode + `"}`)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Status != StatusSuccess || string(res.Answer) != c.want || (c.want == "") != (res.Answer == nil) {
+			t.Errorf("%s: %s with the answer %q; want success with %q", c.mode, res.Status, res.Answer, c.want)
+		}
+		var decoded any
+		if res.Answer != nil && json.Unmarshal(res.Answer, &decoded) != nil {
+			t.Errorf("%s: the answer %q is not JSON", c.mode, res.Answer)
+		}
+		for _, s := range []string{secret, quoted} {
+			if strings.Contains(string(res.Answer), s) || strings.Contains(fmt.Sprint(decoded), s) {
+				t.Errorf("%s: the answer holds a secret, as written or decoded", c.mode)
+			}
+		}
+	}
+}

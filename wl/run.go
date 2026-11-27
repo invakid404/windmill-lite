@@ -323,7 +323,8 @@ type Result struct {
 	// hooks give no answer, and neither does a script run, which calls no
 	// run-end hook. encoding/json leaves the field out when it is nil: a
 	// Result without an answer has no Answer member, and one with an answer
-	// of null has "Answer":null.
+	// of null has "Answer":null. A Secret entry's value (Options.HarnessEnv)
+	// is masked in it, as in the trace's values (maskAnswer).
 	Answer json.RawMessage `json:",omitempty"`
 }
 
@@ -642,7 +643,8 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		Warnings:       masked.Warnings,
 		Latched:        masked.Latched,
 		CancelCause:    tr.CancelCause,
-		Answer:         answer.get(),
+		// The answer is data that the host plugin's process produced.
+		Answer: maskAnswer(rt.secrets, answer.get()),
 	}, nil
 }
 

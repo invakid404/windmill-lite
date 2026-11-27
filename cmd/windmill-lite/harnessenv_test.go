@@ -150,8 +150,8 @@ func TestPluginHarnessEnvSecrets(t *testing.T) {
 // branch is the value, which the engine refuses. Otherwise it prints the
 // value, its argument rewrite for f/env/refused throws with it, and its
 // onRunEnd returns it in a warning's code and message, and, when
-// WL_TEST_NOTE is set, a second warning whose message is that. The step of
-// f/env/reveal returns it.
+// WL_TEST_NOTE is set, a second warning whose message is that, beside the
+// answer {"seen": <the value>}. The step of f/env/reveal returns it.
 var harnessEnvPluginFiles = map[string]string{
 	"wmill.yaml": "defaultTs: bun\n",
 	"f/env/echo.ts": `// Returns its argument.
@@ -172,7 +172,7 @@ const plugin: Record<string, unknown> = {
   onRunEnd() {
     const ws = [{ code: "seen " + secret, message: "run ended with " + secret }];
     if (process.env.WL_TEST_NOTE) ws.push({ code: "note", message: process.env.WL_TEST_NOTE });
-    return ws;
+    return { warnings: ws, answer: { seen: secret } };
   },
 };
 if (process.env.WL_TEST_BAD_DECLARATION === "1") plugin.haltBefore = [{ flow: "f/env/echo", module: "a", branches: [secret] }];
@@ -203,8 +203,9 @@ plugin: f/env/plugin.ts
 // that the engine masks a secret entry's value in what it passes on
 // besides a run's requested result. The bundle's host plugin prints a
 // synthetic secret at load, throws with it in an argument rewrite and
-// returns it in onRunEnd's warning: the run results hold the mask instead,
-// and so does the engine's whole standard error, read once the engine has
+// returns it in onRunEnd's warning and answer: the run results hold the
+// mask instead, the answer as the JSON {"seen":"[secret]"}, and so does the
+// engine's whole standard error, read once the engine has
 // exited. A flow whose step returns the secret has it in its result, and
 // the mask in its trace; a flow that fails with it has the mask in its
 // result, an error text, and in its trace. A plugin that throws with a
@@ -231,6 +232,9 @@ func TestPluginHarnessEnvSecretMasked(t *testing.T) {
 		text := fmt.Sprint(res)
 		if !strings.Contains(text, want) || !strings.Contains(text, "run ended with "+harness.SecretMask) || strings.Contains(text, secret) {
 			t.Errorf("the result of %s: want %q and onRunEnd's masked warning, and not the secret", path, want)
+		}
+		if answer := string(res.GetAnswer()); answer != `{"seen":"`+harness.SecretMask+`"}` {
+			t.Errorf("the answer of %s: %d bytes; want onRunEnd's with the mask", path, len(answer))
 		}
 	}
 	res := e.mustRun(t, &plugin.RunRequest{Path: "f/env/reveal", Trace: "full"})

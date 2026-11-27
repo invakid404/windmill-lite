@@ -346,6 +346,9 @@ The engine masks:
   late output, and its platform calls, their paths and queries as sent
   and as decoded. That holds for the trace that `Run` returns and for
   those and the records that hooks get;
+- a flow run's run-end answer (`Result.Answer`), a JSON value that the
+  host plugin's process produced. An answer that holds no secret stays
+  as the plugin wrote it;
 - each of those JSON values also as stored, the text that payloads and the
   requested result give, which spells numbers in plain decimal and orders
   keys its own way;
@@ -901,6 +904,8 @@ to write one.
   `{ warnings?, answer? }`, and a flow run's `Result.Answer` then holds the
   answer's JSON text, whatever the run's status
   ([the Bun harness README](../harnesses/bun/README.md#the-run-end-answer)).
+  A secret entry's value in it is masked
+  ([The harness environment](#the-harness-environment)).
   - A run has no answer when `onRunEnd` returns warnings or nothing,
     fails, gets no reply within the plugin timeout, or cannot reach a
     pinned run's process. A failure adds its `plugin_error` warning.

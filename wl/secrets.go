@@ -19,7 +19,8 @@ import (
 // The masking of a runtime's secret harness entries (EnvValue.Secret) in
 // what leaves the engine besides a run's requested result: the copies of a
 // step's arguments, results and late output in a trace and in the records
-// hooks get, the run's warnings and the errors it latched. The harness
+// hooks get, the run's warnings, the errors it latched and the host
+// plugin's run-end answer. The harness
 // processes' own output is masked in internal/harness (harness.Secrets).
 // Every function here returns its input unchanged when secrets is nil.
 
@@ -182,6 +183,17 @@ func maskValue(secrets *harness.Secrets, v jsonval.Value) jsonval.Value {
 		return v
 	}
 	return jsonval.FromProducer(masked)
+}
+
+// maskAnswer returns a run's run-end answer (Result.Answer), the JSON text
+// that the host plugin's onRunEnd returned from its harness process, with
+// each secret masked (harness.Secrets.MaskJSON): the answer itself when it
+// holds none, byte for byte, and nil, no answer, as nil.
+func maskAnswer(secrets *harness.Secrets, answer json.RawMessage) json.RawMessage {
+	if secrets == nil || answer == nil {
+		return answer
+	}
+	return secrets.MaskJSON(answer)
 }
 
 // maskWarnings returns ws with each secret masked in their codes,

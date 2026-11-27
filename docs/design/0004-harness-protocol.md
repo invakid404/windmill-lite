@@ -550,9 +550,9 @@ step, never releases them.
 - **Secrets among them.** The engine replaces each secret's value with
   `[secret]` in what it passes on besides the host's data in a requested
   result. It masks output lines and the errors that quote them, warnings,
-  latched errors, the plugin's errors, the errors in a requested result,
-  and the trace's copies of step data and platform calls. What steps and
-  hooks run with stays as it is.
+  latched errors, the plugin's errors and its run-end answer, the errors
+  in a requested result, and the trace's copies of step data and platform
+  calls. What steps and hooks run with stays as it is.
 - **Host mode** takes none: the host's environment is its own.
 
 ### Lifecycle
