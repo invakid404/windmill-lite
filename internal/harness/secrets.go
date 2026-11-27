@@ -504,17 +504,19 @@ func unhex(c byte) byte {
 // whole. It also reads the value's stored text (jsonval), which writes
 // numbers in plain decimal, strings its own way and keys in its own order,
 // and masks what that shows at the same places. What is masked becomes the
-// string SecretMask, so the text stays JSON. Key order, duplicate keys and
-// the other numbers stay as they were, and the result is written compactly:
-// each key, and each value with no secret, keeps its tokens as written, its
-// escapes included, so keys that decode alike, such as lone surrogates,
-// stay apart; a key or string in which a secret was found is written from
-// its decoded form.
+// string SecretMask, so the text stays JSON. The result is written
+// compactly. Unless it is the stored text (below), key order, duplicate keys
+// and the other numbers stay as they were: each key, and each value with no
+// secret, keeps its tokens as written, its escapes included, so keys that
+// decode alike, such as lone surrogates, stay apart; a key or string in
+// which a secret was found is written from its decoded form, also when its
+// mask reads as the text did.
 // Masking can make a secret where there was none, as when a masked number's
 // quote meets the next token, or a masked key moves in the stored order: the
 // masked text is read again, as it is and as stored, and masked again until
 // a round changes nothing; the result is the stored text when that is where
-// one showed. A selected part masked whole whose mask then meets the data
+// one showed, and then each token is as the stored text writes it: numbers
+// in plain decimal, strings its own way, keys in its order. A selected part masked whole whose mask then meets the data
 // beside it in a secret is written as null instead, and if a secret still
 // crosses its edge, the smallest object or array around both is masked, and
 // its edges are read in turn. The rounds pass over a secret wholly inside a
@@ -786,11 +788,23 @@ func (s *Secrets) maskOnce(text []byte, pointers []string, again bool) ([]byte, 
 	// The marks lie in the parts, and in an object or array around a part
 	// that a crossing secret gave way to (cross).
 	found := root.flagMarks()
-	if !root.apply() {
-		return text, found, up
+	changed := root.apply()
+	if !found {
+		return text, false, up
 	}
 	var b bytes.Buffer
 	root.write(&b, text)
+	// A secret was found, but each mask may read as the text did, as when
+	// the escapes of a key or string spell the secret and decode to the mask
+	// itself. What was found is written from its decoded form all the same,
+	// so the text as written changes; only when nothing but the spaces
+	// between tokens would change does the text return as it was.
+	if !changed {
+		var c bytes.Buffer
+		if json.Compact(&c, text) == nil && bytes.Equal(c.Bytes(), b.Bytes()) {
+			return text, found, up
+		}
+	}
 	return b.Bytes(), found, up
 }
 

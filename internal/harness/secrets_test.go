@@ -417,6 +417,49 @@ func TestMaskJSONKeepsTokens(t *testing.T) {
 	}
 }
 
+// TestMaskJSONMasksAnEscapedMask checks a secret whose characters are the
+// escape that spells the mask in JSON: a backslash, then u005bsecret], which
+// a key or string decodes to [secret], so that its mask reads as the text
+// did. A lone key, a lone string value and a string alone, each with nothing
+// beside it that masking changes, are written again from their decoded
+// form, and the secret as written is gone. A value that holds the mask as
+// plain text, and no secret, stays byte for byte, spaces and all, and so
+// does one whose secret is the mask itself, which masking would only
+// write without its spaces.
+func TestMaskJSONMasksAnEscapedMask(t *testing.T) {
+	esc := "\x5cu005bsecret]" // \x5c is a backslash
+	s := NewSecrets([]string{esc})
+	for _, c := range []struct{ what, in, want string }{
+		{"a lone key", `{"` + esc + `":1}`, `{"[secret]":1}`},
+		{"a lone value", `{"a":"` + esc + `"}`, `{"a":"[secret]"}`},
+		{"a string alone", `"` + esc + `"`, `"[secret]"`},
+		{"the mask as plain text", `{ "a" : "[secret]" }`, `{ "a" : "[secret]" }`},
+	} {
+		got := string(s.MaskJSON([]byte(c.in)))
+		if got != c.want || strings.Contains(got, esc) {
+			t.Errorf("%s: MaskJSON(%q) = %q; want %q", c.what, c.in, got, c.want)
+		}
+	}
+	const spaced = `{ "a" : "[secret]" }`
+	if got := string(NewSecrets([]string{SecretMask}).MaskJSON([]byte(spaced))); got != spaced {
+		t.Errorf("the mask as the secret: MaskJSON(%q) = %q; want it as it was", spaced, got)
+	}
+}
+
+// TestMaskJSONStoredTextResult checks the result when a secret shows only in
+// the value's stored text: there, read compactly, 1e-7 is spelled
+// 0.0000001 and the line separator U+2028, which the value holds as a raw
+// character, as its escape. The value that returns is the stored text,
+// masked: the inner array is the mask, and the number beside it, which holds
+// no secret, reads as the stored text writes it, 0.00000001.
+func TestMaskJSONStoredTextResult(t *testing.T) {
+	s := NewSecrets([]string{"0.0000001,\"\x5cu2028"})
+	in := "[1e-8,[1e-7,\"\xe2\x80\xa8\"]]" // \xe2\x80\xa8 is U+2028 in UTF-8
+	if got, want := string(s.MaskJSON([]byte(in))), `[0.00000001,"[secret]"]`; got != want {
+		t.Errorf("MaskJSON(%q) = %q; want %q", in, got, want)
+	}
+}
+
 // TestMaskJSONRepeatsInsideMasks checks that a string that repeats a secret
 // which the mask itself holds is masked with allocations in proportion to
 // its length, the rounds passing over the secret inside each of its masks:

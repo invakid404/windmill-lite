@@ -364,7 +364,13 @@ The engine masks:
 A JSON value that masking changes is written compactly. What it found no
 secret in keeps its tokens as written, escapes included, so that two keys
 that decode alike, such as lone surrogates, stay apart. A key or string
-that held a secret is written from its decoded text.
+that held a secret is written from its decoded text, also when its mask
+reads as before.
+
+A secret can show only in the value's stored text, such as across a
+number that the stored text spells in plain decimal. The value that
+returns is then that text, masked, so each of its tokens is as jsonval
+stores it: `1e-8` reads `0.00000001`, and keys are in its order.
 
 Masking can make a secret, as when a mask's quote meets the next token.
 So the masked value is read again, as it is and as stored, until a round
