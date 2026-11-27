@@ -391,6 +391,32 @@ func TestMaskJSONGuardKeepsOtherData(t *testing.T) {
 	}
 }
 
+// TestMaskJSONKeepsTokens checks that MaskJSON, where it masks a part of a
+// value, writes the rest with its tokens as written, but for the spaces
+// between them: escapes in strings and keys, two keys that are lone
+// surrogates, which decoding makes alike, a number in its own notation. A
+// key and a string in which a secret was found are written from their
+// decoded form, escapes and all. It checks that for a round of masking, and
+// for the guard at the bound of rounds, which masks a part whole.
+func TestMaskJSONKeepsTokens(t *testing.T) {
+	s := NewSecrets([]string{"synthetic-kept"})
+	for _, c := range []struct{ in, want string }{
+		{`{ "\ud800" : "\udfff" , "\ud801" : [ 1e3 , "A" ] , "t" : "synthetic-kept" }`, `{"\ud800":"\udfff","\ud801":[1e3,"A"],"t":"[secret]"}`},
+		{`{"Asynthetic-kept":"A","b":"x\/y"}`, `{"A[secret]":"A","b":"x\/y"}`},
+		{`["A", "synthetic-kept"]`, `["A","[secret]"]`},
+	} {
+		if got := string(s.MaskJSON([]byte(c.in))); got != c.want {
+			t.Errorf("MaskJSON(%s) = %s; want %s", c.in, got, c.want)
+		}
+	}
+	defer func(n int) { maskRounds = n }(maskRounds)
+	maskRounds = 0
+	text := `[{"k":"synthetic-kept"}, "A", {"\ud800":1,"\ud801":2}]`
+	if got, want := string(s.MaskJSONAt([]byte(text), []string{"/0"})), `["[secret]","A",{"\ud800":1,"\ud801":2}]`; got != want {
+		t.Errorf("the guard on %s: %s; want %s", text, got, want)
+	}
+}
+
 // TestMaskJSONRepeatsInsideMasks checks that a string that repeats a secret
 // which the mask itself holds is masked with allocations in proportion to
 // its length, the rounds passing over the secret inside each of its masks:

@@ -272,7 +272,7 @@ A `RunResult` holds:
 | `latched` | A latched run's error ([H5](0008-host-hooks.md#the-hooks)) |
 | `warnings`, `deviations` | The run's warnings, and the deviations of its trace |
 | `trace` | The trace at the level that the request asked for |
-| `answer` | For a flow run, the run-end answer of the bundle's host plugin: the JSON text of the answer that its `onRunEnd` returned. Empty means no answer, and the text `null` an answer of JSON null ([harness protocol](0004-harness-protocol.md#host-plugins) item 10) |
+| `answer` | For a flow run, the run-end answer of the bundle's host plugin: the JSON text of the answer that its `onRunEnd` returned. Empty means no answer, and the text `null` an answer of JSON null, unless a secret entry of `harness_env` masked it ([harness protocol](0004-harness-protocol.md#host-plugins) item 10) |
 
 - **JSON values.** Arguments, results, run data, selectors and the trace
   are JSON text in `bytes` fields, which neither side decodes to pass on

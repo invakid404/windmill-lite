@@ -1063,6 +1063,9 @@ answered by a `host_reply`.
       mean it. An absent field is none, and every layer writes none so: no
       `answer` in the reply and in `run_done`, an empty `answer` in a
       `RunResult`, whose JSON text is never empty, and `nil` in Go.
+    - **Masked null.** A secret entry of the host's variables is masked in
+      an answer, so an answer of `null` whose text holds a secret becomes
+      the string `[secret]`: still an answer, never none.
     - **No answer** comes from a hook that fails, gets no reply within the
       plugin timeout (item 2), or cannot reach a pinned run's process; its
       `plugin_error` warning says why. A reply that comes after the engine

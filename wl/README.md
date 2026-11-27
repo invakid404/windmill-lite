@@ -348,7 +348,9 @@ The engine masks:
   those and the records that hooks get;
 - a flow run's run-end answer (`Result.Answer`), a JSON value that the
   host plugin's process produced. An answer that holds no secret stays
-  as the plugin wrote it;
+  as the plugin wrote it. An answer of `null` whose text holds a secret,
+  such as one of `ull`, becomes the string `[secret]`: it is still an
+  answer, never none;
 - each of those JSON values also as stored, the text that payloads and the
   requested result give, which spells numbers in plain decimal and orders
   keys its own way;
@@ -358,6 +360,11 @@ The engine masks:
   a secret still shows, compactly or as written with any spaces around it.
   That is a number, the part of a string or key under it, such as a quoted
   secret, or an object or array across its tokens.
+
+A JSON value that masking changes is written compactly. What it found no
+secret in keeps its tokens as written, escapes included, so that two keys
+that decode alike, such as lone surrogates, stay apart. A key or string
+that held a secret is written from its decoded text.
 
 Masking can make a secret, as when a mask's quote meets the next token.
 So the masked value is read again, as it is and as stored, until a round
@@ -610,7 +617,7 @@ A script run uses only `Kind`, `ID`, `Identity`, `Data`, `Pin` and
 | `Latched` | For a `latched` run, the error that was latched |
 | `CancelCause` | For a `canceled` run, why it was canceled (table below); empty otherwise |
 | `Started` | For a script run, `true` once the script's invocation was sent to a harness process, whose writes windmill-lite cannot see. `false` when the script never ran, such as on a cache hit or a deadline that passed before the send. A flow run leaves it `false`. |
-| `Answer` | For a flow run, the JSON text of the run-end answer that the host plugin's `onRunEnd` returned ([Host plugins](#host-plugins)). `nil` means no answer, and the text `null` an answer of JSON null. `encoding/json` leaves a `nil` answer out. |
+| `Answer` | For a flow run, the JSON text of the run-end answer that the host plugin's `onRunEnd` returned ([Host plugins](#host-plugins)). `nil` means no answer, and the text `null` an answer of JSON null, unless a secret entry's mask changed it ([Host plugins](#host-plugins)). `encoding/json` leaves a `nil` answer out. |
 
 | Status | Constant | Meaning |
 |---|---|---|
@@ -905,7 +912,8 @@ to write one.
   answer's JSON text, whatever the run's status
   ([the Bun harness README](../harnesses/bun/README.md#the-run-end-answer)).
   A secret entry's value in it is masked
-  ([The harness environment](#the-harness-environment)).
+  ([The harness environment](#the-harness-environment)), which can turn
+  an answer of `null` into a string, but never into none.
   - A run has no answer when `onRunEnd` returns warnings or nothing,
     fails, gets no reply within the plugin timeout, or cannot reach a
     pinned run's process. A failure adds its `plugin_error` warning.

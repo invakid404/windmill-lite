@@ -324,7 +324,9 @@ type Result struct {
 	// run-end hook. encoding/json leaves the field out when it is nil: a
 	// Result without an answer has no Answer member, and one with an answer
 	// of null has "Answer":null. A Secret entry's value (Options.HarnessEnv)
-	// is masked in it, as in the trace's values (maskAnswer).
+	// is masked in it, as in the trace's values (maskAnswer). So an answer
+	// of null whose text holds a secret, such as one of ull, is the string
+	// "[secret]": still an answer, never nil.
 	Answer json.RawMessage `json:",omitempty"`
 }
 

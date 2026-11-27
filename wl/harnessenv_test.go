@@ -2567,9 +2567,15 @@ func TestHarnessEnvSecretErrorPartsKeepData(t *testing.T) {
 // reads two synthetic secrets at load, one with a quote and a backslash
 // that the answer's JSON escapes, and the run's data chooses its answer: an
 // object that holds both beside plain words, the secret alone, plain words,
-// null, or warnings alone. A masked answer is valid JSON that holds the
-// mask and no secret, as written or decoded; the others are the plugin's
-// text byte for byte, null is an answer of null, and no answer stays none.
+// null, warnings alone, or the secret beside two keys that are lone
+// surrogates, which JSON.stringify escapes and decoding would make alike,
+// one with a lone surrogate as its value. A masked answer is valid JSON
+// that holds the mask and no secret, as written or decoded, and what
+// masking left keeps its tokens: the two keys stay apart, with their values
+// as written. The others are the plugin's text byte for byte,
+// null is an answer of null, and no answer stays none. With a secret that
+// the text null holds, an answer of null is masked to a string, and warnings
+// alone still give no answer.
 func TestHarnessEnvSecretInAnswer(t *testing.T) {
 	bun, out, runtimeDir := harnessEnvBundle(t)
 	// The reference and its synthetic value, declared apart: on one line,
@@ -2589,6 +2595,7 @@ export default {
       case "alone": return { answer: secret };
       case "plain": return { warnings: [warning], answer: { ok: true, note: "nothing secret" } };
       case "null": return { answer: null };
+      case "surrogates": return { answer: { "\ud800": "\udfff", "\ud801": 2, token: secret } };
     }
     return [warning];
   },
@@ -2597,35 +2604,52 @@ export default {
 	if err := os.WriteFile(plugin, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	env := map[string]EnvValue{"WL_TEST_SECRET": {ValueEnv: ref, Secret: true}, "WL_TEST_QUOTED": {Value: quoted, Secret: true}}
-	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, HarnessEnv: env})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rt.Close()
 	m := harness.SecretMask
-	for _, c := range []struct{ mode, want string }{
-		{"secrets", `{"token":"` + m + `","note":"ended with ` + m + `","q":["` + m + `"],"kept":"plain words"}`},
-		{"alone", `"` + m + `"`},
-		{"plain", `{"ok":true,"note":"nothing secret"}`},
-		{"null", "null"},
-		{"warnings", ""},
+	for _, r := range []struct {
+		name    string
+		env     map[string]EnvValue
+		secrets []string
+		cases   []struct{ mode, want string }
+	}{
+		{"two secrets", map[string]EnvValue{"WL_TEST_SECRET": {ValueEnv: ref, Secret: true}, "WL_TEST_QUOTED": {Value: quoted, Secret: true}}, []string{secret, quoted}, []struct{ mode, want string }{
+			{"secrets", `{"token":"` + m + `","note":"ended with ` + m + `","q":["` + m + `"],"kept":"plain words"}`},
+			{"alone", `"` + m + `"`},
+			{"plain", `{"ok":true,"note":"nothing secret"}`},
+			{"null", "null"},
+			{"warnings", ""},
+			{"surrogates", `{"\ud800":"\udfff","\ud801":2,"token":"` + m + `"}`},
+		}},
+		// The secret "ull" is in the text null: that answer is masked, and it
+		// stays an answer.
+		{"a secret in null", map[string]EnvValue{"WL_TEST_SECRET": {Value: "ull", Secret: true}}, []string{"ull"}, []struct{ mode, want string }{
+			{"null", `"` + m + `"`},
+			{"warnings", ""},
+		}},
 	} {
-		res, err := rt.Run(context.Background(), "f/t/shared", nil, RunOptions{Data: json.RawMessage(`{"mode":"` + c.mode + `"}`)})
+		rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, HarnessEnv: r.env})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if res.Status != StatusSuccess || string(res.Answer) != c.want || (c.want == "") != (res.Answer == nil) {
-			t.Errorf("%s: %s with the answer %q; want success with %q", c.mode, res.Status, res.Answer, c.want)
-		}
-		var decoded any
-		if res.Answer != nil && json.Unmarshal(res.Answer, &decoded) != nil {
-			t.Errorf("%s: the answer %q is not JSON", c.mode, res.Answer)
-		}
-		for _, s := range []string{secret, quoted} {
-			if strings.Contains(string(res.Answer), s) || strings.Contains(fmt.Sprint(decoded), s) {
-				t.Errorf("%s: the answer holds a secret, as written or decoded", c.mode)
+		for _, c := range r.cases {
+			res, err := rt.Run(context.Background(), "f/t/shared", nil, RunOptions{Data: json.RawMessage(`{"mode":"` + c.mode + `"}`)})
+			if err != nil {
+				t.Fatal(err)
 			}
+			if res.Status != StatusSuccess || string(res.Answer) != c.want || (c.want == "") != (res.Answer == nil) {
+				t.Errorf("%s, %s: %s with the answer %q; want success with %q", r.name, c.mode, res.Status, res.Answer, c.want)
+			}
+			var decoded any
+			if res.Answer != nil && json.Unmarshal(res.Answer, &decoded) != nil {
+				t.Errorf("%s, %s: the answer %q is not JSON", r.name, c.mode, res.Answer)
+			}
+			for _, s := range r.secrets {
+				if strings.Contains(string(res.Answer), s) || strings.Contains(fmt.Sprint(decoded), s) {
+					t.Errorf("%s, %s: the answer holds a secret, as written or decoded", r.name, c.mode)
+				}
+			}
+		}
+		if err := rt.Close(); err != nil {
+			t.Fatal(err)
 		}
 	}
 }

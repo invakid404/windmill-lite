@@ -505,7 +505,11 @@ func unhex(c byte) byte {
 // numbers in plain decimal, strings its own way and keys in its own order,
 // and masks what that shows at the same places. What is masked becomes the
 // string SecretMask, so the text stays JSON. Key order, duplicate keys and
-// the other numbers stay as they were, and the result is written compactly.
+// the other numbers stay as they were, and the result is written compactly:
+// each key, and each value with no secret, keeps its tokens as written, its
+// escapes included, so keys that decode alike, such as lone surrogates,
+// stay apart; a key or string in which a secret was found is written from
+// its decoded form.
 // Masking can make a secret where there was none, as when a masked number's
 // quote meets the next token, or a masked key moves in the stored order: the
 // masked text is read again, as it is and as stored, and masked again until
@@ -673,11 +677,12 @@ func wholeParts(text []byte, pointers []string, null bool) []byte {
 	}
 	for _, n := range root.parts(pointers) {
 		if n.mask(); null {
-			*n = jnode{kind: 'l', text: "null"}
+			*n = jnode{kind: 'l', text: "null", replaced: true}
 		}
 	}
+	root.flagMarks()
 	var b bytes.Buffer
-	root.write(&b)
+	root.write(&b, text)
 	return b.Bytes()
 }
 
@@ -785,7 +790,7 @@ func (s *Secrets) maskOnce(text []byte, pointers []string, again bool) ([]byte, 
 		return text, found, up
 	}
 	var b bytes.Buffer
-	root.write(&b)
+	root.write(&b, text)
 	return b.Bytes(), found, up
 }
 
@@ -826,7 +831,7 @@ func (n *jnode) at(ptr string) *jnode {
 // SecretMask is what a reader sees in place of a secret; a secret that it
 // holds, such as cre or ]", shows in it and is not masked again (maskJSON).
 func (n *jnode) mask() {
-	*n = jnode{kind: 's', text: SecretMask, src: n.src, start: n.start, end: n.end}
+	*n = jnode{kind: 's', text: SecretMask, src: n.src, start: n.start, end: n.end, replaced: true}
 }
 
 // holds reports whether text holds one of the strings to mask.
@@ -859,6 +864,11 @@ type jnode struct {
 	spans    [][2]int
 	keySpans map[int][][2]int
 	marked   bool
+	// replaced is set when n is a mask or a null written in place of what
+	// was there, and keyFound holds the index of each key in which masking
+	// found something (apply): write gives what neither covers as written.
+	replaced bool
+	keyFound map[int]bool
 }
 
 // cross records a secret oc in buf that crosses the edge of n, a part
@@ -907,7 +917,7 @@ func (n *jnode) markUp(a, b int, compact bool) string {
 // flagMarks sets marked on n and each of its parts where masking found
 // something, and reports n's.
 func (n *jnode) flagMarks() bool {
-	n.marked = n.all || n.null || len(n.spans) > 0 || len(n.keySpans) > 0
+	n.marked = n.all || n.null || n.replaced || len(n.spans) > 0 || len(n.keySpans) > 0
 	for _, k := range n.kids {
 		if k.flagMarks() {
 			n.marked = true
@@ -1075,8 +1085,20 @@ func decimalOf(s string) (decimal, bool) {
 	return d, true
 }
 
-// write writes n as JSON, compact.
-func (n *jnode) write(b *bytes.Buffer) {
+// write writes n as JSON, compact. A part in which masking found nothing
+// and replaced nothing (flagMarks, replaced), and each key in which it found
+// nothing, is written as its source text src holds it: its tokens byte for
+// byte, without the spaces between them. So their escapes stay, and two
+// keys that decode alike, such as two lone surrogates that decoding makes
+// U+FFFD, stay apart. What masking replaced, or found something in, is
+// written from its decoded form.
+func (n *jnode) write(b *bytes.Buffer, src []byte) {
+	if n.src && !n.marked && !n.replaced && n.end <= len(src) {
+		// The span is one whole value, so Compact cannot fail on it.
+		if json.Compact(b, src[n.start:n.end]) == nil {
+			return
+		}
+	}
 	switch n.kind {
 	case '{', '[':
 		b.WriteByte(n.kind)
@@ -1085,10 +1107,14 @@ func (n *jnode) write(b *bytes.Buffer) {
 				b.WriteByte(',')
 			}
 			if n.kind == '{' {
-				writeJSONString(b, n.keys[i])
+				if ks := n.keySrc; i < len(ks) && !n.keyFound[i] && ks[i][1] <= len(src) {
+					b.Write(src[ks[i][0]:ks[i][1]])
+				} else {
+					writeJSONString(b, n.keys[i])
+				}
 				b.WriteByte(':')
 			}
-			k.write(b)
+			k.write(b, src)
 		}
 		if n.kind == '{' {
 			b.WriteByte('}')
@@ -1378,7 +1404,7 @@ func insideAny(a, b int, regions [][2]int) bool {
 // whether it changed n.
 func (n *jnode) apply() bool {
 	if n.null {
-		*n = jnode{kind: 'l', text: "null", src: n.src, start: n.start, end: n.end}
+		*n = jnode{kind: 'l', text: "null", src: n.src, start: n.start, end: n.end, replaced: true}
 		return true
 	}
 	if n.all {
@@ -1392,6 +1418,12 @@ func (n *jnode) apply() bool {
 		}
 	}
 	for i, sp := range n.keySpans {
+		// A key in which a secret was found is written again even when its
+		// mask reads as before: its escapes may spell the secret.
+		if n.keyFound == nil {
+			n.keyFound = map[int]bool{}
+		}
+		n.keyFound[i] = true
 		if m := replaceSpans(n.keys[i], mergeSpans(sp), nil, SecretMask); m != n.keys[i] {
 			n.keys[i], changed = m, true
 		}
