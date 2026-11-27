@@ -599,9 +599,9 @@ sequenceDiagram
    also while the harness's event loop is stuck. Elsewhere, as on macOS, it
    exits when its connection to the engine ends, and only while its event
    loop runs.
-   - The signal reaches the harness process alone, and bounds none of the
-     processes that its steps started: they outlive it, whatever process
-     group they are in.
+   - The signal reaches the harness process alone. The processes that its
+     steps started can outlive it, whatever process group they are in: the
+     tie gives them no bound.
 
 **Loading on Bun 1.4.3.** Bun 1.4.3 evaluates a module that `import()`
 loads outside every async context, and one that `require()` loads inside
@@ -707,8 +707,10 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
   each process tripped, the memory and module triggers included.
 - **Lines are best effort.** While either trigger is set, every pool line,
   a failed start's included, is written off the pool's lock. Past a bound
-  of lines that wait for the writer, one is dropped. The next line counts
-  the drops, without their process or trigger.
+  of lines that wait for the writer, which every pool of the program
+  shares, one is dropped, and the next line counts the drops, without
+  their process or trigger. A failed start's report to a Go host's callback does
+  not wait for its line.
 - **Overlap.** A replacement runs beside the process it replaces until that
   process leaves, which waits for its steps in flight. While one process
   leaves for a recycle trigger, memory or module count alike, another that

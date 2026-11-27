@@ -1050,14 +1050,16 @@ func (rt *Runtime) BuildInfo() BuildInfo {
 type ProcessHealth struct {
 	// PID is the process's id.
 	PID int
-	// Serving is set while the pool routes new work to the process: the
-	// steps of runs that are not pinned, and new pins. It is unset while an
-	// abandoned step of its own still runs, which can end and put the
-	// process back in service; while the pool has more processes than it
-	// needs; and while it leaves for a recycle trigger. A run pinned to it
-	// before keeps starting steps there either way. So an unset Serving
-	// promises neither that no more steps start there nor that the process
-	// exits soon.
+	// Serving is set while the pool's ordinary routing may give the
+	// process new work: the steps of runs that are not pinned, and new
+	// pins. It is unset while an abandoned step of its own still runs,
+	// while the pool has more processes than it needs, and while the
+	// process leaves for a recycle trigger. A process whose abandoned
+	// steps have all ended serves again only if the pool is short of its
+	// maximum without it; otherwise it drains. A live run pinned to the
+	// process keeps starting steps there whatever Serving says. So an unset
+	// Serving promises neither that no more steps start there nor that the
+	// process exits soon.
 	Serving bool
 	// Recycle names the recycle trigger that the process tripped
 	// (PoolOptions.Recycle): "rss", "modules", "unsettled_run" or

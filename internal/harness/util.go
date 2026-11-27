@@ -107,6 +107,13 @@ type killLineBudget struct {
 // other one.
 var runtimeKillLines = &killLineBudget{max: maxPendingKillLines}
 
+// poolLineBudget bounds the pool lines that wait for their diagnostics
+// writers (Pool.poolLine), across every pool in the program: a host that
+// opens pool after pool while its writer stays blocked, as when each
+// fails to start, holds at most that many goroutines, however many pools
+// it opened or closed.
+var poolLineBudget = &killLineBudget{max: maxPendingKillLines, noun: "pool lines", whole: true}
+
 // write writes line to d on a goroutine of its own, or drops it when the
 // budget's maximum of lines is already waiting.
 func (b *killLineBudget) write(d *diagnostics, line string) {

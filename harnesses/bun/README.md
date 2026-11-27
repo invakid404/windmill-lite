@@ -761,8 +761,9 @@ resource that it still holds after that resource's run ended.
   with the plugin as `this`, at every health report, at once and outside
   every run, and sends the whole milliseconds as `held_age_ms`. `undefined`
   or 0 reports nothing.
-- **Host mode** neither checks nor calls it, and its `health()` has no
-  `held_age_ms`: a host's own process is not a warm pool's.
+- **Host mode** neither reads, checks nor calls it, and its `health()` has
+  no `held_age_ms`: a host's own process is not a warm pool's. So an
+  accessor of a host's own by that name never runs.
 - **Its type.** `heldAge` belongs to `SpawnedPlugin`, a `Plugin` with this
   member, which the host SDK exports. A host's `Plugin` has no such
   member, so a host's plugin keeps a member of its own by that name, of
@@ -1646,6 +1647,7 @@ cd harnesses/bun && bun test
 | `test/fence.test.ts` | The settle-time fence: timers and `refresh()`, the fetch view and the evidence that ends a transfer, the log view, the `Bun.env` write trap, children's environment, and their process groups |
 | `test/plugin.test.ts` | Host plugins: the declaration, its trace detail, each hook's answer, the `unknown_hook` and `plugin_error` refusals, and the answer in the run's scope. What `onRunEnd` may return, values outside a `RunEnd`, an answer read and serialised once, a reply over `max_message`, and `run_done`'s answer in a run's outcome. A run's data as `wl.run.data` until `run_released`: two runs of one id apart, a continuation's late read, and the end of the connection. `heldAge` in health reports, and its failures |
 | `test/host.test.ts` | The SDK: the shared working-directory cases (`conformance/protocol/host/workdir.json`) through `checkWorkdir`, the shared version cases (`versions.json`) through `versionsPair`, the refusals before the engine starts, the assets, a run's `onSettled` in its own scope, and the run frame's selectors, halts and deadlines. `test/argsengine.ts`, a stand-in engine, records the flags that `resourceStore` passes, and whether its `WL_REDIS_URL` is set and equals the expected URL. With the variable unset and set in the test, the URL reaches the engine's environment, never its arguments. |
+| `test/host.test.ts`, a plugin's `heldAge` | A bundle's host plugin whose `heldAge` is an accessor that throws connects, and the accessor never runs: host mode does not read it. |
 | `test/host.test.ts`, the collect trigger | Hosts that `test/heartbeatengine.ts` welcomes, mostly with a 10 ms heartbeat, with a stand-in for `Bun.gc`. The tests check the mark, the cooldown, the counters, failed collections and the `options` refusals. For the default policy, `"idle"`, they check its waits for runs, steps and the quiet period, and how `close()` and an engine exit clear its timer. They also check `"heartbeat"`, the recycle triggers left as they are, and when the heartbeat observer runs. |
 | `test/load.test.ts` | How a step module is evaluated: the caller's context at an ES module's top level, its static imports and a CommonJS module, after a top-level `await`, `import()`'s namespace, one evaluation, and a failure's own error |
 | `test/testing.test.ts` | The test entry against the runtime: timers by kind, the process scope and its control, sequential, nested and concurrent steps, a returned thenable, the invocation query, a throw, other async-context stores, and the step API |

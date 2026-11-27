@@ -463,9 +463,9 @@ when the engine's process ends, also while its event loop is stuck
 it exits when its connection to the engine ends only if its event loop
 still runs, so a killed engine can leave a wedged one running.
 
-The signal reaches the harness process alone, and bounds none of the
-processes that steps start: whatever process group they are in, they
-outlive it on every system and run on beside the next generation. A host
+The signal reaches the harness process alone. The processes that steps
+start can outlive it on every system, whatever process group they are in,
+and run on beside the next generation: the tie gives them no bound. A host
 that needs a bound on them too gives each generation a cgroup of its own,
 on Linux, and kills it whole.
 

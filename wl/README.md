@@ -477,13 +477,16 @@ there.
   It holds the process's `PID`, the `HeldAge` that its host plugin last
   reported, and in `Recycle` the trigger that it tripped: `rss`, `modules`,
   `unsettled_run` or `held_age`.
-- **`Serving`** says whether the pool routes new work to the process now.
-  It promises neither its exit nor an end to its steps. An abandoned step
-  that ends puts the process back in service, and a run pinned to it keeps
-  starting steps there.
+- **`Serving`** says whether the pool's ordinary routing may give the
+  process new work now. It promises neither its exit nor an end to its
+  steps: a live run pinned to it keeps starting steps there. A process out
+  of service for an abandoned step serves again only once its last such
+  step ends and the pool is short of its maximum without it; otherwise it
+  drains.
 - **A process that trips the last two** also writes a line to
   `Diagnostics` that names the bound. The line is best effort: one that
-  would wait behind 64 others is dropped, and a later line only counts it.
+  would wait behind 64 others, of any pool, is dropped, and a later line
+  only counts it.
 
 #### Pinned runs
 

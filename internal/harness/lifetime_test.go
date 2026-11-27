@@ -310,10 +310,10 @@ export default {
 	}
 }
 
-// tripGateWriter is a diagnostics writer that blocks each write holding hold
-// until release closes, and tells blocked once one waits.
+// tripGateWriter is a diagnostics writer that blocks each write holding
+// one of hold until release closes, and tells blocked once one waits.
 type tripGateWriter struct {
-	hold    string
+	hold    []string
 	release chan struct{}
 	blocked chan struct{}
 	once    sync.Once
@@ -321,9 +321,12 @@ type tripGateWriter struct {
 }
 
 func (w *tripGateWriter) Write(b []byte) (int, error) {
-	if strings.Contains(string(b), w.hold) {
-		w.once.Do(func() { close(w.blocked) })
-		<-w.release
+	for _, h := range w.hold {
+		if strings.Contains(string(b), h) {
+			w.once.Do(func() { close(w.blocked) })
+			<-w.release
+			break
+		}
 	}
 	return w.buf.Write(b)
 }
@@ -333,8 +336,10 @@ func (w *tripGateWriter) Write(b []byte) (int, error) {
 // A process trips the held-age trigger, and then its replacement:
 //   - starts: the replacement takes its place, and the pool answers;
 //   - fails to start, as its program is gone: the failure is still
-//     reported (OnStartFailure), and the pool answers, though the failure's
-//     own line waits behind the trip's.
+//     reported (OnStartFailure), and the pool answers. The writer blocks
+//     the failure's line as well as the trip's, so whichever of the two
+//     reaches it first, a line written under the pool's mutex would hold
+//     the pool up.
 //
 // Once the writer goes on, the trip's line comes.
 func TestPoolTripLineDoesNotHoldThePool(t *testing.T) {
@@ -360,7 +365,11 @@ export default { heldAge: () => Number(readFileSync(%q, "utf8")) };
 			if err := os.Symlink(program, cfg.Path); err != nil {
 				t.Fatal(err)
 			}
-			w := &tripGateWriter{hold: "leaves the pool", release: make(chan struct{}), blocked: make(chan struct{})}
+			hold := []string{"leaves the pool"}
+			if fails {
+				hold = append(hold, "starting a process failed")
+			}
+			w := &tripGateWriter{hold: hold, release: make(chan struct{}), blocked: make(chan struct{})}
 			cfg.Diagnostics = w
 			failed := make(chan error, 1)
 			pool := lifetimePoolWith(t, cfg, src, RecycleTriggers{HeldAge: 2 * time.Minute}, nil, func(pc *PoolConfig) {
@@ -392,7 +401,7 @@ export default { heldAge: () => Number(readFileSync(%q, "utf8")) };
 			select {
 			case <-w.blocked:
 			case <-time.After(10 * time.Second):
-				t.Fatal("the trip's line never reached the writer")
+				t.Fatal("no line of the pool reached the writer")
 			}
 			if fails {
 				select {
@@ -426,6 +435,60 @@ export default { heldAge: () => Number(readFileSync(%q, "utf8")) };
 			})
 		})
 	}
+}
+
+// TestPoolLinesBoundAcrossPools checks that the pool lines that wait for a
+// blocked diagnostics writer are bounded across pools, not per pool. A
+// host opens pool after pool with a held-age trigger set, each failing to
+// start, as its program is gone, while its writer blocks every failed
+// start's line. Each Start fails and each Close returns, whatever the
+// writer does. Once the writer goes on, it gets maxPendingKillLines of
+// those lines, not one for each pool, and the next line counts the drops.
+func TestPoolLinesBoundAcrossPools(t *testing.T) {
+	cfg, _ := bunConfig(t)
+	cfg.Path = filepath.Join(t.TempDir(), "gone")
+	const line = "starting a process failed"
+	w := &tripGateWriter{hold: []string{line}, release: make(chan struct{}), blocked: make(chan struct{})}
+	t.Cleanup(func() {
+		select {
+		case <-w.release:
+		default:
+			close(w.release)
+		}
+	})
+	cfg.Diagnostics = w
+	open := func() {
+		t.Helper()
+		pool, err := NewPool(PoolConfig{Process: cfg, Recycle: RecycleTriggers{HeldAge: time.Minute}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := pool.Start(ctx); err == nil || !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("Start with its program gone: %v", err)
+		}
+		if err := pool.Close(ctx); err != nil {
+			t.Fatalf("Close while the writer blocks: %v", err)
+		}
+	}
+	pools := int(maxPendingKillLines) + 6
+	for range pools {
+		open()
+	}
+	close(w.release)
+	waitFor(t, "the waiting lines once the writer goes on", func() bool {
+		return strings.Count(w.buf.String(), line) >= int(maxPendingKillLines)
+	})
+	// Lines past the bound would come by now: they were never dropped.
+	time.Sleep(200 * time.Millisecond)
+	if n := strings.Count(w.buf.String(), line); n != int(maxPendingKillLines) {
+		t.Fatalf("the writer got %d failed starts' lines from %d pools; want the bound, %d", n, pools, maxPendingKillLines)
+	}
+	open()
+	waitFor(t, "the next line, which counts the drops", func() bool {
+		return strings.Contains(w.buf.String(), fmt.Sprintf("earlier pool lines were dropped while %d waited for blocked diagnostics writers", maxPendingKillLines))
+	})
 }
 
 // TestPoolHeldAgeRejectedPromise checks that a heldAge that answers a

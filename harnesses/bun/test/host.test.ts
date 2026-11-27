@@ -218,6 +218,24 @@ test("a plugin whose connect fails before it is copied does not hold its path: a
   expect(readFileSync(marker, "utf8")).toBe("second");
 }, 20_000);
 
+test("connect never reads a heldAge of the bundle's host plugin: an accessor of the host's own by that name does not run", async () => {
+  const marker = join(tempDir("wl-host-marker-"), "read");
+  // Its getter would throw, which connect would take as a plugin that does
+  // not load.
+  const dir = pluginBundle(`export default {
+  onRunEnd() {},
+  get heldAge() {
+    require("node:fs").writeFileSync(${JSON.stringify(marker)}, "read");
+    throw new Error("the host's own heldAge");
+  },
+};
+`);
+  // The stand-in engine passes the check, then ends after a second: connect
+  // gets past the plugin to the handshake, which the engine never answers.
+  expect(await connectIn(dir, standIn(join(tempDir("wl-host-pid-"), "pid"), "sleep 1"))).toBe("rejected");
+  expect(existsSync(marker)).toBe(false);
+}, 20_000);
+
 test("connect removes its identity file when the engine's check refuses the bundle", async () => {
   const dir = pluginBundle("export default {};\n");
   const args = join(tempDir("wl-host-args-"), "args");

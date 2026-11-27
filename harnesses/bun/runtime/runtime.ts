@@ -404,10 +404,11 @@ export class Runtime {
     if (this.welcomed) throw new Error("windmill-lite: a plugin is set before the handshake");
     declaration(p);
     // heldAge is a spawned harness's alone (SpawnedPlugin): host mode
-    // neither checks nor calls it (ADR 0004 §Host plugins item 11).
-    const age = (p as SpawnedPlugin).heldAge;
-    if (!this.opts.host && age !== undefined && typeof age !== "function") {
-      throw new Error("windmill-lite plugin: heldAge is not a function");
+    // neither reads, checks nor calls it (ADR 0004 §Host plugins item 11),
+    // so a host's plugin may have an accessor of its own by that name.
+    if (!this.opts.host) {
+      const age = (p as SpawnedPlugin).heldAge;
+      if (age !== undefined && typeof age !== "function") throw new Error("windmill-lite plugin: heldAge is not a function");
     }
     this.opts.plugin = p;
   }

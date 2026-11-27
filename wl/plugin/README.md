@@ -372,10 +372,10 @@ engine's process ends, also while its event loop is stuck. On macOS, a
 harness process exits with its connection to the engine only while its
 event loop runs.
 
-The signal reaches the harness process alone, and bounds none of the
-processes that steps start: they outlive it on every system, whatever
-process group they are in. So a host that needs a bound on them gives each
-generation a cgroup of its own, on Linux
+The signal reaches the harness process alone. The processes that steps
+start can outlive it on every system, whatever process group they are in:
+the tie gives them no bound. So a host that needs a bound on them gives
+each generation a cgroup of its own, on Linux
 ([the supervisor](../../docs/design/0009-host-adapters.md#the-supervisor)).
 
 ### The configuration

@@ -80,9 +80,11 @@ type PoolConfig struct {
 	// (ADR 0004 §Pooling); their zero values turn them off.
 	Recycle RecycleTriggers
 	// OnStartFailure, when not nil, is called with the error of each
-	// process that the pool fails to start, while it is not closed, after
-	// the pool has written its line, or queued it while an unsettled-run or
-	// a held-age trigger is set (poolLine). It is called without the pool's lock, so it
+	// process that the pool fails to start, while it is not closed, once
+	// the pool has written its line. While an unsettled-run or a held-age
+	// trigger is set, that line is best effort (poolLine): it can come
+	// after the call, or never, so the call is then the one sure report.
+	// It is called without the pool's lock, so it
 	// may call the pool, and it must not block for long. Start and Execute
 	// still return the error to the caller that wanted the process.
 	OnStartFailure func(error)
@@ -184,8 +186,9 @@ type Pool struct {
 	secrets *Secrets
 	// poolLines writes the pool's own lines while an unsettled-run or a
 	// held-age trigger is set (poolLine), each on a goroutine of its own,
-	// within a bound, so that a blocked diagnostics writer holds up no pool
-	// operation.
+	// within a bound that every pool of the program shares
+	// (poolLineBudget), so that a blocked diagnostics writer holds up no
+	// pool operation, and pools that come and go add no goroutines past it.
 	poolLines *killLineBudget
 
 	mu       sync.Mutex
@@ -354,7 +357,7 @@ func NewPool(cfg PoolConfig) (_ *Pool, err error) {
 		pc.Diagnostics = &syncWriter{w: pc.Diagnostics}
 	}
 	pl := &Pool{cfg: cfg, secrets: NewSecrets(cfg.Process.Secrets), opted: opted, changed: make(chan struct{}), affinity: runMap{limit: defaultAffinity}, fresh: map[*Process]struct{}{},
-		poolLines: &killLineBudget{max: maxPendingKillLines, noun: "pool lines", whole: true}}
+		poolLines: poolLineBudget}
 	if !pl.isFresh() {
 		pl.cfg.Process.notify = pl.processChanged
 		pl.cfg.Process.rssLimit = cfg.Recycle.RSS
@@ -1194,10 +1197,10 @@ func (pl *Pool) reviewLocked(m *member) {
 // poolLine writes one of the pool's own lines to its diagnostics. With an
 // unsettled-run or a held-age trigger set, a trip's line can wait for a
 // blocked writer, so every line of the pool then goes out on a goroutine
-// of its own, within a bound (poolLines), never under the pool's mutex: a
-// line is best effort, and one is dropped while the bound's lines wait,
-// the next one counting the drops. Without them, it is written at once,
-// as it always has been.
+// of its own, within a bound that every pool shares (poolLines), never
+// under the pool's mutex: a line is best effort, and one is dropped while
+// the bound's lines wait, the next one counting the drops. Without them,
+// it is written at once, as it always has been.
 func (pl *Pool) poolLine(s string) {
 	if r := pl.cfg.Recycle; r.UnsettledRun > 0 || r.HeldAge > 0 {
 		pl.poolLines.write(pl.diag(), s)
@@ -1331,11 +1334,16 @@ type ProcessStats struct {
 	Tainted   bool
 	Surplus   bool
 	Retiring  bool
-	// Serving is set while the pool routes new invocations to the process:
-	// it is not tainted, surplus, retiring or recycling. A taint can clear,
-	// which puts the process back in service. An invocation of a run
-	// pinned to it, or a host call of a run with an invocation in flight
-	// in it, reaches it whatever Serving says.
+	// Serving is set while the pool's ordinary pick may route new
+	// invocations to the process: it is not tainted, surplus, retiring or
+	// recycling. A tainted process serves again only once its last
+	// abandoned invocation has ended and the processes serving and
+	// starting fall short of Max without it; otherwise it stays out, as
+	// surplus, and drains. Whatever Serving says, a live run pinned to the
+	// process sends its calls there while it lives (pinnedLocked), and a
+	// host call of a run with an invocation in flight in a process that
+	// leaves for a recycle trigger goes there when no serving process can
+	// take it.
 	Serving bool
 	// Recycle names the recycle trigger that the process tripped
 	// (TriggerRSS, TriggerModules, TriggerUnsettledRun, TriggerHeldAge),

@@ -1000,13 +1000,15 @@ directory of its own, and exits once it has reported the outcome.
 - **The pool's lines.** While either is set, every line of the pool, a
   failed start's included, goes out on a goroutine of its own, so a
   blocked writer holds up no pool operation. Such a line is best effort:
-  past 64 waiting lines, one is dropped. The next line that goes out counts
-  the drops, without their process or reason.
+  past 64 lines waiting at once, across every pool of the program, one is
+  dropped. The next line that goes out counts the drops, without their
+  process or reason.
 - **Which trigger.** `Stats` names the trigger that each process tripped
-  (`ProcessStats.Recycle`: `TriggerRSS` and the like). `Serving` says
-  whether the pool routes new invocations to it now. A taint that clears
-  sets it again, and a pinned run's invocations reach the process either
-  way.
+  (`ProcessStats.Recycle`: `TriggerRSS` and the like).
+- **Serving.** `ProcessStats.Serving` says whether the ordinary pick may
+  route new invocations to the process now. A tainted process serves again
+  only once its last abandoned invocation ends and the pool is short of
+  `Max` without it. A live pinned run's invocations reach it either way.
 - **Past the module threshold,** the invocation of the one more script
   still runs there, and so do invocations picked for the process before
   that one was dispatched. Once the process starts to leave, no later
@@ -1276,8 +1278,11 @@ plugin and heartbeats every 20 ms.
   does not trip the trigger: its run has settled.
 - **`TestPoolTripLineDoesNotHoldThePool`.** A diagnostics writer blocks on
   a trip's line. While the line waits, the process is replaced and the pool
-  answers, or, when the replacement fails to start, the failure is
-  reported and the pool answers. The line comes once the writer goes on.
+  answers. When the replacement fails to start instead, the writer blocks
+  its line too, and the failure is still reported and the pool answers.
+- **`TestPoolLinesBoundAcrossPools`.** Pools that fail to start, opened one
+  after another while the writer blocks, leave at most 64 lines waiting
+  in all. Each `Start` fails and each `Close` returns meanwhile.
 - **`TestPoolHeldAgeRejectedPromise`.** A `heldAge` that answers a
   rejected promise while a step runs reports no age, counts no error,
   reaches the step with no warning, and writes one line.
