@@ -471,7 +471,6 @@ For example, `{ flow: "f/app/main", module: "report" }` names the module
 | `rss` | The resident set, in bytes |
 | `modules` | The script modules loaded |
 | `runs_held` | The runs whose data the process holds, until the engine releases each |
-| `held_age_ms` | What the host plugin's `heldAge` reports, in whole milliseconds; absent when it reports nothing |
 | `runs` | Runs submitted and not yet done |
 | `draining` | Whether `drain()` was called |
 | `recycle` | The recycle trigger that tripped, or `null` |
@@ -677,7 +676,7 @@ where it matches; the others see every module or every run.
 | `onRunSettled` | `(t: Trace) => void` | Once every invocation of the run has settled | Release what step code could still reach |
 | `providers` | `Record<string, (c: Call) => Outcome \| undefined>` | At a mandatory provided site that names the provider | Answer for the site, or return `undefined`, which declines and fails the run (`provider_declined`) |
 | `resource` | `(path: string, e: { run }) => { type: string; value: unknown } \| undefined` | When a run reads a resource that its own platform data does not hold | Return the resource's type and raw value, or `undefined` for none. The engine interpolates the value. |
-| `heldAge` | `() => number \| undefined`, not a promise | At every health report: each heartbeat, and each answer to the engine's health request | Return the age, in milliseconds, of the oldest resource that the plugin still holds after its run ended, or `undefined` for none ([below](#what-a-plugin-holds-past-its-runs)) |
+| `heldAge` | `() => number \| undefined`, not a promise | In a harness that the engine spawned, at every health report: each heartbeat, and each answer to the engine's health request. Host mode never calls it. | Return the age, in milliseconds, of the oldest resource that the plugin still holds after its run ended, or `undefined` for none ([below](#what-a-plugin-holds-past-its-runs)) |
 | `variable` | `(path: string, e: { run }) => { value: string; secret?: boolean } \| undefined` | When a run reads a variable that its own platform data does not hold | Return the variable's value, or `undefined` for none. Any other answer is a `plugin_error`. |
 
 - **A hook that throws** answers with `plugin_error`, which latches the
@@ -758,17 +757,22 @@ scope never ends. The engine cannot see such a resource, so the plugin
 reports it: `heldAge` returns the age, in milliseconds, of the oldest
 resource that it still holds after that resource's run ended.
 
-- **When.** The runtime calls it at every health report, at once and
-  outside every run, and sends the whole milliseconds as `held_age_ms`.
-  `undefined` or 0 reports nothing.
+- **When.** In a harness that the engine spawned, the runtime calls it
+  with the plugin as `this`, at every health report, at once and outside
+  every run, and sends the whole milliseconds as `held_age_ms`. `undefined`
+  or 0 reports nothing.
+- **Host mode** neither checks nor calls it, and its `health()` has no
+  `held_age_ms`: a host's own process is not a warm pool's.
 - **The trigger.** A warm pool's held-age trigger (`Recycle.HeldAge` in
   [wl](../../wl/README.md#the-harness-pool), `held_age_ms` in the plugin
   command's `pool.recycle`) replaces the process once the age reaches its
   bound. A plugin without `heldAge` never trips it, and holds that end in
   time, however they overlap, never reach it.
 - **A failure.** A throw, a promise, or anything other than a number of at
-  least 0 reports nothing. The first such failure writes one line to the
-  process's standard error.
+  least 0 reports nothing; a rejected promise's error is consumed, so it is
+  no process-level error and reaches no step. The first such failure writes
+  one line to the process's standard error. In a spawned harness, a
+  `heldAge` that is not a function refuses the plugin.
 
 ## Errors and refusals
 

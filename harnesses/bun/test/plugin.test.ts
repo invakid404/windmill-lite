@@ -183,6 +183,20 @@ function hostRuntime(plugin?: Plugin, maxMessage = 1 << 20) {
   return { runtime, send, sendRaw, messages };
 }
 
+/** A runtime as the engine spawns it, not in host mode, with plugin set
+ * as main.ts sets it (usePlugin), welcomed warm; the same senders as
+ * hostRuntime. */
+function spawnedRuntime(plugin: Plugin) {
+  const written: Uint8Array[] = [];
+  const runtime = new Runtime({ bundleDir: "/nonexistent", bundleDigest: "sha256:b", transport: { write: (b) => (written.push(b.slice()), b.length), end: () => {} }, exit: () => {} });
+  runtime.usePlugin(plugin);
+  runtime.start();
+  const send = (m: Record<string, unknown>) => runtime.onData(frame(encode(m as { t: string })));
+  send({ t: "welcome", proto: 1, engine: "test", bundle: "sha256:b", config: { module_state: "warm", heartbeat_ms: 60000, max_message: 1 << 20 } });
+  const messages = () => decodeAll(new FrameReader().push(Buffer.concat(written)));
+  return { runtime, send, messages };
+}
+
 /** What plugin code reads as wl.run.data here. */
 const readRunData = () => (globalThis as { wl?: { run: { data: unknown } } }).wl!.run.data;
 
@@ -404,24 +418,31 @@ describe("the runtime", () => {
     runtime.onClose();
   });
 
-  test("reports what heldAge gives in each health report, in whole milliseconds, and nothing for 0 or undefined", async () => {
-    let age: number | undefined = 120_000.9;
-    const { runtime, send, messages } = hostRuntime({ heldAge: () => age });
+  test("reports what heldAge gives in each health report of a spawned harness, in whole milliseconds, calling it with the plugin as this", async () => {
+    const plugin = {
+      age: 120_000.9 as number | undefined,
+      heldAge(): number | undefined {
+        return this.age;
+      },
+    };
+    const { runtime, send, messages } = spawnedRuntime(plugin);
     send({ t: "ping", id: "e1" });
     await Bun.sleep(5);
-    age = 0;
+    plugin.age = 0;
     send({ t: "ping", id: "e2" });
     await Bun.sleep(5);
-    age = undefined;
+    plugin.age = undefined;
     send({ t: "ping", id: "e3" });
     await Bun.sleep(5);
-    expect(messages().filter((m) => m.t === "pong").map((m) => m.held_age_ms ?? "none")).toEqual([120000, "none", "none"]);
-    age = 7;
+    const pongs = messages().filter((m) => m.t === "pong");
+    expect(pongs.map((m) => m.held_age_ms ?? "none")).toEqual([120000, "none", "none"]);
+    expect(Object.hasOwn(runtime.hostHealth(), "held_age_ms")).toBe(false);
+    plugin.age = 7;
     expect(runtime.hostHealth().held_age_ms).toBe(7);
     runtime.onClose();
   });
 
-  test("reports no held age when heldAge throws or answers what is not a number of milliseconds, and says so on stderr once", async () => {
+  test("reports no held age when heldAge throws or answers what is not a number of milliseconds, consumes a rejected promise, and says so on stderr once", async () => {
     const answers: (() => unknown)[] = [
       () => {
         throw new Error("the plugin's table is gone");
@@ -429,6 +450,7 @@ describe("the runtime", () => {
       () => -1,
       () => Number.NaN,
       () => Promise.resolve(5),
+      () => Promise.reject(new Error("an age that never came")),
       () => "5",
     ];
     let next = 0;
@@ -436,12 +458,16 @@ describe("the runtime", () => {
     const write = process.stderr.write;
     process.stderr.write = ((chunk: string | Uint8Array) => (lines.push(String(chunk)), true)) as typeof process.stderr.write;
     try {
-      const { runtime, send, messages } = hostRuntime({ heldAge: () => answers[next++]() as number });
+      const { runtime, send, messages } = spawnedRuntime({ heldAge: () => answers[next++]() as number });
       for (let i = 0; i < answers.length; i++) {
         send({ t: "ping", id: `e${i}` });
         await Bun.sleep(5);
       }
-      expect(messages().filter((m) => m.t === "pong").map((m) => m.held_age_ms ?? "none")).toEqual(answers.map(() => "none"));
+      const pongs = messages().filter((m) => m.t === "pong");
+      expect(pongs.map((m) => m.held_age_ms ?? "none")).toEqual(answers.map(() => "none"));
+      // The rejection is no process-level error, and reaches no invocation.
+      expect(pongs.map((m) => m.errors)).toEqual(answers.map(() => 0));
+      expect(messages().filter((m) => m.t === "warning")).toEqual([]);
       runtime.onClose();
     } finally {
       process.stderr.write = write;
@@ -449,9 +475,25 @@ describe("the runtime", () => {
     expect(lines.filter((l) => l.includes("heldAge"))).toEqual(["windmill-lite harness: the host plugin's heldAge threw: the plugin's table is gone; the process reports no held age\n"]);
   });
 
-  test("takes heldAge only as a function, and never names it in the declaration, since it answers no host_call", () => {
-    expect(() => declaration({ heldAge: 5 } as unknown as Plugin)).toThrow("windmill-lite plugin: heldAge is not a function");
+  test("checks heldAge only in a spawned harness: host mode neither refuses nor calls it, and its health has no held_age_ms", async () => {
+    expect(() => spawnedRuntime({ heldAge: 5 } as unknown as Plugin)).toThrow("windmill-lite plugin: heldAge is not a function");
     expect(declaration({ heldAge: () => 0 })).toEqual({});
+    let calls = 0;
+    const { runtime, send, messages } = hostRuntime({
+      heldAge: () => {
+        calls++;
+        return 60_000;
+      },
+    });
+    send({ t: "ping", id: "e1" });
+    await Bun.sleep(5);
+    expect(calls).toBe(0);
+    expect(messages().find((m) => m.t === "pong")?.held_age_ms).toBeUndefined();
+    expect(Object.hasOwn(runtime.hostHealth(), "held_age_ms")).toBe(false);
+    runtime.onClose();
+    const numeric = hostRuntime({ heldAge: 5 } as unknown as Plugin);
+    expect(numeric.messages()[0]).toMatchObject({ t: "hello" });
+    numeric.runtime.onClose();
   });
 
   test("keeps the data of two runs of one id apart by run_data_id, and empties a run's data for plugin code that runs on past its release", async () => {

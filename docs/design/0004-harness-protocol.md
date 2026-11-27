@@ -598,8 +598,11 @@ sequenceDiagram
    spawned gets `SIGKILL` when the engine's process ends, however it ends,
    also while the harness's event loop is stuck. Elsewhere, as on macOS, it
    exits when its connection to the engine ends, and only while its event
-   loop runs. The children that its steps started are not tied to the
-   engine: each leads a process group of its own.
+   loop runs.
+   - The signal reaches the harness process alone. The children that its
+     steps started outlive it: in a `warm` process each leads a process
+     group of its own, and in a `fresh` one they join its group, which
+     nothing then kills.
 
 **Loading on Bun 1.4.3.** Bun 1.4.3 evaluates a module that `import()`
 loads outside every async context, and one that `require()` loads inside
@@ -693,14 +696,17 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
   invocations, and leaves only once no pinned run holds it either.
 - **What a process holds past its runs.** Two more triggers, off by
   default, replace a process by the same rules. One trips when a host
-  plugin hook that the engine stopped waiting for, which ends its run,
-  still runs a bound past that end, holding the run unsettled (§Host
-  plugins item 2); `onRunSettled` holds nothing and does not count. The
+  plugin hook that the engine stopped waiting for still runs a bound after
+  its run ended, holding the run unsettled (§Host plugins item 2). The
   other trips when the host plugin's reported `held_age_ms` reaches a
   bound (§Host plugins item 11).
-- The engine reviews both at each heartbeat. A process that trips one
-  writes a diagnostics line that names it. Like the other triggers, they
-  show in neither health nor the trace.
+- While a run runs, its hook does not count toward the first, and neither
+  does `onRunSettled`, which holds nothing.
+- **When and where they show.** The engine reviews both each time a
+  health report arrives. A process that trips one writes a diagnostics
+  line that names it, off the pool's lock. `wl`'s `Runtime.Processes`
+  names the trigger that each process tripped, the memory and module
+  triggers included.
 - **Overlap.** A replacement runs beside the process it replaces until that
   process leaves, which waits for its steps in flight. While one process
   leaves for a recycle trigger, memory or module count alike, another that

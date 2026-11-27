@@ -396,13 +396,13 @@ type Process struct {
 }
 
 // lateHostCall is a host_call that the engine stopped waiting for: replied
-// closes when its reply comes; since is when the engine stopped waiting;
-// settles is set when the call holds its run's settlement, which every
-// hook does but onRunSettled, whose run has settled (ADR 0004 §Host
-// plugins item 2).
+// closes when its reply comes; pin is its run's routing choice, which the
+// call carried (WithPin), and which records when that run ended; settles
+// is set when the call holds its run's settlement, which every hook does
+// but onRunSettled, whose run has settled (ADR 0004 §Host plugins item 2).
 type lateHostCall struct {
 	replied chan struct{}
-	since   time.Time
+	pin     *Pin
 	settles bool
 }
 
@@ -2455,23 +2455,27 @@ func (p *Process) clock() time.Time {
 	return time.Now()
 }
 
-// unsettledAge returns how long ago the engine stopped waiting for the
-// oldest host_call that still holds its run's settlement, or 0 when no
-// such call is late: a hook that the engine stopped waiting for, whose run
-// has therefore ended, and that still runs.
+// unsettledAge returns how long ago the oldest run ended whose
+// settlement a late host_call still holds: a hook that the engine stopped
+// waiting for, that still runs, and whose run has ended (its pin's
+// RunEnded). It returns 0 when there is none: a late call of a run that
+// still runs, or one that carries no pin of its run, does not count.
 func (p *Process) unsettledAge() time.Duration {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	var oldest time.Time
+	var oldest int64
 	for _, c := range p.lateHostCalls {
-		if c.settles && (oldest.IsZero() || c.since.Before(oldest)) {
-			oldest = c.since
+		if !c.settles || c.pin == nil {
+			continue
+		}
+		if e := c.pin.endedAt.Load(); e != 0 && (oldest == 0 || e < oldest) {
+			oldest = e
 		}
 	}
-	if oldest.IsZero() {
+	if oldest == 0 {
 		return 0
 	}
-	return p.clock().Sub(oldest)
+	return p.clock().Sub(time.Unix(0, oldest))
 }
 
 // heldAge returns the age that the last health report gave of the oldest

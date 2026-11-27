@@ -231,7 +231,10 @@ func (rt *Runtime) pin(id string, pin bool, settled func()) (*harness.Pin, func(
 	case rt.pool == nil:
 		return nil, settled, func() {}, nil
 	case !(pin || rt.pinRuns):
-		return rt.pool.Unpinned(id), settled, func() {}, nil
+		// An unpinned run's choice holds no process, but its end times a
+		// hook that holds the run unsettled (Recycle.UnsettledRun).
+		u := rt.pool.Unpinned(id)
+		return u, settled, func() { rt.pool.RunEnded(u) }, nil
 	}
 	p, err := rt.pool.PinRun(id)
 	if err != nil {

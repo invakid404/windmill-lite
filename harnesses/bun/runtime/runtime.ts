@@ -403,6 +403,11 @@ export class Runtime {
   usePlugin(p: Plugin) {
     if (this.welcomed) throw new Error("windmill-lite: a plugin is set before the handshake");
     declaration(p);
+    // heldAge is a spawned harness's alone: host mode neither checks nor
+    // calls it (ADR 0004 §Host plugins item 11).
+    if (!this.opts.host && p.heldAge !== undefined && typeof p.heldAge !== "function") {
+      throw new Error("windmill-lite plugin: heldAge is not a function");
+    }
     this.opts.plugin = p;
   }
 
@@ -597,8 +602,17 @@ export class Runtime {
       oldest_abandoned_ms: oldest,
       modules: this.modules.size,
       runs_held: this.runData.size,
-      held_age_ms: this.heldAge(),
+      ...this.heldAgeField(),
     };
+  }
+
+  /** The health's held_age_ms, in a harness that the engine spawned and
+   * whose plugin reports an age (heldAge); nothing otherwise, host mode
+   * included. */
+  private heldAgeField(): { held_age_ms?: number } {
+    if (this.opts.host) return {};
+    const ms = this.heldAge();
+    return ms === undefined ? {} : { held_age_ms: ms };
   }
 
   /** What the host plugin's heldAge reports, in whole milliseconds, or
@@ -607,16 +621,25 @@ export class Runtime {
    * such as a promise. It runs outside every invocation. The first
    * failure goes to stderr, once. */
   private heldAge(): number | undefined {
-    const f = this.opts.plugin?.heldAge;
+    const plugin = this.opts.plugin;
+    const f = plugin?.heldAge;
     if (typeof f !== "function") return undefined;
     let v: unknown;
     try {
-      v = invocations.exit(() => f());
+      // With the plugin as this, as its hooks are called.
+      v = invocations.exit(() => f.call(plugin));
     } catch (e) {
       this.heldAgeFailed(`threw: ${e instanceof Error ? e.message : String(e)}`);
       return undefined;
     }
     if (v === undefined) return undefined;
+    if (v !== null && typeof v === "object" && typeof (v as { then?: unknown }).then === "function") {
+      // A promise is not an age. Its rejection is consumed here, so it is
+      // no process-level error and reaches no invocation.
+      (v as PromiseLike<unknown>).then(undefined, () => {});
+      this.heldAgeFailed("returned a promise, not a number of milliseconds");
+      return undefined;
+    }
     if (typeof v !== "number" || !Number.isFinite(v) || v < 0) {
       this.heldAgeFailed(`returned ${typeof v === "number" ? String(v) : typeof v}, not a number of milliseconds`);
       return undefined;

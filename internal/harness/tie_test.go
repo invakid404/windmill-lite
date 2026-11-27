@@ -98,7 +98,10 @@ func TestHarnessEndsWithEngine(t *testing.T) {
 			t.Fatal("the engine did not start a harness with a blocked event loop within 30 s")
 		}
 	}
-	t.Cleanup(func() { syscall.Kill(pid, syscall.SIGKILL) })
+	// No signal by pid cleans up: once the harness is gone, its pid can be
+	// another process's. The release, registered first, ends the step
+	// even when the tie failed, and a harness whose engine is gone then
+	// exits on its own.
 	if processGone(pid) {
 		t.Fatalf("the harness %d is gone while its engine runs", pid)
 	}

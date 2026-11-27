@@ -463,8 +463,10 @@ when the engine's process ends, also while its event loop is stuck
 it exits when its connection to the engine ends only if its event loop
 still runs, so a killed engine can leave a wedged one running.
 
-The process groups that steps leave are not tied to the engine on any
-system, and run on beside the next generation. A host that needs a bound
+The signal reaches the harness process alone. What steps start, in
+groups of their own in a `warm` process and in the process's group in a
+`fresh` one, outlives it on every system and runs on beside the next
+generation. A host that needs a bound
 on them too gives each generation a cgroup of its own, on Linux, and kills
 it whole.
 

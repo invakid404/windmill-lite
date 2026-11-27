@@ -372,9 +372,10 @@ engine's process ends, also while its event loop is stuck. On macOS, a
 harness process exits with its connection to the engine only while its
 event loop runs.
 
-The children that steps start lead process groups of their own on every
-system, so a host that needs a bound on them gives each generation a cgroup
-of its own, on Linux
+The signal reaches the harness process alone. The children that steps
+start outlive it on every system: in a `warm` process each leads a process
+group of its own, and in a `fresh` one they join its group. So a host that
+needs a bound on them gives each generation a cgroup of its own, on Linux
 ([the supervisor](../../docs/design/0009-host-adapters.md#the-supervisor)).
 
 ### The configuration

@@ -374,10 +374,11 @@ type RecycleTriggers struct {
 	// Modules is how many distinct scripts a process may run; the first
 	// step of one more still runs there. Zero turns it off.
 	Modules int
-	// UnsettledRun is how long a host plugin hook that the runtime stopped
-	// waiting for, which ends its run, may still run in a process and hold
-	// the run unsettled, counted from when the wait ended. onRunSettled,
-	// whose run has settled, does not count. Zero turns it off.
+	// UnsettledRun is how long after a run has ended a host plugin hook of
+	// that run, which the runtime stopped waiting for, may still run in a
+	// process and hold the run unsettled. While the run runs, the hook does
+	// not count, and neither does onRunSettled, whose run has settled.
+	// Zero turns it off.
 	UnsettledRun time.Duration
 	// HeldAge is the age, which the host plugin reports at each heartbeat
 	// (heldAge in harnesses/bun/README.md "Host plugins"), of the oldest
@@ -1042,6 +1043,47 @@ func (rt *Runtime) BuildInfo() BuildInfo {
 		Deviations:           bundle.ModeDeviations(rt.manifest.Deviations, rt.state, rt.manifest.SharedCode),
 		NonconformantRuntime: rt.manifest.NonconformantRuntime,
 	}
+}
+
+// ProcessHealth is one harness process of the runtime's warm pool, as
+// Processes reports it.
+type ProcessHealth struct {
+	// PID is the process's id.
+	PID int
+	// Leaving is set once the process takes no new steps: an abandoned
+	// step of its own still runs, the pool has more processes than it
+	// needs, or it leaves for a recycle trigger. It goes once nothing is in
+	// flight in it and no live run is pinned to it.
+	Leaving bool
+	// Recycle names the recycle trigger that the process tripped
+	// (PoolOptions.Recycle): "rss", "modules", "unsettled_run" or
+	// "held_age"; empty while it has tripped none. It then leaves, at once
+	// or once another process that leaves for a trigger has gone.
+	Recycle string
+	// HeldAge is what its host plugin last reported (heldAge): the age of
+	// the oldest resource that the plugin still holds after that
+	// resource's run ended; zero for none.
+	HeldAge time.Duration
+}
+
+// Processes returns a snapshot of the runtime's warm pool: each harness
+// process, from its admission until its exit is observed, and the recycle
+// trigger it tripped. A runtime with no warm pool returns none: a fresh
+// runtime, host mode, or a bundle with no Bun step.
+func (rt *Runtime) Processes() []ProcessHealth {
+	if rt.pool == nil {
+		return nil
+	}
+	stats := rt.pool.Stats()
+	out := make([]ProcessHealth, 0, len(stats))
+	for _, s := range stats {
+		h := ProcessHealth{PID: s.PID, Leaving: s.Leaving, Recycle: s.Recycle}
+		if s.Health != nil {
+			h.HeldAge = time.Duration(s.Health.HeldAgeMS) * time.Millisecond
+		}
+		out = append(out, h)
+	}
+	return out
 }
 
 // PlatformOrigin is the origin at which the runtime's steps reach its

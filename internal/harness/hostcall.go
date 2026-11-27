@@ -109,7 +109,13 @@ func (p *Process) hostCall(ctx context.Context, hook, run, site string, payload 
 			if p.lateHostCalls == nil {
 				p.lateHostCalls = map[string]lateHostCall{}
 			}
-			p.lateHostCalls[id] = lateHostCall{replied: replied, since: p.clock(), settles: hook != hookOnRunSettled}
+			// The run's pin, which records when the run ends, when the
+			// call carries it.
+			pin, _ := ctx.Value(pinKey{}).(*Pin)
+			if pin != nil && pin.run != run {
+				pin = nil
+			}
+			p.lateHostCalls[id] = lateHostCall{replied: replied, pin: pin, settles: hook != hookOnRunSettled}
 		}
 		p.mu.Unlock()
 		done := make(chan struct{})

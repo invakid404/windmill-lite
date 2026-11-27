@@ -980,17 +980,24 @@ directory of its own, and exits once it has reported the outcome.
   invocations dispatched to it ran more distinct scripts than that; an
   invocation that was never sent does not count. Zero turns it off.
 - **The unsettled-run trigger.** `Recycle.UnsettledRun` trips a process
-  in which a host call that the engine stopped waiting for has run that
-  long since the wait ended (`Process.lateHostCalls`), holding its run
-  unsettled. A late `on_run_settled`, whose run has settled, does not
-  count, and zero turns it off. The pool's clock is a test hook.
+  in which a host call that the engine stopped waiting for still runs,
+  holding its run unsettled, that long after the run ended. The call
+  carries its run's pin (`WithPin`), whose `RunEnded` records the end, for
+  an unpinned run too; while the run runs, it does not count.
+- **What else does not count.** A late `on_run_settled`, whose run has
+  settled, and a late call without its run's pin. Zero turns the trigger
+  off. The pool's clock is a test hook.
 - **The held-age trigger.** `Recycle.HeldAge` trips a process whose
   health report gives a `held_age_ms` of at least that long: what its host
   plugin reports of the resources it holds past their runs. Zero turns it
   off.
 - **When they are reviewed.** Both are reviewed at each health report. A
   process that trips one writes a diagnostics line naming it and the
-  bound.
+  bound, on a goroutine of its own and within a bound of waiting lines,
+  so a blocked writer holds up no pool operation.
+- **Which trigger.** `Stats` names the trigger that each process tripped
+  (`ProcessStats.Recycle`: `TriggerRSS` and the like), and whether it is
+  leaving (`Leaving`).
 - **Past the module threshold,** the invocation of the one more script
   still runs there, and so do invocations picked for the process before
   that one was dispatched. Once the process starts to leave, no later
@@ -1258,6 +1265,12 @@ plugin and heartbeats every 20 ms.
   pinned to it has ended, with a diagnostics line; off, it stays.
 - **`TestPoolRecycleUnsettledSettlementHook`.** A late `onRunSettled`
   does not trip the trigger: its run has settled.
+- **`TestPoolTripLineDoesNotHoldThePool`.** A diagnostics writer blocks on
+  a trip's line: the process is replaced and the pool answers while the
+  line waits, and the line comes once the writer goes on.
+- **`TestPoolHeldAgeRejectedPromise`.** A `heldAge` that answers a
+  rejected promise while a step runs reports no age, counts no error,
+  reaches the step with no warning, and writes one line.
 - **`TestPoolRecycleHeldAge`.** The plugin's `heldAge` reports what the
   test writes. Ages under the bound of 2 minutes, which rise and fall,
   keep the process; an age at the bound replaces it, with a diagnostics

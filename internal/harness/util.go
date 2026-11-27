@@ -93,7 +93,12 @@ const maxPendingKillLines = 64
 // every process the engine kills. Past the bound a line is dropped and
 // counted, and the next line that the budget accepts reports the count.
 type killLineBudget struct {
-	max     int32
+	max int32
+	// noun names the lines in the note on dropped ones; empty means "kill
+	// lines". whole writes each line as it is (diagnostics.line), not as a
+	// process's (printf).
+	noun    string
+	whole   bool
 	pending atomic.Int32
 	dropped atomic.Int64
 }
@@ -114,11 +119,19 @@ func (b *killLineBudget) write(d *diagnostics, line string) {
 	// first line the budget accepts after the drops, however late that
 	// line's goroutine runs.
 	if n := b.dropped.Swap(0); n > 0 {
-		line += fmt.Sprintf(" (%d earlier kill lines were dropped while %d waited for blocked diagnostics writers)", n, b.max)
+		noun := b.noun
+		if noun == "" {
+			noun = "kill lines"
+		}
+		line += fmt.Sprintf(" (%d earlier %s were dropped while %d waited for blocked diagnostics writers)", n, noun, b.max)
 	}
 	go func() {
 		defer b.pending.Add(-1)
-		d.printf("%s", line)
+		if b.whole {
+			d.line(line)
+		} else {
+			d.printf("%s", line)
+		}
 	}()
 }
 
