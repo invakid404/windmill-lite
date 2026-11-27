@@ -416,8 +416,8 @@ The tests need no Bun and no environment variable.
    panic or a program that does not round-trip:
    `go test ./internal/ir -run '^$' -fuzz FuzzCompile -fuzztime 60s`
 
-CI runs the tests (not the fuzzer) in `Go (ubuntu-latest)` and
-`Go (macos-latest, packages)` ([docs/ci.md](../../docs/ci.md#the-go-jobs)).
+CI runs the tests (not the fuzzer) in the Go buckets of `ubuntu-latest`
+and `macos-latest` ([docs/ci.md](../../docs/ci.md#the-go-jobs)).
 
 ### Test files
 

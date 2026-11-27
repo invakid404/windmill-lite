@@ -14,61 +14,297 @@ permissions:
   contents: read
 
 jobs:
-  go:
-    # Branch protection requires five status checks: "Go (ubuntu-latest)" and
-    # "Go (macos-latest)" from this job, "Expression engine (ubuntu-24.04)"
-    # and "Expression engine (ubuntu-26.04)" from the job expr-images below,
-    # and "memoria" from the Memoria workflow. On Linux this job is the check
-    # "Go (ubuntu-latest)". On macOS the tests run in parts on parallel
-    # runners, and the job go-macos below reports "Go (macos-latest)" from
-    # their results. Renaming a job or a matrix entry needs the same change
-    # in the protection settings or in go-macos.
-    #
-    # cmd/wltest's flow suite (TestFlowSuite) runs every flow fixture in
-    # five modes, each a subtest: warm, fresh and host, and warm and host
-    # from bundles built with shared code, named warm-shared-code and
-    # host-shared-code. macOS runners have three cores, so the suite
-    # runs one fixture at a time there (GOMAXPROCS/2 is 1): in CI it took
-    # about 42 of the 45 minutes of one macOS test step, 20 of them in its
-    # two host modes. The macOS parts split the tests by complementary -run
-    # and -skip patterns, so together they run every test that one
-    # `go test ./...` runs: the packages without TestFlowSuite, the suite's
-    # modes whose names do not start with "host", and those that do.
-    # TestFlowSuite is defined only in cmd/wltest.
-    #
-    # The part "Go (ubuntu-latest, QuickJS only)" runs the packages that hold
-    # the conformance suite and the oracle recordings (internal/expr and
-    # cmd/wltest) again with the pipeline's Go evaluator off
-    # (WL_TEST_QUICKJS_ONLY, wl.Options.QuickJSOnly; ADR 0003): every case
-    # must pass on QuickJS alone as well as with the evaluator, so that a gap
-    # in the evaluator cannot hide behind the engine, nor the reverse.
-    name: ${{ matrix.name }}
+  # The Go tests run in time-balanced buckets that testbucket plans
+  # (invakid404/testbucket v0.2.2, Unlicense; docs/ci.md, "The Go
+  # buckets"). There are three scopes, each with its own plan job, buckets,
+  # timing store and record job: go-ubuntu and go-macos run the tests of
+  # every package that has test files on their OS, and go-quickjs runs
+  # internal/expr and cmd/wltest again on ubuntu-latest with
+  # WL_TEST_QUICKJS_ONLY=1.
+  #
+  # - A plan job partitions its scope's packages into K buckets by their
+  #   recorded test times. It slices a package by top-level test name when
+  #   the store marks it: the record job marks a package that alone takes
+  #   more than the total over K, when the times of at least two of its
+  #   top-level tests make up at least half of its time, as for cmd/wltest
+  #   and its five flow-suite tests. It fails, and starts no bucket, unless
+  #   each package is in exactly one bucket, or, when sliced, each of its
+  #   top-level tests is in exactly one slice.
+  # - Each bucket job runs its bucket's go test commands, one package at a
+  #   time, after the setup that the tests need.
+  # - On a push to main, a record job checks the run's test events against
+  #   the plan, and folds their times into the scope's timing store: a cache
+  #   entry that later plans restore. When the cache gives no entry, or one
+  #   that leaves the plan cold, a plan reads the scope's seed, a store under
+  #   .github/testbucket, when there is one.
+  #
+  # The plan sets the go test timeout and each bucket's job timeout from the
+  # store: 45m and 50 minutes with recorded times. A cold plan, with no
+  # usable store, knows no test time, slices nothing, and puts cmd/wltest
+  # whole into one bucket; the package alone takes about 29 minutes on
+  # ubuntu-latest and 54 on macos-latest. Then every bucket gets the cold go
+  # test timeout of its plan job, and the bucket that holds cmd/wltest also
+  # the cold job timeout; the other buckets keep 50 minutes. With the seeds
+  # committed, a plan is cold only when the seeds are removed.
+  #
+  # Branch protection requires five status checks: "Go (ubuntu-latest)" and
+  # "Go (macos-latest)", the final jobs go-ubuntu and go-macos, which pass
+  # only when their OS's plan, buckets and checks job all succeeded, in a
+  # run that was not cancelled;
+  # "Expression engine (ubuntu-24.04)" and "Expression engine (ubuntu-26.04)"
+  # from the job expr-images below; and "memoria" from the Memoria workflow.
+  # Renaming a job needs the same change in the protection settings.
+  #
+  # The scope go-quickjs runs the packages that hold the conformance suite
+  # and the oracle recordings (internal/expr and cmd/wltest) again with the
+  # pipeline's Go evaluator off (WL_TEST_QUICKJS_ONLY, wl.Options.QuickJSOnly;
+  # ADR 0003): every case must pass on QuickJS alone as well as with the
+  # evaluator, so that a gap in the evaluator cannot hide behind the engine,
+  # nor the reverse.
+  go-ubuntu-plan:
+    # testbucket treats the packages of a go.work's modules as units that
+    # mix across buckets; a module outside any go.work is one unit that runs
+    # whole in one bucket. So this job makes the root module a workspace
+    # member before it plans. The go.work exists only in the plan and record
+    # jobs: a bucket runs the planned go test commands, which name packages
+    # by import path from the repository root, in module mode.
+    name: Go plan (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Install testbucket
+        # The release archive for this runner, checked against the SHA-256
+        # that the release's checksums.txt lists for it.
+        env:
+          VERSION: 0.2.2
+          SHA256_LINUX_AMD64: ade5a045a58798a2deebaecb406d23b33108b9293a6557bf7070d9a0cbeed01a
+          SHA256_DARWIN_ARM64: 005083d442fff497e201589b176aeff3bdcfbf0ce37c2427ba59286c08bec371
+        run: |
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64) asset=linux_amd64 sha256=$SHA256_LINUX_AMD64 ;;
+            macOS-ARM64) asset=darwin_arm64 sha256=$SHA256_DARWIN_ARM64 ;;
+            *) echo "no testbucket archive is pinned for $RUNNER_OS-$RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+          archive="$RUNNER_TEMP/testbucket.tar.gz"
+          curl -sSfL --retry 3 -o "$archive" "https://github.com/invakid404/testbucket/releases/download/v${VERSION}/testbucket_${VERSION}_${asset}.tar.gz"
+          echo "$sha256  $archive" | shasum -a 256 -c -
+          mkdir "$RUNNER_TEMP/testbucket"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/testbucket" testbucket
+          echo "$RUNNER_TEMP/testbucket" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/testbucket/testbucket" version
+
+      - name: Make the module a workspace member
+        run: go work init .
+
+      - name: Restore the timing store
+        id: store
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/testbucket-store
+          key: testbucket-go-ubuntu-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            testbucket-go-ubuntu-v1-
+
+      - name: Plan the buckets
+        # The store comes from the cache. The seed replaces it when the cache
+        # holds no entry, or one that leaves the plan cold (recorded under
+        # other flags, or with no time of a live package). A plan that read
+        # the seed and is still cold fails: the seed's flags differ from the
+        # plan's, and testbucket ignores it. Only a plan with neither a
+        # usable entry nor a seed is cold, and gets the cold timeouts. Each
+        # matrix entry gets a timeout_minutes, the job timeout of its bucket.
+        id: plan
+        env:
+          K: "6"
+          SEED: .github/testbucket/go-ubuntu.json
+          MATCHED_KEY: ${{ steps.store.outputs.cache-matched-key }}
+          TIMEOUT: 45m
+          JOB_TIMEOUT: "50"
+          COLD_TIMEOUT: 60m
+          COLD_JOB_TIMEOUT: "75"
+          COLD_PACKAGE: github.com/invakid404/windmill-lite/cmd/wltest
+        run: |
+          set -euo pipefail
+          store="$RUNNER_TEMP/testbucket-store/test-timings.json"
+          if [ -f "$store" ]; then
+            from=cache source="the cache entry $MATCHED_KEY"
+          elif [ -f "$SEED" ]; then
+            mkdir -p "$(dirname "$store")"
+            cp "$SEED" "$store"
+            from=seed source="the seed $SEED, since no cache entry was found"
+          else
+            from=none source="none: no cache entry, and no seed at $SEED"
+          fi
+          echo "timing store: $source"
+          plan() {
+            if ! testbucket plan --runner go --k "$K" --count 1 --race --file-parallelism 1 \
+                --timeout "$1" --store "$store" --events-dir /tmp/testbucket-events \
+                --shard-plan "$RUNNER_TEMP/shard-plan.json" --json \
+                > "$RUNNER_TEMP/matrix.json" 2> "$RUNNER_TEMP/plan.txt"; then
+              cat "$RUNNER_TEMP/plan.txt" >&2
+              exit 1
+            fi
+          }
+          cold=false timeout=$TIMEOUT
+          plan "$timeout"
+          is_cold() { [ "$(jq -r .summary.cold_start "$RUNNER_TEMP/shard-plan.json")" = true ]; }
+          if is_cold && [ "$from" = cache ] && [ -f "$SEED" ]; then
+            cp "$SEED" "$store"
+            from=seed source="the seed $SEED, since the cache entry $MATCHED_KEY leaves the plan cold"
+            echo "the cache entry is unusable; timing store: $source"
+            plan "$timeout"
+          fi
+          if is_cold; then
+            if [ "$from" = seed ]; then
+              cat "$RUNNER_TEMP/plan.txt" >&2
+              echo "::error::the plan read the seed $SEED and is still cold: refresh the seed (docs/ci.md)"
+              exit 1
+            fi
+            cold=true timeout=$COLD_TIMEOUT
+            plan "$timeout"
+          fi
+          cat "$RUNNER_TEMP/plan.txt" >&2
+          # On a cold start, the bucket that runs COLD_PACKAGE whole gets the
+          # cold job timeout; every other bucket keeps JOB_TIMEOUT.
+          jq -c --argjson cold "$cold" --arg pkg "$COLD_PACKAGE" \
+            --argjson job "$JOB_TIMEOUT" --argjson coldjob "$COLD_JOB_TIMEOUT" \
+            '.include |= map(. + {timeout_minutes: (if $cold and (((.units // []) | index($pkg)) != null) then $coldjob else $job end)})' \
+            "$RUNNER_TEMP/matrix.json" > "$RUNNER_TEMP/matrix-timeouts.json"
+          timeouts=$(jq -r '[.include[] | "bucket \(.bucket) \(.timeout_minutes)"] | join(", ")' "$RUNNER_TEMP/matrix-timeouts.json")
+          echo "go test timeout: $timeout; job timeout in minutes: $timeouts"
+          {
+            echo "### Go plan (ubuntu-latest)"
+            echo "Timing store: $source. Go test timeout: $timeout. Job timeout in minutes: $timeouts."
+            echo '```'
+            cat "$RUNNER_TEMP/plan.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          printf 'matrix=%s\n' "$(cat "$RUNNER_TEMP/matrix-timeouts.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the shard plan
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: go-ubuntu-shard-plan
+          path: ${{ runner.temp }}/shard-plan.json
+          if-no-files-found: warn
+          # A re-run of this job replaces the artifact of its earlier attempt.
+          overwrite: true
+          retention-days: 14
+
+  go-ubuntu-buckets:
+    # One job per bucket of the plan. The run-bucket action runs the
+    # bucket's go test commands through `testbucket render`, which prints
+    # them as go test prints, and exits with the commands' status. Its setup
+    # command fails the bucket before any test runs when a variable that the
+    # tests need is missing.
+    name: Go (ubuntu-latest, bucket ${{ matrix.bucket }})
+    needs: go-ubuntu-plan
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ matrix.timeout_minutes }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: Go (ubuntu-latest)
-            os: ubuntu-latest
-            checks: true
-          - name: Go (ubuntu-latest, QuickJS only)
-            os: ubuntu-latest
-            packages: ./internal/expr ./cmd/wltest
-            quickjs_only: "1"
-          - name: Go (macos-latest, packages)
-            os: macos-latest
-            checks: true
-            skip: ^TestFlowSuite$
-          - name: Go (macos-latest, flow suite in warm and fresh mode)
-            os: macos-latest
-            packages: ./cmd/wltest
-            run: ^TestFlowSuite$
-            skip: ^TestFlowSuite$/^host
-          - name: Go (macos-latest, flow suite in host mode)
-            os: macos-latest
-            packages: ./cmd/wltest
-            run: ^TestFlowSuite$/^host
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 50
+      matrix: ${{ fromJSON(needs.go-ubuntu-plan.outputs.matrix) }}
+    env:
+      # With WL_REQUIRE_BUN, a test that the bucket runs and that needs Bun
+      # or the stock client fails when either is missing, instead of
+      # skipping: the harness protocol and build tests, the host-mode tests
+      # and the client's tests. WL_REQUIRE_NODE does the same for the Node
+      # side of the step suite.
+      WL_REQUIRE_BUN: "1"
+      WL_REQUIRE_NODE: "1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Set up Bun
+        id: bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.3
+
+      - name: Locate Bun
+        env:
+          BUN: ${{ steps.bun.outputs.bun-path }}
+        run: echo "WL_BUN=$BUN" >> "$GITHUB_ENV"
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.1
+
+      - name: Locate Node
+        run: echo "WL_NODE=$(command -v node)" >> "$GITHUB_ENV"
+
+      - name: Fetch windmill-client 1.862.0
+        run: |
+          dir="$RUNNER_TEMP/windmill-client"
+          mkdir -p "$dir/node_modules/windmill-client"
+          curl -sSfL --retry 3 -o "$dir/client.tgz" https://registry.npmjs.org/windmill-client/-/windmill-client-1.862.0.tgz
+          echo "5ebad9cf352597fb2475e80267bf411b562b108c8eeea66a84a5d5a2ff12df68d8000ef8d2acef130a3acb77be9b22fb9ad5056314adf0695aee3533eef68811  $dir/client.tgz" | shasum -a 512 -c -
+          tar -xzf "$dir/client.tgz" -C "$dir/node_modules/windmill-client" --strip-components=1
+          echo "WL_WINDMILL_CLIENT=$dir" >> "$GITHUB_ENV"
+
+      - name: Install the build helper's dependencies
+        working-directory: harnesses/bun/build
+        run: bun install --frozen-lockfile
+
+      - name: Run the bucket
+        uses: invakid404/testbucket/.github/actions/run-bucket@693a19981fb6e0061d3fab62e59d75dc1c01ff3f # v0.2.2
+        with:
+          runner: go
+          script: ${{ matrix.script }}
+          name: ${{ matrix.name }}
+          est-seconds: ${{ matrix.est_seconds }}
+          events-dir: /tmp/testbucket-events
+          version: v0.2.2
+          setup-command: |
+            for v in WL_BUN WL_NODE WL_WINDMILL_CLIENT WL_REQUIRE_BUN WL_REQUIRE_NODE; do
+              if [ -z "${!v:-}" ]; then echo "$v is not set" >&2; exit 1; fi
+            done
+            "$WL_BUN" --version
+            "$WL_NODE" --version
+            test -f "$WL_WINDMILL_CLIENT/node_modules/windmill-client/package.json"
+
+      - name: Upload the test events
+        # Also from a failed bucket: the record job audits every bucket.
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: go-ubuntu-events-${{ matrix.bucket }}
+          path: /tmp/testbucket-events/
+          # An empty bucket writes no events.
+          if-no-files-found: warn
+          # A re-run of a bucket replaces the artifact of its earlier attempt.
+          overwrite: true
+          retention-days: 14
+
+  go-ubuntu-checks:
+    # The Go job's steps that run once on Linux, not in every bucket.
+    name: Go checks (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -129,7 +365,6 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Check formatting
-        if: matrix.checks
         run: |
           unformatted=$(gofmt -l .)
           if [ -n "$unformatted" ]; then
@@ -139,7 +374,6 @@ jobs:
           fi
 
       - name: Check go.mod is tidy
-        if: matrix.checks
         run: go mod tidy -diff
 
       - name: Check the generated protobuf code
@@ -149,8 +383,7 @@ jobs:
         # protoc, checked against the SHA-256 of its release archive,
         # generates the code again and fails when a file under wl/plugin or
         # proto differs from the commit. The code is the same on every
-        # platform, so only the Linux part runs it.
-        if: matrix.checks && runner.os == 'Linux'
+        # platform, so only the Linux checks job runs it.
         run: |
           dir="$RUNNER_TEMP/protoc"
           mkdir -p "$dir"
@@ -168,7 +401,6 @@ jobs:
           fi
 
       - name: Vet
-        if: matrix.checks
         run: go vet ./...
 
       - name: Check that no retarget ledger remains
@@ -177,36 +409,9 @@ jobs:
         # unnoticed (cmd/wltest/README.md, "The ledger guard"). This step
         # fails while the ledger file or any marker exists, and prints
         # each marker it finds.
-        if: matrix.checks
         run: go run ./cmd/wltest ledger
 
-      - name: Test
-        # WL_REQUIRE_BUN turns a missing Bun or client into a failure
-        # instead of a skip, so the harness protocol and build tests, the
-        # Q-WA-4 test and the host-mode tests (a host compiled with bun build
-        # --compile) always run here; WL_REQUIRE_NODE does the same for
-        # D13's Node side of the step suite.
-        #
-        # A part that selects tests by -run also passes -v, so its log shows
-        # the time of each flow-suite mode.
-        env:
-          WL_BUN: ${{ steps.bun.outputs.bun-path }}
-          WL_REQUIRE_BUN: "1"
-          WL_REQUIRE_NODE: "1"
-          RUN: ${{ matrix.run }}
-          SKIP: ${{ matrix.skip }}
-          PACKAGES: ${{ matrix.packages || './...' }}
-          WL_TEST_QUICKJS_ONLY: ${{ matrix.quickjs_only }}
-        run: |
-          args=(-race -timeout 45m)
-          if [ -n "$RUN" ]; then args+=(-v -run "$RUN"); fi
-          if [ -n "$SKIP" ]; then args+=(-skip "$SKIP"); fi
-          read -ra packages <<< "$PACKAGES"
-          set -x
-          go test "${args[@]}" "${packages[@]}"
-
       - name: Test the expression packages in leak check
-        if: matrix.checks
         # The engine destroys each QuickJS-ng runtime's heap whole by
         # default, leaks included, without counting them.
         # Leak check frees each runtime block by block and counts what
@@ -218,7 +423,6 @@ jobs:
         run: go test -race -count=1 ./internal/expr/...
 
       - name: Build a fixture bundle twice and compare
-        if: matrix.checks
         # The reproducible-build check (ADR 0010, 0012): the same inputs and
         # pins give one bundle digest. The second build reads a copy of the
         # fixture in another directory; the archives must be the same bytes.
@@ -239,7 +443,6 @@ jobs:
           "$wl" verify "$RUNNER_TEMP/b.wlb" -digest "$a"
 
       - name: Measure the expression pool under load
-        if: matrix.checks
         # Prints latency percentiles of the native QuickJS-ng pool
         # (internal/expr/quickjs). Report only: it sets no threshold; the
         # budget gate is package expr's (TestBudgetGate).
@@ -249,7 +452,6 @@ jobs:
         run: go test -count=1 -run '^TestPoolUnderLoad$' -v ./internal/expr/quickjs
 
       - name: Report the expression budget gate
-        if: matrix.checks
         # ADR 0003's budget gate, measured through the whole pipeline
         # (internal/expr). Report only: the gate holds on the benchmark
         # machine; CI's shared runners show the trend.
@@ -259,16 +461,15 @@ jobs:
         run: go test -count=1 -run '^TestBudgetGate$' -v ./internal/expr
 
       - name: Report the native realms and the process groups
-        if: matrix.checks
-        # The Test step runs without -v, so a test that skips passes there
-        # unseen. This step runs, by name and with -v, the tests whose
-        # coverage rests on the pinned Bun: TestNativeInvocationsKeepNoScript
-        # (cmd/windmill-lite), whose log gives the Script objects, heap and
-        # resident set that native invocations leave in a long-lived Bun
-        # process, and the tests of the process groups that a job's
-        # children join (internal/harness, the Linux-only subreaper test
-        # included, and the host's TestHostChildUnderBackpressure). It
-        # fails if any of them skips or does not run.
+        # A test that skips does not fail its bucket. This step runs, by
+        # name and with -v, the tests whose coverage rests on the pinned
+        # Bun: TestNativeInvocationsKeepNoScript (cmd/windmill-lite), whose
+        # log gives the Script objects, heap and resident set that native
+        # invocations leave in a long-lived Bun process, and the tests of
+        # the process groups that a job's children join (internal/harness,
+        # the Linux-only subreaper test included, and the host's
+        # TestHostChildUnderBackpressure). It fails if any of them skips or
+        # does not run.
         env:
           WL_BUN: ${{ steps.bun.outputs.bun-path }}
           WL_REQUIRE_BUN: "1"
@@ -300,7 +501,6 @@ jobs:
           exit "$status"
 
       - name: Test repository scripts
-        if: matrix.checks
         # Unit tests for the helpers in scripts/: the Renovate auto-ack
         # checks, the documentation check and the release helper, one of
         # whose tests builds the engine with the release's version stamp
@@ -308,7 +508,6 @@ jobs:
         run: python3 -m unittest discover -s scripts -v
 
       - name: Set up Node for the npm package
-        if: matrix.checks
         # The packaging test runs the SDK's test entry,
         # windmill-lite/bun/testing, on the node on the PATH: Node 22, the
         # oldest major the entry supports. It replaces Node 24 on the PATH
@@ -318,7 +517,576 @@ jobs:
           node-version: 22.23.5
 
       - name: Test the npm package
-        if: matrix.checks
+        # The packaging test of the npm package windmill-lite
+        # (harnesses/npm/test/check.sh): npm pack, the packed file list
+        # and manifest, bun add into an empty project, tsc (TypeScript 7,
+        # 6 and 5) and bun check on an import of windmill-lite/bun, the
+        # test entry windmill-lite/bun/testing on Bun 1.4.3 and on Node 22,
+        # and a smoke host against the engine of this commit, stamped with
+        # the package's version as a release stamps it, which an engine of
+        # another version must refuse.
+        env:
+          WL_BUN: ${{ steps.bun.outputs.bun-path }}
+        run: |
+          (cd harnesses && bun install --frozen-lockfile)
+          harnesses/npm/test/check.sh
+
+  go-ubuntu:
+    # The required status check "Go (ubuntu-latest)": it passes only when the
+    # plan, every bucket and the checks job of ubuntu-latest succeeded, in a
+    # run that was not cancelled. A required check whose job is skipped
+    # counts as passed, so this job runs whatever their results, a cancelled
+    # run included, and fails then.
+    name: Go (ubuntu-latest)
+    needs: [go-ubuntu-plan, go-ubuntu-buckets, go-ubuntu-checks]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check the plan, the buckets and the checks
+        if: always()
+        env:
+          PLAN: ${{ needs.go-ubuntu-plan.result }}
+          BUCKETS: ${{ needs.go-ubuntu-buckets.result }}
+          CHECKS: ${{ needs.go-ubuntu-checks.result }}
+        run: |
+          echo "plan: $PLAN"
+          echo "buckets: $BUCKETS"
+          echo "checks: $CHECKS"
+          if [ "$PLAN" != success ] || [ "$BUCKETS" != success ] || [ "$CHECKS" != success ]; then
+            echo "the plan, a bucket or the checks job of ubuntu-latest did not succeed" >&2
+            exit 1
+          fi
+
+      - name: Fail a cancelled run
+        # A run cancelled before this job ends, such as one that a newer
+        # push replaced, fails the check even when every job it needs had
+        # succeeded.
+        if: cancelled()
+        run: |
+          echo "the run was cancelled" >&2
+          exit 1
+
+  go-ubuntu-record:
+    # Folds this run's test times into the timing store of go-ubuntu, on a
+    # push to main only, where the store is authoritative, and never on a
+    # cancelled run. It runs on the plan's OS: the cache versions an entry by
+    # its path, and the runner's temporary directory differs between OSes.
+    name: Go record (ubuntu-latest)
+    needs: [go-ubuntu-plan, go-ubuntu-buckets]
+    if: ${{ !cancelled() && needs.go-ubuntu-plan.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Install testbucket
+        # As in the plan job.
+        env:
+          VERSION: 0.2.2
+          SHA256_LINUX_AMD64: ade5a045a58798a2deebaecb406d23b33108b9293a6557bf7070d9a0cbeed01a
+          SHA256_DARWIN_ARM64: 005083d442fff497e201589b176aeff3bdcfbf0ce37c2427ba59286c08bec371
+        run: |
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64) asset=linux_amd64 sha256=$SHA256_LINUX_AMD64 ;;
+            macOS-ARM64) asset=darwin_arm64 sha256=$SHA256_DARWIN_ARM64 ;;
+            *) echo "no testbucket archive is pinned for $RUNNER_OS-$RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+          archive="$RUNNER_TEMP/testbucket.tar.gz"
+          curl -sSfL --retry 3 -o "$archive" "https://github.com/invakid404/testbucket/releases/download/v${VERSION}/testbucket_${VERSION}_${asset}.tar.gz"
+          echo "$sha256  $archive" | shasum -a 256 -c -
+          mkdir "$RUNNER_TEMP/testbucket"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/testbucket" testbucket
+          echo "$RUNNER_TEMP/testbucket" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/testbucket/testbucket" version
+
+      - name: Make the module a workspace member
+        # The same go.work as the plan's, so that the ingest lists the same
+        # packages.
+        run: go work init .
+
+      - name: Download the test events
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: go-ubuntu-events-*
+          merge-multiple: true
+          path: /tmp/testbucket-events
+
+      - name: Download the shard plan
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: go-ubuntu-shard-plan
+          path: ${{ runner.temp }}/plan
+
+      - name: Restore the timing store
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/testbucket-store
+          key: testbucket-go-ubuntu-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            testbucket-go-ubuntu-v1-
+
+      - name: Audit and record the run
+        # scripts/check-bucket-audit.py runs testbucket audit, which fails
+        # when a planned package or test did not report, so that nothing is
+        # recorded from an incomplete run. It counts a top-level test that
+        # skipped as reported, which testbucket v0.2.2 does not (docs/ci.md,
+        # "Known limits"). A package that failed adds no time. The split
+        # decisions are printed last.
+        env:
+          K: "6"
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          events=(/tmp/testbucket-events/*.ndjson)
+          if [ ${#events[@]} -eq 0 ]; then echo "no test events to record" >&2; exit 1; fi
+          python3 scripts/check-bucket-audit.py --shard-plan "$RUNNER_TEMP/plan/shard-plan.json" "${events[@]}"
+          store="$RUNNER_TEMP/testbucket-store/test-timings.json"
+          mkdir -p "$(dirname "$store")"
+          testbucket ingest --runner go --store "$store" --count 1 --race --whale-k "$K" "${events[@]}"
+          testbucket whales --k "$K" --store "$store" || true
+
+      - name: Save the timing store
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/testbucket-store
+          key: testbucket-go-ubuntu-v1-${{ github.run_id }}-${{ github.run_attempt }}
+
+  go-macos-plan:
+    # As go-ubuntu-plan, on macos-latest: go list and go test -list follow
+    # build constraints, so each OS plans its own packages. K is 5, the number
+    # of macOS jobs that GitHub runs at once on the Free, Pro and Team plans;
+    # while go-macos-checks runs, one bucket can wait for a runner.
+    name: Go plan (macos-latest)
+    runs-on: macos-latest
+    timeout-minutes: 15
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Install testbucket
+        # The release archive for this runner, checked against the SHA-256
+        # that the release's checksums.txt lists for it.
+        env:
+          VERSION: 0.2.2
+          SHA256_LINUX_AMD64: ade5a045a58798a2deebaecb406d23b33108b9293a6557bf7070d9a0cbeed01a
+          SHA256_DARWIN_ARM64: 005083d442fff497e201589b176aeff3bdcfbf0ce37c2427ba59286c08bec371
+        run: |
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64) asset=linux_amd64 sha256=$SHA256_LINUX_AMD64 ;;
+            macOS-ARM64) asset=darwin_arm64 sha256=$SHA256_DARWIN_ARM64 ;;
+            *) echo "no testbucket archive is pinned for $RUNNER_OS-$RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+          archive="$RUNNER_TEMP/testbucket.tar.gz"
+          curl -sSfL --retry 3 -o "$archive" "https://github.com/invakid404/testbucket/releases/download/v${VERSION}/testbucket_${VERSION}_${asset}.tar.gz"
+          echo "$sha256  $archive" | shasum -a 256 -c -
+          mkdir "$RUNNER_TEMP/testbucket"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/testbucket" testbucket
+          echo "$RUNNER_TEMP/testbucket" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/testbucket/testbucket" version
+
+      - name: Make the module a workspace member
+        run: go work init .
+
+      - name: Restore the timing store
+        id: store
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/testbucket-store
+          key: testbucket-go-macos-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            testbucket-go-macos-v1-
+
+      - name: Plan the buckets
+        # The store comes from the cache. The seed replaces it when the cache
+        # holds no entry, or one that leaves the plan cold (recorded under
+        # other flags, or with no time of a live package). A plan that read
+        # the seed and is still cold fails: the seed's flags differ from the
+        # plan's, and testbucket ignores it. Only a plan with neither a
+        # usable entry nor a seed is cold, and gets the cold timeouts. Each
+        # matrix entry gets a timeout_minutes, the job timeout of its bucket.
+        id: plan
+        env:
+          K: "5"
+          SEED: .github/testbucket/go-macos.json
+          MATCHED_KEY: ${{ steps.store.outputs.cache-matched-key }}
+          TIMEOUT: 45m
+          JOB_TIMEOUT: "50"
+          COLD_TIMEOUT: 90m
+          COLD_JOB_TIMEOUT: "120"
+          COLD_PACKAGE: github.com/invakid404/windmill-lite/cmd/wltest
+        run: |
+          set -euo pipefail
+          store="$RUNNER_TEMP/testbucket-store/test-timings.json"
+          if [ -f "$store" ]; then
+            from=cache source="the cache entry $MATCHED_KEY"
+          elif [ -f "$SEED" ]; then
+            mkdir -p "$(dirname "$store")"
+            cp "$SEED" "$store"
+            from=seed source="the seed $SEED, since no cache entry was found"
+          else
+            from=none source="none: no cache entry, and no seed at $SEED"
+          fi
+          echo "timing store: $source"
+          plan() {
+            if ! testbucket plan --runner go --k "$K" --count 1 --race --file-parallelism 1 \
+                --timeout "$1" --store "$store" --events-dir /tmp/testbucket-events \
+                --shard-plan "$RUNNER_TEMP/shard-plan.json" --json \
+                > "$RUNNER_TEMP/matrix.json" 2> "$RUNNER_TEMP/plan.txt"; then
+              cat "$RUNNER_TEMP/plan.txt" >&2
+              exit 1
+            fi
+          }
+          cold=false timeout=$TIMEOUT
+          plan "$timeout"
+          is_cold() { [ "$(jq -r .summary.cold_start "$RUNNER_TEMP/shard-plan.json")" = true ]; }
+          if is_cold && [ "$from" = cache ] && [ -f "$SEED" ]; then
+            cp "$SEED" "$store"
+            from=seed source="the seed $SEED, since the cache entry $MATCHED_KEY leaves the plan cold"
+            echo "the cache entry is unusable; timing store: $source"
+            plan "$timeout"
+          fi
+          if is_cold; then
+            if [ "$from" = seed ]; then
+              cat "$RUNNER_TEMP/plan.txt" >&2
+              echo "::error::the plan read the seed $SEED and is still cold: refresh the seed (docs/ci.md)"
+              exit 1
+            fi
+            cold=true timeout=$COLD_TIMEOUT
+            plan "$timeout"
+          fi
+          cat "$RUNNER_TEMP/plan.txt" >&2
+          # On a cold start, the bucket that runs COLD_PACKAGE whole gets the
+          # cold job timeout; every other bucket keeps JOB_TIMEOUT.
+          jq -c --argjson cold "$cold" --arg pkg "$COLD_PACKAGE" \
+            --argjson job "$JOB_TIMEOUT" --argjson coldjob "$COLD_JOB_TIMEOUT" \
+            '.include |= map(. + {timeout_minutes: (if $cold and (((.units // []) | index($pkg)) != null) then $coldjob else $job end)})' \
+            "$RUNNER_TEMP/matrix.json" > "$RUNNER_TEMP/matrix-timeouts.json"
+          timeouts=$(jq -r '[.include[] | "bucket \(.bucket) \(.timeout_minutes)"] | join(", ")' "$RUNNER_TEMP/matrix-timeouts.json")
+          echo "go test timeout: $timeout; job timeout in minutes: $timeouts"
+          {
+            echo "### Go plan (macos-latest)"
+            echo "Timing store: $source. Go test timeout: $timeout. Job timeout in minutes: $timeouts."
+            echo '```'
+            cat "$RUNNER_TEMP/plan.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          printf 'matrix=%s\n' "$(cat "$RUNNER_TEMP/matrix-timeouts.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the shard plan
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: go-macos-shard-plan
+          path: ${{ runner.temp }}/shard-plan.json
+          if-no-files-found: warn
+          # A re-run of this job replaces the artifact of its earlier attempt.
+          overwrite: true
+          retention-days: 14
+
+  go-macos-buckets:
+    # As go-ubuntu-buckets, on macos-latest.
+    name: Go (macos-latest, bucket ${{ matrix.bucket }})
+    needs: go-macos-plan
+    runs-on: macos-latest
+    timeout-minutes: ${{ matrix.timeout_minutes }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.go-macos-plan.outputs.matrix) }}
+    env:
+      # With WL_REQUIRE_BUN, a test that the bucket runs and that needs Bun
+      # or the stock client fails when either is missing, instead of
+      # skipping: the harness protocol and build tests, the host-mode tests
+      # and the client's tests. WL_REQUIRE_NODE does the same for the Node
+      # side of the step suite.
+      WL_REQUIRE_BUN: "1"
+      WL_REQUIRE_NODE: "1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Set up Bun
+        id: bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.3
+
+      - name: Locate Bun
+        env:
+          BUN: ${{ steps.bun.outputs.bun-path }}
+        run: echo "WL_BUN=$BUN" >> "$GITHUB_ENV"
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.1
+
+      - name: Locate Node
+        run: echo "WL_NODE=$(command -v node)" >> "$GITHUB_ENV"
+
+      - name: Fetch windmill-client 1.862.0
+        run: |
+          dir="$RUNNER_TEMP/windmill-client"
+          mkdir -p "$dir/node_modules/windmill-client"
+          curl -sSfL --retry 3 -o "$dir/client.tgz" https://registry.npmjs.org/windmill-client/-/windmill-client-1.862.0.tgz
+          echo "5ebad9cf352597fb2475e80267bf411b562b108c8eeea66a84a5d5a2ff12df68d8000ef8d2acef130a3acb77be9b22fb9ad5056314adf0695aee3533eef68811  $dir/client.tgz" | shasum -a 512 -c -
+          tar -xzf "$dir/client.tgz" -C "$dir/node_modules/windmill-client" --strip-components=1
+          echo "WL_WINDMILL_CLIENT=$dir" >> "$GITHUB_ENV"
+
+      - name: Install the build helper's dependencies
+        working-directory: harnesses/bun/build
+        run: bun install --frozen-lockfile
+
+      - name: Run the bucket
+        uses: invakid404/testbucket/.github/actions/run-bucket@693a19981fb6e0061d3fab62e59d75dc1c01ff3f # v0.2.2
+        with:
+          runner: go
+          script: ${{ matrix.script }}
+          name: ${{ matrix.name }}
+          est-seconds: ${{ matrix.est_seconds }}
+          events-dir: /tmp/testbucket-events
+          version: v0.2.2
+          setup-command: |
+            for v in WL_BUN WL_NODE WL_WINDMILL_CLIENT WL_REQUIRE_BUN WL_REQUIRE_NODE; do
+              if [ -z "${!v:-}" ]; then echo "$v is not set" >&2; exit 1; fi
+            done
+            "$WL_BUN" --version
+            "$WL_NODE" --version
+            test -f "$WL_WINDMILL_CLIENT/node_modules/windmill-client/package.json"
+
+      - name: Upload the test events
+        # Also from a failed bucket: the record job audits every bucket.
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: go-macos-events-${{ matrix.bucket }}
+          path: /tmp/testbucket-events/
+          # An empty bucket writes no events.
+          if-no-files-found: warn
+          # A re-run of a bucket replaces the artifact of its earlier attempt.
+          overwrite: true
+          retention-days: 14
+
+  go-macos-checks:
+    # The Go job's steps that run once on macOS, not in every bucket.
+    name: Go checks (macos-latest)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        # The toolchain version comes from the `go` (or `toolchain`) line in
+        # go.mod, so go.mod is the single source of truth for it.
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Set up Bun
+        # The harness tests run on the Bun that windmill-lite pins
+        # (harness.PinnedBun), the reference Bun of ADR 0001, not the
+        # oracle image's (deviation D23); this pin moves only with that
+        # one, never with a Bun release.
+        id: bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.3
+
+      - name: Set up Node
+        # Deviation D13's Node side (conformance/steps/bun/d13.yaml, run by
+        # cmd/wltest): the same esbuild CommonJS codebase bundle runs on
+        # Node, as Windmill runs it, and on the Bun harness. Node 24.22.1 is
+        # the Node of Windmill 1.862.0's image (WR-50), which pins it
+        # exactly since Windmill 1.848.3.
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.1
+
+      - name: Locate Node
+        run: echo "WL_NODE=$(command -v node)" >> "$GITHUB_ENV"
+
+      - name: Fetch windmill-client 1.862.0
+        # The Q-WA-4 env-view test (internal/harness), the facade's
+        # attribution test (internal/platform/facade) and the client's
+        # shared-code test (cmd/wltest) run the stock client of Windmill
+        # 1.862.0: an Apache-2.0 package, used as a test dependency and
+        # never committed. The step checks the tarball's SHA-512 digest
+        # against the one that npm's integrity value gives, written in hex.
+        run: |
+          dir="$RUNNER_TEMP/windmill-client"
+          mkdir -p "$dir/node_modules/windmill-client"
+          curl -sSfL --retry 3 -o "$dir/client.tgz" https://registry.npmjs.org/windmill-client/-/windmill-client-1.862.0.tgz
+          echo "5ebad9cf352597fb2475e80267bf411b562b108c8eeea66a84a5d5a2ff12df68d8000ef8d2acef130a3acb77be9b22fb9ad5056314adf0695aee3533eef68811  $dir/client.tgz" | shasum -a 512 -c -
+          tar -xzf "$dir/client.tgz" -C "$dir/node_modules/windmill-client" --strip-components=1
+          echo "WL_WINDMILL_CLIENT=$dir" >> "$GITHUB_ENV"
+
+      - name: Install the build helper's dependencies
+        # The Bun build helper (harnesses/bun/build, ADR 0010) parses
+        # TypeScript with the parser its lockfile pins; the Go build tests
+        # run it.
+        working-directory: harnesses/bun/build
+        run: bun install --frozen-lockfile
+
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-formatted:" >&2
+            echo "$unformatted" >&2
+            exit 1
+          fi
+
+      - name: Check go.mod is tidy
+        run: go mod tidy -diff
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Check that no retarget ledger remains
+        # A retarget ledger (cmd/wltest/testdata/flowsuite-pending.json)
+        # and its markers in test code would let tests fail or skip
+        # unnoticed (cmd/wltest/README.md, "The ledger guard"). This step
+        # fails while the ledger file or any marker exists, and prints
+        # each marker it finds.
+        run: go run ./cmd/wltest ledger
+
+      - name: Test the expression packages in leak check
+        # The engine destroys each QuickJS-ng runtime's heap whole by
+        # default, leaks included, without counting them.
+        # Leak check frees each runtime block by block and counts what
+        # QuickJS-ng left, so the tests' check that no runtime leaked
+        # catches a leak QuickJS-ng starts making
+        # (internal/expr/quickjs, Options.LeakCheck).
+        env:
+          WL_QJS_LEAK_CHECK: "1"
+        run: go test -race -count=1 ./internal/expr/...
+
+      - name: Build a fixture bundle twice and compare
+        # The reproducible-build check (ADR 0010, 0012): the same inputs and
+        # pins give one bundle digest. The second build reads a copy of the
+        # fixture in another directory; the archives must be the same bytes.
+        env:
+          WL_BUN: ${{ steps.bun.outputs.bun-path }}
+          WL_BUILD_HELPER: ${{ github.workspace }}/harnesses/bun/build/main.ts
+        run: |
+          wl="$RUNNER_TEMP/windmill-lite"
+          go build -o "$wl" ./cmd/windmill-lite
+          fixture=internal/bundle/testdata/fixture
+          cp -R "$fixture" "$RUNNER_TEMP/fixture-copy"
+          a=$("$wl" build "$fixture/windmill" -contract "$fixture/contract.yaml" -o "$RUNNER_TEMP/a.wlb")
+          b=$("$wl" build "$RUNNER_TEMP/fixture-copy/windmill" -contract "$RUNNER_TEMP/fixture-copy/contract.yaml" -o "$RUNNER_TEMP/b.wlb")
+          echo "first build:  $a"
+          echo "second build: $b"
+          test "$a" = "$b"
+          cmp "$RUNNER_TEMP/a.wlb" "$RUNNER_TEMP/b.wlb"
+          "$wl" verify "$RUNNER_TEMP/b.wlb" -digest "$a"
+
+      - name: Measure the expression pool under load
+        # Prints latency percentiles of the native QuickJS-ng pool
+        # (internal/expr/quickjs). Report only: it sets no threshold; the
+        # budget gate is package expr's (TestBudgetGate).
+        env:
+          WL_QUICKJS_LOAD: "1"
+          WL_QUICKJS_LOAD_SECONDS: "1"
+        run: go test -count=1 -run '^TestPoolUnderLoad$' -v ./internal/expr/quickjs
+
+      - name: Report the expression budget gate
+        # ADR 0003's budget gate, measured through the whole pipeline
+        # (internal/expr). Report only: the gate holds on the benchmark
+        # machine; CI's shared runners show the trend.
+        env:
+          WL_EXPR_BUDGET: report
+          WL_EXPR_BUDGET_SECONDS: "1"
+        run: go test -count=1 -run '^TestBudgetGate$' -v ./internal/expr
+
+      - name: Report the native realms and the process groups
+        # A test that skips does not fail its bucket. This step runs, by
+        # name and with -v, the tests whose coverage rests on the pinned
+        # Bun: TestNativeInvocationsKeepNoScript (cmd/windmill-lite), whose
+        # log gives the Script objects, heap and resident set that native
+        # invocations leave in a long-lived Bun process, and the tests of
+        # the process groups that a job's children join (internal/harness,
+        # the Linux-only subreaper test included, and the host's
+        # TestHostChildUnderBackpressure). It fails if any of them skips or
+        # does not run.
+        env:
+          WL_BUN: ${{ steps.bun.outputs.bun-path }}
+          WL_REQUIRE_BUN: "1"
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/realms-and-groups.log"
+          cmd=(TestNativeInvocationsKeepNoScript TestHostChildUnderBackpressure)
+          harness=(TestChildGroupIdentity TestChildGroupGuardian TestChildGroupUndecided
+            TestChildGroupEndsOnce TestReapChildGroups TestReviewOwnedGuardianReaped
+            TestRetireChildren TestBunWarmRetiresEndedChildren TestBunWarmGuardedHandoff
+            TestBunWaitAllChild TestBunFreshChildHoldsTheJob TestBunFreshTimeoutKillsTheGroup
+            TestBunWarmChildren TestBunWarmCancelKillsChildren TestBunWarmStalledChildren
+            TestBunFreshKilledHeldResult)
+          if [ "$RUNNER_OS" = Linux ]; then harness+=(TestReapAdoptedOrphans TestFreshLandedKillReapsALaterOrphan); fi
+          pattern() { local IFS='|'; echo "^($*)\$"; }
+          go test -count=1 -v -run "$(pattern "${cmd[@]}")" ./cmd/windmill-lite | tee "$log"
+          go test -count=1 -v -run "$(pattern "${harness[@]}")" ./internal/harness | tee -a "$log"
+          status=0
+          if grep -E -- '--- SKIP:' "$log"; then
+            echo "::error::these tests skipped; each must run here"
+            status=1
+          fi
+          for t in "${cmd[@]}" "${harness[@]}"; do
+            if ! grep -q -E -- "^--- PASS: $t \(" "$log"; then
+              echo "::error::$t did not run"
+              status=1
+            fi
+          done
+          exit "$status"
+
+      - name: Test repository scripts
+        # Unit tests for the helpers in scripts/: the Renovate auto-ack
+        # checks, the documentation check and the release helper, one of
+        # whose tests builds the engine with the release's version stamp
+        # and checks that it prints the npm package's version.
+        run: python3 -m unittest discover -s scripts -v
+
+      - name: Set up Node for the npm package
+        # The packaging test runs the SDK's test entry,
+        # windmill-lite/bun/testing, on the node on the PATH: Node 22, the
+        # oldest major the entry supports. It replaces Node 24 on the PATH
+        # for the steps after this one only; WL_NODE keeps naming Node 24.
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22.23.5
+
+      - name: Test the npm package
         # The packaging test of the npm package windmill-lite
         # (harnesses/npm/test/check.sh): npm pack, the packed file list
         # and manifest, bun add into an empty project, tsc (TypeScript 7,
@@ -334,30 +1102,488 @@ jobs:
           harnesses/npm/test/check.sh
 
   go-macos:
-    # The required status check "Go (macos-latest)": it passes only when
-    # every macOS part of the go job passed. A required check whose job is
-    # skipped counts as passed, so this job runs even when a part failed,
-    # unless the run was cancelled.
+    # The required status check "Go (macos-latest)": it passes only when the
+    # plan, every bucket and the checks job of macos-latest succeeded, in a
+    # run that was not cancelled. A required check whose job is skipped
+    # counts as passed, so this job runs whatever their results, a cancelled
+    # run included, and fails then.
     name: Go (macos-latest)
-    needs: go
-    if: ${{ !cancelled() }}
+    needs: [go-macos-plan, go-macos-buckets, go-macos-checks]
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    permissions:
-      actions: read
     steps:
-      - name: Check the macOS parts
+      - name: Check the plan, the buckets and the checks
+        if: always()
         env:
-          GH_TOKEN: ${{ github.token }}
+          PLAN: ${{ needs.go-macos-plan.result }}
+          BUCKETS: ${{ needs.go-macos-buckets.result }}
+          CHECKS: ${{ needs.go-macos-checks.result }}
         run: |
-          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=latest" \
-            --jq '.jobs[] | select(.name | startswith("Go (macos-latest, ")) | "\(.conclusion) \(.name)"' > parts.txt
-          cat parts.txt
-          test -s parts.txt || { echo "no macOS part of the go job ran" >&2; exit 1; }
-          if grep -v '^success ' parts.txt; then
-            echo "a macOS part of the go job did not pass" >&2
+          echo "plan: $PLAN"
+          echo "buckets: $BUCKETS"
+          echo "checks: $CHECKS"
+          if [ "$PLAN" != success ] || [ "$BUCKETS" != success ] || [ "$CHECKS" != success ]; then
+            echo "the plan, a bucket or the checks job of macos-latest did not succeed" >&2
             exit 1
           fi
+
+      - name: Fail a cancelled run
+        # A run cancelled before this job ends, such as one that a newer
+        # push replaced, fails the check even when every job it needs had
+        # succeeded.
+        if: cancelled()
+        run: |
+          echo "the run was cancelled" >&2
+          exit 1
+
+  go-macos-record:
+    # As go-ubuntu-record, for go-macos, on macos-latest.
+    name: Go record (macos-latest)
+    needs: [go-macos-plan, go-macos-buckets]
+    if: ${{ !cancelled() && needs.go-macos-plan.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Install testbucket
+        # As in the plan job.
+        env:
+          VERSION: 0.2.2
+          SHA256_LINUX_AMD64: ade5a045a58798a2deebaecb406d23b33108b9293a6557bf7070d9a0cbeed01a
+          SHA256_DARWIN_ARM64: 005083d442fff497e201589b176aeff3bdcfbf0ce37c2427ba59286c08bec371
+        run: |
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64) asset=linux_amd64 sha256=$SHA256_LINUX_AMD64 ;;
+            macOS-ARM64) asset=darwin_arm64 sha256=$SHA256_DARWIN_ARM64 ;;
+            *) echo "no testbucket archive is pinned for $RUNNER_OS-$RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+          archive="$RUNNER_TEMP/testbucket.tar.gz"
+          curl -sSfL --retry 3 -o "$archive" "https://github.com/invakid404/testbucket/releases/download/v${VERSION}/testbucket_${VERSION}_${asset}.tar.gz"
+          echo "$sha256  $archive" | shasum -a 256 -c -
+          mkdir "$RUNNER_TEMP/testbucket"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/testbucket" testbucket
+          echo "$RUNNER_TEMP/testbucket" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/testbucket/testbucket" version
+
+      - name: Make the module a workspace member
+        # The same go.work as the plan's, so that the ingest lists the same
+        # packages.
+        run: go work init .
+
+      - name: Download the test events
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: go-macos-events-*
+          merge-multiple: true
+          path: /tmp/testbucket-events
+
+      - name: Download the shard plan
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: go-macos-shard-plan
+          path: ${{ runner.temp }}/plan
+
+      - name: Restore the timing store
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/testbucket-store
+          key: testbucket-go-macos-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            testbucket-go-macos-v1-
+
+      - name: Audit and record the run
+        # scripts/check-bucket-audit.py runs testbucket audit, which fails
+        # when a planned package or test did not report, so that nothing is
+        # recorded from an incomplete run. It counts a top-level test that
+        # skipped as reported, which testbucket v0.2.2 does not (docs/ci.md,
+        # "Known limits"). A package that failed adds no time. The split
+        # decisions are printed last.
+        env:
+          K: "5"
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          events=(/tmp/testbucket-events/*.ndjson)
+          if [ ${#events[@]} -eq 0 ]; then echo "no test events to record" >&2; exit 1; fi
+          python3 scripts/check-bucket-audit.py --shard-plan "$RUNNER_TEMP/plan/shard-plan.json" "${events[@]}"
+          store="$RUNNER_TEMP/testbucket-store/test-timings.json"
+          mkdir -p "$(dirname "$store")"
+          testbucket ingest --runner go --store "$store" --count 1 --race --whale-k "$K" "${events[@]}"
+          testbucket whales --k "$K" --store "$store" || true
+
+      - name: Save the timing store
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/testbucket-store
+          key: testbucket-go-macos-v1-${{ github.run_id }}-${{ github.run_attempt }}
+
+  go-quickjs-plan:
+    # As go-ubuntu-plan, for the two packages that read WL_TEST_QUICKJS_ONLY.
+    # testbucket's own discovery lists every package of the module, so the
+    # plan reads the two from a file that go list writes (--live), and needs
+    # no go.work.
+    name: Go plan (ubuntu-latest, QuickJS only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Install testbucket
+        # The release archive for this runner, checked against the SHA-256
+        # that the release's checksums.txt lists for it.
+        env:
+          VERSION: 0.2.2
+          SHA256_LINUX_AMD64: ade5a045a58798a2deebaecb406d23b33108b9293a6557bf7070d9a0cbeed01a
+          SHA256_DARWIN_ARM64: 005083d442fff497e201589b176aeff3bdcfbf0ce37c2427ba59286c08bec371
+        run: |
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64) asset=linux_amd64 sha256=$SHA256_LINUX_AMD64 ;;
+            macOS-ARM64) asset=darwin_arm64 sha256=$SHA256_DARWIN_ARM64 ;;
+            *) echo "no testbucket archive is pinned for $RUNNER_OS-$RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+          archive="$RUNNER_TEMP/testbucket.tar.gz"
+          curl -sSfL --retry 3 -o "$archive" "https://github.com/invakid404/testbucket/releases/download/v${VERSION}/testbucket_${VERSION}_${asset}.tar.gz"
+          echo "$sha256  $archive" | shasum -a 256 -c -
+          mkdir "$RUNNER_TEMP/testbucket"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/testbucket" testbucket
+          echo "$RUNNER_TEMP/testbucket" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/testbucket/testbucket" version
+
+      - name: Restore the timing store
+        id: store
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/testbucket-store
+          key: testbucket-go-quickjs-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            testbucket-go-quickjs-v1-
+
+      - name: Plan the buckets
+        # The store comes from the cache. The seed replaces it when the cache
+        # holds no entry, or one that leaves the plan cold (recorded under
+        # other flags, or with no time of a live package). A plan that read
+        # the seed and is still cold fails: the seed's flags differ from the
+        # plan's, and testbucket ignores it. Only a plan with neither a
+        # usable entry nor a seed is cold, and gets the cold timeouts. Each
+        # matrix entry gets a timeout_minutes, the job timeout of its bucket.
+        id: plan
+        env:
+          K: "3"
+          SEED: .github/testbucket/go-quickjs.json
+          MATCHED_KEY: ${{ steps.store.outputs.cache-matched-key }}
+          TIMEOUT: 45m
+          JOB_TIMEOUT: "50"
+          COLD_TIMEOUT: 60m
+          COLD_JOB_TIMEOUT: "75"
+          COLD_PACKAGE: github.com/invakid404/windmill-lite/cmd/wltest
+        run: |
+          set -euo pipefail
+          store="$RUNNER_TEMP/testbucket-store/test-timings.json"
+          if [ -f "$store" ]; then
+            from=cache source="the cache entry $MATCHED_KEY"
+          elif [ -f "$SEED" ]; then
+            mkdir -p "$(dirname "$store")"
+            cp "$SEED" "$store"
+            from=seed source="the seed $SEED, since no cache entry was found"
+          else
+            from=none source="none: no cache entry, and no seed at $SEED"
+          fi
+          echo "timing store: $source"
+          go list -json ./internal/expr ./cmd/wltest | jq -s --arg root "$PWD" \
+            '[.[] | {id: .ImportPath, dir: (.Dir | ltrimstr($root + "/")), module: ".", mode: "work",
+                     has_tests: ((((.TestGoFiles // []) | length) + ((.XTestGoFiles // []) | length)) > 0)}]' \
+            > "$RUNNER_TEMP/live.json"
+          echo "packages: $(jq -r 'map(.id) | join(" ")' "$RUNNER_TEMP/live.json")"
+          plan() {
+            if ! testbucket plan --runner go --k "$K" --count 1 --race --file-parallelism 1 \
+                --timeout "$1" --store "$store" --events-dir /tmp/testbucket-events \
+                --shard-plan "$RUNNER_TEMP/shard-plan.json" --live "$RUNNER_TEMP/live.json" --json \
+                > "$RUNNER_TEMP/matrix.json" 2> "$RUNNER_TEMP/plan.txt"; then
+              cat "$RUNNER_TEMP/plan.txt" >&2
+              exit 1
+            fi
+          }
+          cold=false timeout=$TIMEOUT
+          plan "$timeout"
+          is_cold() { [ "$(jq -r .summary.cold_start "$RUNNER_TEMP/shard-plan.json")" = true ]; }
+          if is_cold && [ "$from" = cache ] && [ -f "$SEED" ]; then
+            cp "$SEED" "$store"
+            from=seed source="the seed $SEED, since the cache entry $MATCHED_KEY leaves the plan cold"
+            echo "the cache entry is unusable; timing store: $source"
+            plan "$timeout"
+          fi
+          if is_cold; then
+            if [ "$from" = seed ]; then
+              cat "$RUNNER_TEMP/plan.txt" >&2
+              echo "::error::the plan read the seed $SEED and is still cold: refresh the seed (docs/ci.md)"
+              exit 1
+            fi
+            cold=true timeout=$COLD_TIMEOUT
+            plan "$timeout"
+          fi
+          cat "$RUNNER_TEMP/plan.txt" >&2
+          # On a cold start, the bucket that runs COLD_PACKAGE whole gets the
+          # cold job timeout; every other bucket keeps JOB_TIMEOUT.
+          jq -c --argjson cold "$cold" --arg pkg "$COLD_PACKAGE" \
+            --argjson job "$JOB_TIMEOUT" --argjson coldjob "$COLD_JOB_TIMEOUT" \
+            '.include |= map(. + {timeout_minutes: (if $cold and (((.units // []) | index($pkg)) != null) then $coldjob else $job end)})' \
+            "$RUNNER_TEMP/matrix.json" > "$RUNNER_TEMP/matrix-timeouts.json"
+          timeouts=$(jq -r '[.include[] | "bucket \(.bucket) \(.timeout_minutes)"] | join(", ")' "$RUNNER_TEMP/matrix-timeouts.json")
+          echo "go test timeout: $timeout; job timeout in minutes: $timeouts"
+          {
+            echo "### Go plan (ubuntu-latest, QuickJS only)"
+            echo "Timing store: $source. Go test timeout: $timeout. Job timeout in minutes: $timeouts."
+            echo '```'
+            cat "$RUNNER_TEMP/plan.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          printf 'matrix=%s\n' "$(cat "$RUNNER_TEMP/matrix-timeouts.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the shard plan
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: go-quickjs-shard-plan
+          # The live set goes with the shard plan: the record job ingests
+          # with it, and a seed is refreshed from it (docs/ci.md).
+          path: |
+            ${{ runner.temp }}/shard-plan.json
+            ${{ runner.temp }}/live.json
+          if-no-files-found: warn
+          # A re-run of this job replaces the artifact of its earlier attempt.
+          overwrite: true
+          retention-days: 14
+
+  go-quickjs-buckets:
+    # As go-ubuntu-buckets, with WL_TEST_QUICKJS_ONLY=1, which turns the
+    # pipeline's Go evaluator off by default.
+    name: Go (ubuntu-latest, QuickJS only, bucket ${{ matrix.bucket }})
+    needs: go-quickjs-plan
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ matrix.timeout_minutes }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.go-quickjs-plan.outputs.matrix) }}
+    env:
+      # With WL_REQUIRE_BUN, a test that the bucket runs and that needs Bun
+      # or the stock client fails when either is missing, instead of
+      # skipping: the harness protocol and build tests, the host-mode tests
+      # and the client's tests. WL_REQUIRE_NODE does the same for the Node
+      # side of the step suite.
+      WL_REQUIRE_BUN: "1"
+      WL_REQUIRE_NODE: "1"
+      WL_TEST_QUICKJS_ONLY: "1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Set up Bun
+        id: bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.3
+
+      - name: Locate Bun
+        env:
+          BUN: ${{ steps.bun.outputs.bun-path }}
+        run: echo "WL_BUN=$BUN" >> "$GITHUB_ENV"
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.1
+
+      - name: Locate Node
+        run: echo "WL_NODE=$(command -v node)" >> "$GITHUB_ENV"
+
+      - name: Fetch windmill-client 1.862.0
+        run: |
+          dir="$RUNNER_TEMP/windmill-client"
+          mkdir -p "$dir/node_modules/windmill-client"
+          curl -sSfL --retry 3 -o "$dir/client.tgz" https://registry.npmjs.org/windmill-client/-/windmill-client-1.862.0.tgz
+          echo "5ebad9cf352597fb2475e80267bf411b562b108c8eeea66a84a5d5a2ff12df68d8000ef8d2acef130a3acb77be9b22fb9ad5056314adf0695aee3533eef68811  $dir/client.tgz" | shasum -a 512 -c -
+          tar -xzf "$dir/client.tgz" -C "$dir/node_modules/windmill-client" --strip-components=1
+          echo "WL_WINDMILL_CLIENT=$dir" >> "$GITHUB_ENV"
+
+      - name: Install the build helper's dependencies
+        working-directory: harnesses/bun/build
+        run: bun install --frozen-lockfile
+
+      - name: Run the bucket
+        uses: invakid404/testbucket/.github/actions/run-bucket@693a19981fb6e0061d3fab62e59d75dc1c01ff3f # v0.2.2
+        with:
+          runner: go
+          script: ${{ matrix.script }}
+          name: ${{ matrix.name }}
+          est-seconds: ${{ matrix.est_seconds }}
+          events-dir: /tmp/testbucket-events
+          version: v0.2.2
+          setup-command: |
+            for v in WL_BUN WL_NODE WL_WINDMILL_CLIENT WL_REQUIRE_BUN WL_REQUIRE_NODE WL_TEST_QUICKJS_ONLY; do
+              if [ -z "${!v:-}" ]; then echo "$v is not set" >&2; exit 1; fi
+            done
+            "$WL_BUN" --version
+            "$WL_NODE" --version
+            test -f "$WL_WINDMILL_CLIENT/node_modules/windmill-client/package.json"
+
+      - name: Upload the test events
+        # Also from a failed bucket: the record job audits every bucket.
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: go-quickjs-events-${{ matrix.bucket }}
+          path: /tmp/testbucket-events/
+          # An empty bucket writes no events.
+          if-no-files-found: warn
+          # A re-run of a bucket replaces the artifact of its earlier attempt.
+          overwrite: true
+          retention-days: 14
+
+  go-quickjs:
+    # "Go (ubuntu-latest, QuickJS only)", not a required check: it passes
+    # only when the plan and every bucket of go-quickjs succeeded, in a run
+    # that was not cancelled.
+    name: Go (ubuntu-latest, QuickJS only)
+    needs: [go-quickjs-plan, go-quickjs-buckets]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check the plan and the buckets
+        if: always()
+        env:
+          PLAN: ${{ needs.go-quickjs-plan.result }}
+          BUCKETS: ${{ needs.go-quickjs-buckets.result }}
+        run: |
+          echo "plan: $PLAN"
+          echo "buckets: $BUCKETS"
+          if [ "$PLAN" != success ] || [ "$BUCKETS" != success ]; then
+            echo "the plan or a bucket of the QuickJS-only run did not succeed" >&2
+            exit 1
+          fi
+
+      - name: Fail a cancelled run
+        if: cancelled()
+        run: |
+          echo "the run was cancelled" >&2
+          exit 1
+
+  go-quickjs-record:
+    # As go-ubuntu-record, for go-quickjs, with the live set that its plan
+    # uploaded with the shard plan.
+    name: Go record (ubuntu-latest, QuickJS only)
+    needs: [go-quickjs-plan, go-quickjs-buckets]
+    if: ${{ !cancelled() && needs.go-quickjs-plan.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Install testbucket
+        # As in the plan job.
+        env:
+          VERSION: 0.2.2
+          SHA256_LINUX_AMD64: ade5a045a58798a2deebaecb406d23b33108b9293a6557bf7070d9a0cbeed01a
+          SHA256_DARWIN_ARM64: 005083d442fff497e201589b176aeff3bdcfbf0ce37c2427ba59286c08bec371
+        run: |
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64) asset=linux_amd64 sha256=$SHA256_LINUX_AMD64 ;;
+            macOS-ARM64) asset=darwin_arm64 sha256=$SHA256_DARWIN_ARM64 ;;
+            *) echo "no testbucket archive is pinned for $RUNNER_OS-$RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+          archive="$RUNNER_TEMP/testbucket.tar.gz"
+          curl -sSfL --retry 3 -o "$archive" "https://github.com/invakid404/testbucket/releases/download/v${VERSION}/testbucket_${VERSION}_${asset}.tar.gz"
+          echo "$sha256  $archive" | shasum -a 256 -c -
+          mkdir "$RUNNER_TEMP/testbucket"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/testbucket" testbucket
+          echo "$RUNNER_TEMP/testbucket" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/testbucket/testbucket" version
+
+      - name: Download the test events
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: go-quickjs-events-*
+          merge-multiple: true
+          path: /tmp/testbucket-events
+
+      - name: Download the shard plan
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: go-quickjs-shard-plan
+          path: ${{ runner.temp }}/plan
+
+      - name: Restore the timing store
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/testbucket-store
+          key: testbucket-go-quickjs-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            testbucket-go-quickjs-v1-
+
+      - name: Audit and record the run
+        # scripts/check-bucket-audit.py runs testbucket audit, which fails
+        # when a planned package or test did not report, so that nothing is
+        # recorded from an incomplete run. It counts a top-level test that
+        # skipped as reported, which testbucket v0.2.2 does not (docs/ci.md,
+        # "Known limits"). A package that failed adds no time. The split
+        # decisions are printed last.
+        env:
+          K: "3"
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          events=(/tmp/testbucket-events/*.ndjson)
+          if [ ${#events[@]} -eq 0 ]; then echo "no test events to record" >&2; exit 1; fi
+          python3 scripts/check-bucket-audit.py --shard-plan "$RUNNER_TEMP/plan/shard-plan.json" "${events[@]}"
+          store="$RUNNER_TEMP/testbucket-store/test-timings.json"
+          mkdir -p "$(dirname "$store")"
+          testbucket ingest --runner go --store "$store" --count 1 --race --whale-k "$K" --live "$RUNNER_TEMP/plan/live.json" "${events[@]}"
+          testbucket whales --k "$K" --store "$store" || true
+
+      - name: Save the timing store
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/testbucket-store
+          key: testbucket-go-quickjs-v1-${{ github.run_id }}-${{ github.run_attempt }}
 
   static-linux:
     # The Linux engine is one static binary, built with zig cc against musl

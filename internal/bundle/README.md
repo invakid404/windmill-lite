@@ -957,8 +957,8 @@ To rewrite the golden files of the env rewrite and the shims in
 To run the build-time benchmark, which needs no Bun:
 `go test -run '^$' -bench BenchmarkCodebaseHostModules ./internal/bundle`
 
-CI runs these tests in `Go (ubuntu-latest)` and
-`Go (macos-latest, packages)` with `WL_REQUIRE_BUN` set
+CI runs these tests in the Go buckets of `ubuntu-latest` and
+`macos-latest`, with `WL_REQUIRE_BUN` set
 ([docs/ci.md](../../docs/ci.md#the-go-jobs)). The Codebase parity workflow
 runs the CLI parity check
 ([docs/ci.md](../../docs/ci.md#codebase-parity)). CI also builds the

@@ -22,7 +22,7 @@ import (
 // and run them on the real QuickJS-ng engine, with steps answered in Go:
 // path scripts under f/t, named by their inventory ids, which are their
 // paths. The flow fixtures of conformance/flows run the same engine on the
-// real Bun harness (cmd/wltest, TestFlowSuite).
+// real Bun harness (the flow suite of cmd/wltest).
 
 // scripts answers the test folders' path scripts:
 //

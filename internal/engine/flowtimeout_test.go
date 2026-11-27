@@ -13,7 +13,7 @@ import (
 // The flow timeout tests (FX-52) run synthetic flows on the real
 // QuickJS-ng engine, with steps answered in Go; the fx-52-flow-timeout
 // and cf-27-flow-timeouts fixtures of conformance/flows run the same
-// limits on the real Bun harness (cmd/wltest, TestFlowSuite).
+// limits on the real Bun harness (the flow suite of cmd/wltest).
 
 // hangs answers f/t/zero as a step that never settles until its context
 // ends, f/t/obj as one that takes 1.5 s and returns 1500, and every other

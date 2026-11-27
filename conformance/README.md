@@ -95,9 +95,9 @@ and the plugin file, so a case that breaks its format fails there.
 | plugins | `TestPluginCases`, `wl/plugincases_test.go`; `TestHostPluginCases`, `cmd/windmill-lite/host_test.go`; `TestPluginFileLoads`, `internal/conformance/plugins_test.go`, loads them | — |
 | build | `TestConformanceBuild`, `internal/bundle/conformance_test.go`; `TestAnnotationCases`, `annotations_test.go` | `TestConformanceBuildCatalogue`, `conformance_test.go` |
 | hooks | `TestHookCases`, `wl/hookcases_test.go` | — |
-| flow | `TestFlowSuite` and others, `cmd/wltest/flows_test.go`; `TestRecordingBatches`, `internal/oracle/batch_test.go`; `TestRecordingsSatisfyClaims`, `TestUnitCasesMatchRecordings`, `internal/oracle/recordings_test.go` | `TestBatchCoverage`, `recordings_test.go` |
+| flow | The flow suite's tests and others, `cmd/wltest/flows_test.go`; `TestRecordingBatches`, `internal/oracle/batch_test.go`; `TestRecordingsSatisfyClaims`, `TestUnitCasesMatchRecordings`, `internal/oracle/recordings_test.go` | `TestBatchCoverage`, `recordings_test.go` |
 | step | `TestStepSuite`, `cmd/wltest/check_test.go` | `TestStepCatalogue`, the same file |
-| expr | `TestFlowSuite`, `cmd/wltest/flows_test.go`; `TestExprCasesAgreeWithRecordings`, `internal/oracle/recordings_test.go`; `TestRecordedCasesThroughPipeline`, `internal/expr/conformance_test.go` | `TestBatchCoverage`, `recordings_test.go` |
+| expr | The flow suite's tests, `cmd/wltest/flows_test.go`; `TestExprCasesAgreeWithRecordings`, `internal/oracle/recordings_test.go`; `TestRecordedCasesThroughPipeline`, `internal/expr/conformance_test.go` | `TestBatchCoverage`, `recordings_test.go` |
 
 | Variable | Value | What needs it | When it is not set |
 |---|---|---|---|
@@ -176,7 +176,8 @@ recording.
 ### Diagnose a failed fixture
 
 1. Find the failing job. An `Oracle record (<session>)` job ran the oracle;
-   a `Go` job or `TestFlowSuite` ran windmill-lite.
+   a Go bucket ran windmill-lite, in a test of the flow suite
+   ([cmd/wltest](../cmd/wltest/README.md#the-flow-suite)).
 2. On the oracle, read the run's line in the job's log: `expect_mismatch`
    means the oracle did not do what the `expect` says. Under `--check`,
    `new` means the run has no committed recording, and `changed` that the
@@ -1094,6 +1095,6 @@ build cases.
 |---|---|---|---|
 | Which level does a case go to? | The lowest level that observes the rule; a flow fixture only where the rule needs a whole run: on the oracle, or, for windmill-lite's own policy such as provided sites, on windmill-lite alone, where the oracle skips it | A lower level runs without the oracle, and often without Bun, and fails closer to the cause ([Where semantics live](../docs/design/0003-semantics-placement.md)) | Each level's catalogue test |
 | When does a catalogue case go to a deferred file? | When its finding has a file at a level, and the case cannot be checked there. The entry says why, and where it is checked | The catalogue test can then require every case of the finding to be accounted for | `TestConformanceIRCatalogue` and the other catalogue tests, `TestBatchCoverage` |
-| Can a recorded run stay outside the runs windmill-lite must pass? | Yes. The oracle records what Windmill does; `flowsuite.json` and the manifests' gates decide which runs windmill-lite must pass, and `later` marks a case it need not pass yet | Recording comes before the work that implements a behaviour | `TestRecordingBatches`, `TestFlowSuite` |
+| Can a recorded run stay outside the runs windmill-lite must pass? | Yes. The oracle records what Windmill does; `flowsuite.json` and the manifests' gates decide which runs windmill-lite must pass, and `later` marks a case it need not pass yet | Recording comes before the work that implements a behaviour | `TestRecordingBatches`, the flow suite's tests |
 | Which cases are `policy`? | windmill-lite's own rules: the protocol, the plugin and hook cases, provided sites, and the choices of the ADRs. The oracle never records them | Windmill has no such behaviour to observe | The protocol, plugin and hook tests |
 | What happens to a case that needs a restart? | It is `EE`, and deferred | The Community Edition has no restart | [exprs/deferred.yaml](exprs/deferred.yaml) |

@@ -248,8 +248,8 @@ server reachable, they fail.
    `go test -run '^$' -fuzz FuzzStored -fuzztime 60s ./internal/jsonval`
 4. Run the benchmark: `go test -run '^$' -bench BenchmarkStored ./internal/jsonval`
 
-CI runs the tests in `Go (ubuntu-latest)` and
-`Go (macos-latest, packages)`, and the PostgreSQL tests in
+CI runs the tests in the Go buckets of `ubuntu-latest` and
+`macos-latest`, and the PostgreSQL tests in
 `jsonb (PostgreSQL)`, against the oracle's PostgreSQL image, whose digest
 [oracle.md](../../docs/semantics/oracle.md) pins
 ([docs/ci.md](../../docs/ci.md#the-ci-workflow)).

@@ -1907,8 +1907,8 @@ answers at the launch, before a job exists), or when a flow job starts.
   [module state](../../docs/glossary.md#module-state) that every
   invocation runs in ([module state](../../docs/design/0006-module-state.md)):
   [`warm`](../../docs/glossary.md#warm) by default, or `fresh`. The trace
-  records it. The flow suite of `wltest` (`TestFlowSuite`) runs the result
-  cache's fixtures in both.
+  records it. The flow suite of `wltest` (`TestFlowSuiteWarm` and
+  `TestFlowSuiteFresh`) runs the result cache's fixtures in both.
 - **`Config.SharedCode`** says that the bundle's steps run their
   shared-layout modules ([shared module code](../../docs/design/0013-shared-module-code.md)).
   It is valid in `warm` only: `New` refuses it in another mode.
@@ -2374,10 +2374,9 @@ need a C compiler.
 2. Run one test by name, for example:
    `go test -race -run '^TestEngineRetryIf$' ./internal/engine`
 
-CI runs them in the jobs `Go (ubuntu-latest)` and
-`Go (macos-latest, packages)`, with `go test -race -timeout 45m ./...`;
-the macOS part adds `-skip '^TestFlowSuite$'`
-([docs/ci.md](../../docs/ci.md#the-go-jobs)). The flow fixtures run the
+CI runs them in the Go buckets of `ubuntu-latest` and `macos-latest`,
+with `go test -race -count=1`
+([docs/ci.md](../../docs/ci.md#the-go-buckets)). The flow fixtures run the
 engine on the real Bun harness in `wltest check`
 ([cmd/wltest](../../cmd/wltest/README.md#flow-fixtures)).
 

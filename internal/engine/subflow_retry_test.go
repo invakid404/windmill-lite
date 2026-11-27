@@ -12,7 +12,7 @@ import (
 // path (CF-17: the caller's retry applies to a failed subflow), on the
 // synthetic folders and the real QuickJS-ng engine of engine_test.go; the
 // control-flow/subflow-retry fixture runs the same shapes on the real Bun
-// harness against the oracle's recordings (cmd/wltest, TestFlowSuite).
+// harness against the oracle's recordings (the flow suite of cmd/wltest).
 
 // sp parses a site path.
 func sp(t *testing.T, s string) conformance.SitePath {

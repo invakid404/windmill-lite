@@ -389,8 +389,8 @@ library's allocator, not the allocators alone.
 
 The tests need cgo and a C compiler.
 
-1. Run them with the race detector, as CI's `Test` step runs every package:
-   `go test -race ./internal/expr/quickjs`.
+1. Run them with the race detector, as CI's Go buckets run the tests of
+   every package: `go test -race ./internal/expr/quickjs`.
 2. Run them in leak check, as CI's `Test the expression packages in leak
    check` step does: `WL_QJS_LEAK_CHECK=1 go test -race -count=1 ./internal/expr/...`.
 3. Print the stack measurements, as the `Expression engine` jobs do:
@@ -405,7 +405,7 @@ CI builds and tests this package with these compilers
 - the GCC of `ubuntu-latest`, in the Go jobs on Linux;
 - the GCC of `ubuntu-24.04` and `ubuntu-24.04-arm`, in the glibc builds of
   the allocator comparison in the `Static Linux engine` jobs;
-- Apple clang, in the macOS parts of the Go jobs;
+- Apple clang, in the Go jobs on macOS;
 - GCC 13 and GCC 15, on the two Ubuntu images of the `Expression engine`
   jobs;
 - `zig cc` against musl, as a static build for `amd64` and `arm64`, in the

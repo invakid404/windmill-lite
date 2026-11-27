@@ -18,7 +18,7 @@ import (
 
 // The for-loop tests run synthetic flows on the real QuickJS-ng engine,
 // with steps answered in Go; the for-loop fixtures of conformance/flows run
-// the same loops on the real Bun harness (cmd/wltest, TestFlowSuite).
+// the same loops on the real Bun harness (the flow suite of cmd/wltest).
 
 // loopOf writes a for loop module: its body modules and its fields, as
 // JSON, with envelope fields after them.

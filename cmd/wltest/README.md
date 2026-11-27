@@ -815,12 +815,23 @@ So each run's trace, its hooks and its cancellation stay the checker's, as in
 
 ## The flow suite
 
-`TestFlowSuite` runs every flow fixture of `conformance/flows`, and every
+The flow suite runs every flow fixture of `conformance/flows`, and every
 expression file of `conformance/exprs` as its generated fixture, in five
-configurations: `warm`, `fresh` and `host`, and `warm` and `host` from bundles
-built with shared code. Each fixture must load. Every required run must pass
-in all five. The log gives the counts of passing, failing and unsupported
-runs, and names the runs that pass without being required.
+configurations. Each configuration is a top-level test, so that it can run
+alone, such as with `go test -run '^TestFlowSuiteHost$' ./cmd/wltest`:
+
+| Test | Configuration |
+|---|---|
+| `TestFlowSuiteWarm` | `warm` |
+| `TestFlowSuiteFresh` | `fresh` |
+| `TestFlowSuiteHost` | `host` |
+| `TestFlowSuiteWarmSharedCode` | `warm`, from bundles built with shared code |
+| `TestFlowSuiteHostSharedCode` | `host`, from bundles built with shared code |
+
+In each configuration, each fixture must load, and every required run must
+pass. Each test's log gives the counts of passing, failing and unsupported
+runs in its configuration, and names the runs that pass without being
+required.
 
 [`testdata/flowsuite.json`](testdata/flowsuite.json) lists the required runs:
 
@@ -850,7 +861,7 @@ the differences windmill-lite accepts are the
 
 | Question | Choice | Why | Pinned by |
 |---|---|---|---|
-| Which runs must pass? | The runs that `flowsuite.json` lists, and those that an active manifest gate requires. Every other run runs, and is only reported | A run becomes required when the work that implements it lands, so a run that windmill-lite cannot pass yet does not block other work | `TestFlowSuite` (`requiredRuns`) |
+| Which runs must pass? | The runs that `flowsuite.json` lists, and those that an active manifest gate requires. Every other run runs, and is only reported | A run becomes required when the work that implements it lands, so a run that windmill-lite cannot pass yet does not block other work | The flow suite's tests (`requiredRuns`) |
 | What does a run compare with? | Its `expect` when it has one, then its recording, then its claims alone; a run with none of them fails | An `expect` states what windmill-lite must do, `carried` and `resolved_args` included, which a recording does not hold | `TestCompareRun`, `TestFlowCheckerReportsDifferences` |
 | How does a group fail? | As a whole: each run with no problem of its own takes a group diagnostic, `group_member_failed` naming the first failed run (not its error text), or `group_not_concurrent` | A group is one test of runs in flight together ([OR-15](../../docs/semantics/oracle.md#or-15)) | `TestRunGroup`, `TestStubModeAndEffects` |
 | What makes the ledger guard fail? | The ledger file, and any well-formed marker in a tracked or trackable text file; a malformed one only in a Go or bun test file | A marker that a test uses as its skip message skips it with no failure, and the guard matches text, not skip calls, so it cannot tell such a use from another; prose elsewhere may quote a malformed form | `TestLedgerGuard`, `TestParseMarker` |
@@ -871,10 +882,10 @@ The tests that need Bun skip without it, unless `WL_REQUIRE_BUN` is set.
    than `go test`'s default 10 minutes. To run one test, use `-run`,
    such as `go test -run '^TestStepSuite$' ./cmd/wltest`.
 
-CI runs it differently: its Go jobs add `-race`, and pick packages and tests
-with `-run` and `-skip` per job, so the flow suite runs on macOS in two
-parts, and the Redis tests in the `Redis` job
-([docs/ci.md](../../docs/ci.md#the-go-jobs)).
+CI runs it differently: its buckets run each package, or groups of its
+top-level tests, with `-race -count=1`, so the five tests of the flow suite
+can run in different jobs. The Redis tests run in the `Redis` job
+([docs/ci.md](../../docs/ci.md#the-go-buckets)).
 
 | Variable | Value | Tests that need it | When it is not set |
 |---|---|---|---|
@@ -894,7 +905,7 @@ parts, and the Redis tests in the `Redis` job
 | | `TestStepCheckerReportsDifferences`, `TestStepCheckerReportsNodeDifferences`, `TestStepCheckerIsolatesCodebaseFailures` | A wrong expectation of each kind fails in both modes. A wrong or unstated Node difference fails. A codebase case that does not build fails alone | Bun; Node for `TestStepCheckerReportsNodeDifferences` |
 | | `TestStepCatalogue` | Every catalogue case of a finding with a step file is a step case or deferred | — |
 | | `TestNativeRejectionIsItsInvocationsOwn`, `TestNativeFlowSteps`, `TestNativeGeneratedErrorsAreGenerated`, `TestScriptEnvsReachOnlyBunSteps`, `TestNativeCodebaseFlowStep` | Native steps in flows. An unhandled rejection fails only its invocation. Each kind of native step has its boundary, `BASE_URL` and `BASE_INTERNAL_URL`. Native load and transpile failures count as generated; a path script's `envs` reach only its Bun step, and a `//native` ESM codebase script runs natively | Bun |
-| `flows_test.go` | `TestFlowSuite` | [The flow suite](#the-flow-suite) | Bun |
+| `flows_test.go` | `TestFlowSuiteWarm`, `TestFlowSuiteFresh`, `TestFlowSuiteHost`, `TestFlowSuiteWarmSharedCode`, `TestFlowSuiteHostSharedCode` | [The flow suite](#the-flow-suite), one configuration each | Bun |
 | | `TestCacheFixturesFreshAndWarm`, `TestSubflowRetryFixturesFreshAndWarm` | The `cache_ttl` fixture's runs, and the retried flow step's fixture, in `fresh` and `warm` | Bun |
 | | `TestRunWaitOutcomes` | The flow outcomes of run-and-wait runs, submitted as ordinary runs, without the `response` | Bun |
 | | `TestFlowCheckerReportsDifferences`, `TestFlowCheckerIsolatesCodebaseFailures` | A differing result, placeholder, recording or claim fails; a flow that the engine refuses is unsupported; a script that does not build fails only the runs that reach it | Bun |
@@ -957,8 +968,8 @@ also reported on standard error.
 
 In a Go or bun test file, an occurrence of the prefix that is not a
 well-formed marker also fails the guard, because it could still skip a test.
-In any other file a malformed occurrence is prose, such as this section. The CI jobs `Go (ubuntu-latest)` and
-`Go (macos-latest, packages)` run the guard
+In any other file a malformed occurrence is prose, such as this section. The CI jobs `Go checks (ubuntu-latest)` and
+`Go checks (macos-latest)` run the guard
 ([docs/ci.md](../../docs/ci.md#the-go-jobs)).
 
 ## Version

@@ -14,7 +14,7 @@ import (
 
 // The while-loop tests run synthetic flows on the real QuickJS-ng engine,
 // with steps answered in Go; the while-loop fixtures of conformance/flows
-// run the same loops on the real Bun harness (cmd/wltest, TestFlowSuite).
+// run the same loops on the real Bun harness (the flow suite of cmd/wltest).
 
 // whileOf writes a while loop module: its body modules and its
 // skip_failures, with envelope fields after them.

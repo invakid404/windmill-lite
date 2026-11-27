@@ -1,0 +1,169 @@
+{
+  "schema": 1,
+  "flags": "-race -count=1",
+  "updated_at": "2026-11-27T21:16:35Z",
+  "units": {
+    "github.com/invakid404/windmill-lite/cmd/windmill-lite": {
+      "seconds": 297.945,
+      "samples": 1
+    },
+    "github.com/invakid404/windmill-lite/cmd/wltest": {
+      "seconds": 3219.291,
+      "samples": 1,
+      "split": "run",
+      "split_into": 5,
+      "split_reason": "name-divisible, and a count-shard cannot divide this sweep (heaviest runnable 749.2s)",
+      "tests": {
+        "TestBuiltinImportsShareTheClosure": 3.47,
+        "TestCacheFixturesFreshAndWarm": 1.32,
+        "TestCarriedLocation": 0.02,
+        "TestCheckBuildsTheTreeRecordPushes": 0.39,
+        "TestCompareRun": 0.02,
+        "TestESModulePackagesShareTheClosure": 6.56,
+        "TestEndedRunJobRead": 0.56,
+        "TestFlowCheckerIsolatesCodebaseFailures": 0.26,
+        "TestFlowCheckerReportsDifferences": 0.26,
+        "TestFlowSuiteFresh": 556.93,
+        "TestFlowSuiteHost": 749.25,
+        "TestFlowSuiteHostSharedCode": 744.66,
+        "TestFlowSuiteWarm": 543.02,
+        "TestFlowSuiteWarmSharedCode": 510.32,
+        "TestHostModeClosesItsChannels": 6.64,
+        "TestHostModeHostLossFailsTheFixture": 0.26,
+        "TestLedgerGuard": 0.96,
+        "TestNativeCodebaseFlowStep": 0.18,
+        "TestNativeFlowSteps": 0.14,
+        "TestNativeGeneratedErrorsAreGenerated": 0.12,
+        "TestNativeRejectionIsItsInvocationsOwn": 0.71,
+        "TestObserveContainerAttempts": 0.04,
+        "TestObserveDeclaredCopies": 0.01,
+        "TestObserveIncludedResult": 0.02,
+        "TestObserveNestedAttemptCopies": 0.02,
+        "TestObserveNestedGenerated": 0.01,
+        "TestObserveTrace": 0.01,
+        "TestObserveTraceUnwalkedJobs": 0.01,
+        "TestResolvedArgsKeyOrder": 0.01,
+        "TestRunGroup": 0.06,
+        "TestRunWaitOutcomes": 21.85,
+        "TestScriptEnvsReachOnlyBunSteps": 0.12,
+        "TestStepCatalogue": 0.55,
+        "TestStepCheckerIsolatesCodebaseFailures": 0.12,
+        "TestStepCheckerReportsDifferences": 1.54,
+        "TestStepCheckerReportsNodeDifferences": 0.37,
+        "TestStepSuite": 34.72,
+        "TestStub": 0.04,
+        "TestStubCasesMatchTheOracle": 9.26,
+        "TestStubModeAndEffects": 0.36,
+        "TestSubflowRetryFixturesFreshAndWarm": 6.21,
+        "TestTimedOutRunRemovesCounters": 2.14,
+        "TestUsage": 0.02,
+        "TestWindmillClientSharesTheClosure": 14.5
+      }
+    },
+    "github.com/invakid404/windmill-lite/internal/bench": {
+      "seconds": 3.697,
+      "samples": 1
+    },
+    "github.com/invakid404/windmill-lite/internal/bundle": {
+      "seconds": 43.846,
+      "samples": 1
+    },
+    "github.com/invakid404/windmill-lite/internal/conformance": {
+      "seconds": 18.431,
+      "samples": 1
+    },
+    "github.com/invakid404/windmill-lite/internal/engine": {
+      "seconds": 28.501,
+      "samples": 1
+    },
+    "github.com/invakid404/windmill-lite/internal/expr": {
+      "seconds": 90.679,
+      "samples": 1
+    },
+    "github.com/invakid404/windmill-lite/internal/expr/quickjs": {
+      "seconds": 33.942,
+      "samples": 1
+    },
+    "github.com/invakid404/windmill-lite/internal/harness": {
+      "seconds": 150.758,
+      "samples": 1
+    },
+    "github.com/invakid404/windmill-lite/internal/host": {
+      "seconds": 27.434,
+      "samples": 1
+    },
+    "github.com/invakid404/windmill-lite/internal/ir": {
+      "seconds": 3.875,
+      "samples": 1
+    },
+    "github.com/invakid404/windmill-lite/internal/jsonval": {
+      "seconds": 35.696,
+      "samples": 1
+    },
+    "github.com/invakid404/windmill-lite/internal/openflow": {
+      "seconds": 1.422,
+      "samples": 1
+    },
+    "github.com/invakid404/windmill-lite/internal/oracle": {
+      "seconds": 229.156,
+      "samples": 1
+    },
+    "github.com/invakid404/windmill-lite/internal/platform": {
+      "seconds": 2.072,
+      "samples": 1
+    },
+    "github.com/invakid404/windmill-lite/internal/platform/facade": {
+      "seconds": 77.259,
+      "samples": 1
+    },
+    "github.com/invakid404/windmill-lite/internal/syncfolder": {
+      "seconds": 2.297,
+      "samples": 1
+    },
+    "github.com/invakid404/windmill-lite/internal/yamlx": {
+      "seconds": 1.338,
+      "samples": 1
+    },
+    "github.com/invakid404/windmill-lite/wl": {
+      "seconds": 90.154,
+      "samples": 1
+    },
+    "github.com/invakid404/windmill-lite/wl/plugin": {
+      "seconds": 31.639,
+      "samples": 1
+    },
+    "github.com/invakid404/windmill-lite/wl/redisstore": {
+      "seconds": 1.521,
+      "samples": 1
+    },
+    "github.com/invakid404/windmill-lite/wl/storetest": {
+      "seconds": 21.786,
+      "samples": 1
+    }
+  },
+  "coverage": [
+    "github.com/invakid404/windmill-lite/cmd/windmill-lite",
+    "github.com/invakid404/windmill-lite/cmd/wltest",
+    "github.com/invakid404/windmill-lite/internal/bench",
+    "github.com/invakid404/windmill-lite/internal/bundle",
+    "github.com/invakid404/windmill-lite/internal/conformance",
+    "github.com/invakid404/windmill-lite/internal/engine",
+    "github.com/invakid404/windmill-lite/internal/expr",
+    "github.com/invakid404/windmill-lite/internal/expr/quickjs",
+    "github.com/invakid404/windmill-lite/internal/harness",
+    "github.com/invakid404/windmill-lite/internal/host",
+    "github.com/invakid404/windmill-lite/internal/ir",
+    "github.com/invakid404/windmill-lite/internal/jsonval",
+    "github.com/invakid404/windmill-lite/internal/openflow",
+    "github.com/invakid404/windmill-lite/internal/oracle",
+    "github.com/invakid404/windmill-lite/internal/platform",
+    "github.com/invakid404/windmill-lite/internal/platform/facade",
+    "github.com/invakid404/windmill-lite/internal/syncfolder",
+    "github.com/invakid404/windmill-lite/internal/yamlx",
+    "github.com/invakid404/windmill-lite/wl",
+    "github.com/invakid404/windmill-lite/wl/plugin",
+    "github.com/invakid404/windmill-lite/wl/redisstore",
+    "github.com/invakid404/windmill-lite/wl/storetest"
+  ],
+  "coverage_source": "go-list"
+}

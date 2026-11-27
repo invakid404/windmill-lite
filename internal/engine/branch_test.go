@@ -17,7 +17,7 @@ import (
 
 // The branch tests run synthetic flows on the real QuickJS-ng engine, with
 // steps answered in Go; the branch fixtures of conformance/flows run the
-// same branches on the real Bun harness (cmd/wltest, TestFlowSuite).
+// same branches on the real Bun harness (the flow suite of cmd/wltest).
 
 // branch writes one branch of a branchone (with a predicate) or of a
 // branchall (with a skip_failure).

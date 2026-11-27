@@ -19,7 +19,7 @@ import (
 // The result cache tests (FX-40) run synthetic flows on the real QuickJS-ng
 // engine, with steps answered in Go; the fixtures of
 // conformance/flows/execution/fx-40 run the recorded cases on the real Bun
-// harness (cmd/wltest, TestFlowSuite and TestCacheFixturesFreshAndWarm).
+// harness (the flow suite and TestCacheFixturesFreshAndWarm of cmd/wltest).
 
 // idSteps answers every step but f/t/fail with its own job id, which the
 // fixtures' scripts return as WM_JOB_ID, so a cache hit shows as a result
