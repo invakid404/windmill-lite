@@ -80,6 +80,17 @@ export async function main() {
   throw new Error("failed with " + process.env.WL_TEST_SECRET);
 }
 `,
+	"f/t/latenul.ts": `// Fixes its outcome with process.exit(0) and swallows the exit, then
+// returns, late, an array whose first string holds a NUL character, which
+// the stored form cannot hold, and whose second holds WL_TEST_SECRET.
+export async function main() {
+  try {
+    process.exit(0);
+  } catch {}
+  await Bun.sleep(50);
+  return ["\u0000", "late plain with " + process.env.WL_TEST_SECRET];
+}
+`,
 	"f/t/latcher.ts": `// Latches its run with its WL_TEST_SECRET variable in the error.
 export async function main() {
   (globalThis as any).wl.latch(new Error("latched with " + process.env.WL_TEST_SECRET));
@@ -288,6 +299,7 @@ export async function main(cut: number, die: boolean) {
   process.exit(3);
 }
 `,
+	"f/t/latenul.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/latenul","input_transforms":{}}}]}}`,
 	"f/t/latcher.flow/flow.yaml": `{"summary":"t","value":{"modules":[{"id":"a","value":{"type":"script","path":"f/t/latcher","input_transforms":{}}}]}}`,
 }
 
@@ -2371,6 +2383,93 @@ export default { onRunEnd() { return [
 		if !json.Valid(b) || strings.Contains(string(b), secret) || strings.Contains(string(b), escaped) || !strings.Contains(string(b), "harmless words ") || !strings.Contains(string(b), " and a tail") {
 			t.Errorf("%s %.300s; want valid JSON with the note's harmless words and no secret", what, b)
 		}
+	}
+}
+
+// TestHarnessEnvSecretCountsByFinalKey checks a run-end warning whose
+// counts are keyed by a secret entry's synthetic value, which begins inside
+// the escape of an ampersand, and by an ampersand and the value's rest,
+// whose JSON encoding spells the value: both keys mask to one, and the
+// result's warning and its trace's add their counts there, for the counts
+// left and the counts untracked alike.
+func TestHarnessEnvSecretCountsByFinalKey(t *testing.T) {
+	bun, out, runtimeDir := harnessEnvBundle(t)
+	const secret = "u0026finished-24"
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, HarnessEnv: map[string]EnvValue{"WL_TEST_SECRET": {Value: secret, Secret: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	counts := map[string]int{secret: 2, "&finished-24": 1}
+	hooks := &Hooks{OnRunEnd: func(context.Context, *Trace) []Warning {
+		return []Warning{{Code: "counted", Left: maps.Clone(counts), Untracked: maps.Clone(counts)}}
+	}}
+	res, err := rt.Run(context.Background(), "f/t/env", json.RawMessage(`{"names":[],"hashed":[]}`), RunOptions{Hooks: hooks})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]int{harness.SecretMask: 3}
+	for what, ws := range map[string][]Warning{"Result.Warnings": res.Warnings, "Trace.Warnings": res.Trace.Warnings} {
+		i := slices.IndexFunc(ws, func(w Warning) bool { return w.Code == "counted" })
+		if i < 0 || !maps.Equal(ws[i].Left, want) || !maps.Equal(ws[i].Untracked, want) {
+			t.Errorf("%s: %+v; want the counts under the mask, added: %v", what, ws, want)
+		}
+	}
+}
+
+// TestHarnessEnvSecretPlainInTraces checks a plain synthetic secret, not
+// one that only escape bytes would form, on two paths of the serialized
+// trace. A step that latches with it: the trace that wlext.TraceJSON
+// serializes for the Runner, as a summary and in full, is valid JSON whose
+// latched error holds the mask and no secret. A step that returns it late
+// in an array whose first string holds a NUL character, which the stored
+// form cannot hold, so that the late result is serialized from its
+// producer's text: the full trace that OnRunSettled's callback gets, as
+// wlext.TraceJSON serializes it for the host plugin, is valid JSON that
+// holds the mask, the NUL character's escape and no secret.
+func TestHarnessEnvSecretPlainInTraces(t *testing.T) {
+	bun, out, runtimeDir := harnessEnvBundle(t)
+	const secret = "synthetic-plain-25"
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, HarnessEnv: map[string]EnvValue{"WL_TEST_SECRET": {Value: secret, Secret: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	res, err := rt.Run(context.Background(), "f/t/latcher", nil, RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != StatusLatched {
+		t.Fatalf("f/t/latcher: %s; want latched", res.Status)
+	}
+	for _, level := range []string{"summary", "full"} {
+		b, err := wlext.TraceJSON(res.Trace, level)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var tr struct {
+			Latched string `json:"latched"`
+		}
+		if err := json.Unmarshal(b, &tr); err != nil || !strings.Contains(tr.Latched, "latched with "+harness.SecretMask) || strings.Contains(string(b), secret) {
+			t.Errorf("f/t/latcher's %s trace: latched %q, %v; want valid JSON whose latched error holds the mask, and no secret", level, tr.Latched, err)
+		}
+	}
+	settled := make(chan *Trace, 1)
+	if _, err := rt.Run(context.Background(), "f/t/latenul", nil, RunOptions{Hooks: &Hooks{OnRunSettled: func(tr *Trace) { settled <- tr }}}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case tr := <-settled:
+		b, err := wlext.TraceJSON(tr, "full")
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(b)
+		if !json.Valid(b) || !strings.Contains(text, "late plain with "+harness.SecretMask) || !strings.Contains(text, `\u0000`) || strings.Contains(text, secret) {
+			t.Errorf("f/t/latenul's settled trace %.400s; want valid JSON with the mask, the NUL's escape and no secret", text)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("OnRunSettled was not called within 30 s")
 	}
 }
 

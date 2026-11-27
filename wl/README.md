@@ -262,11 +262,11 @@ what it passes on besides the host's data in a run's requested result. It
 masks the value also as a Go quoted string (`%q`) and `JSON.stringify`
 write it.
 
-A warning's text, and each text of a trace, is also masked where its JSON
-encoding would hold the value, as a run's warnings and trace are sent.
-That covers a value that spells a line feed as `\n`, and one that the
-escape of an ampersand begins, which masks the characters that the escape
-spells.
+A warning's text, and each plain text of a trace, is also masked where
+its JSON encoding would hold the value, as a run's warnings and trace are
+sent. That covers a value that spells a line feed as `\n`, and one that
+the escape of an ampersand begins. Other encoded fields fall under the
+escape limit below.
 
 A secret's value never leaves the engine through data that a harness
 process produced, or through the engine's own messages: its errors, its
@@ -291,6 +291,9 @@ secret should choose them knowing it:
 - the protocol's fixed words and structure: status values, which keep
   one of their values, field names, and the punctuation between texts
   masked apart;
+- a value that appears only through the escape sequences that the JSON
+  encoder writes, such as one that starts with `u0026`, the tail of the
+  escape for `&`, beyond the warnings and trace texts checked above;
 - the replies that grpc-go's transport writes itself, such as one that
   echoes the caller's own request or one about a response's size.
 
@@ -328,7 +331,8 @@ The engine masks:
   of 3 bytes or more that ends a secret is masked too, with any whole
   secret that it starts;
 - a run's warnings: their codes, messages and the keys of their counts,
-  where keys that mask alike add their counts;
+  as written and as JSON encodes them, where keys that mask alike add
+  their counts;
 - the errors of the host plugin, those of its declaration's checks
   included, and a run's latched error ([Latched errors](#latched-errors));
 - the errors in a run's requested result, where the trace places them.

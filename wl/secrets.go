@@ -202,18 +202,25 @@ func maskWarnings(secrets *harness.Secrets, ws []Warning) []Warning {
 	return out
 }
 
-// maskCounts returns counts with each secret masked in its keys, in a new
-// map when a key holds one. Keys that mask to one key, such as two
-// secrets, add their counts there.
+// maskCounts returns counts with each secret masked in its keys, as
+// written and as JSON encodes them (countKey), in a new map when a key
+// holds one. Keys that mask to one key, such as two secrets, add their
+// counts there. The keys are final: masking them again, as maskStrings
+// does, changes none, so no count is lost.
 func maskCounts(secrets *harness.Secrets, counts map[string]int) map[string]int {
-	if !slices.ContainsFunc(slices.Collect(maps.Keys(counts)), func(k string) bool { return secrets.Mask(k) != k }) {
+	if !slices.ContainsFunc(slices.Collect(maps.Keys(counts)), func(k string) bool { return countKey(secrets, k) != k }) {
 		return counts
 	}
 	out := make(map[string]int, len(counts))
 	for k, n := range counts {
-		out[secrets.Mask(k)] += n
+		out[countKey(secrets, k)] += n
 	}
 	return out
+}
+
+// countKey is a count's key masked as written and as JSON encodes it.
+func countKey(secrets *harness.Secrets, k string) string {
+	return secrets.MaskEncoded(secrets.Mask(k))
 }
 
 // maskError returns err, or, when its text holds a secret, an error whose
