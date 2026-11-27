@@ -2312,6 +2312,57 @@ func TestHarnessEnvSecretStatusWord(t *testing.T) {
 	}
 }
 
+// TestHarnessEnvSecretEncodedWarning checks a secret entry whose synthetic
+// value spells a line feed as backslash and n, which a host plugin expands
+// to a real line feed in its onRunEnd warning's message: the message's own
+// text does not hold the value, but its JSON encoding would. The warnings
+// encoded as the Runner encodes them, and the trace encoded as it
+// serializes it, are valid JSON and hold no secret.
+func TestHarnessEnvSecretEncodedWarning(t *testing.T) {
+	bun, out, runtimeDir := harnessEnvBundle(t)
+	const secret = `audit-23\nfinished`
+	plugin := filepath.Join(t.TempDir(), "plugin.ts")
+	src := `const value = process.env.WL_TEST_SECRET ?? "";
+export default { onRunEnd() { return [{ code: "encoded", message: value.replaceAll("\\n", "\n") }] } };
+`
+	if err := os.WriteFile(plugin, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, HarnessEnv: map[string]EnvValue{"WL_TEST_SECRET": {Value: secret, Secret: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	res, err := rt.Run(context.Background(), "f/t/env", json.RawMessage(`{"names":[],"hashed":[]}`), RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(res.Warnings, func(w Warning) bool { return w.Code == "encoded" }) {
+		t.Fatalf("warnings %v; want the plugin's", res.Warnings)
+	}
+	type warning struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	var ws []warning
+	for _, w := range res.Warnings {
+		ws = append(ws, warning{w.Code, w.Message})
+	}
+	warnings, err := json.Marshal(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	trace, err := json.Marshal(traceJSON(res.Trace))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for what, b := range map[string][]byte{"the encoded warnings": warnings, "the serialized trace": trace} {
+		if !json.Valid(b) || strings.Contains(string(b), secret) {
+			t.Errorf("%s %.200s; want valid JSON with no secret", what, b)
+		}
+	}
+}
+
 // recordingCache is a result cache that remembers the last entry stored.
 type recordingCache struct {
 	ResultCache

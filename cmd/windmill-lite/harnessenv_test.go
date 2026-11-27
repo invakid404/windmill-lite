@@ -478,19 +478,58 @@ func TestPluginUnknownMethodUnchanged(t *testing.T) {
 	}
 }
 
-// TestPluginStatusKeepsItsWord checks a secret entry whose value is a word
-// of the protocol, success: a successful run's RunResult.status, sent
-// through the real command, stays "success", one of its values.
+// TestPluginStatusKeepsItsWord checks secret entries whose values are
+// words of the protocol: success, and the deviation code that a bound on
+// invocations in flight adds to a run, which a first engine, with no secret
+// entry, finds as the code that only its bounded run lists. Through the
+// real command, a successful run's RunResult.status stays "success", one of
+// its values, and a bounded run lists the code in RunResult.deviations as
+// its full trace does.
 func TestPluginStatusKeepsItsWord(t *testing.T) {
 	bun, out := pluginBundle(t)
-	cfg := pluginConfigOf(t, bun, out)
-	cfg["harness_env"] = map[string]any{"WL_TEST_WORD": map[string]any{"value_env": "WL_TEST_STATUS_WORD_REF", "is_secret": true}}
-	d := startDirect(t, cfg, true, "WL_TEST_STATUS_WORD_REF=success")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	r, err := d.runner.Run(ctx, &plugin.RunRequest{Path: "f/plugin/echo", Args: []byte(`{"x":1}`)})
-	if err != nil || r.GetStatus() != "success" {
-		t.Errorf("a successful run's status: %q, %v; want success", r.GetStatus(), err)
+	run := func(d *directEngine, bound int64) *plugin.RunResult {
+		t.Helper()
+		req := &plugin.RunRequest{Path: "f/plugin/echo", Args: []byte(`{"x":1}`), Trace: "full"}
+		if bound > 0 {
+			req.Limits = &plugin.Limits{MaxInFlight: bound}
+		}
+		r, err := d.runner.Run(ctx, req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	first := startDirect(t, pluginConfigOf(t, bun, out), true)
+	unbounded := run(first, 0).GetDeviations()
+	var code string
+	for _, c := range run(first, 1).GetDeviations() {
+		if !slices.Contains(unbounded, c) {
+			code = c
+		}
+	}
+	if code == "" {
+		t.Fatal("no deviation that only a bounded run lists")
+	}
+	cfg := pluginConfigOf(t, bun, out)
+	cfg["harness_env"] = map[string]any{
+		"WL_TEST_WORD":      map[string]any{"value_env": "WL_TEST_STATUS_WORD_REF", "is_secret": true},
+		"WL_TEST_DEVIATION": map[string]any{"value_env": "WL_TEST_DEVIATION_REF", "is_secret": true},
+	}
+	d := startDirect(t, cfg, true, "WL_TEST_STATUS_WORD_REF=success", "WL_TEST_DEVIATION_REF="+code)
+	r := run(d, 1)
+	if r.GetStatus() != "success" {
+		t.Errorf("a successful run's status: %q; want success", r.GetStatus())
+	}
+	var trace struct {
+		Deviations []string `json:"deviations"`
+	}
+	if err := json.Unmarshal(r.GetTrace(), &trace); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(r.GetDeviations(), code) || !slices.Equal(r.GetDeviations(), trace.Deviations) {
+		t.Errorf("the run's deviations %q, its full trace's %q; want the bound's code in both, alike", r.GetDeviations(), trace.Deviations)
 	}
 }
 

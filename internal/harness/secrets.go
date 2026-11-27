@@ -74,6 +74,14 @@ func NewSecrets(values []string) *Secrets {
 	var docs []any
 	for _, v := range values {
 		forms(v)
+		// A value that a JSON encoder writes for some text, such as one
+		// with a line feed spelled \n, is that text's encoding: the text is
+		// masked too, so that what encodes it, as a warning's message in a
+		// JSON field, never spells the value.
+		var d string
+		if json.Unmarshal([]byte(`"`+v+`"`), &d) == nil && d != v {
+			forms(d)
+		}
 		if strings.Contains(v, "\n") {
 			for _, l := range strings.Split(v, "\n") {
 				forms(strings.TrimSuffix(l, "\r"))

@@ -1147,6 +1147,8 @@ var fixedWords = map[protoreflect.FullName]bool{
 	"windmill_lite.v1.RunResult.cancel_cause": true,
 	"windmill_lite.v1.GetRunResponse.state":   true,
 	"windmill_lite.v1.BuildInfo.module_state": true,
+	"windmill_lite.v1.RunResult.deviations":   true,
+	"windmill_lite.v1.BuildInfo.deviations":   true,
 }
 
 // maskProto masks, in m, every string field, in its lists and maps and in
