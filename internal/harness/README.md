@@ -52,6 +52,7 @@ the code.
 | `conn.go` | One socket's writer and reader goroutines, and when the last frame arrived |
 | `process.go` | `Spawn`, `Process`: the handshake, invocations, settlement, death, the watchdog, platform calls, child groups |
 | `procgroup_linux.go`, `procgroup_darwin.go`, `procgroup_other.go` | Listing a process group's members and reading a process's arguments, per system |
+| `tie_linux.go`, `tie_other.go` | `startTied`: on Linux, a spawned process ends with the engine's process |
 | `reap.go` | Reaping the members that the engine adopted |
 | `args.go` | `scriptArgs`: the text of `args.json` |
 | `host.go` | `AttachHost`, `HostConn`, `HostChildren`, `CheckWorkdir`: host mode on the engine's side |
@@ -314,6 +315,16 @@ the harness protocol design record lists the fields of `run`, `run_done`,
   `harness pid <pid> stdout:` or `stderr:`.
 - **Working directory.** Each process gets a private working directory
   (mode `0700`) under `WorkRoot`, removed when it exits.
+- **The end of the engine.** On Linux, a process that `Spawn` starts gets
+  `SIGKILL` when the engine's process ends, also while its event loop is
+  stuck: its parent-death signal. Elsewhere, as on macOS, a process exits
+  when its connection to the engine ends, and only while its event loop
+  runs. What the harness itself started is not tied.
+- **The spawning thread.** Linux sends that signal when the thread that
+  forked the process exits, and the Go runtime ends a thread whose
+  goroutine exits while locked to it. So every spawn runs on the thread of
+  one goroutine that locks it and never leaves it, which ends only with the
+  engine's process (`startTied`).
 
 ### The base environment
 
@@ -1065,10 +1076,10 @@ and `WL_REQUIRE_BUN` set ([docs/ci.md](../../docs/ci.md#the-go-jobs)).
 
 | Variable | Value | Tests that need it | When it is not set |
 |---|---|---|---|
-| `WL_BUN` | The path of a Bun 1.4.3 executable | Every test that runs the real Bun harness: `bun_test.go`, `exchange_test.go`, `children_test.go`, `rundata_test.go`, `reap_linux_test.go` (all but `TestFreshLandedKillReapsALaterOrphan`), `qwa4_test.go`, the `TestBunWarm*` tests of `childgroup_test.go`, `TestTimesHook`, `TestBenchEcho`; and `BenchmarkHarnessCodec` and `BenchmarkTransport`, which fail rather than skip | The test skips, or fails when `WL_REQUIRE_BUN` is set |
+| `WL_BUN` | The path of a Bun 1.4.3 executable | Every test that runs the real Bun harness: `bun_test.go`, `exchange_test.go`, `children_test.go`, `rundata_test.go`, `reap_linux_test.go` (all but `TestFreshLandedKillReapsALaterOrphan`), `qwa4_test.go`, the `TestBunWarm*` tests of `childgroup_test.go`, `TestTimesHook`, `TestBenchEcho`, `TestHarnessEndsWithEngine` and `TestHarnessTieNoEarlyKill` (on Linux); and `BenchmarkHarnessCodec` and `BenchmarkTransport`, which fail rather than skip | The test skips, or fails when `WL_REQUIRE_BUN` is set |
 | `WL_WINDMILL_CLIENT` | A directory whose `node_modules` holds `windmill-client@1.862.0` | `qwa4_test.go` | The test skips, or fails when `WL_REQUIRE_BUN` is set |
 | `WL_REQUIRE_BUN` | Any non-empty value | All of the above | Missing tools skip their tests |
-| `WL_FAKE_HARNESS`, `WL_FAKE_CTL`, `WL_SUBREAPER`, `WL_WAIT_ALL`, `WL_DRIP_CHILD` | Set by the tests and their fixture steps (`spawn-waitall` sets `WL_WAIT_ALL`), when they re-run the test binary as a fake harness, a subreaper, a process that waits for all its children, or a child that keeps writing. `WL_FAKE_CTL` is a fake harness's control directory | `fake_test.go`, `pool_test.go`, `reap_linux_test.go`, `children_test.go` | Not for you to set |
+| `WL_FAKE_HARNESS`, `WL_FAKE_CTL`, `WL_SUBREAPER`, `WL_WAIT_ALL`, `WL_DRIP_CHILD`, `WL_TIE_ENGINE` | Set by the tests and their fixture steps (`spawn-waitall` sets `WL_WAIT_ALL`), when they re-run the test binary as a fake harness, a subreaper, a process that waits for all its children or a child that keeps writing. `WL_TIE_ENGINE` re-runs it as an engine that gets `SIGKILL`. `WL_FAKE_CTL` is a fake harness's control directory | `fake_test.go`, `pool_test.go`, `reap_linux_test.go`, `children_test.go`, `tie_test.go` | Not for you to set |
 
 ### Test files
 
@@ -1084,6 +1095,7 @@ and `WL_REQUIRE_BUN` set ([docs/ci.md](../../docs/ci.md#the-go-jobs)).
 | `bun_test.go` | `Process` and `Pool` against the real Bun harness ([below](#what-the-bun-tests-check)) | `WL_BUN` |
 | `children_test.go` | The bundle of `testdata/children`: the base environment as a step sees it, and process groups in `fresh` and `warm` mode ([below](#what-the-bun-tests-check)) | `WL_BUN` |
 | `reap_linux_test.go` | Reaping, with the test binary as a child subreaper, on Linux ([below](#what-the-bun-tests-check)) | Linux; `WL_BUN` for all but `TestFreshLandedKillReapsALaterOrphan` |
+| `tie_test.go`, `tie_linux_test.go`, `tie_other_test.go` | The end of the engine. `TestHarnessEndsWithEngine`: the test binary, re-run as an engine (`WL_TIE_ENGINE`), spawns a harness whose step blocks its event loop and gets `SIGKILL`; the harness is gone within 20 s. `TestHarnessTieNoEarlyKill`: a goroutine that locks its thread spawns a harness and returns, so its thread ends; once it has, the harness still runs a step. Both skip elsewhere, saying why | Linux; `WL_BUN` |
 | `childgroup_test.go` | Child groups on a fake process table: their identity, the guardian and its tokens (`hasGuardArg`), undecided looks, ending once, release, `groupMembersOf`; the reaping rules (`TestReapChildGroups`); a real guardian, the test's own child, reaped once the watcher releases its group (`TestReviewOwnedGuardianReaped`) | `WL_BUN` for `TestBunWarm*` |
 | `fake_test.go` | A fake harness, for what Bun cannot be made to do on demand ([below](#what-the-fake-harness-tests-check)) | |
 | `pool_test.go` | A warm pool's settings on the fake harness of mode `pool`, whose invocations and drains the tests hold; the pool's own events (spawns begun and failed, exits observed, drains begun, waits) give the order. The tests are listed [below](#what-the-pool-tests-check) | |

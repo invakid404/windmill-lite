@@ -608,7 +608,9 @@ func (p *Process) spawn(ctx context.Context, timeout time.Duration) (*Process, e
 		return nil, fmt.Errorf("harness: stderr pipe: %w", err)
 	}
 	cmd.Stdout, cmd.Stderr = outW, errW
-	err = cmd.Start()
+	// On Linux the process ends when the engine's does, also while its
+	// event loop is stuck (startTied); elsewhere it starts as it is.
+	err = startTied(cmd)
 	child.Close()
 	outW.Close()
 	errW.Close()

@@ -37,6 +37,9 @@ func TestMain(m *testing.M) {
 	if os.Getenv("WL_WAIT_ALL") != "" {
 		os.Exit(waitAll())
 	}
+	if dir := os.Getenv("WL_TIE_ENGINE"); dir != "" {
+		os.Exit(tieEngine(dir))
+	}
 	if pgid := os.Getenv("WL_STRAY_PARENT"); pgid != "" {
 		os.Exit(strayParent(pgid, os.Getenv("WL_STRAY_FILE")))
 	}

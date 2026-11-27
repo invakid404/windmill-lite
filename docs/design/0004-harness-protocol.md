@@ -594,6 +594,12 @@ sequenceDiagram
    unless the host sets a cap (below).
 4. **Drain.** The engine stops routing new invocations, waits for in-flight
    ones, sends `drain`, and the harness exits after `bye`.
+5. **The end of the engine.** On Linux, a harness process that the engine
+   spawned gets `SIGKILL` when the engine's process ends, however it ends,
+   also while the harness's event loop is stuck. Elsewhere, as on macOS, it
+   exits when its connection to the engine ends, and only while its event
+   loop runs. The children that its steps started are not tied to the
+   engine: each leads a process group of its own.
 
 **Loading on Bun 1.4.3.** Bun 1.4.3 evaluates a module that `import()`
 loads outside every async context, and one that `require()` loads inside
