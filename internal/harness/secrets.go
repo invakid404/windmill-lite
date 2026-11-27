@@ -3,6 +3,7 @@ package harness
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -173,6 +174,31 @@ func (s *Secrets) settle(text, out, marker string, plus bool) string {
 	}
 	return settleText("", out, marker, func(t string) [][2]int { return s.spans(t, plus) })
 }
+
+// MaskErr returns err, or, when its text holds a secret, an error whose
+// text is err's masked (Mask). errors.Is still matches it as err, and
+// errors.As does not see through it, since err holds the secret.
+func (s *Secrets) MaskErr(err error) error {
+	if s == nil || err == nil {
+		return err
+	}
+	text := err.Error()
+	if masked := s.Mask(text); masked != text {
+		return &maskedError{text: masked, err: err}
+	}
+	return err
+}
+
+// maskedError is an error whose text has the secrets masked.
+type maskedError struct {
+	text string
+	err  error
+}
+
+func (e *maskedError) Error() string { return e.text }
+
+// Is reports whether the error it masks is target, or wraps it.
+func (e *maskedError) Is(target error) bool { return errors.Is(e.err, target) }
 
 // MaskAfter returns text, which masking returned, with each secret that
 // prefix and text make together masked in text too, as masking reads its

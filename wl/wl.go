@@ -618,6 +618,9 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	attached := false // the handshake with the host was made, or tried
 	defer func() {
 		if err != nil {
+			// The error can quote what a harness process was started with or
+			// wrote, after words of its own: masked as a whole.
+			err = maskError(rt.secrets, err)
 			if opts.Host != nil && opts.Host.Conn != nil && !attached {
 				// The host greets an engine that cannot serve it: it is
 				// told why.

@@ -372,9 +372,13 @@ as text of its own:
   is masked before the engine keeps the last 600 characters, and so is
   the tail that the harness cut from its own log, whose start may be the
   end of a secret (`MaskTail`);
-- every diagnostics line, the engine's own about the process and each
-  output line it forwards, as a whole: a secret that the line's prefix,
-  such as the process and stream, makes with what follows is masked too;
+- every diagnostics line, the engine's own about the process, each output
+  line it forwards and the pool's, as a whole: a secret that the line's
+  prefix, such as the process and stream, makes with what follows is
+  masked too;
+- the error of a failed `Spawn`, which can name the executable, and so
+  the error that the pool gives its callers and `PoolConfig.OnStartFailure`
+  (`Secrets.MaskErr`, which still matches the original with `errors.Is`);
 - its host plugin's hook errors, so that a `HostCallError` keeps its type.
 
 An invocation's result, other failures and warnings, and a hook's answer,

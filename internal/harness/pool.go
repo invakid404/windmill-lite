@@ -1008,12 +1008,14 @@ func (pl *Pool) release(m *member, pn *Pin, reached, unavailable, step bool, run
 	pl.mu.Unlock()
 }
 
+// diag returns the pool's own diagnostics, which mask the processes'
+// secrets in each line, as a whole (diagnostics.line).
 func (pl *Pool) diag() *diagnostics {
 	w := pl.cfg.Process.Diagnostics
 	if w == nil {
 		w = os.Stderr
 	}
-	return &diagnostics{w: w}
+	return &diagnostics{w: w, secrets: NewSecrets(pl.cfg.Process.Secrets)}
 }
 
 // processChanged is every process's notify callback.

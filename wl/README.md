@@ -278,6 +278,9 @@ The engine masks:
 - every line that the engine writes to `Diagnostics`, as a whole: a
   secret that a line's own words, such as the process and stream that
   prefix an output line, make with what follows is masked too;
+- the error of a harness process that fails to start, which can name
+  its executable: as `Open` returns it, masked as a whole, as a run fails
+  with it, and in the pool's line in `Diagnostics`;
 - the harness processes' output lines, which go to `Diagnostics`, and the
   errors that quote them, such as that of a process that exits before its
   handshake. A line longer than 64 KiB goes in parts; a secret that a
@@ -341,16 +344,17 @@ when that result holds a secret: the step runs again.
 
 #### Latched errors
 
-A latched error whose text holds a secret keeps its type as step code's
-latch (`wl.latch`), a `HostCallError` or an `around` wrapper's error. Its
-message is masked as its whole text reads it, so a secret that the words
-its type writes before the message make with it is masked in the message.
+A latched error whose text holds a secret can keep its type as step
+code's latch (`wl.latch`), a `HostCallError` or an `around` wrapper's
+error. Its message is masked as its whole text reads it, after the words
+that its type writes before the message. It keeps its type when that text
+then shows no secret outside a mask.
 
 Any other error, such as a Go hook's own type latched through
 `RunHandle.Latch`, comes back as an error with the masked text. So does
-one of those three when its own words hold a secret. It still matches the
-original error and its chain with `errors.Is`. But `errors.As` does not
-see through it, since the original holds the secret.
+one of those three whose words, or its words with the mask, show a secret.
+It still matches the original error and its chain with `errors.Is`. But
+`errors.As` does not see through it, since the original holds the secret.
 
 `Open` refuses an entry that names a variable that the engine sets itself:
 
@@ -1036,7 +1040,7 @@ build helper's dependencies, and skip without them unless
 | `settled_test.go` | The run-settlement hooks | No |
 | `bun_test.go` | A real bundle in `warm` and `fresh`: platform calls in the trace, cached results shared between runtimes, cancellation, `InvocationEnv`, per-run variables, the first write and the pre-write deadline, the step API (`TestStepAPI`), plugin trace parity and `around` | Yes |
 | `outside_test.go` | A bundle whose host contract lists two modules outside the [sync folder](../docs/glossary.md#sync-folder), without a host | Yes |
-| `harnessenv_test.go` | `Options.HarnessEnv` on real processes, `warm` and `fresh`: what a step, a native step and a host plugin read (`TestHarnessEnvReachesStep`, `TestHarnessEnvReachesPlugin`), the refused names, host mode and a script's own `envs` (`TestHarnessEnvReserved`), and the whole process environment (`TestHarnessEnvDefault`). One read serves entries that name one variable (`TestHarnessEnvReferenceReadOnce`). Secrets are masked in output, warnings and errors (`TestHarnessEnvSecretMasked`, `TestHarnessEnvSecretDeclaration`, `TestHarnessEnvSecretPluginAnswer`, `TestHarnessEnvSecretRemadeByTheMask`, `TestHarnessEnvSecretAcrossAPrefix`, `TestHarnessEnvSecretLatchedWithPrefix`), traces and errors in results (`TestHarnessEnvSecretTrace`, `TestHarnessEnvSecretProvenance`) and log tails (`TestHarnessEnvSecretTail`), and kept out of a shared cache (`TestHarnessEnvSecretResultCache`). | Yes, but for the refusals and `TestHarnessEnvSecretErrorPartsKeepData` |
+| `harnessenv_test.go` | `Options.HarnessEnv` on real processes, `warm` and `fresh`: what a step, a native step and a host plugin read (`TestHarnessEnvReachesStep`, `TestHarnessEnvReachesPlugin`), the refused names, host mode and a script's own `envs` (`TestHarnessEnvReserved`), and the whole process environment (`TestHarnessEnvDefault`). One read serves entries that name one variable (`TestHarnessEnvReferenceReadOnce`). Secrets are masked in output, warnings and errors (`TestHarnessEnvSecretMasked`, `TestHarnessEnvSecretDeclaration`, `TestHarnessEnvSecretPluginAnswer`, `TestHarnessEnvSecretRemadeByTheMask`, `TestHarnessEnvSecretAcrossAPrefix`, `TestHarnessEnvSecretLatchedWithPrefix`, `TestHarnessEnvSecretFailedStart`), traces and errors in results (`TestHarnessEnvSecretTrace`, `TestHarnessEnvSecretProvenance`) and log tails (`TestHarnessEnvSecretTail`), and kept out of a shared cache (`TestHarnessEnvSecretResultCache`). | Yes, but for the refusals and `TestHarnessEnvSecretErrorPartsKeepData` |
 | `plugincases_test.go` | The cases of `conformance/plugins/hooks.yaml`, through the TypeScript case plugin, named by `Options.Plugin` and built into the bundle, and through Go callbacks built from the same plugins | Yes |
 | `bundledplugin_test.go` | A bundle's own plugin. Its `around` wrapper and the step share a host-provided module in 16 concurrent runs (`TestBundledPluginSharesHostModule`), and a bundle with no step starts processes for it (`TestBundledPluginWithoutSteps`). `Open` refuses it with `Options.Plugin` and in `fresh` (`TestOpenRefusesTwoPlugins`), and refuses a manifest that names a module outside the bundle (`TestOpenRefusesUnverifiedPlugin`). A `fetch` wrapper it installs at load reaches an ordinary step and not a native one (`TestPluginFetchWrapperOrder`) | Yes |
 | `rundata_test.go` | `RunOptions.Data` on real runs. Wrappers of an `around`-only plugin read their own run's data and steps `undefined` (`TestRunDataAroundOnly`), a hook reads it frozen (`TestRunDataHook`), and a run that a Go hook starts does not inherit it (`TestRunDataNotInherited`). The process holds it until a flow run or a script job settles (`TestRunDataReleased`), and one without a plugin gets none (`TestRunDataNeedsPlugin`). Data that is not JSON or not UTF-8 is refused (`TestRunDataRefusesInvalid`, `TestRunDataRefusesInvalidUTF8`). | Yes |

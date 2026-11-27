@@ -474,7 +474,13 @@ func Spawn(ctx context.Context, cfg ProcessConfig) (*Process, error) {
 	if err != nil {
 		return nil, err
 	}
-	return p.spawn(ctx, timeout)
+	q, err := p.spawn(ctx, timeout)
+	if err != nil {
+		// The error can name what the process was started with, such as
+		// its executable's path, and quote what it wrote.
+		return q, NewSecrets(cfg.Secrets).MaskErr(err)
+	}
+	return q, nil
 }
 
 // newProcess applies cfg's defaults and checks them.

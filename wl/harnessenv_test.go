@@ -23,6 +23,7 @@ import (
 	"github.com/invakid404/windmill-lite/internal/harness"
 	"github.com/invakid404/windmill-lite/internal/jsonval"
 	"github.com/invakid404/windmill-lite/internal/platform"
+	"github.com/invakid404/windmill-lite/internal/wlext"
 )
 
 // The harness environment tests run real steps and a real host plugin in
@@ -2022,6 +2023,97 @@ export default {
 		var pe *engine.PluginError
 		if errors.As(err, &pe) || strings.Contains(err.Error(), "plugin_error") || !strings.HasSuffix(err.Error(), "threw "+harness.SecretMask) {
 			t.Errorf("a secret that is the type's own word, %s: %T that reads %q; want an error with the masked text", what, err, err.Error())
+		}
+	}
+}
+
+// TestHarnessEnvSecretFailedStart checks harness processes that fail to
+// start, whose error names the executable, Options.Bun, in a directory
+// whose name is a secret entry's synthetic value. With a host plugin, Open
+// starts the pool's first process. When Options.Bun is missing there, the
+// error that Open returns, and the engine's diagnostics, its standard
+// error, hold the mask and no secret. So do they for two more secrets, of
+// words that the pool's diagnostics line and Open's error put before the
+// start's error and its first words. When Options.Bun, a link, is removed
+// after Open started the first process, which the pool then recycles after
+// a second script, a later start fails, and the error that the runtime
+// reports for it (wlext.OnPoolStartFailure) holds the mask and no secret.
+func TestHarnessEnvSecretFailedStart(t *testing.T) {
+	bun, out, runtimeDir := harnessEnvBundle(t)
+	const secret = "synthetic-private-19"
+	secrets := []string{secret, "failed: harness: start", "plugin: harness: start"}
+	env := map[string]EnvValue{}
+	for i, v := range secrets {
+		env[fmt.Sprintf("WL_TEST_SECRET_%d", i)] = EnvValue{Value: v, Secret: true}
+	}
+	holds := func(text string) bool {
+		return slices.ContainsFunc(secrets, func(v string) bool { return strings.Contains(text, v) })
+	}
+	plugin := filepath.Join(t.TempDir(), "plugin.ts")
+	if err := os.WriteFile(plugin, []byte("export default {};\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(t.TempDir(), secret)
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	diag := &syncBuf{}
+	_, err := Open(out, Options{Bun: filepath.Join(dir, "bun"), HarnessRuntime: runtimeDir, Plugin: plugin, Diagnostics: diag, HarnessEnv: env})
+	if err == nil {
+		t.Fatal("Open with a missing executable: no error")
+	}
+	if !strings.Contains(err.Error(), harness.SecretMask) || holds(err.Error()) {
+		t.Errorf("Open's error %q; want the mask where it names the executable, and no secret", err)
+	}
+	if d := diag.String(); !strings.Contains(d, "starting a process") || holds(d) {
+		t.Errorf("the diagnostics %q; want the pool's line about the failed start, and no secret", d)
+	}
+	// A later start: the link goes once the first process is up.
+	link := filepath.Join(dir, "bun")
+	if err := os.Symlink(bun, link); err != nil {
+		t.Fatal(err)
+	}
+	rt, err := Open(out, Options{Bun: link, HarnessRuntime: runtimeDir, Plugin: plugin, Pool: PoolOptions{Recycle: RecycleTriggers{Modules: 1}}, HarnessEnv: map[string]EnvValue{"WL_TEST_SECRET": {Value: secret, Secret: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	var mu sync.Mutex
+	var reported []string
+	wlext.OnPoolStartFailure(rt, func(err error) {
+		mu.Lock()
+		reported = append(reported, err.Error())
+		mu.Unlock()
+	})
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"f/t/env", "f/t/echo", "f/t/shared"} {
+		res, err := rt.Run(context.Background(), path, json.RawMessage(`{"names":[],"hashed":[]}`), RunOptions{Kind: KindScript})
+		if res != nil && res.Status != StatusSuccess && strings.Contains(string(res.Result), secret) {
+			t.Errorf("%s: the failed run's result holds the secret: %s", path, res.Result)
+		}
+		if err != nil && strings.Contains(err.Error(), secret) {
+			t.Errorf("%s: Run's error holds the secret: %q", path, err)
+		}
+	}
+	// The report follows the failed start's error by a moment.
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		mu.Lock()
+		n := len(reported)
+		mu.Unlock()
+		if n > 0 || time.Now().After(deadline) {
+			break
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(reported) == 0 {
+		t.Fatal("no failed start reported")
+	}
+	for _, r := range reported {
+		if !strings.Contains(r, harness.SecretMask) || strings.Contains(r, secret) {
+			t.Errorf("a reported failed start %q; want the mask where it names the executable, and no secret", r)
 		}
 	}
 }
