@@ -520,6 +520,9 @@ func resultOf(res *wl.Result, trace string) (*plugin.RunResult, error) {
 		// invocation was sent.
 		MayHaveMutated: res.MayHaveMutated || res.Started,
 		CancelCause:    res.CancelCause,
+		// The host plugin's answer, which is never empty JSON text: an
+		// empty field is no answer.
+		Answer: res.Answer,
 	}
 	if res.Latched != nil {
 		out.Latched = res.Latched.Error()

@@ -194,9 +194,13 @@ func runEncode(t *testing.T, c *frameCase) {
 				raw = v.RunData.Producer()
 			}
 		case RunDone:
-			raw = v.Result.Producer()
-			if field == "warnings" {
+			switch field {
+			case "warnings":
 				raw = v.Warnings.Producer()
+			case "answer":
+				raw = v.Answer.Producer()
+			default:
+				raw = v.Result.Producer()
 			}
 		case HostCall:
 			raw = v.Payload.Producer()

@@ -75,7 +75,7 @@ import {
   shadow,
 } from "./context.ts";
 import { Native, type NativeJob } from "./native.ts";
-import { declaration, dispatch, HostCallFailure, type Plugin, type Selector, type StepOutcome } from "./plugin.ts";
+import { AnswerText, declaration, dispatch, HostCallFailure, type Plugin, type ReplyForm, replyText, type Selector, type StepOutcome } from "./plugin.ts";
 import { HARNESS_VERSION, versionsPair } from "./version.ts";
 import { bind, errorText, patchBigInt, resultText, type Signature, signatureErrorText, signatureOf, stepContext } from "./wrapper.ts";
 
@@ -204,8 +204,9 @@ type Invocation = {
 export type Mode = "warm" | "fresh";
 
 /** A run's outcome, as run_done reports it: result is its JSON text,
- * warnings its warnings, each with a code and a message, and cancel_cause
- * why a canceled run was canceled. */
+ * warnings its warnings, each with a code and a message, cancel_cause
+ * why a canceled run was canceled, and answer the JSON text of the host
+ * plugin's run-end answer, absent when it gave none. */
 export type RunOutcome = {
   status: string;
   result?: string;
@@ -214,6 +215,7 @@ export type RunOutcome = {
   latched?: string;
   deviations: string[];
   cancel_cause?: string;
+  answer?: string;
 };
 
 /** What a run frame carries besides its target and arguments: its static
@@ -722,7 +724,42 @@ export class Runtime {
    * failure is its error. */
   private onHostCall(m: Message) {
     const plugin = this.opts.plugin;
+    // A reply that carries a run-end answer goes in the first of its forms,
+    // tried in this order, that fits max_message: with the answer; without
+    // it and with its size; and with the warnings alone as dropped. Each
+    // form is built and sent inside the guard, and only a reply over
+    // max_message tries the next. When none
+    // can go, its error reply has its message cut to fit, as a warning's
+    // is, so it always goes; one that cannot go at all is only written to
+    // the diagnostics.
+    const answerReply = (payload: Record<string, unknown>) => {
+      const forms: readonly ReplyForm[] = ["answer", "size", "dropped"];
+      let failure: unknown;
+      for (const form of forms) {
+        try {
+          this.send({ t: "host_reply", id: m.id, payload: new Raw(replyText(payload, form)) });
+          return;
+        } catch (e) {
+          failure = e;
+          if (!(e instanceof ProtocolError && e.code === "message_too_large")) break;
+        }
+      }
+      const out = fitText((message) => ({ t: "host_reply", id: m.id, error: { code: "plugin_error", message } }), `the answer cannot be sent: ${describe(failure)}`, this.sender.maxMessage);
+      try {
+        if (out === undefined) throw new Error("not even an empty message fits max_message");
+        this.send(out);
+      } catch (e) {
+        this.diag(`windmill-lite harness: the error reply to host_call ${JSON.stringify(m.id)} cannot be sent: ${describe(e)}`);
+      }
+    };
+    // Every other reply, every hook's error included, keeps its rule: one
+    // that cannot be sent is replaced by an attempt to send a plugin_error
+    // that says why, whose message is not cut, so it can fail too.
     const reply = (payload: Record<string, unknown> | undefined, error?: { code: string; message: string }) => {
+      if (!error && payload?.answer instanceof AnswerText) {
+        answerReply(payload);
+        return;
+      }
       try {
         this.send(error ? { t: "host_reply", id: m.id, error } : { t: "host_reply", id: m.id, payload: new Raw(JSON.stringify(payload)) });
       } catch (e) {
@@ -1328,6 +1365,8 @@ export class Runtime {
       latched: typeof m.latched === "string" ? m.latched : undefined,
       deviations: Array.isArray(m.deviations) ? m.deviations : [],
       cancel_cause: typeof m.cancel_cause === "string" ? m.cancel_cause : undefined,
+      // A run_done keeps an answer of JSON null; an absent one is none.
+      ...(m.answer === undefined ? {} : { answer: JSON.stringify(m.answer) }),
     });
   }
 
@@ -1496,13 +1535,21 @@ function cutToFit(text: string, limit: number): string {
  * ending in "…" when cut; undefined when not even an empty string fits. A
  * cut never splits a surrogate pair. */
 export function fitString(m: Outgoing, field: string, text: string, limit: number): Outgoing | undefined {
-  const size = (t: string) => encode({ ...m, [field]: t }).length;
-  if (size(text) <= limit) return { ...m, [field]: text };
+  return fitText((t) => ({ ...m, [field]: t }), text, limit);
+}
+
+/** The message that build makes of as much of text, from the start, as
+ * keeps its canonical payload within limit bytes, ending in "…" when cut;
+ * undefined when not even an empty string fits. fitString's rule, for a
+ * string anywhere in the message, such as a host_reply's error message. */
+export function fitText(build: (text: string) => Outgoing, text: string, limit: number): Outgoing | undefined {
+  const size = (t: string) => encode(build(t)).length;
+  if (size(text) <= limit) return build(text);
   const cut = (k: number) => {
     if (k > 0 && k < text.length && /[\uD800-\uDBFF]/.test(text[k - 1])) k--;
     return text.slice(0, k) + "…";
   };
-  if (size(cut(0)) > limit) return size("") <= limit ? { ...m, [field]: "" } : undefined;
+  if (size(cut(0)) > limit) return size("") <= limit ? build("") : undefined;
   let lo = 0;
   let hi = text.length;
   while (lo < hi) {
@@ -1510,7 +1557,7 @@ export function fitString(m: Outgoing, field: string, text: string, limit: numbe
     if (size(cut(mid)) <= limit) lo = mid;
     else hi = mid - 1;
   }
-  return { ...m, [field]: cut(lo) };
+  return build(cut(lo));
 }
 
 function rawBody(o: Outcome, tail: string): Record<string, unknown> {

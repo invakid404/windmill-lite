@@ -209,6 +209,23 @@ The error of a call that `Run` made also wraps the call's gRPC error, so
 `status.Code(err)` gives its code, such as `ALREADY_EXISTS` for an id that
 a run in flight has.
 
+A flow run's `RunResult` can carry the run-end answer of the bundle's
+host plugin: `GetAnswer()` is the JSON text of the answer that the
+plugin's `onRunEnd` returned beside its warnings
+([wl](../README.md#host-plugins)). An empty field means no answer, and the
+text `null` an answer of JSON null.
+
+- **Every outcome of a flow run.** The engine calls `onRunEnd` however a
+  flow run ended, a failed, latched or canceled run included, and one
+  whose deadline passed before any step. A root script's run calls no
+  run-end hook, so its `answer` is always empty.
+- **No answer.** A run has none when `onRunEnd` returns warnings or
+  nothing, fails, gets no reply within `plugin_timeout_ms`, or answers more
+  than 1 MiB of JSON text. Each failure adds a `plugin_error` warning.
+- **The reply margin.** The run's `RunResult` comes after its `onRunEnd`,
+  so a margin that covers `plugin_timeout_ms` lets the answer arrive
+  ([Deadlines of a run](#deadlines-of-a-run)).
+
 ### A run's hooks
 
 `RunWithHooks(ctx, req, declaration, h)` gives a flow run hooks that the
@@ -220,6 +237,9 @@ engine refuses.
   hook name and payload, the run's id and the site. `h` answers a
   `HookReply`: a JSON object in `Payload`, or a `HookError`. An error that
   `h` returns answers `plugin_error`, the failure of a host plugin's hook.
+- **No answer.** A reply to `on_run_end` adds its `warnings` to the run.
+  The engine ignores an `answer` in it: the run's answer comes from the
+  bundle's host plugin alone ([Outcomes of a run](#outcomes-of-a-run)).
 - **One connection.** The `Client` serves `HostHooks` on a broker
   connection, opened at its first run with hooks and reused by later runs,
   with messages bounded by `MaxMessageBytes` both ways. A run waits until

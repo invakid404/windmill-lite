@@ -313,6 +313,56 @@ type Result struct {
 	// passed before the invocation was sent, or arguments that failed to
 	// resolve. A flow run leaves it false and reports MayHaveMutated.
 	Started bool
+	// Answer is, for a flow run, the run-end answer of the host plugin
+	// (Options.Plugin, the bundle's own, or the host's in host mode): the
+	// JSON text of the answer that its onRunEnd returned beside its
+	// warnings. Nil means no answer, and the text null an answer of JSON
+	// null. A run has none when onRunEnd returned only warnings or nothing,
+	// failed, got no reply within the plugin timeout or from a lost
+	// process, or answered more than MaxRunEndAnswerBytes. A Go host's own
+	// hooks give no answer, and neither does a script run, which calls no
+	// run-end hook. encoding/json leaves the field out when it is nil: a
+	// Result without an answer has no Answer member, and one with an answer
+	// of null has "Answer":null.
+	Answer json.RawMessage `json:",omitempty"`
+}
+
+// runEndAnswer is a flow run's answer (Result.Answer), which its context
+// carries to the host plugin's onRunEnd (withAnswer). The engine calls
+// onRunEnd once, before its Run returns.
+type runEndAnswer struct {
+	v atomic.Pointer[json.RawMessage]
+}
+
+type answerKey struct{}
+
+// withAnswer returns ctx carrying a new answer of its run, which hides any
+// that ctx carries from another run, such as that of a run whose Go hook
+// starts this one with its context.
+func withAnswer(ctx context.Context) (context.Context, *runEndAnswer) {
+	a := &runEndAnswer{}
+	return context.WithValue(ctx, answerKey{}, a), a
+}
+
+// answerOf returns the answer of the run whose context ctx is, or nil.
+func answerOf(ctx context.Context) *runEndAnswer {
+	a, _ := ctx.Value(answerKey{}).(*runEndAnswer)
+	return a
+}
+
+// set records the run's answer; on nil, it does nothing.
+func (a *runEndAnswer) set(v json.RawMessage) {
+	if a != nil {
+		a.v.Store(&v)
+	}
+}
+
+// get returns the run's answer, or nil for none.
+func (a *runEndAnswer) get() json.RawMessage {
+	if p := a.v.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // Run runs the flow or script at path with args, a JSON object, and
@@ -562,6 +612,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		req.Hooks = settledHooks{Hooks: req.Hooks, settled: settled}
 	}
 	ctx = calls.reportStoreFailures(ctx)
+	ctx, answer := withAnswer(ctx)
 	tr, err := rt.eng.Run(ctx, req)
 	if err != nil {
 		rt.forgetPin(p)
@@ -591,6 +642,7 @@ func (rt *Runtime) run(ctx context.Context, path string, args json.RawMessage, o
 		Warnings:       masked.Warnings,
 		Latched:        masked.Latched,
 		CancelCause:    tr.CancelCause,
+		Answer:         answer.get(),
 	}, nil
 }
 

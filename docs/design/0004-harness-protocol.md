@@ -112,6 +112,7 @@ step without failing the others.
 | `reserve` / `reserve_reply` | harness → engine / back | `reserve`: `id`, `inv` (invocation id), `bytes` (positive); `reserve_reply`: `id`, then `refused` (why not) when the bytes were not reserved; an empty one counts as absent | a step's `wl.reserve(bytes)`, sent only for an invocation whose `invoke` has `budget` (§Pooling) |
 | `run` / `run_done` / `run_cancel` | harness → engine / back / harness → engine | the fields that they share with `runner.proto`'s `RunRequest`, `RunResult` and `CancelRequest`, under the same names, JSON values raw ([host adapters](0009-host-adapters.md#the-runner-service)). `run`: `id`, `kind`, `path`, `args`, `intercept`, `write_capable`, `halt_before` and `halt_after` (raw arrays of selectors), `fatal_error_names`, `deadline_ms`, `pre_write_deadline_ms`, `clock` (`real` or `record`) and `identity`. `run_done`: `id`, then `status`, `result`, `may_have_mutated`, `warnings` (raw, each a `code` and a `message`), `latched` and `deviations`, or `error` for a run the engine did not start (`code`: `draining` or `refused`); then `cancel_cause`. `run_cancel`: `id`, `reason`, `canceler` | host mode: a harness that is also the host submits runs |
 | `run_settled` | engine → harness | `id` | host mode: one of the host's runs has settled, after its `run_done` (host mode item 5) |
+| `run_done` | as above | also `answer` (raw, optional), after every other field: the host plugin's run-end answer, which may be `null`; absent when the run has none | host mode: the run's answer (host mode item 8, §Host plugins item 10) |
 | `run`, `invoke`, `host_call` | as above | also `run_data` (raw, optional): the run's data, which a `run` carries as its host gives it. An `invoke` or a `host_call` of a run with data carries `run_data_id`, which names the data, and `run_data` too when it is the first of the run that the process gets | the host plugin's `wl.run.data` (§Host plugins item 9) |
 | `run_released` | engine → harness | `run`, `run_data_id` | a run whose data the process holds has settled; the process drops the data that `run_data_id` names (§Host plugins item 9) |
 | `ping` / `pong` | either way | `id`; from a harness also `in_flight`, `abandoned`, `errors` (process-level errors no invocation owned), `lag_ms` (event-loop lag), `rss`, and `runs_held` (the runs whose data it holds, written when not 0) | health; a harness also pings on its own every `heartbeat_ms` |
@@ -881,6 +882,10 @@ change:
 
    An engine that cannot serve the host at all (the bundle does not open)
    refuses it in the handshake too, with `engine_refused` and its reason.
+8. **The run-end answer.** A host-mode run's `run_done` carries, as
+   `answer`, the answer of the host plugin's `onRunEnd`
+   (§Host plugins item 10). The SDK's run result gives it to the run's
+   caller, in the process whose plugin computed it.
 
 Measured (prototype outside the repository, Bun 1.4.2): a Bun host that
 heartbeats a Go child every 100 ms and then spins forever was killed by the
@@ -1046,6 +1051,56 @@ answered by a `host_reply`.
      A process also drops every run's data when its connection ends. The
      harness's health counts the runs whose data it holds, as
      `runs_held`.
+10. **The run-end answer.** The `host_reply` to an `on_run_end` carries the
+    hook's `warnings` and, when the plugin gave one, its `answer`: any JSON
+    value. The flow run's outcome carries the answer, so a host plugin can
+    map every way a flow run ends, a failure, a latch or a cancellation
+    included, from state that only its process holds. A flow's last step
+    cannot: it does not run after those ends.
+    - **Flow runs only.** A root script's run calls no run-end hook, so it
+      has no answer.
+    - **None and null.** An `answer` of `null` is an answer: a plugin may
+      mean it. An absent field is none, and every layer writes none so: no
+      `answer` in the reply and in `run_done`, an empty `answer` in a
+      `RunResult`, whose JSON text is never empty, and `nil` in Go.
+    - **No answer** comes from a hook that fails, gets no reply within the
+      plugin timeout (item 2), or cannot reach a pinned run's process; its
+      `plugin_error` warning says why. A reply that comes after the engine
+      stopped waiting is dropped, its answer with it.
+    - **The bound.** The engine drops an answer whose JSON text is over
+      1 MiB, and adds a `plugin_error` warning, naming both sizes, after
+      the hook's warnings. An answer is a decision that the host maps, not
+      data, so the bound stops a plugin's mistake from growing each
+      outcome. Dropping the answer alone keeps the hook's warnings, which
+      a refusal of the whole reply would lose.
+    - **A reply too large to send.** When the reply with its answer is over
+      `max_message`, the harness sends the hook's warnings and
+      `answer_bytes`, the answer's size in UTF-8 bytes, without the answer.
+      The engine then adds a `plugin_error` warning that names the size,
+      so the hook's warnings still arrive.
+    - **The edge of that rule.** When `answer_bytes` does not fit beside the
+      warnings either, the harness sends the warnings as `dropped`, a key
+      one byte shorter than `warnings`, so that reply fits whenever the
+      warnings alone would. The engine keeps them and adds a
+      `plugin_error` warning that the answer did not fit.
+    - **Only size retries.** The harness tries a smaller reply only for a
+      reply over `max_message`. One that cannot be written, such as
+      warnings whose `toJSON` throws, and warnings too large by themselves,
+      give the error reply. Its message is cut to fit `max_message`, as a
+      warning's is, so a reply with an answer always gets one.
+    - **Other replies keep their rule.** A reply without an answer, and a
+      hook's own error of any hook, that cannot be sent are replaced by an
+      attempt to send a `plugin_error` that says the answer cannot be sent
+      and why. That error is not cut, so it can be too large for
+      `max_message` itself, and then no reply goes.
+    - **One serialisation.** The harness reads the answer once and
+      serialises it once, and the reply carries that text, so what the
+      harness checked is what the engine gets.
+    - **Whose answer.** Only the runtime's own plugin answers. A run's
+      hooks on a host's connection
+      ([host adapters](0009-host-adapters.md#hooks-across-the-plugin-boundary))
+      take the same reply, and the engine ignores their `answer`: a Go
+      host's hooks run in its own process, which holds their state.
 
 ### Parallel loops
 

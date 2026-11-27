@@ -58,7 +58,7 @@ const FIELDS: Record<string, readonly string[]> = {
   platform: ["id", "inv", "method", "url", "headers", "body"],
   platform_reply: ["id", "status", "headers", "body"],
   run: ["id", "kind", "path", "args", "intercept", "write_capable", "halt_before", "halt_after", "fatal_error_names", "deadline_ms", "pre_write_deadline_ms", "clock", "identity", "run_data"],
-  run_done: ["id", "status", "result", "may_have_mutated", "warnings", "latched", "deviations", "error", "cancel_cause"],
+  run_done: ["id", "status", "result", "may_have_mutated", "warnings", "latched", "deviations", "error", "cancel_cause", "answer"],
   run_cancel: ["id", "reason", "canceler"],
   run_settled: ["id"],
   host_call: ["id", "hook", "run", "site", "payload", "run_data_id", "run_data"],
@@ -424,7 +424,7 @@ export const RAW_FIELDS: Record<string, readonly string[]> = {
   result: ["body"],
   late: ["body"],
   run: ["args", "intercept", "write_capable", "halt_before", "halt_after", "identity", "run_data"],
-  run_done: ["result", "warnings"],
+  run_done: ["result", "warnings", "answer"],
   hello: ["plugin"],
   host_call: ["payload", "run_data"],
   host_reply: ["payload"],
@@ -465,10 +465,11 @@ function own(m: Message): Message {
   return out;
 }
 
-/** Raw fields whose JSON null is a value: the required ones, and
- * run_done's result, since a flow may return null. Any other field that is
- * null, run's intercept included, is absent. */
-const KEEP_NULL = new Set(["invoke.args", "result.body", "late.body", "run.args", "run_done.result"]);
+/** Raw fields whose JSON null is a value: the required ones, run_done's
+ * result, since a flow may return null, and run_done's answer, since a host
+ * plugin may answer null. Any other field that is null, run's intercept
+ * included, is absent. */
+const KEEP_NULL = new Set(["invoke.args", "result.body", "late.body", "run.args", "run_done.result", "run_done.answer"]);
 
 /** Splits a byte stream into frame payloads. */
 export class FrameReader {

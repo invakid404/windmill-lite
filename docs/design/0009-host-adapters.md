@@ -272,6 +272,7 @@ A `RunResult` holds:
 | `latched` | A latched run's error ([H5](0008-host-hooks.md#the-hooks)) |
 | `warnings`, `deviations` | The run's warnings, and the deviations of its trace |
 | `trace` | The trace at the level that the request asked for |
+| `answer` | For a flow run, the run-end answer of the bundle's host plugin: the JSON text of the answer that its `onRunEnd` returned. Empty means no answer, and the text `null` an answer of JSON null ([harness protocol](0004-harness-protocol.md#host-plugins) item 10) |
 
 - **JSON values.** Arguments, results, run data, selectors and the trace
   are JSON text in `bytes` fields, which neither side decodes to pass on
@@ -497,6 +498,11 @@ A hook takes the cheapest of three routes that serves it:
 - **Failures after the outcome.** A failed `onRunEnd` adds a warning, a
   failed `onRunSettled` is a diagnostic line, and a hook whose run has
   already ended latches nothing.
+- **No answer on the broker.** A reply to `on_run_end` on the broker adds
+  its warnings, and the engine ignores an `answer` in it. A Go host's
+  callbacks run in the host, which holds their state, so only the bundle's
+  host plugin, whose state lives in a harness process, gives
+  `RunResult.answer`.
 - **Registration.** `Client` gives a run without an id a fresh UUID, and
   registers its hooks before it sends the request, since hook calls can come
   before the reply and after it. Each registration has a fresh token that
@@ -559,6 +565,13 @@ one that fails on its own before it ends `failure`, with no cause
 The gRPC deadline of the `Run` call bounds the call, not the run. A call
 that ends first cancels its run, whose outcome then has no receiver, so
 `Client.Run` sets the run's deadline ahead of the call's.
+
+Every end of a flow run calls the `onRunEnd` of the bundle's host plugin,
+a deadline that passed before any step included, and the call has the
+plugin timeout alone. So a canceled flow run's `RunResult` can carry the
+plugin's answer. A root script's run calls no run-end hook and has no
+answer. A host that needs the answer chooses a reply margin that covers
+`plugin_timeout_ms`.
 
 #### Process affinity and limits
 

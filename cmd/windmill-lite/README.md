@@ -615,6 +615,7 @@ gives the setup.
 | `runcmd_test.go`, the resource store | On `-resource-store memory`, each run starts without the state the last one wrote. An unknown store, `redis` without `WL_REDIS_URL`, an unreachable Redis or Sentinel, and URLs that do not parse do not start; each runs in an engine process of its own, whose whole standard error holds no password. With `WL_TEST_REDIS_URL` ([wl/redisstore](../../wl/redisstore/README.md#tests)), two engine processes on one Redis share the state: the second's create is refused as taken, and it reads the first's value. |
 | `host_test.go`, `argsfile_test.go`, `readcache_test.go`, `tracedetail_test.go`, `foreign_test.go`, `resultpolls_test.go` | Host mode end to end, on the Bun host `testdata/host/host.ts` ([Host-mode tests](#host-mode-tests)) |
 | `plugin_test.go`, `runoptions_test.go`, `drain_test.go`, `broker_test.go`, `harnessenv_test.go` | `plugin` end to end, through `wl/plugin` ([Plugin tests](#plugin-tests)) |
+| `runendanswer_test.go` | The run-end answer of a host plugin's `onRunEnd`: through `plugin` and `wl/plugin` ([Plugin tests](#plugin-tests)), and in host mode on `testdata/pluginhost/host.ts` ([Host-mode tests](#host-mode-tests)) |
 | `memory_test.go` | What `warm` step modules cost a host process ([Memory tests](#memory-tests)) |
 | `realm_test.go` | What native invocations leave in a long-lived Bun process ([Native realm tests](#native-realm-tests)) |
 | `retain_test.go` | `TestSettledRunLetsGoOfItsValuesOnHosts`: on the plain host and on the plugin host, a run's step results are unreachable once the run has settled, while the runtime and its host go on |
@@ -628,7 +629,7 @@ gives the setup.
 | `testdata/hostlib/` | `tenant.ts`, a host-provided module outside the sync folder. It is the `relative_path` of a codebases entry, whose script `f/hostout/read.ts` imports it. |
 | `testdata/host/` | `host.ts`, a Bun host that embeds the SDK and registers its instances of the folder's host-provided modules. It serves its callers over HTTP on a Unix socket, and submits each run inside the caller's tenant scope. With `WL_SKIP_ARGS_FILE=1`, it connects with `skipArgsFile`, with origins in `WL_FOREIGN_WINDMILL`, with `foreignWindmillOrigins`, and with `WL_IDENTITY` set to a JSON object, with that `identity`. |
 | `testdata/haltfolder/`, `testdata/halthost/` | A two-step flow `f/repro/prefix`, and a Bun host that `bun run` starts, for `TestHostRunHalts` |
-| `testdata/pluginhost/` | A Bun host that `bun run` starts, for the bundled-plugin host tests: a reconnect, one connect, two releases at one path, and runs with data |
+| `testdata/pluginhost/` | A Bun host that `bun run` starts, for the bundled-plugin host tests: a reconnect, one connect, two releases at one path, runs with data, and runs whose plugin answers their end |
 | `testdata/memhost/` | A Bun host for the memory tests: it answers its resident set and peak (`/rss`) and the outcome of runs that it submits (`/run`) |
 | `testdata/memory/` | `closure.package.json` and `closure.bun.lock`, which pin the packages of `TestModuleMemoryClosure`'s closure |
 | `testdata/benchhost/` | `host.ts`, the benchmarks' warm host; `inproc.ts`, the in-process side of `BenchmarkEmbedder`; `threadcpu_darwin.c`, which reads CPU time by thread on macOS |
@@ -678,6 +679,7 @@ How these tests run:
 | `TestHostBundledPluginFetchOrder` | A `fetch` wrapper that the bundle's plugin installs at load reaches an ordinary step and not a native one: the SDK loads it after the runtime's hooks, as a spawned harness does. |
 | `TestHostReconnectKeepsNativeFetch` | A host that connects on a bundle whose plugin wraps `fetch` at load, closes, and connects again on a bundle with no plugin: the native step never gets the wrapper, which the ordinary step still goes through. |
 | `TestHostRunData` | The `data` of three concurrent runs reaches the bundled plugin's `around` wrapper as `wl.run.data`, each run's own, or `undefined` for the run without; an intercept hook reads its run's data. A run that a hook submits through the host with no `data` reads none, in its unwrapped step and its `onSettled`. Once every run has settled, the host holds no run's data. |
+| `TestHostRunEndAnswer` | The bundled plugin's `onRunEnd` answers by each run's `data`. The SDK's run result has the answer of a successful run and of one whose deadline had passed, `null` for an answer of null, and no `answer` field for a run whose hook returns warnings alone. |
 | `TestHostReconnectKeepsHostFetch` | A host with no bundled plugin that wraps `fetch` itself between two connections: the second connection's native and ordinary steps both go through its wrapper. |
 | `TestHostVerifiesBundleBeforePlugin` | The bundle's plugin runs on the bundle as built, with no `-digest` pin, a matching one, or an empty `-digest=`. With a pin that the bundle does not match, also after `-data --`, or once another file of the bundle changes, `connect()` rejects with `bundle` and the plugin never runs. |
 | `TestHostCheckBundle` | `host -check-bundle` exits 0 or 1 for a matching digest, a pin, an empty pin, a pin after `-data --`, another digest, an archive and another engine version. |
@@ -706,12 +708,12 @@ How these tests run:
 
 ### Plugin tests
 
-`plugin_test.go`, `runoptions_test.go`, `broker_test.go` and `harnessenv_test.go` launch the test binary as the engine through
+`plugin_test.go`, `runoptions_test.go`, `broker_test.go`, `harnessenv_test.go` and `runendanswer_test.go` launch the test binary as the engine through
 `wl/plugin`'s `ClientConfig`, with its SHA-256 and a literal environment
 in which `WL_TEST_ENGINE` is `1`, and call it through `plugin.Client`
 over go-plugin's connection. `supervisor_test.go` runs `wl/plugin`'s
-`Supervisor` on that engine. The bundles come from synthetic folders that
-the test files hold. `drain_test.go` starts the
+`Supervisor` on that engine. The tests build their bundles from
+synthetic folders in the test files. `drain_test.go` starts the
 engine as go-plugin would, connects to the socket that its handshake line
 names, and so sees its exit status and can signal it.
 
@@ -757,6 +759,7 @@ names, and so sees its exit status and can signal it.
 | `TestRunnerLimits` | With `max_in_flight` 2, no more than two of four parallel branches are inside at once while the test holds them, and the result's deviations list the cap ([D15](../../docs/design/0001-equivalence-contract.md#5-named-deviations)). Without it, all four are inside together. Arguments past `max_args_bytes`, and a negative limit, refuse the run. Stored values past `max_held_bytes` latch `run_memory_limit`, and a reservation past the byte budget fails its step with a `RangeError`. |
 | `TestRunnerBytesTotal` | Under a `bytes_total` of 64 MiB, a second run's reservation of 48 MiB rejects in its step while the first holds 48 MiB, and a third run's succeeds once the first's step has settled. A negative total refuses the start. |
 | `TestRunnerRunData` | The bundle's host plugin reads each concurrent run's own `run_data` in its `around` wrapper, a root script's included, and undefined for a run without it. Data that is not JSON refuses the run. |
+| `TestRunnerRunEndAnswer` | `RunResult.answer` holds the JSON text of the bundle's host plugin's answer for a successful, a failed and a canceled run, `null` for an answer of null, and nothing for warnings alone or a root script's run. A run's hooks on the broker add their `on_run_end` warnings, and their answer is ignored. |
 | `TestRunnerMaxLive` | A `pool.max_live` of 1 with a `pool.max` of 2 refuses the start, naming the bound, and a `max_live` of 2 serves runs. |
 | `TestRunnerForeignOrigins` | A step's dispatch to the loopback origin that `foreign_windmill_origins` lists loses its `parent_job` and `root_job`, and the same dispatch to another origin keeps them. An origin with the path `/api` refuses the start. |
 | `TestSupervisorAdmissionRefusesWrongBundle` | The supervisor pins the build identity of one bundle, and the configured path then holds another. Each launch is refused at its admission, naming the pinned bundle's digest, and no [generation](../../docs/glossary.md#generation) serves. With the pinned bundle back at that path, a later launch is admitted and runs a flow. |

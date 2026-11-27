@@ -286,11 +286,16 @@ the harness protocol design record lists the fields of `run`, `run_done`,
   negative ones included: a value of 0 or less is a deadline that has
   passed, which the engine's `Run` ends alone.
 - **Cancellation.** `RunDone.CancelCause` is a canceled run's cause, which
-  `run_done` writes last as `cancel_cause`. A `run_cancel` may carry
-  `reason` and `canceler`, which the cancellation's error names. An empty
-  `cancel_cause`, `reason` or `canceler` counts as absent, in both codecs.
+  `run_done` writes as `cancel_cause`, after every field but `answer`. A
+  `run_cancel` may carry `reason` and `canceler`, which the cancellation's
+  error names. An empty `cancel_cause`, `reason` or `canceler` counts as
+  absent, in both codecs.
 - **`may_have_mutated`.** Both codecs write it in `run_done` only when it
   is true.
+- **The answer.** `RunDone.Answer` is the host plugin's run-end answer,
+  which `run_done` writes last as the raw `answer`. Both codecs keep an
+  `answer` of `null`, as they keep a `result` of `null`, and the zero
+  `Answer`, an absent field, is no answer.
 - **A run's identity.** `RunRequest.Identity` is the run frame's raw
   `identity`, which both codecs require to be an object; `wl` decodes its
   fields.
