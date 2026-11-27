@@ -479,6 +479,11 @@ func sameJSON(got []byte, want string) bool {
 // served by the run's handler: Cancel ends the run once its step has
 // started, and the step, which runs on, holds the run's settlement until
 // the test releases it. The registration is dropped only after.
+//
+// The cancel taints the pool's one harness process, and the pool drains a
+// tainted process once nothing else is in flight in it, which would end
+// the canceled step and settle the run at once. So another run's step is
+// kept in flight in the same process until the end.
 func TestBrokerLateCallback(t *testing.T) {
 	e := startEngine(t, engineConfig{lookupAfter: time.Hour})
 	arrived := make(chan string, 1)
@@ -488,6 +493,11 @@ func TestBrokerLateCallback(t *testing.T) {
 		}
 		return &plugin.HookReply{Payload: []byte(`{}`)}, nil
 	}}
+	keepDir, letKeep := holdDir(t)
+	kept := runAsync(func() (*plugin.RunResult, error) {
+		return e.client.Run(context.Background(), &plugin.RunRequest{Id: "kept", Path: "f/broker/hold", Args: jsonOf(t, map[string]string{"dir": keepDir})})
+	})
+	waitStarted(t, keepDir)
 	dir, release := holdDir(t)
 	done := runAsync(func() (*plugin.RunResult, error) {
 		return e.client.RunWithHooks(context.Background(), &plugin.RunRequest{Id: "late", Path: "f/broker/hold", Args: jsonOf(t, map[string]string{"dir": dir})}, []byte(`{"on_run_settled": true}`), rec.handle)
@@ -521,6 +531,10 @@ func TestBrokerLateCallback(t *testing.T) {
 		t.Fatal("onRunSettled never reached the host")
 	}
 	waitFor(t, "the release after onRunSettled", func() bool { return e.client.Registrations() == 0 })
+	letKeep()
+	if o := within(t, "the kept run", kept); o.err != nil || o.res.GetStatus() != "success" {
+		t.Errorf("the kept run: %v, %v; want success", o.res, o.err)
+	}
 }
 
 // TestBrokerIsolationNextRun checks that a run's hooks are its own: the
@@ -1277,6 +1291,9 @@ func TestBrokerClientClose(t *testing.T) {
 	if n := e.srv.hooks.dialled(); n != 2 {
 		t.Fatalf("the engine holds %d broker connections, want the two Clients'", n)
 	}
+	// The engine lets a run's token go after the run's Run call returns,
+	// once it has told the run's Client, so the test waits for that first.
+	waitFor(t, "the engine lets the other run's token go", func() bool { return e.srv.hooks.heldTokens() == 1 })
 
 	e.client.Close()
 	waitFor(t, "the engine closes the closed Client's connection, its run still held", func() bool {
