@@ -115,7 +115,7 @@ step without failing the others.
 | `run_done` | as above | also `answer` (raw, optional), after every other field: the host plugin's run-end answer, which may be `null`; absent when the run has none | host mode: the run's answer (host mode item 8, §Host plugins item 10) |
 | `run`, `invoke`, `host_call` | as above | also `run_data` (raw, optional): the run's data, which a `run` carries as its host gives it. An `invoke` or a `host_call` of a run with data carries `run_data_id`, which names the data, and `run_data` too when it is the first of the run that the process gets | the host plugin's `wl.run.data` (§Host plugins item 9) |
 | `run_released` | engine → harness | `run`, `run_data_id` | a run whose data the process holds has settled; the process drops the data that `run_data_id` names (§Host plugins item 9) |
-| `ping` / `pong` | either way | `id`; from a harness also `in_flight`, `abandoned`, `errors` (process-level errors no invocation owned), `lag_ms` (event-loop lag), `rss`, and `runs_held` (the runs whose data it holds, written when not 0) | health; a harness also pings on its own every `heartbeat_ms` |
+| `ping` / `pong` | either way | `id`; from a harness also `in_flight`, `abandoned`, `errors` (process-level errors no invocation owned), `lag_ms` (event-loop lag), `rss`, and `runs_held` (the runs whose data it holds, written when not 0). Also `held_age_ms`, what its host plugin reports of the resources that it holds past their runs, written when not 0 | health; a harness also pings on its own every `heartbeat_ms` |
 | `part` | either way | `id`, `seq`, `last`, `chunk` | one piece of a message over 1 MiB |
 | `drain` / `bye` | engine → harness / back; in host mode harness → engine / back | — | orderly shutdown; in host mode the host's drain (host mode item 3) |
 
@@ -691,6 +691,16 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
   and the process leaves once nothing is in flight in it.
 - With pinned runs, such a process still takes its pinned runs'
   invocations, and leaves only once no pinned run holds it either.
+- **What a process holds past its runs.** Two more triggers, off by
+  default, replace a process by the same rules. One trips when a host
+  plugin hook that the engine stopped waiting for, which ends its run,
+  still runs a bound past that end, holding the run unsettled (§Host
+  plugins item 2); `onRunSettled` holds nothing and does not count. The
+  other trips when the host plugin's reported `held_age_ms` reaches a
+  bound (§Host plugins item 11).
+- The engine reviews both at each heartbeat. A process that trips one
+  writes a diagnostics line that names it. Like the other triggers, they
+  show in neither health nor the trace.
 - **Overlap.** A replacement runs beside the process it replaces until that
   process leaves, which waits for its steps in flight. While one process
   leaves for a recycle trigger, memory or module count alike, another that
@@ -1110,6 +1120,12 @@ answered by a `host_reply`.
       ([host adapters](0009-host-adapters.md#hooks-across-the-plugin-boundary))
       take the same reply, and the engine ignores their `answer`: a Go
       host's hooks run in its own process, which holds their state.
+11. **What a plugin holds past its runs.** Only the plugin knows the
+    resources that it still holds after their runs ended, such as a slot
+    that an `onRunSettled` failed to release. So it may report the age of
+    the oldest one: the harness asks it at each health report and sends
+    the whole milliseconds as `held_age_ms`, written when not 0. A plugin
+    that reports nothing never trips the held-age trigger (§Pooling).
 
 ### Parallel loops
 
@@ -1537,6 +1553,11 @@ after it, that release would read as a cancellation, and such a run as
   `host_call` an optional `run_data_id`. `run_released` is a new frame, and
   the health group gains an optional `runs_held`. A frame without them
   reads as before.
+
+- A host plugin reports what it holds past its runs (§Host plugins
+  item 11): the health group gains an optional `held_age_ms`, and a frame
+  without it reads as before. On Linux, a harness process that the engine
+  spawned ends with the engine (§Lifecycle item 5).
 
 - The repository's benchmarks measure the transport alone: the engine's
   connection against the runtime's frame layer over a socketpair, with

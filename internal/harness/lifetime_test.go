@@ -192,6 +192,38 @@ export default {
 	}
 }
 
+// TestPoolRecycleUnsettledSettlementHook checks that a late onRunSettled
+// does not trip the unsettled-run trigger: its run has settled, so it
+// holds nothing (ADR 0004 §Host plugins item 2). The plugin's onRunSettled
+// never returns, and the engine stops waiting for it; past the bound, the
+// process stays.
+func TestPoolRecycleUnsettledSettlementHook(t *testing.T) {
+	hookStarted := filepath.Join(t.TempDir(), "hook.started")
+	src := fmt.Sprintf(`import { writeFileSync } from "node:fs";
+export default {
+  onRunSettled() {
+    writeFileSync(%q, "started");
+    return new Promise(() => {});
+  },
+};
+`, hookStarted)
+	clock := newFakeClock()
+	pool, _, first := lifetimePool(t, src, RecycleTriggers{UnsettledRun: time.Minute}, clock)
+	ctx, stop := context.WithCancel(context.Background())
+	late := make(chan error, 1)
+	go func() {
+		_, err := pool.HostCall(ctx, "on_run_settled", "r-settled", "", jsonval.FromProducer([]byte(`{"trace":{"run":"r-settled"}}`)))
+		late <- err
+	}()
+	waitFile(t, hookStarted)
+	stop()
+	if err := <-late; err == nil || !strings.Contains(err.Error(), "context canceled") {
+		t.Fatalf("the hung onRunSettled's call: %v; want it canceled", err)
+	}
+	clock.Advance(time.Hour)
+	stays(t, pool, first, "a late onRunSettled past the bound")
+}
+
 // TestPoolRecycleHeldAge checks the held-age trigger on the real Bun
 // harness. The plugin's heldAge reports what the test writes to a file:
 // ages under the bound of 2 minutes, which rise and fall as holds that

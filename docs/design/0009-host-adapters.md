@@ -588,7 +588,10 @@ A request's `pin` and `limits` set one run's affinity and limits.
 Their rules are the pool's
 ([harness protocol](0004-harness-protocol.md#pooling-processes-the-engine-spawns)):
 a pinned run keeps one process, a process that trips a recycle trigger is
-replaced, and a run's limits act on that run alone.
+replaced, and a run's limits act on that run alone. The triggers include
+two on what a process holds past its runs: a plugin hook that holds an
+ended run unsettled, and a resource that the plugin reports held after
+its run ended.
 
 #### Licence and notices
 

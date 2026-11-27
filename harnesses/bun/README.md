@@ -471,6 +471,7 @@ For example, `{ flow: "f/app/main", module: "report" }` names the module
 | `rss` | The resident set, in bytes |
 | `modules` | The script modules loaded |
 | `runs_held` | The runs whose data the process holds, until the engine releases each |
+| `held_age_ms` | What the host plugin's `heldAge` reports, in whole milliseconds; absent when it reports nothing |
 | `runs` | Runs submitted and not yet done |
 | `draining` | Whether `drain()` was called |
 | `recycle` | The recycle trigger that tripped, or `null` |
@@ -676,6 +677,7 @@ where it matches; the others see every module or every run.
 | `onRunSettled` | `(t: Trace) => void` | Once every invocation of the run has settled | Release what step code could still reach |
 | `providers` | `Record<string, (c: Call) => Outcome \| undefined>` | At a mandatory provided site that names the provider | Answer for the site, or return `undefined`, which declines and fails the run (`provider_declined`) |
 | `resource` | `(path: string, e: { run }) => { type: string; value: unknown } \| undefined` | When a run reads a resource that its own platform data does not hold | Return the resource's type and raw value, or `undefined` for none. The engine interpolates the value. |
+| `heldAge` | `() => number \| undefined`, not a promise | At every health report: each heartbeat, and each answer to the engine's health request | Return the age, in milliseconds, of the oldest resource that the plugin still holds after its run ended, or `undefined` for none ([below](#what-a-plugin-holds-past-its-runs)) |
 | `variable` | `(path: string, e: { run }) => { value: string; secret?: boolean } \| undefined` | When a run reads a variable that its own platform data does not hold | Return the variable's value, or `undefined` for none. Any other answer is a `plugin_error`. |
 
 - **A hook that throws** answers with `plugin_error`, which latches the
@@ -747,6 +749,26 @@ A root script's run calls no run-end hook.
   alone, and that warning says that the answer did not fit. Only warnings
   too large by themselves fail the reply.
 - **The type.** `RunEnd` is a type that `windmill-lite/bun` exports.
+
+#### What a plugin holds past its runs
+
+A plugin can hold a resource past the run that took it, when a hook never
+returns, `onRunSettled` fails before it releases, or work in the process
+scope never ends. The engine cannot see such a resource, so the plugin
+reports it: `heldAge` returns the age, in milliseconds, of the oldest
+resource that it still holds after that resource's run ended.
+
+- **When.** The runtime calls it at every health report, at once and
+  outside every run, and sends the whole milliseconds as `held_age_ms`.
+  `undefined` or 0 reports nothing.
+- **The trigger.** A warm pool's held-age trigger (`Recycle.HeldAge` in
+  [wl](../../wl/README.md#the-harness-pool), `held_age_ms` in the plugin
+  command's `pool.recycle`) replaces the process once the age reaches its
+  bound. A plugin without `heldAge` never trips it, and holds that end in
+  time, however they overlap, never reach it.
+- **A failure.** A throw, a promise, or anything other than a number of at
+  least 0 reports nothing. The first such failure writes one line to the
+  process's standard error.
 
 ## Errors and refusals
 
@@ -1614,7 +1636,7 @@ cd harnesses/bun && bun test
 | `test/sender.test.ts` | The send queue, against a socket that accepts a few bytes at a time: priority, the order per invocation, partial writes, `whenFlushed`, and the barrier of a host's `drain` behind large runs, with a pong still overtaking them |
 | `test/context.test.ts` | The environment view's rules in one process, the registry, the process scope, the exit status and the step API |
 | `test/fence.test.ts` | The settle-time fence: timers and `refresh()`, the fetch view and the evidence that ends a transfer, the log view, the `Bun.env` write trap, children's environment, and their process groups |
-| `test/plugin.test.ts` | Host plugins: the declaration, its trace detail, each hook's answer, the `unknown_hook` and `plugin_error` refusals, and the answer in the run's scope. What `onRunEnd` may return, values outside a `RunEnd`, an answer read and serialised once, a reply over `max_message`, and `run_done`'s answer in a run's outcome. A run's data as `wl.run.data` until `run_released`: two runs of one id apart, a continuation's late read, and the end of the connection |
+| `test/plugin.test.ts` | Host plugins: the declaration, its trace detail, each hook's answer, the `unknown_hook` and `plugin_error` refusals, and the answer in the run's scope. What `onRunEnd` may return, values outside a `RunEnd`, an answer read and serialised once, a reply over `max_message`, and `run_done`'s answer in a run's outcome. A run's data as `wl.run.data` until `run_released`: two runs of one id apart, a continuation's late read, and the end of the connection. `heldAge` in health reports, and its failures |
 | `test/host.test.ts` | The SDK: the shared working-directory cases (`conformance/protocol/host/workdir.json`) through `checkWorkdir`, the shared version cases (`versions.json`) through `versionsPair`, the refusals before the engine starts, the assets, a run's `onSettled` in its own scope, and the run frame's selectors, halts and deadlines. `test/argsengine.ts`, a stand-in engine, records the flags that `resourceStore` passes, and whether its `WL_REDIS_URL` is set and equals the expected URL. With the variable unset and set in the test, the URL reaches the engine's environment, never its arguments. |
 | `test/host.test.ts`, the collect trigger | Hosts that `test/heartbeatengine.ts` welcomes, mostly with a 10 ms heartbeat, with a stand-in for `Bun.gc`. The tests check the mark, the cooldown, the counters, failed collections and the `options` refusals. For the default policy, `"idle"`, they check its waits for runs, steps and the quiet period, and how `close()` and an engine exit clear its timer. They also check `"heartbeat"`, the recycle triggers left as they are, and when the heartbeat observer runs. |
 | `test/load.test.ts` | How a step module is evaluated: the caller's context at an ES module's top level, its static imports and a CommonJS module, after a top-level `await`, `import()`'s namespace, one evaluation, and a failure's own error |

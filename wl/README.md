@@ -450,6 +450,8 @@ there.
 | `RecycleTimeout` | How long a leaving process may drain, after its last step in flight, before it is killed | 5 s |
 | `Recycle.RSS`, `Recycle.Samples` | A process whose heartbeats report a resident set of `RSS` bytes or more `Samples` times in a row is replaced | Off; 2 heartbeats |
 | `Recycle.Modules` | A process that has run steps of more distinct scripts than this is replaced. The step of the one more still runs there. | Off |
+| `Recycle.UnsettledRun` | A process is replaced when a host plugin hook that the runtime stopped waiting for, which ends its run, still runs this long after the wait ended: it holds the run unsettled. `onRunSettled`, whose run has settled, does not count. | Off |
+| `Recycle.HeldAge` | A process is replaced when its host plugin reports, at a heartbeat, a resource held this long after its run ended (`heldAge`, [the Bun harness README](../harnesses/bun/README.md#host-plugins)). A plugin that reports nothing never trips it. | Off |
 | `MaxLive` | The processes alive at once, each from its start until its exit. No process starts while `MaxLive` are alive. `Open` refuses a value below `Max`. | No bound |
 | `WarmStart` | `Open` starts `Min` processes, and returns once `Min` serve, their handshakes done. A bundle with no step has no pool, so nothing starts. | Off |
 | `PinRuns` | Pins every run of the runtime, as `RunOptions.Pin` pins one ([Pinned runs](#pinned-runs)) | Off |

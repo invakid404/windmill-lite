@@ -463,7 +463,7 @@ whose digest passed.
 | `providers` | An object of `{"value": <JSON>}` or `"broker"` by provider name | None | A static answer for each named [provider](../../docs/glossary.md#provider) of the host contract, or `broker`: the hooks of the run that reaches it answer |
 | `plugin_timeout_ms` | A number from 1 to 9,223,372,036,854 | 60000 | How long a call to the bundle's host plugin, or to a run's hooks on the broker, waits for its reply |
 | `read_cache` | `true` or `false` | `false` | As `host -read-cache` |
-| `pool` | An object of `min`, `max`, `cap`, `lag_threshold_ms`, `recycle_timeout_ms`, `recycle` (`rss`, `samples`, `modules`), `max_live`, `pin_runs` and `warm_start` | One process, no cap | A warm runtime's pool (`Pool` in [wl](../../wl/README.md#options)), with its bound on live processes (`MaxLive`) and pinned runs for every run (`PinRuns`). Its two settings in milliseconds lie between −9,223,372,036,854 and 9,223,372,036,854, which a duration holds |
+| `pool` | An object of `min`, `max`, `cap`, `lag_threshold_ms`, `recycle_timeout_ms`, `recycle` (`rss`, `samples`, `modules`, `unsettled_run_ms`, `held_age_ms`), `max_live`, `pin_runs` and `warm_start` | One process, no cap | A warm runtime's pool (`Pool` in [wl](../../wl/README.md#options)), with its bound on live processes (`MaxLive`) and pinned runs for every run (`PinRuns`). Its two settings in milliseconds lie between −9,223,372,036,854 and 9,223,372,036,854, which a duration holds |
 | `result_polls_for_all_jobs` | `true` or `false` | `false` | As `host -result-polls-for-all-jobs` |
 | `foreign_windmill_origins` | An array of origins, such as `https://windmill.example.com` | None | As `host -foreign-windmill`: a step's dispatch to one of them loses windmill-lite's job ids (`ForeignWindmillOrigins` in `wl`) |
 | `max_message_bytes` | A positive number | 536870912 | The largest gRPC message that the engine sends or receives |
@@ -614,7 +614,7 @@ gives the setup.
 | `runcmd_test.go` | `run`'s usage errors, which exit with status 2. Arguments, a bundle or a profile file that do not open exit with status 1, and print nothing on standard output. A synthetic folder's flow, run `warm` and `fresh`, reads a host's secret through its arguments. A run that succeeds exits 0 with its result, trace and CPU profile, a run that fails exits 1, and a run without the harness runtime does not start. |
 | `runcmd_test.go`, the resource store | On `-resource-store memory`, each run starts without the state the last one wrote. An unknown store, `redis` without `WL_REDIS_URL`, an unreachable Redis or Sentinel, and URLs that do not parse do not start; each runs in an engine process of its own, whose whole standard error holds no password. With `WL_TEST_REDIS_URL` ([wl/redisstore](../../wl/redisstore/README.md#tests)), two engine processes on one Redis share the state: the second's create is refused as taken, and it reads the first's value. |
 | `host_test.go`, `argsfile_test.go`, `readcache_test.go`, `tracedetail_test.go`, `foreign_test.go`, `resultpolls_test.go` | Host mode end to end, on the Bun host `testdata/host/host.ts` ([Host-mode tests](#host-mode-tests)) |
-| `plugin_test.go`, `runoptions_test.go`, `drain_test.go`, `broker_test.go`, `harnessenv_test.go` | `plugin` end to end, through `wl/plugin` ([Plugin tests](#plugin-tests)) |
+| `plugin_test.go`, `runoptions_test.go`, `drain_test.go`, `broker_test.go`, `harnessenv_test.go`, `lifetime_test.go` | `plugin` end to end, through `wl/plugin` ([Plugin tests](#plugin-tests)) |
 | `runendanswer_test.go` | The run-end answer of a host plugin's `onRunEnd`: through `plugin` and `wl/plugin` ([Plugin tests](#plugin-tests)), and in host mode on `testdata/pluginhost/host.ts` ([Host-mode tests](#host-mode-tests)) |
 | `memory_test.go` | What `warm` step modules cost a host process ([Memory tests](#memory-tests)) |
 | `realm_test.go` | What native invocations leave in a long-lived Bun process ([Native realm tests](#native-realm-tests)) |
@@ -708,7 +708,7 @@ How these tests run:
 
 ### Plugin tests
 
-`plugin_test.go`, `runoptions_test.go`, `broker_test.go`, `harnessenv_test.go` and `runendanswer_test.go` launch the test binary as the engine through
+`plugin_test.go`, `runoptions_test.go`, `broker_test.go`, `harnessenv_test.go`, `runendanswer_test.go` and `lifetime_test.go` launch the test binary as the engine through
 `wl/plugin`'s `ClientConfig`, with its SHA-256 and a literal environment
 in which `WL_TEST_ENGINE` is `1`, and call it through `plugin.Client`
 over go-plugin's connection. `supervisor_test.go` runs `wl/plugin`'s
@@ -740,6 +740,7 @@ signal it.
 | `TestPluginHarnessEnvSecretMasked` | The bundle's host plugin prints a secret entry at load, throws with it in a rewrite and returns it in a warning and an answer: the run results and the engine's whole standard error hold `[secret]` instead. A step's run returns the secret, and its trace the mask; a failed run's result holds the mask. A plugin that throws with a quoted secret at load, or declares it as a branch, fails the start, with the secret in no form. |
 | `TestPluginHarnessEnvSecretBoundaries` | Four secrets by reference, each the words that the command, the runtime or the server put beside a text, and what follows them. The cases: a reference not set after the secrets resolved, a warm start whose Bun is missing, the Cancel of an id of no run, and the drain after a replacement fails to start. The refusal names its entry; the status and standard error hold no secret. |
 | `TestPluginOptionsMaskRefusal` | The command's resolver alone: a reference not set after a secret resolved, whose message would make that secret, is refused naming its entry and with no secret. |
+| `TestPluginPoolRecycleTriggers` | `pool.recycle`'s two triggers reach the pool. With `held_age_ms`, once the bundle's plugin reports an age at the bound, the next runs reach a new process, and standard error says why the first left. With `unsettled_run_ms`, once a run's `onRunEnd` never returns past the plugin timeout, the next runs reach a new process. A negative value of either refuses the start, naming the field. |
 | `TestPluginSocketPrivate` | Started under the umask `0027`, the engine serves on a socket of mode `0700`, and a step creates a file of mode `0640`. |
 | `TestRunnerResultPolls` | `result_polls_for_all_jobs`, through `Client.Run` on the result-polls fixture: on, the run gets the recorded answers; off, the default, the polls answer 501, which fails the step. |
 | `TestPluginHandshakeFirstLine` | With a configuration whose warm start starts a harness process, go-plugin's handshake line is the first line of the engine's standard output. |
