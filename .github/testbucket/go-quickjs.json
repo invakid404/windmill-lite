@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "flags": "-race -count=1",
+  "updated_at": "2026-11-27T19:47:03Z",
+  "units": {
+    "github.com/invakid404/windmill-lite/cmd/wltest": {
+      "seconds": 1691.001,
+      "samples": 1,
+      "split": "run",
+      "split_into": 3,
+      "split_reason": "name-divisible, and a count-shard cannot divide this sweep (heaviest runnable 380.3s)",
+      "tests": {
+        "TestBuiltinImportsShareTheClosure": 2.93,
+        "TestCacheFixturesFreshAndWarm": 1.02,
+        "TestCarriedLocation": 0.01,
+        "TestCheckBuildsTheTreeRecordPushes": 0.17,
+        "TestCompareRun": 0.01,
+        "TestESModulePackagesShareTheClosure": 5.3,
+        "TestEndedRunJobRead": 0.45,
+        "TestFlowCheckerIsolatesCodebaseFailures": 0.18,
+        "TestFlowCheckerReportsDifferences": 0.2,
+        "TestFlowSuiteFresh": 298.24,
+        "TestFlowSuiteHost": 376.85,
+        "TestFlowSuiteHostSharedCode": 380.27,
+        "TestFlowSuiteWarm": 269.68,
+        "TestFlowSuiteWarmSharedCode": 277.12,
+        "TestHostModeClosesItsChannels": 5.66,
+        "TestHostModeHostLossFailsTheFixture": 0.13,
+        "TestLedgerGuard": 0.11,
+        "TestNativeCodebaseFlowStep": 0.25,
+        "TestNativeFlowSteps": 0.11,
+        "TestNativeGeneratedErrorsAreGenerated": 0.11,
+        "TestNativeRejectionIsItsInvocationsOwn": 0.71,
+        "TestObserveContainerAttempts": 0.02,
+        "TestObserveDeclaredCopies": 0.01,
+        "TestObserveIncludedResult": 0.02,
+        "TestObserveNestedAttemptCopies": 0.01,
+        "TestObserveNestedGenerated": 0.01,
+        "TestObserveTrace": 0.01,
+        "TestResolvedArgsKeyOrder": 0.01,
+        "TestRunGroup": 0.06,
+        "TestRunWaitOutcomes": 16.65,
+        "TestScriptEnvsReachOnlyBunSteps": 0.19,
+        "TestStepCatalogue": 0.44,
+        "TestStepCheckerIsolatesCodebaseFailures": 0.09,
+        "TestStepCheckerReportsDifferences": 0.88,
+        "TestStepCheckerReportsNodeDifferences": 0.2,
+        "TestStepSuite": 23.26,
+        "TestStub": 0.01,
+        "TestStubCasesMatchTheOracle": 7.09,
+        "TestStubModeAndEffects": 0.2,
+        "TestSubflowRetryFixturesFreshAndWarm": 5.92,
+        "TestTimedOutRunRemovesCounters": 2.09,
+        "TestUsage": 0.01,
+        "TestWindmillClientSharesTheClosure": 13.14
+      }
+    },
+    "github.com/invakid404/windmill-lite/internal/expr": {
+      "seconds": 90.638,
+      "samples": 1
+    }
+  },
+  "coverage": [
+    "github.com/invakid404/windmill-lite/cmd/wltest",
+    "github.com/invakid404/windmill-lite/internal/expr"
+  ],
+  "coverage_source": "go-list"
+}
