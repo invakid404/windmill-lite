@@ -17,15 +17,19 @@ jobs:
   # The Go tests run in time-balanced buckets that testbucket plans
   # (invakid404/testbucket v0.2.2, Unlicense; docs/ci.md, "The Go
   # buckets"). There are three scopes, each with its own plan job, buckets,
-  # timing store and record job: go-ubuntu and go-macos run every package
-  # on their OS, and go-quickjs runs internal/expr and cmd/wltest again on
-  # ubuntu-latest with WL_TEST_QUICKJS_ONLY=1.
+  # timing store and record job: go-ubuntu and go-macos run the tests of
+  # every package that has test files on their OS, and go-quickjs runs
+  # internal/expr and cmd/wltest again on ubuntu-latest with
+  # WL_TEST_QUICKJS_ONLY=1.
   #
   # - A plan job partitions its scope's packages into K buckets by their
-  #   recorded test times. A package that alone takes more than the total
-  #   over K, such as cmd/wltest, it slices by top-level test name. It fails,
-  #   and starts no bucket, unless every package, and every top-level test of
-  #   a sliced package, is in exactly one bucket.
+  #   recorded test times. It slices a package by top-level test name when
+  #   the store marks it: the record job marks a package that alone takes
+  #   more than the total over K, when the times of at least two of its
+  #   top-level tests make up at least half of its time, as for cmd/wltest
+  #   and its five flow-suite tests. It fails, and starts no bucket, unless
+  #   each package is in exactly one bucket, or, when sliced, each of its
+  #   top-level tests is in exactly one slice.
   # - Each bucket job runs its bucket's go test commands, one package at a
   #   time, after the setup that the tests need.
   # - On a push to main, a record job checks the run's test events against
@@ -33,15 +37,18 @@ jobs:
   #   entry that later plans restore. A plan that restores no entry reads the
   #   scope's seed, a store under .github/testbucket, when there is one.
   #
-  # The plan sets the go test timeout and the buckets' job timeout from the
+  # The plan sets the go test timeout and each bucket's job timeout from the
   # store: 45m and 50 minutes with recorded times. A cold plan, with no
   # usable store, knows no test time, slices nothing, and puts cmd/wltest
   # whole into one bucket, which takes about 27 minutes on ubuntu-latest and
-  # 55 on macos-latest; it gets the longer cold timeouts of its plan job.
+  # 55 on macos-latest. Then every bucket gets the cold go test timeout of
+  # its plan job, and the bucket that holds cmd/wltest also the cold job
+  # timeout; the other buckets keep 50 minutes.
   #
   # Branch protection requires five status checks: "Go (ubuntu-latest)" and
   # "Go (macos-latest)", the final jobs go-ubuntu and go-macos, which pass
-  # only when their OS's plan, buckets and checks job all succeeded;
+  # only when their OS's plan, buckets and checks job all succeeded, in a
+  # run that was not cancelled;
   # "Expression engine (ubuntu-24.04)" and "Expression engine (ubuntu-26.04)"
   # from the job expr-images below; and "memoria" from the Memoria workflow.
   # Renaming a job needs the same change in the protection settings.
@@ -64,7 +71,6 @@ jobs:
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
-      job-timeout: ${{ steps.plan.outputs.job-timeout }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -112,7 +118,8 @@ jobs:
       - name: Plan the buckets
         # The store comes from the cache, else from the seed. A plan that
         # read the seed and is still cold fails: the seed's flags differ from
-        # the plan's, and testbucket ignores it.
+        # the plan's, and testbucket ignores it. Each matrix entry gets a
+        # timeout_minutes, the job timeout of its bucket.
         id: plan
         env:
           K: "6"
@@ -122,6 +129,7 @@ jobs:
           JOB_TIMEOUT: "50"
           COLD_TIMEOUT: 60m
           COLD_JOB_TIMEOUT: "75"
+          COLD_PACKAGE: github.com/invakid404/windmill-lite/cmd/wltest
         run: |
           set -euo pipefail
           store="$RUNNER_TEMP/testbucket-store/test-timings.json"
@@ -144,7 +152,7 @@ jobs:
               exit 1
             fi
           }
-          timeout=$TIMEOUT job_timeout=$JOB_TIMEOUT
+          cold=false timeout=$TIMEOUT
           plan "$timeout"
           if [ "$(jq -r .summary.cold_start "$RUNNER_TEMP/shard-plan.json")" = true ]; then
             if [ "$from" = seed ]; then
@@ -152,20 +160,26 @@ jobs:
               echo "::error::the plan read the seed $SEED and is still cold: refresh the seed (docs/ci.md)"
               exit 1
             fi
-            timeout=$COLD_TIMEOUT job_timeout=$COLD_JOB_TIMEOUT
+            cold=true timeout=$COLD_TIMEOUT
             plan "$timeout"
           fi
           cat "$RUNNER_TEMP/plan.txt" >&2
-          echo "go test timeout: $timeout; bucket job timeout: $job_timeout minutes"
+          # On a cold start, the bucket that runs COLD_PACKAGE whole gets the
+          # cold job timeout; every other bucket keeps JOB_TIMEOUT.
+          jq -c --argjson cold "$cold" --arg pkg "$COLD_PACKAGE" \
+            --argjson job "$JOB_TIMEOUT" --argjson coldjob "$COLD_JOB_TIMEOUT" \
+            '.include |= map(. + {timeout_minutes: (if $cold and (((.units // []) | index($pkg)) != null) then $coldjob else $job end)})' \
+            "$RUNNER_TEMP/matrix.json" > "$RUNNER_TEMP/matrix-timeouts.json"
+          timeouts=$(jq -r '[.include[] | "bucket \(.bucket) \(.timeout_minutes)"] | join(", ")' "$RUNNER_TEMP/matrix-timeouts.json")
+          echo "go test timeout: $timeout; job timeout in minutes: $timeouts"
           {
             echo "### Go plan (ubuntu-latest)"
-            echo "Timing store: $source. Go test timeout: $timeout. Bucket job timeout: $job_timeout minutes."
+            echo "Timing store: $source. Go test timeout: $timeout. Job timeout in minutes: $timeouts."
             echo '```'
             cat "$RUNNER_TEMP/plan.txt"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          printf 'matrix=%s\n' "$(cat "$RUNNER_TEMP/matrix.json")" >> "$GITHUB_OUTPUT"
-          echo "job-timeout=$job_timeout" >> "$GITHUB_OUTPUT"
+          printf 'matrix=%s\n' "$(cat "$RUNNER_TEMP/matrix-timeouts.json")" >> "$GITHUB_OUTPUT"
 
       - name: Upload the shard plan
         if: always()
@@ -187,16 +201,16 @@ jobs:
     name: Go (ubuntu-latest, bucket ${{ matrix.bucket }})
     needs: go-ubuntu-plan
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ fromJSON(needs.go-ubuntu-plan.outputs.job-timeout) }}
+    timeout-minutes: ${{ matrix.timeout_minutes }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.go-ubuntu-plan.outputs.matrix) }}
     env:
-      # WL_REQUIRE_BUN turns a missing Bun or client into a failure instead
-      # of a skip, so the harness protocol and build tests, the Q-WA-4 test
-      # and the host-mode tests (a host compiled with bun build --compile)
-      # always run here; WL_REQUIRE_NODE does the same for D13's Node side
-      # of the step suite.
+      # With WL_REQUIRE_BUN, a test that the bucket runs and that needs Bun
+      # or the stock client fails when either is missing, instead of
+      # skipping: the harness protocol and build tests, the host-mode tests
+      # and the client's tests. WL_REQUIRE_NODE does the same for the Node
+      # side of the step suite.
       WL_REQUIRE_BUN: "1"
       WL_REQUIRE_NODE: "1"
     steps:
@@ -506,9 +520,10 @@ jobs:
 
   go-ubuntu:
     # The required status check "Go (ubuntu-latest)": it passes only when the
-    # plan, every bucket and the checks job of ubuntu-latest succeeded. A
-    # required check whose job is skipped counts as passed, so this job runs
-    # whatever their results, a cancelled run included, and fails then.
+    # plan, every bucket and the checks job of ubuntu-latest succeeded, in a
+    # run that was not cancelled. A required check whose job is skipped
+    # counts as passed, so this job runs whatever their results, a cancelled
+    # run included, and fails then.
     name: Go (ubuntu-latest)
     needs: [go-ubuntu-plan, go-ubuntu-buckets, go-ubuntu-checks]
     if: always()
@@ -516,6 +531,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Check the plan, the buckets and the checks
+        if: always()
         env:
           PLAN: ${{ needs.go-ubuntu-plan.result }}
           BUCKETS: ${{ needs.go-ubuntu-buckets.result }}
@@ -528,6 +544,15 @@ jobs:
             echo "the plan, a bucket or the checks job of ubuntu-latest did not succeed" >&2
             exit 1
           fi
+
+      - name: Fail a cancelled run
+        # A run cancelled before this job ends, such as one that a newer
+        # push replaced, fails the check even when every job it needs had
+        # succeeded.
+        if: cancelled()
+        run: |
+          echo "the run was cancelled" >&2
+          exit 1
 
   go-ubuntu-record:
     # Folds this run's test times into the timing store of go-ubuntu, on a
@@ -629,7 +654,6 @@ jobs:
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
-      job-timeout: ${{ steps.plan.outputs.job-timeout }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -677,7 +701,8 @@ jobs:
       - name: Plan the buckets
         # The store comes from the cache, else from the seed. A plan that
         # read the seed and is still cold fails: the seed's flags differ from
-        # the plan's, and testbucket ignores it.
+        # the plan's, and testbucket ignores it. Each matrix entry gets a
+        # timeout_minutes, the job timeout of its bucket.
         id: plan
         env:
           K: "5"
@@ -687,6 +712,7 @@ jobs:
           JOB_TIMEOUT: "50"
           COLD_TIMEOUT: 90m
           COLD_JOB_TIMEOUT: "120"
+          COLD_PACKAGE: github.com/invakid404/windmill-lite/cmd/wltest
         run: |
           set -euo pipefail
           store="$RUNNER_TEMP/testbucket-store/test-timings.json"
@@ -709,7 +735,7 @@ jobs:
               exit 1
             fi
           }
-          timeout=$TIMEOUT job_timeout=$JOB_TIMEOUT
+          cold=false timeout=$TIMEOUT
           plan "$timeout"
           if [ "$(jq -r .summary.cold_start "$RUNNER_TEMP/shard-plan.json")" = true ]; then
             if [ "$from" = seed ]; then
@@ -717,20 +743,26 @@ jobs:
               echo "::error::the plan read the seed $SEED and is still cold: refresh the seed (docs/ci.md)"
               exit 1
             fi
-            timeout=$COLD_TIMEOUT job_timeout=$COLD_JOB_TIMEOUT
+            cold=true timeout=$COLD_TIMEOUT
             plan "$timeout"
           fi
           cat "$RUNNER_TEMP/plan.txt" >&2
-          echo "go test timeout: $timeout; bucket job timeout: $job_timeout minutes"
+          # On a cold start, the bucket that runs COLD_PACKAGE whole gets the
+          # cold job timeout; every other bucket keeps JOB_TIMEOUT.
+          jq -c --argjson cold "$cold" --arg pkg "$COLD_PACKAGE" \
+            --argjson job "$JOB_TIMEOUT" --argjson coldjob "$COLD_JOB_TIMEOUT" \
+            '.include |= map(. + {timeout_minutes: (if $cold and (((.units // []) | index($pkg)) != null) then $coldjob else $job end)})' \
+            "$RUNNER_TEMP/matrix.json" > "$RUNNER_TEMP/matrix-timeouts.json"
+          timeouts=$(jq -r '[.include[] | "bucket \(.bucket) \(.timeout_minutes)"] | join(", ")' "$RUNNER_TEMP/matrix-timeouts.json")
+          echo "go test timeout: $timeout; job timeout in minutes: $timeouts"
           {
             echo "### Go plan (macos-latest)"
-            echo "Timing store: $source. Go test timeout: $timeout. Bucket job timeout: $job_timeout minutes."
+            echo "Timing store: $source. Go test timeout: $timeout. Job timeout in minutes: $timeouts."
             echo '```'
             cat "$RUNNER_TEMP/plan.txt"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          printf 'matrix=%s\n' "$(cat "$RUNNER_TEMP/matrix.json")" >> "$GITHUB_OUTPUT"
-          echo "job-timeout=$job_timeout" >> "$GITHUB_OUTPUT"
+          printf 'matrix=%s\n' "$(cat "$RUNNER_TEMP/matrix-timeouts.json")" >> "$GITHUB_OUTPUT"
 
       - name: Upload the shard plan
         if: always()
@@ -748,16 +780,16 @@ jobs:
     name: Go (macos-latest, bucket ${{ matrix.bucket }})
     needs: go-macos-plan
     runs-on: macos-latest
-    timeout-minutes: ${{ fromJSON(needs.go-macos-plan.outputs.job-timeout) }}
+    timeout-minutes: ${{ matrix.timeout_minutes }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.go-macos-plan.outputs.matrix) }}
     env:
-      # WL_REQUIRE_BUN turns a missing Bun or client into a failure instead
-      # of a skip, so the harness protocol and build tests, the Q-WA-4 test
-      # and the host-mode tests (a host compiled with bun build --compile)
-      # always run here; WL_REQUIRE_NODE does the same for D13's Node side
-      # of the step suite.
+      # With WL_REQUIRE_BUN, a test that the bucket runs and that needs Bun
+      # or the stock client fails when either is missing, instead of
+      # skipping: the harness protocol and build tests, the host-mode tests
+      # and the client's tests. WL_REQUIRE_NODE does the same for the Node
+      # side of the step suite.
       WL_REQUIRE_BUN: "1"
       WL_REQUIRE_NODE: "1"
     steps:
@@ -1043,9 +1075,10 @@ jobs:
 
   go-macos:
     # The required status check "Go (macos-latest)": it passes only when the
-    # plan, every bucket and the checks job of macos-latest succeeded. A
-    # required check whose job is skipped counts as passed, so this job runs
-    # whatever their results, a cancelled run included, and fails then.
+    # plan, every bucket and the checks job of macos-latest succeeded, in a
+    # run that was not cancelled. A required check whose job is skipped
+    # counts as passed, so this job runs whatever their results, a cancelled
+    # run included, and fails then.
     name: Go (macos-latest)
     needs: [go-macos-plan, go-macos-buckets, go-macos-checks]
     if: always()
@@ -1053,6 +1086,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Check the plan, the buckets and the checks
+        if: always()
         env:
           PLAN: ${{ needs.go-macos-plan.result }}
           BUCKETS: ${{ needs.go-macos-buckets.result }}
@@ -1065,6 +1099,15 @@ jobs:
             echo "the plan, a bucket or the checks job of macos-latest did not succeed" >&2
             exit 1
           fi
+
+      - name: Fail a cancelled run
+        # A run cancelled before this job ends, such as one that a newer
+        # push replaced, fails the check even when every job it needs had
+        # succeeded.
+        if: cancelled()
+        run: |
+          echo "the run was cancelled" >&2
+          exit 1
 
   go-macos-record:
     # As go-ubuntu-record, for go-macos, on macos-latest.
@@ -1163,7 +1206,6 @@ jobs:
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
-      job-timeout: ${{ steps.plan.outputs.job-timeout }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1208,7 +1250,8 @@ jobs:
       - name: Plan the buckets
         # The store comes from the cache, else from the seed. A plan that
         # read the seed and is still cold fails: the seed's flags differ from
-        # the plan's, and testbucket ignores it.
+        # the plan's, and testbucket ignores it. Each matrix entry gets a
+        # timeout_minutes, the job timeout of its bucket.
         id: plan
         env:
           K: "3"
@@ -1218,6 +1261,7 @@ jobs:
           JOB_TIMEOUT: "50"
           COLD_TIMEOUT: 60m
           COLD_JOB_TIMEOUT: "75"
+          COLD_PACKAGE: github.com/invakid404/windmill-lite/cmd/wltest
         run: |
           set -euo pipefail
           store="$RUNNER_TEMP/testbucket-store/test-timings.json"
@@ -1245,7 +1289,7 @@ jobs:
               exit 1
             fi
           }
-          timeout=$TIMEOUT job_timeout=$JOB_TIMEOUT
+          cold=false timeout=$TIMEOUT
           plan "$timeout"
           if [ "$(jq -r .summary.cold_start "$RUNNER_TEMP/shard-plan.json")" = true ]; then
             if [ "$from" = seed ]; then
@@ -1253,27 +1297,37 @@ jobs:
               echo "::error::the plan read the seed $SEED and is still cold: refresh the seed (docs/ci.md)"
               exit 1
             fi
-            timeout=$COLD_TIMEOUT job_timeout=$COLD_JOB_TIMEOUT
+            cold=true timeout=$COLD_TIMEOUT
             plan "$timeout"
           fi
           cat "$RUNNER_TEMP/plan.txt" >&2
-          echo "go test timeout: $timeout; bucket job timeout: $job_timeout minutes"
+          # On a cold start, the bucket that runs COLD_PACKAGE whole gets the
+          # cold job timeout; every other bucket keeps JOB_TIMEOUT.
+          jq -c --argjson cold "$cold" --arg pkg "$COLD_PACKAGE" \
+            --argjson job "$JOB_TIMEOUT" --argjson coldjob "$COLD_JOB_TIMEOUT" \
+            '.include |= map(. + {timeout_minutes: (if $cold and (((.units // []) | index($pkg)) != null) then $coldjob else $job end)})' \
+            "$RUNNER_TEMP/matrix.json" > "$RUNNER_TEMP/matrix-timeouts.json"
+          timeouts=$(jq -r '[.include[] | "bucket \(.bucket) \(.timeout_minutes)"] | join(", ")' "$RUNNER_TEMP/matrix-timeouts.json")
+          echo "go test timeout: $timeout; job timeout in minutes: $timeouts"
           {
             echo "### Go plan (ubuntu-latest, QuickJS only)"
-            echo "Timing store: $source. Go test timeout: $timeout. Bucket job timeout: $job_timeout minutes."
+            echo "Timing store: $source. Go test timeout: $timeout. Job timeout in minutes: $timeouts."
             echo '```'
             cat "$RUNNER_TEMP/plan.txt"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          printf 'matrix=%s\n' "$(cat "$RUNNER_TEMP/matrix.json")" >> "$GITHUB_OUTPUT"
-          echo "job-timeout=$job_timeout" >> "$GITHUB_OUTPUT"
+          printf 'matrix=%s\n' "$(cat "$RUNNER_TEMP/matrix-timeouts.json")" >> "$GITHUB_OUTPUT"
 
       - name: Upload the shard plan
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: go-quickjs-shard-plan
-          path: ${{ runner.temp }}/shard-plan.json
+          # The live set goes with the shard plan: the record job ingests
+          # with it, and a seed is refreshed from it (docs/ci.md).
+          path: |
+            ${{ runner.temp }}/shard-plan.json
+            ${{ runner.temp }}/live.json
           if-no-files-found: warn
           # A re-run of this job replaces the artifact of its earlier attempt.
           overwrite: true
@@ -1285,16 +1339,16 @@ jobs:
     name: Go (ubuntu-latest, QuickJS only, bucket ${{ matrix.bucket }})
     needs: go-quickjs-plan
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ fromJSON(needs.go-quickjs-plan.outputs.job-timeout) }}
+    timeout-minutes: ${{ matrix.timeout_minutes }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.go-quickjs-plan.outputs.matrix) }}
     env:
-      # WL_REQUIRE_BUN turns a missing Bun or client into a failure instead
-      # of a skip, so the harness protocol and build tests, the Q-WA-4 test
-      # and the host-mode tests (a host compiled with bun build --compile)
-      # always run here; WL_REQUIRE_NODE does the same for D13's Node side
-      # of the step suite.
+      # With WL_REQUIRE_BUN, a test that the bucket runs and that needs Bun
+      # or the stock client fails when either is missing, instead of
+      # skipping: the harness protocol and build tests, the host-mode tests
+      # and the client's tests. WL_REQUIRE_NODE does the same for the Node
+      # side of the step suite.
       WL_REQUIRE_BUN: "1"
       WL_REQUIRE_NODE: "1"
       WL_TEST_QUICKJS_ONLY: "1"
@@ -1374,7 +1428,8 @@ jobs:
 
   go-quickjs:
     # "Go (ubuntu-latest, QuickJS only)", not a required check: it passes
-    # only when the plan and every bucket of go-quickjs succeeded.
+    # only when the plan and every bucket of go-quickjs succeeded, in a run
+    # that was not cancelled.
     name: Go (ubuntu-latest, QuickJS only)
     needs: [go-quickjs-plan, go-quickjs-buckets]
     if: always()
@@ -1382,6 +1437,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Check the plan and the buckets
+        if: always()
         env:
           PLAN: ${{ needs.go-quickjs-plan.result }}
           BUCKETS: ${{ needs.go-quickjs-buckets.result }}
@@ -1393,8 +1449,15 @@ jobs:
             exit 1
           fi
 
+      - name: Fail a cancelled run
+        if: cancelled()
+        run: |
+          echo "the run was cancelled" >&2
+          exit 1
+
   go-quickjs-record:
-    # As go-ubuntu-record, for go-quickjs, with the live set of its plan.
+    # As go-ubuntu-record, for go-quickjs, with the live set that its plan
+    # uploaded with the shard plan.
     name: Go record (ubuntu-latest, QuickJS only)
     needs: [go-quickjs-plan, go-quickjs-buckets]
     if: ${{ !cancelled() && needs.go-quickjs-plan.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
@@ -1466,11 +1529,7 @@ jobs:
           testbucket audit --runner go --shard-plan "$RUNNER_TEMP/plan/shard-plan.json" "${events[@]}"
           store="$RUNNER_TEMP/testbucket-store/test-timings.json"
           mkdir -p "$(dirname "$store")"
-          go list -json ./internal/expr ./cmd/wltest | jq -s --arg root "$PWD" \
-            '[.[] | {id: .ImportPath, dir: (.Dir | ltrimstr($root + "/")), module: ".", mode: "work",
-                     has_tests: ((((.TestGoFiles // []) | length) + ((.XTestGoFiles // []) | length)) > 0)}]' \
-            > "$RUNNER_TEMP/live.json"
-          testbucket ingest --runner go --store "$store" --count 1 --race --whale-k "$K" --live "$RUNNER_TEMP/live.json" "${events[@]}"
+          testbucket ingest --runner go --store "$store" --count 1 --race --whale-k "$K" --live "$RUNNER_TEMP/plan/live.json" "${events[@]}"
           testbucket whales --k "$K" --store "$store" || true
 
       - name: Save the timing store

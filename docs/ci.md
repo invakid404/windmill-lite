@@ -36,8 +36,9 @@ needs all five to pass on its latest commit before it merges.
   So `Go (ubuntu-latest)` and `Go (macos-latest)` run whatever the results
   of the jobs that they need, and fail when one of them did not pass.
 - **A cancelled run fails.** The two checks also run in a cancelled run,
-  such as one that a newer push replaced, and fail there. A cancelled run
-  never passes a required check.
+  such as one that a newer push replaced, and fail there, even when every
+  job that they need had passed. A check's result is final when its job
+  ends: a cancellation after that does not change it.
 - **Names matter.** Renaming a required job, or changing the images of the
   `Expression engine` jobs, needs the same change in the branch protection
   settings.
@@ -70,7 +71,7 @@ does by default
 | `Go plan (ubuntu-latest)`, `Go plan (macos-latest)` | Each OS by name | Always | Plans the buckets of the Go tests on that OS ([The Go buckets](#the-go-buckets)) | Through `Go (<os>)` |
 | `Go (ubuntu-latest, bucket <n>)`, `Go (macos-latest, bucket <n>)` | Each OS by name | After the plan of that OS | One bucket of the Go tests ([The Go buckets](#the-go-buckets)) | Through `Go (<os>)` |
 | `Go checks (ubuntu-latest)`, `Go checks (macos-latest)` | Each OS by name | Always | The steps of [The Go jobs](#the-go-jobs) that run once on each OS | Through `Go (<os>)` |
-| `Go (ubuntu-latest)`, `Go (macos-latest)` | `ubuntu-latest` | After the plan, the buckets and the checks job of that OS, whatever their results, a cancelled run included | That each of them passed | Yes |
+| `Go (ubuntu-latest)`, `Go (macos-latest)` | `ubuntu-latest` | After the plan, the buckets and the checks job of that OS, whatever their results, a cancelled run included | That each of them passed, in a run that was not cancelled | Yes |
 | `Go plan (ubuntu-latest, QuickJS only)`, `Go (ubuntu-latest, QuickJS only, bucket <n>)` | `ubuntu-latest` | Always; a bucket after the plan | The plan and the buckets of the QuickJS-only run | No |
 | `Go (ubuntu-latest, QuickJS only)` | `ubuntu-latest` | After its plan and buckets, whatever their results | That its plan and every bucket passed: `internal/expr` and `cmd/wltest` again with `WL_TEST_QUICKJS_ONLY=1`, which turns the Go evaluator of expressions (`jsExpr`) off by default, so that the cases pass without it. The shortcuts and member paths still answer in Go, and tests that set the mode themselves still run both ways | No |
 | `Go record (ubuntu-latest)`, `Go record (macos-latest)`, `Go record (ubuntu-latest, QuickJS only)` | The OS of its plan | On a push to `main`, after the plan and the buckets, unless the run was cancelled or the plan failed | Checks the run's test events against the plan, and records their times in the timing store ([The Go buckets](#the-go-buckets)) | No |
@@ -133,9 +134,14 @@ plan job, its buckets, a timing store and a record job:
 
 | Scope | Runner | Packages | K | Go test timeout, bucket job timeout | On a cold start |
 |---|---|---|---|---|---|
-| `go-ubuntu` | `ubuntu-latest` | Every package | 6 | 45m, 50 minutes | 60m, 75 minutes |
-| `go-macos` | `macos-latest` | Every package | 5 | 45m, 50 minutes | 90m, 120 minutes |
-| `go-quickjs` | `ubuntu-latest` | `internal/expr` and `cmd/wltest`, with `WL_TEST_QUICKJS_ONLY=1` | 3 | 45m, 50 minutes | 60m, 75 minutes |
+| `go-ubuntu` | `ubuntu-latest` | Every package that has test files | 6 | 45m, 50 minutes | 60m; 75 minutes for the bucket that holds `cmd/wltest` |
+| `go-macos` | `macos-latest` | Every package that has test files | 5 | 45m, 50 minutes | 90m; 120 minutes for the bucket that holds `cmd/wltest` |
+| `go-quickjs` | `ubuntu-latest` | `internal/expr` and `cmd/wltest`, with `WL_TEST_QUICKJS_ONLY=1` | 3 | 45m, 50 minutes | 60m; 75 minutes for the bucket that holds `cmd/wltest` |
+
+A package without test files, such as `internal/racebuild`, is in no
+bucket: it has no test to run, and `go test ./...` reports it as
+`[no test files]`. Its code still builds as a dependency of the packages
+that import it.
 
 K on `macos-latest` is 5, the number of macOS jobs that GitHub runs at once
 on the Free, Pro and Team plans
@@ -148,20 +154,26 @@ runner.
 A scope's plan job:
 
 1. restores the scope's timing store ([The timing store](#the-timing-store));
-2. lists the scope's packages with `go list`, on its own OS, so that build
-   constraints apply;
+2. lists the scope's packages that have test files, on its own OS, so
+   that build constraints apply;
 3. puts each package into one of the K buckets, by its recorded test time;
-4. slices a package that alone takes more than the total time over K, such
-   as `cmd/wltest`, into groups of its top-level tests, each run with
-   `-run '^(…)$'`;
-5. fails, and starts no bucket, unless every package, and every top-level
-   test of a sliced package, is in exactly one bucket;
+4. slices each package that its store marks for slicing into groups of its
+   top-level tests, each run with `-run '^(…)$'` in one bucket. The record
+   job marks a package that alone takes more than the total time over K,
+   when the times of at least two of its top-level tests make up at least
+   half of its time;
+5. fails, and starts no bucket, unless each package is in exactly one
+   bucket, or, when it is sliced, each of its top-level tests is in exactly
+   one slice;
 6. prints its summary in its log and in the job summary.
 
-Before it plans, the job makes the root module a member of a `go.work`
-workspace, which it does not commit. testbucket runs a module outside a
-workspace whole, in one bucket. The buckets run the planned commands, which
-name packages by import path, in module mode.
+The plan jobs of `go-ubuntu` and `go-macos` list the packages with
+`go list`. Before they plan, they make the root module a member of a
+`go.work` workspace, which they do not commit: testbucket runs a module
+outside a workspace whole, in one bucket. The plan job of `go-quickjs`
+reads its two packages from a file that `go list` writes, and needs no
+`go.work`. The buckets run the planned commands, which name packages by
+import path, in module mode.
 
 The flow suite of `cmd/wltest` is five top-level tests, one for each
 configuration ([the flow suite](../cmd/wltest/README.md#the-flow-suite)), so
@@ -173,8 +185,8 @@ that a slice can hold one configuration.
 | `*** COLD START: … ***` | The plan has no recorded test time ([The cold start](#the-cold-start)) |
 | `buckets` | Each bucket, with its estimate in seconds and its packages or slices |
 | `split notes` | Each sliced package, with the number of its slices |
-| `coverage gate: PASS …` | Every package, and every top-level test of a sliced package, is in exactly one bucket |
-| `go test timeout: …` | The timeouts that the plan chose |
+| `coverage gate: PASS …` | Each package is in exactly one bucket, or, when it is sliced, each of its top-level tests is in exactly one slice |
+| `go test timeout: …` | The go test timeout, and the job timeout of each bucket |
 
 #### A bucket
 
@@ -214,7 +226,8 @@ go test -race -p=1 -count=1 -timeout 45m -run '^(TestFlowSuiteHost|TestFlowSuite
   never saves one
   ([restrictions for accessing a cache](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#restrictions-for-accessing-a-cache)).
 - **What the record job does.** `testbucket audit` fails when a planned
-  package or test of the run reported nothing. Then `testbucket ingest`
+  package reported no result, or a top-level test of a sliced package
+  reported no pass. Then `testbucket ingest`
   folds the run's test times into the store, as a moving average; a package
   that failed adds no time. Last, `testbucket whales` prints why each large
   package is sliced or not.
@@ -230,9 +243,11 @@ other flags than the plan's `-race -count=1`. A cold plan gives each package
 the same estimate, and slices nothing.
 
 On a cold start, `cmd/wltest` runs whole in one bucket: about 27 minutes on
-`ubuntu-latest`, and about 55 on `macos-latest`. So a cold plan sets the
-longer timeouts of the table above. The next record job on `main` saves the
-store that later plans restore.
+`ubuntu-latest`, and about 55 on `macos-latest`. So a cold plan gives every
+bucket the longer go test timeout of the table above, and the bucket that
+holds `cmd/wltest` the longer job timeout; the other buckets keep 50
+minutes. The next record job on `main` saves the store that later plans
+restore.
 
 #### The seed
 
@@ -248,10 +263,14 @@ To refresh the seed of a scope:
 2. Check out the run's commit in a clean clone.
 3. For `go-ubuntu` or `go-macos`, run `go work init .` in the clone, on that
    OS.
-4. Run `testbucket ingest --runner go --count 1 --race --whale-k <K> --store .github/testbucket/<scope>.json <dir>/*/*.ndjson`
-   with testbucket v0.2.2, from the clone's root. For `go-quickjs`, add
-   `--live` with the file of the two packages that the plan job writes.
-5. Commit the seed.
+4. From the clone's root, with testbucket v0.2.2, write a new store from
+   that run alone:
+   `testbucket ingest --runner go --count 1 --race --whale-k <K> --store <new>.json <dir>/<scope>-events-*/*.ndjson`.
+   For `go-quickjs`, add `--live <dir>/go-quickjs-shard-plan/live.json`,
+   the list of its two packages that the plan job uploads with the shard
+   plan.
+5. Replace `.github/testbucket/<scope>.json` with `<new>.json`, and commit
+   it.
 
 ### The static Linux engine
 
@@ -481,7 +500,7 @@ Neither check is required.
 | `Check the generated protobuf code` | `go generate ./wl/plugin` with protoc 36.2 on the `PATH`, then commit the changed files |
 | `Vet` | `go vet ./...` |
 | `Check that no retarget ledger remains` | `go run ./cmd/wltest ledger` |
-| `Go (<os>, bucket <n>)`, or `Report the native realms and the process groups` | The failed test, with the variables of [Run the tests locally](#run-the-tests-locally) set: `go test -race -run '^<test>$' ./<package>`, or the bucket's command ([A bucket](#a-bucket)) |
+| `Go (<os>, bucket <n>)`, or `Report the native realms and the process groups` | The failed test, with the variables of [Run the tests locally](#run-the-tests-locally) set: `go test -race -timeout 45m -run '^<test>$' ./<package>`, or the bucket's command ([A bucket](#a-bucket)). A test of the flow suite can take longer than `go test`'s default limit of 10 minutes |
 | `Go plan (<os>)` | In a clean clone, on that OS, with testbucket v0.2.2: `go work init .`, then the `testbucket plan` command of the job's step in `.github/workflows/ci.yml`. A failed coverage gate names the package or test that no bucket holds |
 | `Go record (<os>)` | Runs on `main` only. Its log names the package or test that the audit missed ([The timing store](#the-timing-store)) |
 | `Test the expression packages in leak check` | `WL_QJS_LEAK_CHECK=1 go test -race -count=1 ./internal/expr/...` |
@@ -561,8 +580,10 @@ To re-run one job with the GitHub CLI:
    `gh run view <run-id> --json jobs --jq '.jobs[] | {name, databaseId}'`.
 2. Run `gh run rerun --job <databaseId>`.
 
-Re-running a failed bucket also re-runs `Go (ubuntu-latest)` or
-`Go (macos-latest)`, which depends on it, and reads the bucket's new result.
+Re-running a failed bucket also re-runs the final check of its scope,
+which depends on it, and reads the bucket's new result:
+`Go (ubuntu-latest)`, `Go (macos-latest)`, or
+`Go (ubuntu-latest, QuickJS only)`.
 The bucket runs the same commands as before, from the same plan, and its
 test events replace those of its earlier attempt.
 
@@ -599,9 +620,11 @@ To run the tests, from the repository root, in one shell:
 5. Point `WL_WINDMILL_CLIENT` at the directory:
    `export WL_WINDMILL_CLIENT=/path/to/client`.
 6. Point `WL_NODE` at a Node executable: `export WL_NODE=/path/to/node`.
-7. Run `go test -race -timeout 45m ./...`. The flow suite in `cmd/wltest`
-   can take longer than `go test`'s default limit of 10 minutes. CI runs the
-   same tests, split into buckets ([The Go buckets](#the-go-buckets)).
+7. Run `go test -race -timeout 90m ./...`. The flow suite in `cmd/wltest`
+   can take longer than `go test`'s default limit of 10 minutes: about 55
+   minutes on a macOS runner of CI, with one fixture at a time on its three
+   cores. CI runs the same tests, split into buckets
+   ([The Go buckets](#the-go-buckets)).
 
 Each package's README gives its own tests and their variables, such as the
 expression packages' leak check and budget gate

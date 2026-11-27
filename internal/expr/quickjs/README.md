@@ -389,8 +389,8 @@ library's allocator, not the allocators alone.
 
 The tests need cgo and a C compiler.
 
-1. Run them with the race detector, as CI's Go buckets run every package:
-   `go test -race ./internal/expr/quickjs`.
+1. Run them with the race detector, as CI's Go buckets run the tests of
+   every package: `go test -race ./internal/expr/quickjs`.
 2. Run them in leak check, as CI's `Test the expression packages in leak
    check` step does: `WL_QJS_LEAK_CHECK=1 go test -race -count=1 ./internal/expr/...`.
 3. Print the stack measurements, as the `Expression engine` jobs do:
