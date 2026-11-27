@@ -514,9 +514,13 @@ func unhex(c byte) byte {
 // Masking can make a secret where there was none, as when a masked number's
 // quote meets the next token, or a masked key moves in the stored order: the
 // masked text is read again, as it is and as stored, and masked again until
-// a round changes nothing; the result is the stored text when that is where
-// one showed, and then each token is as the stored text writes it: numbers
-// in plain decimal, strings its own way, keys in its order. A selected part masked whole whose mask then meets the data
+// a round changes nothing. What the stored text shows is masked at the same
+// places in the value as written, whose other tokens stay. Only when a round
+// changes nothing in the value as written, and masking its stored text
+// itself, read the same ways, still finds a secret, is the result that
+// stored text, masked: then each token is as the stored text writes it,
+// numbers in plain decimal, strings its own way, keys in its order. A
+// selected part masked whole whose mask then meets the data
 // beside it in a secret is written as null instead, and if a secret still
 // crosses its edge, the smallest object or array around both is masked, and
 // its edges are read in turn. The rounds pass over a secret wholly inside a
@@ -574,7 +578,8 @@ var maskRounds = 32
 // meet the next token, and a masked key can move in the stored order
 // (jsonval) next to another. So the masked text is read again, as it is and
 // as stored, until a round changes nothing, and what returns is the last
-// text masked: the stored text when that is where a secret showed. Those
+// text masked: the stored text only when, the value as written changing no
+// more, masking that stored text itself still changed it. Those
 // later rounds pass over a secret that lies wholly inside a mask, its
 // quotes included, or inside a null written for one: such a secret, as one
 // that the mask's own text holds, shows in every mask (mask's comment). An

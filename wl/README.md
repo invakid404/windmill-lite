@@ -368,9 +368,15 @@ that held a secret is written from its decoded text, also when its mask
 reads as before.
 
 A secret can show only in the value's stored text, such as across a
-number that the stored text spells in plain decimal. The value that
-returns is then that text, masked, so each of its tokens is as jsonval
-stores it: `1e-8` reads `0.00000001`, and keys are in its order.
+number that the stored text spells in plain decimal. Masking then marks
+the same places in the value as written, whose other tokens stay as they
+were.
+
+A later round can find a secret only by masking the stored text itself,
+read compactly too, as when a number's stored spelling meets a character
+that only the compact reading escapes. The value then returns as that
+stored text, masked, so each of its tokens is as jsonval stores it:
+`1e-8` reads `0.00000001`, and keys are in its order.
 
 Masking can make a secret, as when a mask's quote meets the next token.
 So the masked value is read again, as it is and as stored, until a round

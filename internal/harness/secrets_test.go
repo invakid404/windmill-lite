@@ -446,17 +446,24 @@ func TestMaskJSONMasksAnEscapedMask(t *testing.T) {
 	}
 }
 
-// TestMaskJSONStoredTextResult checks the result when a secret shows only in
-// the value's stored text: there, read compactly, 1e-7 is spelled
-// 0.0000001 and the line separator U+2028, which the value holds as a raw
-// character, as its escape. The value that returns is the stored text,
-// masked: the inner array is the mask, and the number beside it, which holds
-// no secret, reads as the stored text writes it, 0.00000001.
+// TestMaskJSONStoredTextResult checks the two results when a secret shows
+// only in the value's stored text, where 1e-7 is spelled 0.0000001:
+//   - In the stored text as it is: the mask goes to the same place in the
+//     value as written, and the number beside it, which holds no secret,
+//     keeps its spelling, 1e-8.
+//   - Only in the stored text read compactly, which also spells the line
+//     separator U+2028, raw in the value, as its escape: the value that
+//     returns is the stored text, masked, and the number beside it reads as
+//     the stored text writes it, 0.00000001.
 func TestMaskJSONStoredTextResult(t *testing.T) {
-	s := NewSecrets([]string{"0.0000001,\"\x5cu2028"})
-	in := "[1e-8,[1e-7,\"\xe2\x80\xa8\"]]" // \xe2\x80\xa8 is U+2028 in UTF-8
-	if got, want := string(s.MaskJSON([]byte(in))), `[0.00000001,"[secret]"]`; got != want {
-		t.Errorf("MaskJSON(%q) = %q; want %q", in, got, want)
+	for _, c := range []struct{ secret, in, want string }{
+		{"0.0000001,2", "[1e-8,[1e-7,2]]", `[1e-8,"[secret]"]`},
+		// \x5c is a backslash; \xe2\x80\xa8 is U+2028 in UTF-8.
+		{"0.0000001,\"\x5cu2028", "[1e-8,[1e-7,\"\xe2\x80\xa8\"]]", `[0.00000001,"[secret]"]`},
+	} {
+		if got := string(NewSecrets([]string{c.secret}).MaskJSON([]byte(c.in))); got != c.want {
+			t.Errorf("MaskJSON(%q) with the secret %q = %q; want %q", c.in, c.secret, got, c.want)
+		}
 	}
 }
 
