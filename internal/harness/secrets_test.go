@@ -2,10 +2,13 @@ package harness
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/invakid404/windmill-lite/internal/engine"
 )
 
 // TestLineWriterCutsNoSecret checks that a line longer than 64 KiB reaches
@@ -193,6 +196,29 @@ func TestMaskTextRemadeByTheMask(t *testing.T) {
 	}
 	if got := sec.Mask("a cre b"); got != "a [secret] b" {
 		t.Errorf("within the bound: %q; want %q", got, "a [secret] b")
+	}
+}
+
+// TestSettingsRefusalsMaskSecrets checks three refusals that quote what
+// they refuse, where that is a synthetic secret of the process: Spawn's of
+// a module state, before any process starts, NewPool's of a key whose
+// harness class differs from its process's, and a pool's Execute's of an
+// invocation whose module state is not the pool's, which quotes its id.
+func TestSettingsRefusalsMaskSecrets(t *testing.T) {
+	const secret = "synthetic-mode-20"
+	if _, err := Spawn(context.Background(), ProcessConfig{ModuleState: secret, Secrets: []string{secret}}); err == nil || !strings.Contains(err.Error(), SecretMask) || strings.Contains(err.Error(), secret) {
+		t.Errorf("Spawn with a module state that is a secret: %v; want an error with the mask and no secret", err)
+	}
+	if _, err := NewPool(PoolConfig{Key: Key{Class: secret}, Process: ProcessConfig{Kind: "bun", Secrets: []string{secret}}}); err == nil || !strings.Contains(err.Error(), SecretMask) || strings.Contains(err.Error(), secret) {
+		t.Errorf("NewPool with a harness class that is a secret: %v; want an error with the mask and no secret", err)
+	}
+	pl, err := NewPool(PoolConfig{Key: Key{Class: "bun"}, Process: ProcessConfig{Kind: "bun", Secrets: []string{secret}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pl.Close(context.Background())
+	if _, err := pl.Execute(context.Background(), engine.Invocation{ID: secret, ModuleState: engine.ModuleStateFresh}); err == nil || !strings.Contains(err.Error(), SecretMask) || strings.Contains(err.Error(), secret) {
+		t.Errorf("Execute of an invocation whose id is a secret, in another module state: %v; want an error with the mask and no secret", err)
 	}
 }
 

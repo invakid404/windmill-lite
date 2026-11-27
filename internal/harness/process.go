@@ -472,7 +472,8 @@ type execResult struct {
 func Spawn(ctx context.Context, cfg ProcessConfig) (*Process, error) {
 	p, timeout, err := newProcess(cfg)
 	if err != nil {
-		return nil, err
+		// The settings' checks quote what they refuse.
+		return nil, NewSecrets(cfg.Secrets).MaskErr(err)
 	}
 	q, err := p.spawn(ctx, timeout)
 	if err != nil {

@@ -493,6 +493,12 @@ start, naming the provider.
   `harness_env` in what it passes on from a harness process, such as the
   process's output, which goes to standard error
   ([wl](../../wl/README.md#the-harness-environment)).
+- **The command's own output.** Each line that the command writes to
+  standard error, its own, the runtime's and go-plugin's logger's, goes
+  through one writer that masks it whole, as written, with each secret
+  value from when it resolves. A refusal while the values resolve masks
+  those that resolved before it. The message of each gRPC status that the
+  engine's server returns is masked whole too.
 - **The launch environment.** `wl/plugin` starts the engine with a
   literal environment, so the host puts exactly the named variables there.
 
@@ -720,6 +726,8 @@ names, and so sees its exit status and can signal it.
 | `TestPluginSecretsByReference` | A secret's value comes from `value_env` and reaches the step that reads it, but no stderr line or build information. Two variables may name one environment variable. The configuration's digest changes with the reference's name, not with the value. An unset variable, a secret `value` and a store's `url` refuse the start without the value. |
 | `TestPluginHarnessEnvSecrets` | A step reads each `harness_env` entry: a value, an empty one, and a secret by `value_env` that two entries and a variable share. An entry whose `value_env` is `TZ` gets the engine's, which the engine then unsets, so the step has no `TZ`. The secret is in no stderr line or build information. A secret `value`, a reserved name, both or neither field, an empty `value_env`, a `null` and an entry's unset reference refuse the start. |
 | `TestPluginHarnessEnvSecretMasked` | The bundle's host plugin prints a secret entry at load, throws with it in a rewrite and returns it in a warning: the run results and the engine's whole standard error hold `[secret]` instead. A step's run returns the secret, and its trace the mask; a failed run's result holds the mask. A plugin that throws with a quoted secret at load, or declares it as a branch, fails the start, with the secret in no form. |
+| `TestPluginHarnessEnvSecretBoundaries` | Four secrets by reference, each the words that the command, the runtime or the server put beside a text, and what follows them. The cases: a reference not set after the secrets resolved, a warm start whose Bun is missing, the Cancel of an id of no run, and the drain after a replacement fails to start. The refusal names its entry; the status and standard error hold no secret. |
+| `TestPluginOptionsMaskRefusal` | The command's resolver alone: a reference not set after a secret resolved, whose message would make that secret, is refused naming its entry and with no secret. |
 | `TestPluginSocketPrivate` | Started under the umask `0027`, the engine serves on a socket of mode `0700`, and a step creates a file of mode `0640`. |
 | `TestRunnerResultPolls` | `result_polls_for_all_jobs`, through `Client.Run` on the result-polls fixture: on, the run gets the recorded answers; off, the default, the polls answer 501, which fails the step. |
 | `TestPluginHandshakeFirstLine` | With a configuration whose warm start starts a harness process, go-plugin's handshake line is the first line of the engine's standard output. |

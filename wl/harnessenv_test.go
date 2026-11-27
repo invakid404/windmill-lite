@@ -1905,9 +1905,11 @@ export default {
 // load and throws, trimmed and as a string, from onRunSettled: the text that
 // the plugin sends holds no secret, but each line that the engine writes
 // about it puts a space before it, after the line's prefix (the output
-// line's process and stream; the failed hook's run and error). The engine's
-// diagnostics, its standard error, hold the mask right after each prefix and
-// the secret nowhere.
+// line's process and stream; the failed hook's error). A second secret is
+// the words of the failed hook's line and the start of the error that it
+// quotes. The engine's diagnostics, its standard error, hold the mask right
+// after the output line's prefix and in place of those words, and neither
+// secret.
 func TestHarnessEnvSecretAcrossAPrefix(t *testing.T) {
 	bun, out, runtimeDir := harnessEnvBundle(t)
 	const secret = " synthetic-tail-19"
@@ -1922,7 +1924,8 @@ export default {
 		t.Fatal(err)
 	}
 	diag := &syncBuf{}
-	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, Diagnostics: diag, HarnessEnv: map[string]EnvValue{"WL_TEST_SECRET": {Value: secret, Secret: true}}})
+	const words = "onRunSettled: plugin_error"
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, Diagnostics: diag, HarnessEnv: map[string]EnvValue{"WL_TEST_SECRET": {Value: secret, Secret: true}, "WL_TEST_WORDS": {Value: words, Secret: true}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1933,11 +1936,14 @@ export default {
 		t.Fatal(err)
 	}
 	d := diag.String()
+	if strings.Contains(d, words) {
+		t.Errorf("the diagnostics hold the second secret: %s", shownBytes([]byte(d), words))
+	}
 	if !strings.Contains(d, " stderr:"+harness.SecretMask+"\n") {
 		t.Errorf("the diagnostics: want the plugin's output line with the mask right after its prefix")
 	}
-	if !strings.Contains(d, "onRunSettled: ") || !strings.Contains(d, " on_run_settled:"+harness.SecretMask+"\n") {
-		t.Errorf("the diagnostics: want the failed onRunSettled's line with the mask right after its error's prefix")
+	if !strings.Contains(d, "the host plugin's "+harness.SecretMask+": host plugin hook on_run_settled:") {
+		t.Errorf("the diagnostics: want the failed onRunSettled's line with the mask in place of its words")
 	}
 	if strings.Contains(d, secret) {
 		t.Errorf("the diagnostics hold the secret: %s", shownBytes([]byte(d), secret))
@@ -2115,6 +2121,40 @@ func TestHarnessEnvSecretFailedStart(t *testing.T) {
 		if !strings.Contains(r, harness.SecretMask) || strings.Contains(r, secret) {
 			t.Errorf("a reported failed start %q; want the mask where it names the executable, and no secret", r)
 		}
+	}
+}
+
+// TestHarnessEnvSecretRefusals checks Open's refusal of an entry whose
+// reference is not set, which sorts after a secret entry that resolved and
+// whose value the refusal's message makes with the name that it quotes: the
+// error names the entry and holds no secret.
+func TestHarnessEnvSecretRefusals(t *testing.T) {
+	const ref, resolved = "WL_TEST_HARNESS_REFUSAL_REF", `SYNTHETIC_20" is not set`
+	t.Setenv(ref, resolved)
+	_, err := Open(t.TempDir(), Options{HarnessEnv: map[string]EnvValue{
+		"WL_TEST_A": {ValueEnv: ref, Secret: true},
+		"WL_TEST_B": {ValueEnv: "MISSING_SYNTHETIC_20", Secret: true},
+	}})
+	if err == nil || !strings.Contains(err.Error(), `Options.HarnessEnv["WL_TEST_B"]`) || strings.Contains(err.Error(), resolved) {
+		t.Errorf("a reference not set after a secret resolved: %v; want an error that names the entry and holds no secret", err)
+	}
+}
+
+// TestHarnessEnvSecretRunRefusal checks the error that Run returns when it
+// refuses a run, here of a path that the bundle does not have and that a
+// secret entry's synthetic value holds: the error holds the mask and no
+// secret, and still matches engine.ErrNoTarget with errors.Is.
+func TestHarnessEnvSecretRunRefusal(t *testing.T) {
+	bun, out, runtimeDir := harnessEnvBundle(t)
+	const path = "f/t/synthetic-missing-20"
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, HarnessEnv: map[string]EnvValue{"WL_TEST_SECRET": {Value: path, Secret: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	_, err = rt.Run(context.Background(), path, nil, RunOptions{Kind: KindScript})
+	if err == nil || !errors.Is(err, engine.ErrNoTarget) || !strings.Contains(err.Error(), harness.SecretMask) || strings.Contains(err.Error(), path) {
+		t.Errorf("Run of a missing path that a secret holds: %v; want ErrNoTarget, with the mask and no secret", err)
 	}
 }
 

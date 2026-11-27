@@ -157,6 +157,10 @@ var ErrPoolClosed = errors.New("harness: pool closed")
 //   - With MaxLive set, no process starts while that many are alive.
 type Pool struct {
 	cfg PoolConfig
+	// secrets are the processes' secrets (ProcessConfig.Secrets), which
+	// the pool masks in its diagnostics and in each error that one of its
+	// methods returns; nil when there are none.
+	secrets *Secrets
 
 	mu       sync.Mutex
 	bg       sync.WaitGroup // drains of processes that started after Close
@@ -277,7 +281,9 @@ type spawnAttempt struct {
 
 // NewPool returns a pool; processes start on the first Execute, or on
 // Start.
-func NewPool(cfg PoolConfig) (*Pool, error) {
+func NewPool(cfg PoolConfig) (_ *Pool, err error) {
+	// The settings' checks quote what they refuse.
+	defer func() { err = NewSecrets(cfg.Process.Secrets).MaskErr(err) }()
 	pc := &cfg.Process
 	// The key and the process template must agree; either may leave the
 	// harness class and the runtime pin to the other.
@@ -314,7 +320,7 @@ func NewPool(cfg PoolConfig) (*Pool, error) {
 		// the settings let several processes live at once.
 		pc.Diagnostics = &syncWriter{w: pc.Diagnostics}
 	}
-	pl := &Pool{cfg: cfg, opted: opted, changed: make(chan struct{}), affinity: runMap{limit: defaultAffinity}, fresh: map[*Process]struct{}{}}
+	pl := &Pool{cfg: cfg, secrets: NewSecrets(cfg.Process.Secrets), opted: opted, changed: make(chan struct{}), affinity: runMap{limit: defaultAffinity}, fresh: map[*Process]struct{}{}}
 	if !pl.isFresh() {
 		pl.cfg.Process.notify = pl.processChanged
 		pl.cfg.Process.rssLimit = cfg.Recycle.RSS
@@ -379,7 +385,8 @@ func (pl *Pool) isFresh() bool { return pl.cfg.Key.ModuleState == engine.ModuleS
 // members have exited that way. A warm pool's Start returns ErrPoolClosed
 // once Close has begun; a fresh pool starts none ahead, and its Start
 // returns nil.
-func (pl *Pool) Start(ctx context.Context) error {
+func (pl *Pool) Start(ctx context.Context) (err error) {
+	defer func() { err = pl.secrets.MaskErr(err) }()
 	if pl.isFresh() {
 		return nil
 	}
@@ -424,7 +431,8 @@ func (pl *Pool) Start(ctx context.Context) error {
 }
 
 // Execute implements engine.StepExecutor.
-func (pl *Pool) Execute(ctx context.Context, inv engine.Invocation) (engine.StepOutcome, error) {
+func (pl *Pool) Execute(ctx context.Context, inv engine.Invocation) (_ engine.StepOutcome, err error) {
+	defer func() { err = pl.secrets.MaskErr(err) }()
 	if inv.Report == nil {
 		inv.Report = engine.NopReporter{}
 	}
@@ -732,7 +740,8 @@ func (pl *Pool) heldLocked(m *member) bool {
 // earlier run with the same id, whose calls then route by it only when
 // their context carries it (WithPin). A fresh pool has no pins: it
 // returns nil, which RunEnded and ForgetRun ignore.
-func (pl *Pool) PinRun(run string) (*Pin, error) {
+func (pl *Pool) PinRun(run string) (_ *Pin, err error) {
+	defer func() { err = pl.secrets.MaskErr(err) }()
 	if pl.isFresh() || run == "" {
 		return nil, nil
 	}
@@ -1015,7 +1024,7 @@ func (pl *Pool) diag() *diagnostics {
 	if w == nil {
 		w = os.Stderr
 	}
-	return &diagnostics{w: w, secrets: NewSecrets(pl.cfg.Process.Secrets)}
+	return &diagnostics{w: w, secrets: pl.secrets}
 }
 
 // processChanged is every process's notify callback.
@@ -1145,12 +1154,12 @@ func (pl *Pool) broadcastLocked() {
 // Close stops routing, waits for the invocations the engine still waits
 // for (until ctx ends), then drains every process; a process that has not
 // exited when ctx ends is killed.
-func (pl *Pool) Close(ctx context.Context) error {
+func (pl *Pool) Close(ctx context.Context) (err error) {
+	defer func() { err = pl.secrets.MaskErr(err) }()
 	pl.mu.Lock()
 	pl.closed = true
 	pl.broadcastLocked()
 	pl.mu.Unlock()
-	var err error
 	for err == nil {
 		pl.mu.Lock()
 		busy := pl.starting > 0 || len(pl.fresh) > 0

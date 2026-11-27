@@ -3,16 +3,23 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/invakid404/windmill-lite/internal/harness"
 	"github.com/invakid404/windmill-lite/wl/plugin"
@@ -274,4 +281,164 @@ func show(s *string) string {
 		return "null"
 	}
 	return fmt.Sprintf("%q", *s)
+}
+
+// TestPluginHarnessEnvSecretBoundaries checks the command's final output
+// where the words that it, the runtime or the engine's server put beside a
+// text make a secret entry's value with it. Four synthetic secrets by
+// reference, each a span of such words and what follows them:
+//   - An entry whose reference is not set, which sorts after the secrets:
+//     the reference's name and its reason make the first secret. The start
+//     is refused, naming the entry, and standard error holds no secret.
+//   - A warm start whose Bun is missing: the command's prefix and the
+//     runtime's error make the second. The engine exits with status 1, and
+//     standard error holds no secret.
+//   - A served engine: the Cancel of an id of no run answers NOT_FOUND,
+//     whose message makes the third with the id, which holds no secret
+//     there. A replacement process then fails to start, and the drain's
+//     reason makes the fourth with the start's error: the engine drains,
+//     and standard error holds no secret.
+func TestPluginHarnessEnvSecretBoundaries(t *testing.T) {
+	bun, out := pluginBundle(t)
+	// The references and their synthetic values, declared apart: on one
+	// line, the secret scan's generic rule reads a pair as a key.
+	refs := []string{"WL_TEST_BOUNDARY_A", "WL_TEST_BOUNDARY_B", "WL_TEST_BOUNDARY_C", "WL_TEST_BOUNDARY_D"}
+	values := []string{`SYNTHETIC_20" is not set`, "plugin: wl: the warm start", `the id "synthetic-20`, "a harness process: harness"}
+	var env []string
+	entries := map[string]any{}
+	for i, ref := range refs {
+		env = append(env, ref+"="+values[i])
+		entries[fmt.Sprintf("WL_TEST_S%d", i)] = map[string]any{"value_env": ref, "is_secret": true}
+	}
+	holds := func(text string) bool {
+		return slices.ContainsFunc(values, func(v string) bool { return strings.Contains(text, v) })
+	}
+
+	lookup := pluginConfigOf(t, bun, out)
+	unset := maps.Clone(entries)
+	unset["WL_TEST_UNSET"] = map[string]any{"value_env": "MISSING_SYNTHETIC_20", "is_secret": true}
+	lookup["harness_env"] = unset
+	if code, stderr := runToExit(t, lookup, env...); code != 1 || !strings.Contains(stderr, `harness_env["WL_TEST_UNSET"].value_env`) || holds(stderr) {
+		t.Errorf("a reference not set after the secrets: exit %d, stderr %q; want 1, naming the entry, and no secret", code, stderr)
+	}
+
+	missing := pluginConfigOf(t, filepath.Join(t.TempDir(), "bun"), out)
+	missing["pool"] = map[string]any{"min": 1, "max": 1, "warm_start": true}
+	missing["harness_env"] = entries
+	if code, stderr := runToExit(t, missing, env...); code != 1 || !strings.Contains(stderr, "of the harness pool: harness: start") || holds(stderr) {
+		t.Errorf("a warm start whose Bun is missing: exit %d, stderr %q; want 1, naming the pool's failed start, and no secret", code, stderr)
+	}
+
+	marker := filepath.Join(t.TempDir(), "fail")
+	fake := filepath.Join(t.TempDir(), "bun")
+	script := fmt.Sprintf("#!/bin/sh\nif [ -e %s ]; then exit 3; fi\nexec %s \"$@\"\n", strconv.Quote(marker), strconv.Quote(bun))
+	if err := os.WriteFile(fake, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := pluginConfigOf(t, fake, out)
+	cfg["pool"] = map[string]any{"min": 1, "max": 1, "warm_start": true}
+	cfg["harness_env"] = entries
+	d := startDirect(t, cfg, true, env...)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if _, err := d.runner.Cancel(ctx, &plugin.CancelRequest{Id: "synthetic-20-run"}); err == nil || !strings.Contains(err.Error(), harness.SecretMask) || holds(err.Error()) {
+		t.Errorf("the Cancel of an id of no run: %v; want NOT_FOUND with the mask and no secret", err)
+	}
+	if err := os.WriteFile(marker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The step of this run ignores its cancellation, so the run's
+	// invocation is abandoned and taints the only process; the next run
+	// needs a replacement, which fails to start.
+	dir, args := newGate(t)
+	tainting := d.runAsync(&plugin.RunRequest{Id: "taints", Path: "f/plugin/gate", Args: args})
+	waitFile(t, dir, "entered")
+	if _, err := d.runner.Cancel(ctx, &plugin.CancelRequest{Id: "taints", Reason: "taint the process", Canceler: "plugin-test"}); err != nil {
+		t.Fatal(err)
+	}
+	<-tainting
+	<-d.runAsync(&plugin.RunRequest{Path: "f/plugin/echo", Args: []byte(`{"x":1}`)})
+	if code := d.exitCode(t); code != 0 || !strings.Contains(d.stderr.String(), "draining: the warm pool failed to start") || holds(d.stderr.String()) {
+		t.Errorf("a replacement that fails to start: exit %d; want 0, a drain that names the failed start, and no secret\nits standard error:\n%s", code, d.stderr)
+	}
+}
+
+// TestPluginOptionsMaskRefusal checks the plugin command's resolver alone,
+// as the command calls it: an entry whose reference is not set sorts after
+// a secret entry that resolved, whose value the refusal's message makes
+// with the name that it quotes. The error names the entry and holds no
+// secret, whatever writer it would go to.
+func TestPluginOptionsMaskRefusal(t *testing.T) {
+	const ref, resolved = "WL_TEST_OPTIONS_REF", `SYNTHETIC_20" is not set`
+	t.Setenv(ref, resolved)
+	raw := pluginConfigOf(t, "bun", "bundle")
+	raw["harness_env"] = map[string]any{
+		"WL_TEST_A": map[string]any{"value_env": ref, "is_secret": true},
+		"WL_TEST_B": map[string]any{"value_env": "MISSING_SYNTHETIC_20", "is_secret": true},
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := decodePluginConfig(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = cfg.options(io.Discard)
+	if err == nil || !strings.Contains(err.Error(), `harness_env["WL_TEST_B"].value_env`) || strings.Contains(err.Error(), resolved) {
+		t.Errorf("a reference not set after a secret resolved: %v; want an error that names the entry and holds no secret", err)
+	}
+}
+
+// TestPluginMaskingWriter checks the writer that the plugin command's
+// standard error goes through: a line written in two parts, a secret split
+// between them, is masked whole once it ends; a value armed later masks
+// from the next line; and a last line with no end is masked when the
+// command ends.
+func TestPluginMaskingWriter(t *testing.T) {
+	var out bytes.Buffer
+	w := &maskingWriter{w: &out}
+	w.add("synthetic-writer-20")
+	fmt.Fprint(w, "a synthetic-wri")
+	fmt.Fprint(w, "ter-20 b\n")
+	w.add("later-synthetic-20")
+	fmt.Fprint(w, "then later-synthetic-20\nlast synthetic-writer-20")
+	w.flush()
+	if want := "a [secret] b\nthen [secret]\nlast [secret]"; out.String() != want {
+		t.Errorf("the writer wrote %q; want %q", out.String(), want)
+	}
+}
+
+// runToExit runs the plugin command with cfg and env, whether or not it
+// completes go-plugin's handshake, and returns its exit status and its
+// standard error once it exits.
+func runToExit(t *testing.T, cfg map[string]any, env ...string) (int, string) {
+	t.Helper()
+	exe, _ := engineExecutable(t)
+	sockets, err := os.MkdirTemp("", "wlx-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(sockets) })
+	cmd := exec.Command(exe, "plugin", "-config", writePluginConfig(t, cfg))
+	cmd.Env = engineEnv(append([]string{plugin.Handshake.MagicCookieKey + "=" + plugin.Handshake.MagicCookieValue, "PLUGIN_UNIX_SOCKET_DIR=" + sockets}, env...)...)
+	var stderr syncBuffer
+	cmd.Stderr, cmd.Stdout = &stderr, io.Discard
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err = <-done:
+	case <-time.After(time.Minute):
+		cmd.Process.Kill()
+		<-done
+		t.Fatalf("the engine did not exit within a minute\nits standard error:\n%s", stderr.String())
+	}
+	var exit *exec.ExitError
+	if err != nil && !errors.As(err, &exit) {
+		t.Fatal(err)
+	}
+	return cmd.ProcessState.ExitCode(), stderr.String()
 }

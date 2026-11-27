@@ -257,6 +257,19 @@ var lookupEnv = os.LookupEnv
 // variable that a ValueEnv names is read once, however many entries name
 // it, so they all get one value. The error names the entry, never a value.
 func harnessEnv(env map[string]EnvValue) (entries, secrets []string, err error) {
+	// A refusal masks the secret values known when it comes: every literal
+	// one, and each that a reference gave before it.
+	known := []string{}
+	for _, v := range env {
+		if v.Secret && v.Value != "" {
+			known = append(known, v.Value)
+		}
+	}
+	defer func() {
+		if err != nil {
+			err = harness.NewSecrets(known).MaskErr(err)
+		}
+	}()
 	read := map[string]string{}
 	for _, name := range slices.Sorted(maps.Keys(env)) {
 		v := env[name]
@@ -271,6 +284,9 @@ func harnessEnv(env map[string]EnvValue) (entries, secrets []string, err error) 
 					return nil, nil, fmt.Errorf("wl: Options.HarnessEnv[%q].ValueEnv: the environment variable %q is not set", name, v.ValueEnv)
 				}
 				read[v.ValueEnv] = value
+			}
+			if v.Secret {
+				known = append(known, value)
 			}
 		}
 		if err := harness.CheckEnv(name, value); err != nil {
@@ -646,6 +662,8 @@ func Open(path string, opts Options) (_ *Runtime, err error) {
 	if rt.foreign, err = foreignOrigins(opts.ForeignWindmillOrigins); err != nil {
 		return nil, err
 	}
+	// Its refusal masks the secret values known when it comes; every later
+	// error is masked by the deferred masking above.
 	if rt.harnessEnv, rt.harnessSecrets, err = harnessEnv(opts.HarnessEnv); err != nil {
 		return nil, err
 	}
@@ -1029,7 +1047,9 @@ const closeTimeout = 10 * time.Second
 // directory an archive was extracted into, and the data directory when
 // Open made it, are removed. All of it is bounded by 10 s; a run still in
 // flight then makes Close return an error. Close is idempotent.
-func (rt *Runtime) Close() error {
+func (rt *Runtime) Close() (err error) {
+	// The error can quote what a harness process wrote: masked as a whole.
+	defer func() { err = maskError(rt.secrets, err) }()
 	rt.closeOnce.Do(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), closeTimeout)
 		defer cancel()

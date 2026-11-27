@@ -24,6 +24,7 @@ import (
 	"github.com/hashicorp/go-hclog"
 	goplugin "github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/status"
 
 	"github.com/invakid404/windmill-lite/internal/bundle"
 	"github.com/invakid404/windmill-lite/internal/harness"
@@ -48,6 +49,12 @@ const pluginUsage = "usage: windmill-lite plugin -config <file>"
 // standard error, which go-plugin passes to the host's logger, and exits
 // with status 1.
 func runPlugin(args []string, stderr io.Writer) int {
+	// Everything the command writes to standard error goes through one
+	// masking writer, which the secret entries arm as they resolve: each
+	// line is masked whole, in its final form.
+	masked := &maskingWriter{w: stderr}
+	defer masked.flush()
+	stderr = masked
 	fs := newFlagSet("plugin", stderr)
 	configPath := fs.String("config", "", "the configuration `file`, JSON, which the host writes")
 	pos, ok := parse(fs, args)
@@ -156,6 +163,9 @@ func runPlugin(args []string, stderr io.Writer) int {
 					beforeHandshake()
 				}
 				o = append(o, grpc.MaxRecvMsgSize(limit), grpc.MaxSendMsgSize(limit))
+				// Outermost, so it masks every status that a handler or the
+				// Gate returns.
+				o = append(o, statusMasking(masked.current)...)
 				s := grpc.NewServer(append(o, gate.ServerOptions()...)...)
 				grpcServer.Store(s)
 				return s
@@ -859,7 +869,15 @@ func (c *pluginConfig) maxMessageBytes() int {
 // resource store. Each variable of the environment that the configuration
 // names is read here, once, and then unset, so no process that the engine
 // starts inherits it; one that is not set fails the start, naming it.
-func (c *pluginConfig) options(stderr io.Writer) (wl.Options, func(), error) {
+func (c *pluginConfig) options(stderr io.Writer) (_ wl.Options, _ func(), err error) {
+	// A refusal masks the secret values that resolved before it, and so
+	// does stderr from each one's resolving on (maskingWriter.add).
+	var known []string
+	defer func() {
+		if err != nil {
+			err = harness.NewSecrets(known).MaskErr(err)
+		}
+	}()
 	opts := wl.Options{
 		Bun:                    c.Bun,
 		HarnessRuntime:         c.HarnessRuntime,
@@ -923,6 +941,12 @@ func (c *pluginConfig) options(stderr io.Writer) (wl.Options, func(), error) {
 					return wl.Options{}, nil, fmt.Errorf("harness_env[%q].value_env: %w", name, err)
 				}
 			}
+			if v.IsSecret {
+				known = append(known, value)
+				if m, ok := stderr.(*maskingWriter); ok {
+					m.add(value)
+				}
+			}
 			opts.HarnessEnv[name] = wl.EnvValue{Value: value, Secret: v.IsSecret}
 		}
 	}
@@ -980,6 +1004,93 @@ func (c *pluginConfig) options(stderr io.Writer) (wl.Options, func(), error) {
 		closeStore = func() { store.Close() }
 	}
 	return opts, closeStore, nil
+}
+
+// maskingWriter is the plugin command's standard error: it writes each
+// line whole, with every secret it holds masked in its final, fully
+// formatted text (harness.Secrets.MaskAfter with no prefix, which leaves
+// only a secret that lies wholly inside a mask). A line waits for its end;
+// flush writes what is left when the command ends.
+type maskingWriter struct {
+	mu      sync.Mutex
+	w       io.Writer
+	known   []string
+	secrets *harness.Secrets
+	buf     []byte
+}
+
+// add makes value a secret of the writer, from the next line it writes.
+func (m *maskingWriter) add(value string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.known = append(m.known, value)
+	m.secrets = harness.NewSecrets(m.known)
+}
+
+// current returns the secrets that the writer masks, nil while none.
+func (m *maskingWriter) current() *harness.Secrets {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.secrets
+}
+
+func (m *maskingWriter) Write(p []byte) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.buf = append(m.buf, p...)
+	for {
+		i := bytes.IndexByte(m.buf, '\n')
+		if i < 0 {
+			return len(p), nil
+		}
+		line := m.secrets.MaskAfter("", string(m.buf[:i])) + "\n"
+		m.buf = m.buf[i+1:]
+		if _, err := io.WriteString(m.w, line); err != nil {
+			return len(p), err
+		}
+	}
+}
+
+// flush writes a last line that has no end, masked.
+func (m *maskingWriter) flush() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.buf) > 0 {
+		io.WriteString(m.w, m.secrets.MaskAfter("", string(m.buf)))
+		m.buf = nil
+	}
+}
+
+// statusMasking returns the server options that mask, as a whole, the
+// message of each gRPC status that the engine's server returns, with the
+// secrets that secrets gives when it returns them; the code and the
+// details stay.
+func statusMasking(secrets func() *harness.Secrets) []grpc.ServerOption {
+	mask := func(err error) error {
+		s := secrets()
+		if err == nil || s == nil {
+			return err
+		}
+		st, ok := status.FromError(err)
+		if !ok {
+			return s.MaskErr(err)
+		}
+		if m := s.MaskAfter("", st.Message()); m != st.Message() {
+			p := st.Proto()
+			p.Message = m
+			return status.FromProto(p).Err()
+		}
+		return err
+	}
+	return []grpc.ServerOption{
+		grpc.ChainUnaryInterceptor(func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, h grpc.UnaryHandler) (any, error) {
+			resp, err := h(ctx, req)
+			return resp, mask(err)
+		}),
+		grpc.ChainStreamInterceptor(func(srv any, ss grpc.ServerStream, _ *grpc.StreamServerInfo, h grpc.StreamHandler) error {
+			return mask(h(srv, ss))
+		}),
+	}
 }
 
 // envReader reads the variables of the engine's environment that the

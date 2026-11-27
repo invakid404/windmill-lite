@@ -175,18 +175,28 @@ func (s *Secrets) settle(text, out, marker string, plus bool) string {
 	return settleText("", out, marker, func(t string) [][2]int { return s.spans(t, plus) })
 }
 
-// MaskErr returns err, or, when its text holds a secret, an error whose
-// text is err's masked (Mask). errors.Is still matches it as err, and
-// errors.As does not see through it, since err holds the secret.
+// MaskErr returns err, or, when its text holds a secret outside a mask, an
+// error whose whole text is masked (MaskAfter). A *HostCallError keeps its
+// type, its message masked as its whole text reads it, when that text then
+// shows no secret outside a mask. Any other error comes back wrapped in one
+// that errors.Is still matches as err, and that errors.As does not see
+// through, since err holds the secret.
 func (s *Secrets) MaskErr(err error) error {
 	if s == nil || err == nil {
 		return err
 	}
 	text := err.Error()
-	if masked := s.Mask(text); masked != text {
-		return &maskedError{text: masked, err: err}
+	if s.MaskAfter("", text) == text {
+		return err
 	}
-	return err
+	if e, ok := err.(*HostCallError); ok {
+		prefix := (&HostCallError{Code: e.Code, Hook: e.Hook}).Error()
+		m := &HostCallError{Code: e.Code, Hook: e.Hook, Message: s.MaskAfter(prefix, s.MaskAfter("", e.Message))}
+		if t := m.Error(); s.MaskAfter("", t) == t {
+			return m
+		}
+	}
+	return &maskedError{text: s.MaskAfter("", text), err: err}
 }
 
 // maskedError is an error whose text has the secrets masked.

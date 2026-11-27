@@ -376,9 +376,11 @@ as text of its own:
   line it forwards and the pool's, as a whole: a secret that the line's
   prefix, such as the process and stream, makes with what follows is
   masked too;
-- the error of a failed `Spawn`, which can name the executable, and so
-  the error that the pool gives its callers and `PoolConfig.OnStartFailure`
-  (`Secrets.MaskErr`, which still matches the original with `errors.Is`);
+- the error of a failed `Spawn`, its settings' refusal included, which can
+  name the executable, and each error that `NewPool` and the pool's
+  methods return, so also the one that `PoolConfig.OnStartFailure` gets.
+  `Secrets.MaskErr` masks them: the result still matches the original
+  with `errors.Is`, and a `HostCallError` keeps its type when it can;
 - its host plugin's hook errors, so that a `HostCallError` keeps its type.
 
 An invocation's result, other failures and warnings, and a hook's answer,
