@@ -6,7 +6,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { describe, expect, test } from "bun:test";
 import { decodeAll, encode, FrameReader, frame, Raw } from "../runtime/frame.ts";
-import { declaration, dispatch, HostCallFailure, type Plugin, replyText } from "../runtime/plugin.ts";
+import { declaration, dispatch, HostCallFailure, type Plugin, replyText, type SpawnedPlugin } from "../runtime/plugin.ts";
 import { Runtime } from "../runtime/runtime.ts";
 
 const site = { path: "m:a", flow: "f/x", module: "a", script: "f/x/a" };
@@ -186,7 +186,7 @@ function hostRuntime(plugin?: Plugin, maxMessage = 1 << 20) {
 /** A runtime as the engine spawns it, not in host mode, with plugin set
  * as main.ts sets it (usePlugin), welcomed warm; the same senders as
  * hostRuntime. */
-function spawnedRuntime(plugin: Plugin) {
+function spawnedRuntime(plugin: SpawnedPlugin) {
   const written: Uint8Array[] = [];
   const runtime = new Runtime({ bundleDir: "/nonexistent", bundleDigest: "sha256:b", transport: { write: (b) => (written.push(b.slice()), b.length), end: () => {} }, exit: () => {} });
   runtime.usePlugin(plugin);
@@ -476,22 +476,26 @@ describe("the runtime", () => {
   });
 
   test("checks heldAge only in a spawned harness: host mode neither refuses nor calls it, and its health has no held_age_ms", async () => {
-    expect(() => spawnedRuntime({ heldAge: 5 } as unknown as Plugin)).toThrow("windmill-lite plugin: heldAge is not a function");
-    expect(declaration({ heldAge: () => 0 })).toEqual({});
+    expect(() => spawnedRuntime({ heldAge: 5 } as unknown as SpawnedPlugin)).toThrow("windmill-lite plugin: heldAge is not a function");
+    const reporter: SpawnedPlugin = { heldAge: () => 0 };
+    expect(declaration(reporter)).toEqual({});
     let calls = 0;
-    const { runtime, send, messages } = hostRuntime({
+    const counted = {
       heldAge: () => {
         calls++;
         return 60_000;
       },
-    });
+    };
+    const { runtime, send, messages } = hostRuntime(counted);
     send({ t: "ping", id: "e1" });
     await Bun.sleep(5);
     expect(calls).toBe(0);
     expect(messages().find((m) => m.t === "pong")?.held_age_ms).toBeUndefined();
     expect(Object.hasOwn(runtime.hostHealth(), "held_age_ms")).toBe(false);
     runtime.onClose();
-    const numeric = hostRuntime({ heldAge: 5 } as unknown as Plugin);
+    // A host's own member by that name, of another type (SpawnedPlugin).
+    const ownMembers = { onRunEnd() {}, heldAge: 5 };
+    const numeric = hostRuntime(ownMembers);
     expect(numeric.messages()[0]).toMatchObject({ t: "hello" });
     numeric.runtime.onClose();
   });

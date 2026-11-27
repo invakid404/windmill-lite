@@ -197,14 +197,20 @@ export type Plugin = {
    * interpolation, errors and the 501 policy. */
   resource?: (path: string, e: { run: string }) => MaybePromise<{ type: string; value: unknown } | undefined>;
   variable?: (path: string, e: { run: string }) => MaybePromise<{ value: string; secret?: boolean } | undefined>;
+};
+
+/** The plugin of a harness that the engine spawned: a Plugin, which can
+ * also report what it holds past its runs. A host's Plugin (host mode)
+ * has no such member: host mode reads none, so a host's plugin keeps a
+ * member of its own by that name, of any type. */
+export type SpawnedPlugin = Plugin & {
   /** The age, in milliseconds, of the oldest resource that the plugin
    * still holds after that resource's run ended, or undefined (or 0) when
-   * it holds none. In a harness that the engine spawned, the runtime calls
-   * it with the plugin as this, at every health report, at once and
-   * outside every run, and reports the whole milliseconds in the process's
-   * health; a warm pool's held-age trigger replaces the process once the
-   * age reaches its bound. Host mode neither checks nor calls it. It answers
-   * no host_call, so the declaration does not name it. */
+   * it holds none. The runtime calls it with the plugin as this, at every
+   * health report, at once and outside every run, and reports the whole
+   * milliseconds in the process's health; a warm pool's held-age trigger
+   * replaces the process once the age reaches its bound. It answers no
+   * host_call, so the declaration does not name it. */
   heldAge?: () => number | undefined;
 };
 
@@ -451,8 +457,8 @@ export async function dispatch(p: Plugin, hook: string, run: string, payload: Re
 
 /** Loads a warm harness's plugin: the default export of the module at
  * path, or its export named plugin. */
-export async function loadPlugin(path: string): Promise<Plugin> {
-  const mod = (await import(path)) as { default?: Plugin; plugin?: Plugin };
+export async function loadPlugin(path: string): Promise<SpawnedPlugin> {
+  const mod = (await import(path)) as { default?: SpawnedPlugin; plugin?: SpawnedPlugin };
   const p = mod.default ?? mod.plugin;
   if (!p || typeof p !== "object") throw new Error(`${path} exports no plugin (a default export, or one named plugin)`);
   declaration(p);

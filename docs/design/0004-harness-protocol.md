@@ -599,10 +599,9 @@ sequenceDiagram
    also while the harness's event loop is stuck. Elsewhere, as on macOS, it
    exits when its connection to the engine ends, and only while its event
    loop runs.
-   - The signal reaches the harness process alone. The children that its
-     steps started outlive it: in a `warm` process each leads a process
-     group of its own, and in a `fresh` one they join its group, which
-     nothing then kills.
+   - The signal reaches the harness process alone, and bounds none of the
+     processes that its steps started: they outlive it, whatever process
+     group they are in.
 
 **Loading on Bun 1.4.3.** Bun 1.4.3 evaluates a module that `import()`
 loads outside every async context, and one that `require()` loads inside
@@ -704,9 +703,12 @@ share one dependency set, so a Bun-only bundle normally needs one pool.
   does `onRunSettled`, which holds nothing.
 - **When and where they show.** The engine reviews both each time a
   health report arrives. A process that trips one writes a diagnostics
-  line that names it, off the pool's lock. `wl`'s `Runtime.Processes`
-  names the trigger that each process tripped, the memory and module
-  triggers included.
+  line that names it. `wl`'s `Runtime.Processes` names the trigger that
+  each process tripped, the memory and module triggers included.
+- **Lines are best effort.** While either trigger is set, every pool line,
+  a failed start's included, is written off the pool's lock. Past a bound
+  of lines that wait for the writer, one is dropped. The next line counts
+  the drops, without their process or trigger.
 - **Overlap.** A replacement runs beside the process it replaces until that
   process leaves, which waits for its steps in flight. While one process
   leaves for a recycle trigger, memory or module count alike, another that

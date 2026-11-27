@@ -1050,15 +1050,21 @@ func (rt *Runtime) BuildInfo() BuildInfo {
 type ProcessHealth struct {
 	// PID is the process's id.
 	PID int
-	// Leaving is set once the process takes no new steps: an abandoned
-	// step of its own still runs, the pool has more processes than it
-	// needs, or it leaves for a recycle trigger. It goes once nothing is in
-	// flight in it and no live run is pinned to it.
-	Leaving bool
+	// Serving is set while the pool routes new work to the process: the
+	// steps of runs that are not pinned, and new pins. It is unset while an
+	// abandoned step of its own still runs, which can end and put the
+	// process back in service; while the pool has more processes than it
+	// needs; and while it leaves for a recycle trigger. A run pinned to it
+	// before keeps starting steps there either way. So an unset Serving
+	// promises neither that no more steps start there nor that the process
+	// exits soon.
+	Serving bool
 	// Recycle names the recycle trigger that the process tripped
 	// (PoolOptions.Recycle): "rss", "modules", "unsettled_run" or
-	// "held_age"; empty while it has tripped none. It then leaves, at once
-	// or once another process that leaves for a trigger has gone.
+	// "held_age"; empty while it has tripped none. A tripped process stays
+	// so. It stops serving at once, or once another process that leaves
+	// for a trigger has gone, and exits once nothing is in flight in it and
+	// no live run is pinned to it.
 	Recycle string
 	// HeldAge is what its host plugin last reported (heldAge): the age of
 	// the oldest resource that the plugin still holds after that
@@ -1077,7 +1083,7 @@ func (rt *Runtime) Processes() []ProcessHealth {
 	stats := rt.pool.Stats()
 	out := make([]ProcessHealth, 0, len(stats))
 	for _, s := range stats {
-		h := ProcessHealth{PID: s.PID, Leaving: s.Leaving, Recycle: s.Recycle}
+		h := ProcessHealth{PID: s.PID, Serving: s.Serving, Recycle: s.Recycle}
 		if s.Health != nil {
 			h.HeldAge = time.Duration(s.Health.HeldAgeMS) * time.Millisecond
 		}

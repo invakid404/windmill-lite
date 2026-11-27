@@ -75,7 +75,7 @@ import {
   shadow,
 } from "./context.ts";
 import { Native, type NativeJob } from "./native.ts";
-import { AnswerText, declaration, dispatch, HostCallFailure, type Plugin, type ReplyForm, replyText, type Selector, type StepOutcome } from "./plugin.ts";
+import { AnswerText, declaration, dispatch, HostCallFailure, type Plugin, type ReplyForm, replyText, type Selector, type SpawnedPlugin, type StepOutcome } from "./plugin.ts";
 import { HARNESS_VERSION, versionsPair } from "./version.ts";
 import { bind, errorText, patchBigInt, resultText, type Signature, signatureErrorText, signatureOf, stepContext } from "./wrapper.ts";
 
@@ -400,12 +400,13 @@ export class Runtime {
 
   /** Sets the host plugin before start, for a harness that loads it once
    * the runtime has installed its process-wide hooks (main.ts). */
-  usePlugin(p: Plugin) {
+  usePlugin(p: Plugin | SpawnedPlugin) {
     if (this.welcomed) throw new Error("windmill-lite: a plugin is set before the handshake");
     declaration(p);
-    // heldAge is a spawned harness's alone: host mode neither checks nor
-    // calls it (ADR 0004 §Host plugins item 11).
-    if (!this.opts.host && p.heldAge !== undefined && typeof p.heldAge !== "function") {
+    // heldAge is a spawned harness's alone (SpawnedPlugin): host mode
+    // neither checks nor calls it (ADR 0004 §Host plugins item 11).
+    const age = (p as SpawnedPlugin).heldAge;
+    if (!this.opts.host && age !== undefined && typeof age !== "function") {
       throw new Error("windmill-lite plugin: heldAge is not a function");
     }
     this.opts.plugin = p;
@@ -621,7 +622,9 @@ export class Runtime {
    * such as a promise. It runs outside every invocation. The first
    * failure goes to stderr, once. */
   private heldAge(): number | undefined {
-    const plugin = this.opts.plugin;
+    // Called only in a spawned harness (heldAgeField), whose plugin is a
+    // SpawnedPlugin.
+    const plugin = this.opts.plugin as SpawnedPlugin | undefined;
     const f = plugin?.heldAge;
     if (typeof f !== "function") return undefined;
     let v: unknown;

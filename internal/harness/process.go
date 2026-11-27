@@ -2463,19 +2463,21 @@ func (p *Process) clock() time.Time {
 func (p *Process) unsettledAge() time.Duration {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	var oldest int64
+	var oldest *time.Time
 	for _, c := range p.lateHostCalls {
 		if !c.settles || c.pin == nil {
 			continue
 		}
-		if e := c.pin.endedAt.Load(); e != 0 && (oldest == 0 || e < oldest) {
+		if e := c.pin.endedAt.Load(); e != nil && (oldest == nil || e.Before(*oldest)) {
 			oldest = e
 		}
 	}
-	if oldest == 0 {
+	if oldest == nil {
 		return 0
 	}
-	return p.clock().Sub(time.Unix(0, oldest))
+	// Both readings carry the clock's monotonic reading, so a change of
+	// the wall clock does not move the age.
+	return p.clock().Sub(*oldest)
 }
 
 // heldAge returns the age that the last health report gave of the oldest

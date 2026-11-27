@@ -2,7 +2,9 @@ package harness
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -49,7 +51,7 @@ func lifetimePool(t *testing.T, src string, r RecycleTriggers, clock *fakeClock)
 // lifetimePoolWith is lifetimePool with the process template cfg, whose
 // Diagnostics the test chose; it returns the pool alone, whose first
 // process's pid is pool.Stats()[0].PID.
-func lifetimePoolWith(t *testing.T, cfg ProcessConfig, src string, r RecycleTriggers, clock *fakeClock) *Pool {
+func lifetimePoolWith(t *testing.T, cfg ProcessConfig, src string, r RecycleTriggers, clock *fakeClock, opts ...func(*PoolConfig)) *Pool {
 	t.Helper()
 	plugin := filepath.Join(t.TempDir(), "plugin.ts")
 	if err := os.WriteFile(plugin, []byte(src), 0o644); err != nil {
@@ -60,6 +62,9 @@ func lifetimePoolWith(t *testing.T, cfg ProcessConfig, src string, r RecycleTrig
 	pc := PoolConfig{Process: cfg, Recycle: r}
 	if clock != nil {
 		pc.now = clock.Now
+	}
+	for _, o := range opts {
+		o(&pc)
 	}
 	pool, err := NewPool(pc)
 	if err != nil {
@@ -324,46 +329,103 @@ func (w *tripGateWriter) Write(b []byte) (int, error) {
 }
 
 // TestPoolTripLineDoesNotHoldThePool checks that a diagnostics writer that
-// blocks on a trip's line holds up neither the replacement nor the pool:
-// while the line waits, the process that tripped the held-age trigger is
-// replaced and the pool answers; once the writer goes on, the line comes.
+// blocks on a trip's line holds up no pool operation while the line waits.
+// A process trips the held-age trigger, and then its replacement:
+//   - starts: the replacement takes its place, and the pool answers;
+//   - fails to start, as its program is gone: the failure is still
+//     reported (OnStartFailure), and the pool answers, though the failure's
+//     own line waits behind the trip's.
+//
+// Once the writer goes on, the trip's line comes.
 func TestPoolTripLineDoesNotHoldThePool(t *testing.T) {
-	ageFile := filepath.Join(t.TempDir(), "age")
-	if err := os.WriteFile(ageFile, []byte("0"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	src := fmt.Sprintf(`import { readFileSync } from "node:fs";
+	for _, fails := range []bool{false, true} {
+		name := "starts"
+		if fails {
+			name = "fails to start"
+		}
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			ageFile := filepath.Join(dir, "age")
+			if err := os.WriteFile(ageFile, []byte("0"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			src := fmt.Sprintf(`import { readFileSync } from "node:fs";
 export default { heldAge: () => Number(readFileSync(%q, "utf8")) };
 `, ageFile)
-	cfg, _ := bunConfig(t)
-	w := &tripGateWriter{hold: "leaves the pool", release: make(chan struct{}), blocked: make(chan struct{})}
-	t.Cleanup(func() {
-		select {
-		case <-w.release:
-		default:
+			cfg, _ := bunConfig(t)
+			// The pool starts its processes through a link to the program,
+			// which the failing case removes.
+			program := cfg.Path
+			cfg.Path = filepath.Join(dir, "program")
+			if err := os.Symlink(program, cfg.Path); err != nil {
+				t.Fatal(err)
+			}
+			w := &tripGateWriter{hold: "leaves the pool", release: make(chan struct{}), blocked: make(chan struct{})}
+			cfg.Diagnostics = w
+			failed := make(chan error, 1)
+			pool := lifetimePoolWith(t, cfg, src, RecycleTriggers{HeldAge: 2 * time.Minute}, nil, func(pc *PoolConfig) {
+				pc.OnStartFailure = func(err error) {
+					select {
+					case failed <- err:
+					default:
+					}
+				}
+			})
+			// Registered after the pool's, so it runs first: a pool that
+			// the writer held up would not close.
+			t.Cleanup(func() {
+				select {
+				case <-w.release:
+				default:
+					close(w.release)
+				}
+			})
+			first := pool.Stats()[0].PID
+			if fails {
+				if err := os.Remove(cfg.Path); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.WriteFile(ageFile, []byte("120000"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-w.blocked:
+			case <-time.After(10 * time.Second):
+				t.Fatal("the trip's line never reached the writer")
+			}
+			if fails {
+				select {
+				case err := <-failed:
+					if !errors.Is(err, fs.ErrNotExist) {
+						t.Errorf("OnStartFailure got %v; want the start of a program that is gone", err)
+					}
+				case <-time.After(20 * time.Second):
+					t.Fatal("the failed start was not reported while the trip's line waited")
+				}
+				stats := make(chan []ProcessStats, 1)
+				go func() { stats <- pool.Stats() }()
+				select {
+				case <-stats:
+				case <-time.After(5 * time.Second):
+					t.Fatal("the pool did not answer Stats within 5 s while the trip's line waited")
+				}
+				if err := os.Symlink(program, cfg.Path); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				waitFor(t, "the replacement while the line waits", func() bool {
+					s := pool.Stats()
+					_, in := statsOf(pool, first)
+					return len(s) == 1 && !in
+				})
+			}
 			close(w.release)
-		}
-	})
-	cfg.Diagnostics = w
-	pool := lifetimePoolWith(t, cfg, src, RecycleTriggers{HeldAge: 2 * time.Minute}, nil)
-	first := pool.Stats()[0].PID
-	if err := os.WriteFile(ageFile, []byte("120000"), 0o600); err != nil {
-		t.Fatal(err)
+			waitFor(t, "the line once the writer goes on", func() bool {
+				return strings.Contains(w.buf.String(), "process "+strconv.Itoa(first)+" leaves the pool")
+			})
+		})
 	}
-	select {
-	case <-w.blocked:
-	case <-time.After(10 * time.Second):
-		t.Fatal("the trip's line never reached the writer")
-	}
-	waitFor(t, "the replacement while the line waits", func() bool {
-		s := pool.Stats()
-		_, in := statsOf(pool, first)
-		return len(s) == 1 && !in
-	})
-	close(w.release)
-	waitFor(t, "the line once the writer goes on", func() bool {
-		return strings.Contains(w.buf.String(), "process "+strconv.Itoa(first)+" leaves the pool")
-	})
 }
 
 // TestPoolHeldAgeRejectedPromise checks that a heldAge that answers a

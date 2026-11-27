@@ -763,6 +763,10 @@ resource that it still holds after that resource's run ended.
   or 0 reports nothing.
 - **Host mode** neither checks nor calls it, and its `health()` has no
   `held_age_ms`: a host's own process is not a warm pool's.
+- **Its type.** `heldAge` belongs to `SpawnedPlugin`, a `Plugin` with this
+  member, which the host SDK exports. A host's `Plugin` has no such
+  member, so a host's plugin keeps a member of its own by that name, of
+  any type.
 - **The trigger.** A warm pool's held-age trigger (`Recycle.HeldAge` in
   [wl](../../wl/README.md#the-harness-pool), `held_age_ms` in the plugin
   command's `pool.recycle`) replaces the process once the age reaches its

@@ -52,9 +52,9 @@ export default {
 // process holds past its runs. A run pinned to the process, held in a
 // step, keeps it in the pool once it has tripped:
 //   - held_age: the plugin reports an age at the bound, and Processes shows
-//     the process leaving for "held_age", with the age it reported;
+//     the process out of service for "held_age", with the age it reported;
 //   - unsettled_run: a run whose onRunEnd never returns, past the plugin
-//     timeout, ends, and Processes shows the process leaving for
+//     timeout, ends, and Processes shows the process out of service for
 //     "unsettled_run".
 //
 // Before either trips, the process is serving and names no trigger.
@@ -109,7 +109,7 @@ func TestProcessesRecycleReasons(t *testing.T) {
 				}
 			}
 			ps := rt.Processes()
-			if len(ps) != 1 || ps[0].Leaving || ps[0].Recycle != "" {
+			if len(ps) != 1 || !ps[0].Serving || ps[0].Recycle != "" {
 				t.Fatalf("before a trip, Processes = %+v; want one serving process that names no trigger", ps)
 			}
 			first := ps[0].PID
@@ -135,8 +135,8 @@ func TestProcessesRecycleReasons(t *testing.T) {
 					t.Fatalf("Processes never named a trigger for %d: %+v", first, rt.Processes())
 				}
 			}
-			if got.Recycle != c.trigger || !got.Leaving {
-				t.Errorf("Processes shows %+v; want it leaving for %q", got, c.trigger)
+			if got.Recycle != c.trigger || got.Serving {
+				t.Errorf("Processes shows %+v; want it out of service for %q", got, c.trigger)
 			}
 			if c.trigger == "held_age" && got.HeldAge != 2*time.Minute {
 				t.Errorf("HeldAge = %s; want the reported 2m0s", got.HeldAge)

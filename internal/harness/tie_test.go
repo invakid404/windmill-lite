@@ -81,7 +81,26 @@ func TestHarnessEndsWithEngine(t *testing.T) {
 	bunPath(t)
 	dir := t.TempDir()
 	release := filepath.Join(dir, "release")
-	t.Cleanup(func() { os.WriteFile(release, nil, 0o600) })
+	var pid int
+	// No signal by pid cleans up: once the harness is gone, its pid can be
+	// another process's. The release ends the step even when the tie
+	// failed, and a harness whose engine is gone then exits on its own.
+	// The step sees the release only while the file exists, so this
+	// cleanup, which runs before t.TempDir's, waits for the harness to
+	// end before the folder goes. Should its pid be another process's by
+	// then, it only waits out the bound.
+	t.Cleanup(func() {
+		os.WriteFile(release, nil, 0o600)
+		if pid == 0 {
+			return
+		}
+		for deadline := time.Now().Add(30 * time.Second); !processGone(pid); time.Sleep(10 * time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Errorf("the harness %d still runs 30 s after its step's release", pid)
+				return
+			}
+		}
+	})
 	engineCmd := exec.Command(os.Args[0])
 	engineCmd.Env = append(os.Environ(), "WL_TIE_ENGINE="+dir)
 	if err := engineCmd.Start(); err != nil {
@@ -89,7 +108,6 @@ func TestHarnessEndsWithEngine(t *testing.T) {
 	}
 	t.Cleanup(func() { engineCmd.Process.Kill(); engineCmd.Wait() })
 	pidFile := filepath.Join(dir, "pid")
-	var pid int
 	for deadline := time.Now().Add(30 * time.Second); pid == 0; time.Sleep(10 * time.Millisecond) {
 		if b, err := os.ReadFile(pidFile); err == nil {
 			pid, _ = strconv.Atoi(string(b))
@@ -98,10 +116,6 @@ func TestHarnessEndsWithEngine(t *testing.T) {
 			t.Fatal("the engine did not start a harness with a blocked event loop within 30 s")
 		}
 	}
-	// No signal by pid cleans up: once the harness is gone, its pid can be
-	// another process's. The release, registered first, ends the step
-	// even when the tie failed, and a harness whose engine is gone then
-	// exits on its own.
 	if processGone(pid) {
 		t.Fatalf("the harness %d is gone while its engine runs", pid)
 	}

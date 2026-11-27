@@ -81,7 +81,8 @@ type PoolConfig struct {
 	Recycle RecycleTriggers
 	// OnStartFailure, when not nil, is called with the error of each
 	// process that the pool fails to start, while it is not closed, after
-	// the pool has logged it. It is called without the pool's lock, so it
+	// the pool has written its line, or queued it while an unsettled-run or
+	// a held-age trigger is set (poolLine). It is called without the pool's lock, so it
 	// may call the pool, and it must not block for long. Start and Execute
 	// still return the error to the caller that wanted the process.
 	OnStartFailure func(error)
@@ -181,11 +182,11 @@ type Pool struct {
 	// the pool masks in its diagnostics and in each error that one of its
 	// methods returns; nil when there are none.
 	secrets *Secrets
-	// tripLines writes the lines of processes that leave for the
-	// unsettled-run or the held-age trigger, each on a goroutine of its
-	// own, within a bound, so that a blocked diagnostics writer holds up
-	// no pool operation.
-	tripLines *killLineBudget
+	// poolLines writes the pool's own lines while an unsettled-run or a
+	// held-age trigger is set (poolLine), each on a goroutine of its own,
+	// within a bound, so that a blocked diagnostics writer holds up no pool
+	// operation.
+	poolLines *killLineBudget
 
 	mu       sync.Mutex
 	bg       sync.WaitGroup // drains of processes that started after Close
@@ -277,11 +278,11 @@ type Pin struct {
 	// refused: m refused a late call after the run ended; later ones then
 	// route as any call does.
 	refused bool
-	// endedAt is when the run ended (RunEnded), in Unix nanoseconds by the
-	// pool's clock, or 0 while it runs; a pinned or an unpinned run's
-	// alike. It times a hook that holds the run unsettled
+	// endedAt is when the run ended (RunEnded), by the pool's clock, with
+	// its monotonic reading, or nil while it runs; a pinned or an unpinned
+	// run's alike. It times a hook that holds the run unsettled
 	// (RecycleTriggers.UnsettledRun).
-	endedAt atomic.Int64
+	endedAt atomic.Pointer[time.Time]
 }
 
 // pinKey carries a Pin in a context (WithPin).
@@ -353,7 +354,7 @@ func NewPool(cfg PoolConfig) (_ *Pool, err error) {
 		pc.Diagnostics = &syncWriter{w: pc.Diagnostics}
 	}
 	pl := &Pool{cfg: cfg, secrets: NewSecrets(cfg.Process.Secrets), opted: opted, changed: make(chan struct{}), affinity: runMap{limit: defaultAffinity}, fresh: map[*Process]struct{}{},
-		tripLines: &killLineBudget{max: maxPendingKillLines, noun: "recycle lines", whole: true}}
+		poolLines: &killLineBudget{max: maxPendingKillLines, noun: "pool lines", whole: true}}
 	if !pl.isFresh() {
 		pl.cfg.Process.notify = pl.processChanged
 		pl.cfg.Process.rssLimit = cfg.Recycle.RSS
@@ -813,7 +814,8 @@ func (pl *Pool) RunEnded(p *Pin) {
 	if p == nil {
 		return
 	}
-	p.endedAt.CompareAndSwap(0, pl.clock().UnixNano())
+	now := pl.clock()
+	p.endedAt.CompareAndSwap(nil, &now)
 	if p.unpinned {
 		return
 	}
@@ -992,7 +994,7 @@ func (pl *Pool) spawn(att *spawnAttempt) {
 		// The caller that wanted this process gets err; a replacement
 		// nobody waits for is only logged, and the next Execute tries again.
 		pl.observeLocked("failed", nil)
-		pl.diag().line("windmill-lite: harness pool: starting a process failed: " + err.Error())
+		pl.poolLine("windmill-lite: harness pool: starting a process failed: " + err.Error())
 		if att.owed && !pl.closed {
 			// The next acquire tries it again, not this failure: a command
 			// that keeps failing is not started in a loop.
@@ -1169,7 +1171,7 @@ func (pl *Pool) reviewLocked(m *member) {
 			if why != "" {
 				// The reason is taken now; the line goes out on its own,
 				// so the replacement does not wait for the writer.
-				pl.tripLines.write(pl.diag(), fmt.Sprintf("windmill-lite: harness pool: process %d leaves the pool: %s", m.p.PID(), why))
+				pl.poolLine(fmt.Sprintf("windmill-lite: harness pool: process %d leaves the pool: %s", m.p.PID(), why))
 			}
 		}
 	}
@@ -1187,6 +1189,21 @@ func (pl *Pool) reviewLocked(m *member) {
 		pl.observeLocked("drain", m.p)
 		go drainWithin(m.p, pl.cfg.RecycleTimeout)
 	}
+}
+
+// poolLine writes one of the pool's own lines to its diagnostics. With an
+// unsettled-run or a held-age trigger set, a trip's line can wait for a
+// blocked writer, so every line of the pool then goes out on a goroutine
+// of its own, within a bound (poolLines), never under the pool's mutex: a
+// line is best effort, and one is dropped while the bound's lines wait,
+// the next one counting the drops. Without them, it is written at once,
+// as it always has been.
+func (pl *Pool) poolLine(s string) {
+	if r := pl.cfg.Recycle; r.UnsettledRun > 0 || r.HeldAge > 0 {
+		pl.poolLines.write(pl.diag(), s)
+		return
+	}
+	pl.diag().line(s)
 }
 
 // clock returns the time by the pool's clock (PoolConfig.now).
@@ -1216,11 +1233,17 @@ func (pl *Pool) tripLocked(m *member) (trigger, why string) {
 	case r.Modules > 0 && m.p.scriptCount() > r.Modules:
 		return TriggerModules, ""
 	}
-	if d := m.p.unsettledAge(); r.UnsettledRun > 0 && d >= r.UnsettledRun {
-		return TriggerUnsettledRun, fmt.Sprintf("a host plugin hook has held its ended run unsettled for %s (the bound is %s)", d.Round(time.Millisecond), r.UnsettledRun)
+	// Each age is read only with its trigger set, so that the default path
+	// does not scan the late host calls.
+	if r.UnsettledRun > 0 {
+		if d := m.p.unsettledAge(); d >= r.UnsettledRun {
+			return TriggerUnsettledRun, fmt.Sprintf("a host plugin hook has held its ended run unsettled for %s (the bound is %s)", d.Round(time.Millisecond), r.UnsettledRun)
+		}
 	}
-	if d := m.p.heldAge(); r.HeldAge > 0 && d >= r.HeldAge {
-		return TriggerHeldAge, fmt.Sprintf("its host plugin reports a resource held %s after its run ended (the bound is %s)", d, r.HeldAge)
+	if r.HeldAge > 0 {
+		if d := m.p.heldAge(); d >= r.HeldAge {
+			return TriggerHeldAge, fmt.Sprintf("its host plugin reports a resource held %s after its run ended (the bound is %s)", d, r.HeldAge)
+		}
 	}
 	return "", ""
 }
@@ -1308,13 +1331,17 @@ type ProcessStats struct {
 	Tainted   bool
 	Surplus   bool
 	Retiring  bool
-	// Leaving is set once the process takes no new invocations: it is
-	// tainted, surplus, retiring, or leaving for a recycle trigger.
-	Leaving bool
+	// Serving is set while the pool routes new invocations to the process:
+	// it is not tainted, surplus, retiring or recycling. A taint can clear,
+	// which puts the process back in service. An invocation of a run
+	// pinned to it, or a host call of a run with an invocation in flight
+	// in it, reaches it whatever Serving says.
+	Serving bool
 	// Recycle names the recycle trigger that the process tripped
 	// (TriggerRSS, TriggerModules, TriggerUnsettledRun, TriggerHeldAge),
-	// "" while it has tripped none. It leaves at once, or once another
-	// process that leaves for a trigger has exited.
+	// "" while it has tripped none. A tripped process stays so, and stops
+	// serving at once, or once another process that leaves for a trigger
+	// has exited.
 	Recycle string
 	Lag     time.Duration
 	Health  *Health
@@ -1329,7 +1356,7 @@ func (pl *Pool) Stats() []ProcessStats {
 		_, ab := m.p.Load()
 		out = append(out, ProcessStats{
 			PID: m.p.PID(), Active: m.active, Abandoned: ab, Tainted: m.tainted, Surplus: m.surplus, Retiring: m.retiring,
-			Leaving: !m.inService(), Recycle: m.trigger, Lag: m.p.Lag(), Health: m.p.Health(),
+			Serving: m.inService(), Recycle: m.trigger, Lag: m.p.Lag(), Health: m.p.Health(),
 		})
 	}
 	return out

@@ -474,11 +474,16 @@ there.
   run of a runtime with a cap lists `D15`.
 - **Which trigger.** `Runtime.Processes` returns a snapshot of the pool:
   a `ProcessHealth` for each process from its admission until its exit.
-  It holds the process's `PID`, whether it is `Leaving`, the `HeldAge`
-  that its host plugin last reported, and in `Recycle` the trigger that it
-  tripped: `rss`, `modules`, `unsettled_run` or `held_age`. A process that
-  trips the last two also writes a line to `Diagnostics` that names the
-  bound.
+  It holds the process's `PID`, the `HeldAge` that its host plugin last
+  reported, and in `Recycle` the trigger that it tripped: `rss`, `modules`,
+  `unsettled_run` or `held_age`.
+- **`Serving`** says whether the pool routes new work to the process now.
+  It promises neither its exit nor an end to its steps. An abandoned step
+  that ends puts the process back in service, and a run pinned to it keeps
+  starting steps there.
+- **A process that trips the last two** also writes a line to
+  `Diagnostics` that names the bound. The line is best effort: one that
+  would wait behind 64 others is dropped, and a later line only counts it.
 
 #### Pinned runs
 
