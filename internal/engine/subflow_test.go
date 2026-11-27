@@ -15,7 +15,7 @@ import (
 
 // The subflow tests run synthetic flows on the real QuickJS-ng engine,
 // with steps answered in Go; the subflow fixtures of conformance/flows run
-// the same subflows on the real Bun harness (cmd/wltest, TestFlowSuite).
+// the same subflows on the real Bun harness (the flow suite of cmd/wltest).
 
 // subflowOf writes a flow step that runs the flow at path, with input
 // transforms and envelope fields.

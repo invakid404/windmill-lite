@@ -85,17 +85,44 @@ func requiredRuns(t *testing.T) map[string]string {
 	return req
 }
 
-// TestFlowSuite checks that every run the flow suite requires passes in
-// warm and in fresh mode, through wl on the engine and the real Bun harness
-// on the pinned Bun, and in host mode, on a Bun host that embeds the host
-// SDK and runs the steps in its own process (hostmode.go), and again in
-// warm and host mode from bundles built with shared code (ADR 0013), each
-// compared with its expect or recording and checked against its claims.
-// Every other fixture under conformance/flows, and every expression file
-// under conformance/exprs as its generated one-step flow fixture, also
-// runs: each must load, and its runs are reported as passing, failing or
-// unsupported, with the reason.
-func TestFlowSuite(t *testing.T) {
+// The flow suite runs in five configurations, each a top-level test of its
+// own, so that one configuration runs alone under go test -run, and CI's
+// time-balanced buckets can put each in a different job (docs/ci.md):
+// warm and fresh mode through wl on the engine and the real Bun harness on
+// the pinned Bun, host mode on a Bun host that embeds the host SDK and runs
+// the steps in its own process (hostmode.go), and warm and host mode again
+// from bundles built with shared code (ADR 0013). runFlowSuite says what
+// each configuration checks.
+
+// TestFlowSuiteWarm runs the flow suite in warm mode.
+func TestFlowSuiteWarm(t *testing.T) { runFlowSuite(t, conformance.ModeWarm, false) }
+
+// TestFlowSuiteFresh runs the flow suite in fresh mode.
+func TestFlowSuiteFresh(t *testing.T) { runFlowSuite(t, conformance.ModeFresh, false) }
+
+// TestFlowSuiteHost runs the flow suite in host mode.
+func TestFlowSuiteHost(t *testing.T) { runFlowSuite(t, ModeHost, false) }
+
+// TestFlowSuiteWarmSharedCode runs the flow suite in warm mode, from
+// bundles built with shared code.
+func TestFlowSuiteWarmSharedCode(t *testing.T) { runFlowSuite(t, conformance.ModeWarm, true) }
+
+// TestFlowSuiteHostSharedCode runs the flow suite in host mode, from
+// bundles built with shared code.
+func TestFlowSuiteHostSharedCode(t *testing.T) { runFlowSuite(t, ModeHost, true) }
+
+// runFlowSuite checks that every run the flow suite requires passes in one
+// configuration: mode, from bundles built with shared code when sharedCode
+// is set. Each run is compared with its expect or recording and checked
+// against its claims. Every other fixture under conformance/flows, and
+// every expression file under conformance/exprs as its generated one-step
+// flow fixture, also runs: each must load, and its runs are reported as
+// passing, failing or unsupported, with the reason.
+func runFlowSuite(t *testing.T, mode string, sharedCode bool) {
+	name := mode
+	if sharedCode {
+		name += "-shared-code"
+	}
 	bun := bunOrSkip(t)
 	req := requiredRuns(t)
 	root := repo(t)
@@ -113,68 +140,57 @@ func TestFlowSuite(t *testing.T) {
 		t.Fatalf("no expression files under %s (%v)", exprsDir, err)
 	}
 	dirs = append(dirs, exprs...)
-	for _, c := range []struct {
-		mode   string
-		shared bool
-	}{{conformance.ModeWarm, false}, {conformance.ModeFresh, false}, {ModeHost, false}, {conformance.ModeWarm, true}, {ModeHost, true}} {
-		mode, name := c.mode, c.mode
-		if c.shared {
-			name += "-shared-code"
+	fc := &flowChecker{bun: bun, repo: root, mode: mode, sharedCode: sharedCode, js: js}
+	type outcome struct {
+		res  runResult
+		seen bool
+	}
+	got := map[string]outcome{}
+	tally := map[string]int{}
+	for _, fr := range fc.runFixtures(context.Background(), dirs) {
+		if fr.err != nil {
+			t.Errorf("fixture %s does not load: %v", fr.dir, fr.err)
+			continue
 		}
-		t.Run(name, func(t *testing.T) {
-			fc := &flowChecker{bun: bun, repo: root, mode: mode, sharedCode: c.shared, js: js}
-			type outcome struct {
-				res  runResult
-				seen bool
+		rel, err := filepath.Rel(root, mustAbs(t, fr.dir))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range fr.runs {
+			key := filepath.ToSlash(rel) + "/" + r.run
+			got[key] = outcome{res: r, seen: true}
+			switch {
+			case r.unsupported != "":
+				tally["unsupported"]++
+			case len(r.problems) > 0:
+				tally["failed"]++
+			default:
+				tally["passed"]++
 			}
-			got := map[string]outcome{}
-			tally := map[string]int{}
-			for _, fr := range fc.runFixtures(context.Background(), dirs) {
-				if fr.err != nil {
-					t.Errorf("fixture %s does not load: %v", fr.dir, fr.err)
-					continue
-				}
-				rel, err := filepath.Rel(root, mustAbs(t, fr.dir))
-				if err != nil {
-					t.Fatal(err)
-				}
-				for _, r := range fr.runs {
-					key := filepath.ToSlash(rel) + "/" + r.run
-					got[key] = outcome{res: r, seen: true}
-					switch {
-					case r.unsupported != "":
-						tally["unsupported"]++
-					case len(r.problems) > 0:
-						tally["failed"]++
-					default:
-						tally["passed"]++
-					}
-				}
-			}
-			var extra []string
-			for key, o := range got {
-				if _, ok := req[key]; !ok && o.res.unsupported == "" && len(o.res.problems) == 0 {
-					extra = append(extra, key)
-				}
-			}
-			for _, key := range slices.Sorted(maps.Keys(req)) {
-				o := got[key]
-				switch {
-				case !o.seen:
-					t.Errorf("required run %s (%s) is not a run of a fixture under %s or of an expression file under %s", key, req[key], flowsDir, exprsDir)
-				case o.res.unsupported != "":
-					t.Errorf("required run %s (%s) is unsupported: %s", key, req[key], o.res.unsupported)
-				case len(o.res.problems) > 0:
-					t.Errorf("required run %s (%s) failed:\n  %s\nharness diagnostics:\n%s", key, req[key], strings.Join(o.res.problems, "\n  "), o.res.diag)
-				}
-			}
-			slices.Sort(extra)
-			t.Logf("flow suite, mode %s: %d fixtures, %d runs: %d passed, %d failed, %d unsupported; %d required, all passed unless reported above",
-				name, len(dirs), len(got), tally["passed"], tally["failed"], tally["unsupported"], len(req))
-			if len(extra) > 0 {
-				t.Logf("runs that pass but are not required (add them to %s): %s", suiteFile, strings.Join(extra, ", "))
-			}
-		})
+		}
+	}
+	var extra []string
+	for key, o := range got {
+		if _, ok := req[key]; !ok && o.res.unsupported == "" && len(o.res.problems) == 0 {
+			extra = append(extra, key)
+		}
+	}
+	for _, key := range slices.Sorted(maps.Keys(req)) {
+		o := got[key]
+		switch {
+		case !o.seen:
+			t.Errorf("required run %s (%s) is not a run of a fixture under %s or of an expression file under %s", key, req[key], flowsDir, exprsDir)
+		case o.res.unsupported != "":
+			t.Errorf("required run %s (%s) is unsupported: %s", key, req[key], o.res.unsupported)
+		case len(o.res.problems) > 0:
+			t.Errorf("required run %s (%s) failed:\n  %s\nharness diagnostics:\n%s", key, req[key], strings.Join(o.res.problems, "\n  "), o.res.diag)
+		}
+	}
+	slices.Sort(extra)
+	t.Logf("flow suite, mode %s: %d fixtures, %d runs: %d passed, %d failed, %d unsupported; %d required, all passed unless reported above",
+		name, len(dirs), len(got), tally["passed"], tally["failed"], tally["unsupported"], len(req))
+	if len(extra) > 0 {
+		t.Logf("runs that pass but are not required (add them to %s): %s", suiteFile, strings.Join(extra, ", "))
 	}
 }
 

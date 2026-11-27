@@ -30,7 +30,7 @@ const stubDir = "../../conformance/flows/stub"
 // call resolved, its attempt, the job, flow, root flow and root ids the
 // step saw, and the arguments it received. They run in fresh mode, one
 // harness process per invocation as on Windmill, and in warm mode.
-// TestFlowSuite requires the same runs against their expects, in warm.
+// TestFlowSuiteWarm requires the same runs against their expects.
 func TestStubCasesMatchTheOracle(t *testing.T) {
 	bun := bunOrSkip(t)
 	js, err := quickjs.New(quickjs.Options{})

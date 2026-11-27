@@ -17,7 +17,7 @@ import (
 // stop, and a container in the failure module's slot. The flow fixtures
 // cf-7-parallel, cf-16-tolerated and cf-22-retried of
 // conformance/flows/control-flow run the same flows on the real Bun harness
-// against the oracle's recordings (cmd/wltest, TestFlowSuite).
+// against the oracle's recordings (the flow suite of cmd/wltest).
 
 // zeroFails answers f/t/echo by echoing its arguments, except that an
 // invocation whose argument i is 0 fails: always, or only the first such

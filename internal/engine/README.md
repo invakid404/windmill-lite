@@ -1907,8 +1907,8 @@ answers at the launch, before a job exists), or when a flow job starts.
   [module state](../../docs/glossary.md#module-state) that every
   invocation runs in ([module state](../../docs/design/0006-module-state.md)):
   [`warm`](../../docs/glossary.md#warm) by default, or `fresh`. The trace
-  records it. The flow suite of `wltest` (`TestFlowSuite`) runs the result
-  cache's fixtures in both.
+  records it. The flow suite of `wltest` (`TestFlowSuiteWarm` and
+  `TestFlowSuiteFresh`) runs the result cache's fixtures in both.
 - **`Config.SharedCode`** says that the bundle's steps run their
   shared-layout modules ([shared module code](../../docs/design/0013-shared-module-code.md)).
   It is valid in `warm` only: `New` refuses it in another mode.
