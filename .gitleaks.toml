@@ -55,3 +55,41 @@ condition = "AND"
 paths = ['''^cmd/windmill-lite/plugin_test\.go$''']
 regexTarget = "secret"
 regexes = ['''^synthetic-secret-7f1c2a$''']
+
+# The tests of the harness environment give secret entries synthetic values.
+# Where an identifier that names a secret takes such a value, the generic
+# rule reads the value as a key: as the rule captures it, a value with a
+# space or a slash ends there.
+[[allowlists]]
+description = "The synthetic secrets of wl's harness environment tests"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^wl/harnessenv_test\.go$''']
+regexTarget = "secret"
+regexes = [
+  '''^synthetic-harness-secret-41d9$''',
+  '''^synthetic-masked-secret-6a0e$''',
+  '''^synthetic-trace-secret-91c4$''',
+  '''^synthetic/url$''',
+  '''^synthetic-provenance-secret-3c8d$''',
+  '''^synthetic-tail-19$''',
+  '''^synthetic-private-19$''',
+  '''^u0026finished-24$''',
+  '''^synthetic-plain-25$''',
+]
+
+[[allowlists]]
+description = "The synthetic secrets of the plugin command's harness environment tests"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^cmd/windmill-lite/harnessenv_test\.go$''']
+regexTarget = "secret"
+regexes = ['''^synthetic-harness-secret-c83f$''', '''^synthetic-masked-secret-0d47$''']
+
+[[allowlists]]
+description = "The synthetic secret of internal/harness's late-call masking test"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^internal/harness/secrets_test\.go$''']
+regexTarget = "secret"
+regexes = ['''^synthetic-late-21$''']
