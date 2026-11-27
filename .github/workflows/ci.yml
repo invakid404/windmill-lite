@@ -113,7 +113,8 @@ jobs:
         with:
           path: ${{ runner.temp }}/testbucket-store
           key: testbucket-go-ubuntu-v1-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: testbucket-go-ubuntu-v1-
+          restore-keys: |
+            testbucket-go-ubuntu-v1-
 
       - name: Plan the buckets
         # The store comes from the cache, else from the seed. A plan that
@@ -619,7 +620,8 @@ jobs:
         with:
           path: ${{ runner.temp }}/testbucket-store
           key: testbucket-go-ubuntu-v1-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: testbucket-go-ubuntu-v1-
+          restore-keys: |
+            testbucket-go-ubuntu-v1-
 
       - name: Audit and record the run
         # scripts/check-bucket-audit.py runs testbucket audit, which fails
@@ -699,7 +701,8 @@ jobs:
         with:
           path: ${{ runner.temp }}/testbucket-store
           key: testbucket-go-macos-v1-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: testbucket-go-macos-v1-
+          restore-keys: |
+            testbucket-go-macos-v1-
 
       - name: Plan the buckets
         # The store comes from the cache, else from the seed. A plan that
@@ -1174,7 +1177,8 @@ jobs:
         with:
           path: ${{ runner.temp }}/testbucket-store
           key: testbucket-go-macos-v1-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: testbucket-go-macos-v1-
+          restore-keys: |
+            testbucket-go-macos-v1-
 
       - name: Audit and record the run
         # scripts/check-bucket-audit.py runs testbucket audit, which fails
@@ -1251,7 +1255,8 @@ jobs:
         with:
           path: ${{ runner.temp }}/testbucket-store
           key: testbucket-go-quickjs-v1-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: testbucket-go-quickjs-v1-
+          restore-keys: |
+            testbucket-go-quickjs-v1-
 
       - name: Plan the buckets
         # The store comes from the cache, else from the seed. A plan that
@@ -1519,7 +1524,8 @@ jobs:
         with:
           path: ${{ runner.temp }}/testbucket-store
           key: testbucket-go-quickjs-v1-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: testbucket-go-quickjs-v1-
+          restore-keys: |
+            testbucket-go-quickjs-v1-
 
       - name: Audit and record the run
         # scripts/check-bucket-audit.py runs testbucket audit, which fails
