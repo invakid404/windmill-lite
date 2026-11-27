@@ -243,8 +243,8 @@ entry for the scope and there is no seed, or the store was recorded under
 other flags than the plan's `-race -count=1`. A cold plan gives each package
 the same estimate, and slices nothing.
 
-On a cold start, `cmd/wltest` runs whole in one bucket: about 27 minutes on
-`ubuntu-latest`, and about 55 on `macos-latest`. So a cold plan gives every
+On a cold start, `cmd/wltest` runs whole in one bucket: about 29 minutes on
+`ubuntu-latest`, and about 54 on `macos-latest`. So a cold plan gives every
 bucket the longer go test timeout of the table above, and the bucket that
 holds `cmd/wltest` the longer job timeout; the other buckets keep 50
 minutes. The next record job on `main` saves the store that later plans
@@ -639,7 +639,7 @@ To run the tests, from the repository root, in one shell:
    `export WL_WINDMILL_CLIENT=/path/to/client`.
 6. Point `WL_NODE` at a Node executable: `export WL_NODE=/path/to/node`.
 7. Run `go test -race -timeout 90m ./...`. The flow suite in `cmd/wltest`
-   can take longer than `go test`'s default limit of 10 minutes: about 55
+   can take longer than `go test`'s default limit of 10 minutes: about 54
    minutes on a macOS runner of CI, with one fixture at a time on its three
    cores. CI runs the same tests, split into buckets
    ([The Go buckets](#the-go-buckets)).

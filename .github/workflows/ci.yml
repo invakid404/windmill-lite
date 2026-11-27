@@ -40,8 +40,8 @@ jobs:
   # The plan sets the go test timeout and each bucket's job timeout from the
   # store: 45m and 50 minutes with recorded times. A cold plan, with no
   # usable store, knows no test time, slices nothing, and puts cmd/wltest
-  # whole into one bucket, which takes about 27 minutes on ubuntu-latest and
-  # 55 on macos-latest. Then every bucket gets the cold go test timeout of
+  # whole into one bucket, which takes about 29 minutes on ubuntu-latest and
+  # 54 on macos-latest. Then every bucket gets the cold go test timeout of
   # its plan job, and the bucket that holds cmd/wltest also the cold job
   # timeout; the other buckets keep 50 minutes.
   #
