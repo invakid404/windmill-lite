@@ -2424,9 +2424,11 @@ func TestHarnessEnvSecretCountsByFinalKey(t *testing.T) {
 // latched error holds the mask and no secret. A step that returns it late
 // in an array whose first string holds a NUL character, which the stored
 // form cannot hold, so that the late result is serialized from its
-// producer's text: the full trace that OnRunSettled's callback gets, as
-// wlext.TraceJSON serializes it for the host plugin, is valid JSON that
-// holds the mask, the NUL character's escape and no secret.
+// producer's text: the settled trace that the Go OnRunSettled callback
+// gets, serialized with the Runner's full-trace serializer
+// (wlext.TraceJSON), is valid JSON that holds the mask, the NUL
+// character's escape and no secret. The host plugin's onRunSettled payload
+// carries the same full-trace representation, through the same encoder.
 func TestHarnessEnvSecretPlainInTraces(t *testing.T) {
 	bun, out, runtimeDir := harnessEnvBundle(t)
 	const secret = "synthetic-plain-25"
