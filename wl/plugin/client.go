@@ -17,9 +17,25 @@ import (
 // ErrorDomain and ReasonRunNotStarted are the domain and the reason of the
 // google.rpc.ErrorInfo detail with which the engine marks a Run error as
 // its own refusal of a run that it did not start.
+//
+// MetadataField is the key of the detail's metadata entry that names the
+// one field of the request which an INVALID_ARGUMENT refusal of the
+// engine's own checks refuses, such as kind or hooks.broker_id. Other
+// refusals have no such entry, the refusal of a token that GetRun
+// answered gone for included, and neither has an engine's that predates
+// the key.
+//
+// MetadataCause is the key of an entry that says why the engine refused
+// that field. Its one value, CauseBrokerIDUsed, marks the refusal of
+// hooks.broker_id that names a broker id whose earlier dial succeeded and
+// whose connection the engine has since closed: go-plugin gives an id's
+// address once. Every other refusal has no such entry.
 const (
 	ErrorDomain         = "windmill-lite"
 	ReasonRunNotStarted = "RUN_NOT_STARTED"
+	MetadataField       = "field"
+	MetadataCause       = "cause"
+	CauseBrokerIDUsed   = "broker_id_used"
 )
 
 // ErrNotStarted is the error of a Run call whose run did not start: the

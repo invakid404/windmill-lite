@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,6 +16,7 @@ import (
 	"weak"
 
 	goplugin "github.com/hashicorp/go-plugin"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -424,7 +426,14 @@ func TestClientCloseStopsLateServer(t *testing.T) {
 // echoClient dispenses a Client of e on go-plugin's test connection.
 func echoClient(t *testing.T, e *echoEngine) *Client {
 	t.Helper()
-	gc, _ := goplugin.TestPluginGRPCConn(t, false, map[string]goplugin.Plugin{PluginName: e})
+	return connClient(t, e)
+}
+
+// connClient dispenses a Client of the fake engine p on go-plugin's test
+// connection, which the test's end closes with the Client.
+func connClient(t *testing.T, p goplugin.Plugin) *Client {
+	t.Helper()
+	gc, _ := goplugin.TestPluginGRPCConn(t, false, map[string]goplugin.Plugin{PluginName: p})
 	raw, err := gc.Dispense(PluginName)
 	if err != nil {
 		t.Fatal(err)
@@ -550,6 +559,264 @@ func TestClientListenRetry(t *testing.T) {
 	}
 	if n := heard.Load(); n != 1 {
 		t.Errorf("the handler heard %d calls, want the next run's onRunEnd", n)
+	}
+}
+
+// refusingEngine is a fake engine on go-plugin's test connection that
+// serves HooksControl too. Its Run answers the first requests with
+// refusals, in order, without a dial, and serves the next one: it dials
+// the request's broker id, calls the run's onRunEnd on it and succeeds.
+// It records each request and each broker id that a release names.
+type refusingEngine struct {
+	UnimplementedRunnerServer
+	UnimplementedHooksControlServer
+	goplugin.NetRPCUnsupportedPlugin
+	refusals []error
+	broker   atomic.Pointer[goplugin.GRPCBroker]
+
+	mu       sync.Mutex
+	refusing func()
+	requests []sentRun
+	released []uint32
+}
+
+// sentRun is a request that reached a refusingEngine.
+type sentRun struct {
+	id, token string
+	broker    uint32
+}
+
+func (e *refusingEngine) GRPCServer(b *goplugin.GRPCBroker, s *grpc.Server) error {
+	e.broker.Store(b)
+	RegisterRunnerServer(s, e)
+	RegisterHooksControlServer(s, e)
+	return nil
+}
+
+func (e *refusingEngine) GRPCClient(ctx context.Context, b *goplugin.GRPCBroker, cc *grpc.ClientConn) (any, error) {
+	return (&RunnerPlugin{PluginTimeout: time.Hour}).GRPCClient(ctx, b, cc)
+}
+
+func (e *refusingEngine) Run(ctx context.Context, req *RunRequest) (*RunResult, error) {
+	e.mu.Lock()
+	n := len(e.requests)
+	e.requests = append(e.requests, sentRun{req.GetId(), req.GetHooks().GetToken(), req.GetHooks().GetBrokerId()})
+	refusing := e.refusing
+	e.mu.Unlock()
+	if n < len(e.refusals) {
+		if refusing != nil {
+			refusing()
+		}
+		return nil, e.refusals[n]
+	}
+	conn, err := e.broker.Load().Dial(req.GetHooks().GetBrokerId())
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	_, _ = NewHostHooksClient(conn).Call(ctx, &HookCall{Hook: "on_run_end", Run: req.GetId(), Token: req.GetHooks().GetToken()})
+	return &RunResult{Id: req.GetId(), Status: "success"}, nil
+}
+
+func (e *refusingEngine) ReleaseHooks(_ context.Context, req *ReleaseHooksRequest) (*ReleaseHooksResponse, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.released = append(e.released, req.GetBrokerId())
+	return &ReleaseHooksResponse{}, nil
+}
+
+// sent returns the requests that reached e.
+func (e *refusingEngine) sent() []sentRun {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]sentRun(nil), e.requests...)
+}
+
+// releasedAll reports whether releases have named each of ids.
+func (e *refusingEngine) releasedAll(ids ...uint32) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, id := range ids {
+		if !slices.Contains(e.released, id) {
+			return false
+		}
+	}
+	return true
+}
+
+// engineRefusal is a refusal as the engine makes it: code and msg, with
+// the RUN_NOT_STARTED detail, whose metadata is metadata.
+func engineRefusal(t *testing.T, code codes.Code, msg string, metadata map[string]string) error {
+	t.Helper()
+	st, err := status.New(code, msg).WithDetails(&errdetails.ErrorInfo{Domain: ErrorDomain, Reason: ReasonRunNotStarted, Metadata: metadata})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return st.Err()
+}
+
+// listeners is how many of go-plugin's sockets are in dir: the test
+// connection's own and each broker listener's.
+func listeners(t *testing.T, dir string) int {
+	t.Helper()
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, e := range ents {
+		if strings.HasPrefix(e.Name(), "plugin") && e.Type()&os.ModeSocket != 0 {
+			n++
+		}
+	}
+	return n
+}
+
+// socketDir makes the directory of go-plugin's sockets for the test, short
+// enough for a socket path (macOS refuses 104 bytes or more), and sets
+// TMPDIR to it: go-plugin makes each socket in os.TempDir.
+func socketDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "wlc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Setenv("TMPDIR", dir)
+	return dir
+}
+
+// TestClientBrokerRetryOnce checks, against a fake engine on go-plugin's
+// test connection, the one more try of a run that the engine refuses
+// because its broker id was used already: INVALID_ARGUMENT with the
+// RUN_NOT_STARTED detail whose metadata names hooks.broker_id with the
+// cause broker_id_used. The Client lets the refused broker id go, its
+// registration dropped, its listener stopped and its release sent, and
+// sends the run again with a new broker id and token, and the run is
+// served. A second refusal is returned, both broker ids let go. A Client
+// closed before the refusal arrives returns it without a second request.
+// Every other refusal is returned after one request: hooks.broker_id
+// without the cause, as for a failed first dial of a new id; the cause
+// with another field; another field; no metadata, as an older engine
+// sends it, with the same message; ALREADY_EXISTS; another code with the
+// field and the cause; and an error without the RUN_NOT_STARTED detail,
+// whose outcome is unknown.
+func TestClientBrokerRetryOnce(t *testing.T) {
+	brokerID := map[string]string{MetadataField: "hooks.broker_id"}
+	used := map[string]string{MetadataField: "hooks.broker_id", MetadataCause: CauseBrokerIDUsed}
+	decl := []byte(`{"on_run_end": true}`)
+	var heard atomic.Int32
+	h := func(context.Context, *HookCall) (*HookReply, error) {
+		heard.Add(1)
+		return &HookReply{Payload: []byte(`{}`)}, nil
+	}
+
+	t.Run("served on a new broker id", func(t *testing.T) {
+		dir := socketDir(t)
+		e := &refusingEngine{refusals: []error{engineRefusal(t, codes.InvalidArgument, "the request's hooks.broker_id: dial the host's hooks service: lost", used)}}
+		c := connClient(t, e)
+		heard.Store(0)
+		res, err := c.RunWithHooks(context.Background(), &RunRequest{Id: "r"}, decl, h)
+		if err != nil || res.GetStatus() != "success" {
+			t.Fatalf("the run: %v, %v; want it served", res, err)
+		}
+		got := e.sent()
+		if len(got) != 2 || got[0].id != "r" || got[1].id != "r" || got[0].broker == got[1].broker || got[0].token == got[1].token {
+			t.Fatalf("the requests: %+v; want two of the run r, with different broker ids and tokens", got)
+		}
+		if n := heard.Load(); n != 1 {
+			t.Errorf("the handler heard %d calls, want the served run's onRunEnd", n)
+		}
+		if n := c.Registrations(); n != 1 {
+			t.Errorf("%d registrations, want the served run's alone", n)
+		}
+		eventually(t, "the release of the refused broker id", func() bool { return e.releasedAll(got[0].broker) })
+		eventually(t, "the refused broker id's listener gone", func() bool { return listeners(t, dir) == 2 })
+	})
+
+	t.Run("a second refusal", func(t *testing.T) {
+		dir := socketDir(t)
+		e := &refusingEngine{refusals: []error{
+			engineRefusal(t, codes.InvalidArgument, "the request's hooks.broker_id: the first refusal", used),
+			engineRefusal(t, codes.InvalidArgument, "the request's hooks.broker_id: the second refusal", used),
+		}}
+		c := connClient(t, e)
+		_, err := c.RunWithHooks(context.Background(), &RunRequest{Id: "r"}, decl, h)
+		if !errors.Is(err, ErrNotStarted) || status.Code(err) != codes.InvalidArgument || !strings.Contains(err.Error(), "the second refusal") {
+			t.Errorf("the run refused twice: %v; want ErrNotStarted with the second refusal", err)
+		}
+		got := e.sent()
+		if len(got) != 2 {
+			t.Fatalf("the requests: %+v; want two", got)
+		}
+		if n := c.Registrations(); n != 0 {
+			t.Errorf("%d registrations, want none", n)
+		}
+		eventually(t, "the release of both broker ids", func() bool { return e.releasedAll(got[0].broker, got[1].broker) })
+		eventually(t, "both listeners gone", func() bool { return listeners(t, dir) == 1 })
+	})
+
+	t.Run("Close before the refusal", func(t *testing.T) {
+		dir := socketDir(t)
+		e := &refusingEngine{refusals: []error{engineRefusal(t, codes.InvalidArgument, "the request's hooks.broker_id: refused while the Client closed", used)}}
+		c := connClient(t, e)
+		e.mu.Lock()
+		e.refusing = c.Close
+		e.mu.Unlock()
+		_, err := c.RunWithHooks(context.Background(), &RunRequest{Id: "r"}, decl, h)
+		if !errors.Is(err, ErrNotStarted) || !strings.Contains(err.Error(), "refused while the Client closed") {
+			t.Errorf("the run refused while the Client closed: %v; want ErrNotStarted with the engine's refusal", err)
+		}
+		got := e.sent()
+		if len(got) != 1 {
+			t.Fatalf("the requests: %+v; want one", got)
+		}
+		if n := c.Registrations(); n != 0 {
+			t.Errorf("%d registrations, want none", n)
+		}
+		eventually(t, "the release of the broker id", func() bool { return e.releasedAll(got[0].broker) })
+		eventually(t, "the listener gone", func() bool { return listeners(t, dir) == 1 })
+	})
+
+	for _, tc := range []struct {
+		name       string
+		err        error
+		notStarted bool
+	}{
+		{"the field without the cause, as a failed first dial's", engineRefusal(t, codes.InvalidArgument, "the request's hooks.broker_id: dial the host's hooks service: the connection is TRANSIENT_FAILURE", brokerID), true},
+		{"the cause with another field", engineRefusal(t, codes.InvalidArgument, "the request's hooks.token: required", map[string]string{MetadataField: "hooks.token", MetadataCause: CauseBrokerIDUsed}), true},
+		{"another field", engineRefusal(t, codes.InvalidArgument, "the request's hooks.token: required", map[string]string{MetadataField: "hooks.token"}), true},
+		{"no metadata, as an older engine's", engineRefusal(t, codes.InvalidArgument, "the request's hooks.broker_id: dial the host's hooks service: timeout waiting for connection info", nil), true},
+		{"ALREADY_EXISTS", engineRefusal(t, codes.AlreadyExists, "a run with the id r is in flight", nil), true},
+		{"another code with the field and the cause", engineRefusal(t, codes.Unavailable, "draining", used), true},
+		{"no RUN_NOT_STARTED detail", func() error {
+			st, err := status.New(codes.InvalidArgument, "the request's hooks.broker_id: refused").WithDetails(&errdetails.ErrorInfo{Domain: ErrorDomain, Reason: "RUN_FAILED", Metadata: used})
+			if err != nil {
+				t.Fatal(err)
+			}
+			return st.Err()
+		}(), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			socketDir(t)
+			e := &refusingEngine{refusals: []error{tc.err, tc.err}}
+			c := connClient(t, e)
+			_, err := c.RunWithHooks(context.Background(), &RunRequest{Id: "r"}, decl, h)
+			if errors.Is(err, ErrNotStarted) != tc.notStarted || errors.Is(err, ErrOutcomeUnknown) == tc.notStarted {
+				t.Errorf("the refused run: %v; want ErrNotStarted %v", err, tc.notStarted)
+			}
+			if got := e.sent(); len(got) != 1 {
+				t.Errorf("the requests: %+v; want one", got)
+			}
+			want := 0
+			if !tc.notStarted {
+				// The run may have started, so its registration stays.
+				want = 1
+			}
+			if n := c.Registrations(); n != want {
+				t.Errorf("%d registrations, want %d", n, want)
+			}
+		})
 	}
 }
 
