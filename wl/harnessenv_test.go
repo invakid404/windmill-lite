@@ -2176,45 +2176,66 @@ func TestHarnessEnvSecretRunRefusal(t *testing.T) {
 }
 
 // TestHarnessEnvSecretLateHookHoldsSettlement checks a host plugin whose
-// onModuleEnd answers after the plugin timeout, where the timeout's text
-// holds a secret entry's synthetic value (words of the timeout itself): the
-// error is masked, and the run still settles only after the hook ends,
-// which the hook marks by writing a file.
+// onModuleEnd holds until the test releases it, past the plugin timeout,
+// whose text holds a secret entry's synthetic value (words of the timeout
+// itself). While the hook is held, the run has latched with the timeout,
+// masked, and still matching ErrHostCallTimeout, and it has not settled.
+// It settles only after the release, once the hook has written its file.
 func TestHarnessEnvSecretLateHookHoldsSettlement(t *testing.T) {
 	bun, out, runtimeDir := harnessEnvBundle(t)
-	marker := filepath.Join(t.TempDir(), "hook-ended")
+	dir := t.TempDir()
+	release, marker := filepath.Join(dir, "release"), filepath.Join(dir, "hook-ended")
+	const secret = "got no reply from the host plugin"
 	plugin := filepath.Join(t.TempDir(), "plugin.ts")
-	src := `import { writeFileSync } from "node:fs";
+	src := `import { existsSync, writeFileSync } from "node:fs";
 export default {
-  onModuleEnd() { Bun.sleepSync(1500); writeFileSync(process.env.WL_TEST_MARKER ?? "", ""); return {}; },
+  onModuleEnd() {
+    while (!existsSync(process.env.WL_TEST_RELEASE ?? "")) Bun.sleepSync(10);
+    writeFileSync(process.env.WL_TEST_MARKER ?? "", "");
+    return {};
+  },
 };
 `
 	if err := os.WriteFile(plugin, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, PluginTimeout: 300 * time.Millisecond, HarnessEnv: map[string]EnvValue{
-		"WL_TEST_SECRET": {Value: "got no reply from the host plugin", Secret: true},
-		"WL_TEST_MARKER": {Value: marker},
+		"WL_TEST_SECRET":  {Value: secret, Secret: true},
+		"WL_TEST_RELEASE": {Value: release},
+		"WL_TEST_MARKER":  {Value: marker},
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rt.Close()
+	defer os.WriteFile(release, nil, 0o600)
 	settled := make(chan bool, 1)
 	hooks := &Hooks{OnRunSettled: func(*Trace) {
 		_, err := os.Stat(marker)
 		settled <- err == nil
 	}}
-	if _, err := rt.Run(context.Background(), "f/t/env", json.RawMessage(`{"names":[],"hashed":[]}`), RunOptions{Hooks: hooks}); err != nil {
+	res, err := rt.Run(context.Background(), "f/t/env", json.RawMessage(`{"names":[],"hashed":[]}`), RunOptions{Hooks: hooks})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != StatusLatched || !errors.Is(res.Latched, ErrHostCallTimeout) || !strings.Contains(res.Latched.Error(), harness.SecretMask) || strings.Contains(res.Latched.Error(), secret) {
+		t.Fatalf("the held hook's run: %s, latched %v; want latched by the timeout, masked", res.Status, res.Latched)
+	}
+	select {
+	case <-settled:
+		t.Fatal("the run settled while its hook was held")
+	case <-time.After(time.Second):
+	}
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	select {
 	case ended := <-settled:
 		if !ended {
-			t.Error("the run settled before its late hook ended")
+			t.Error("the run settled before its hook ended")
 		}
 	case <-time.After(20 * time.Second):
-		t.Fatal("the run did not settle")
+		t.Fatal("the run did not settle after the hook's release")
 	}
 }
 

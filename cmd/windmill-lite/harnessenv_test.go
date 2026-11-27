@@ -460,6 +460,24 @@ func TestPluginMaskingWriter(t *testing.T) {
 	}
 }
 
+// TestPluginUnknownMethodUnchanged checks a configuration with no secret
+// entry: a method that the server does not have, of the Runner service or
+// of the health service, answers the UNIMPLEMENTED status that gRPC itself
+// writes, word for word, as before.
+func TestPluginUnknownMethodUnchanged(t *testing.T) {
+	bun, out := pluginBundle(t)
+	d := startDirect(t, pluginConfigOf(t, bun, out), true)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	for _, svc := range []string{plugin.Runner_ServiceDesc.ServiceName, "grpc.health.v1.Health"} {
+		err := d.conn.Invoke(ctx, "/"+svc+"/SyntheticOldMethod", &emptypb.Empty{}, &emptypb.Empty{})
+		want := fmt.Sprintf("unknown method SyntheticOldMethod for service %s", svc)
+		if st, _ := status.FromError(err); st.Code() != codes.Unimplemented || st.Message() != want {
+			t.Errorf("%s/SyntheticOldMethod: %v; want UNIMPLEMENTED %q", svc, err, want)
+		}
+	}
+}
+
 // runToExit runs the plugin command with cfg and env, whether or not it
 // completes go-plugin's handshake, and returns its exit status and its
 // standard error once it exits.

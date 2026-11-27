@@ -379,12 +379,14 @@ as text of its own:
 - the error of a failed `Spawn`, its settings' refusal included, which can
   name the executable, and each error that `NewPool` and the pool's
   methods return, so also the one that `PoolConfig.OnStartFailure` gets.
-  `Secrets.MaskErr` masks them: the result still matches the original
-  with `errors.Is`, and a `LateHostCallError` keeps its type and its
-  `Done`. A `HostCallError` whose message it masks comes back as a new
-  `HostCallError` when its text allows: `errors.As` finds it, but
-  `errors.Is` does not match the original;
+  `Secrets.MaskErr` masks them, and the result still matches the original
+  with `errors.Is`, but for the two types below;
+- a late host plugin call's error, which comes back as a new
+  `LateHostCallError` with the same `Done` and its cause masked:
+  `errors.Is` matches what that cause matches, not the original pointer;
 - its host plugin's hook errors, so that a `HostCallError` keeps its type.
+  One whose message `MaskErr` masks comes back as a new one when its text
+  allows: `errors.As` finds it, `errors.Is` does not match the original.
 
 An invocation's result, other failures and warnings, and a hook's answer,
 stay as the process sent them:

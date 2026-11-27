@@ -168,10 +168,14 @@ func runPlugin(args []string, stderr io.Writer) int {
 				}
 				o = append(o, grpc.MaxRecvMsgSize(limit), grpc.MaxSendMsgSize(limit))
 				// Outermost, so it masks every status and response that a
-				// handler or the Gate returns, and the status of a method
-				// that the server does not have, which unknownMethod gives.
+				// handler or the Gate returns. With secret entries, the
+				// status of a method that the server does not have comes
+				// from unknownMethod, through it; without, gRPC answers it
+				// as it always has.
 				o = append(o, outputMasking(masked.current)...)
-				o = append(o, grpc.UnknownServiceHandler(unknownMethod(grpcServer.Load)))
+				if cfg.hasSecretEntries() {
+					o = append(o, grpc.UnknownServiceHandler(unknownMethod(grpcServer.Load)))
+				}
 				s := grpc.NewServer(append(o, gate.ServerOptions()...)...)
 				grpcServer.Store(s)
 				return s
@@ -1186,13 +1190,19 @@ func maskProto(s *harness.Secrets, m protoreflect.Message) {
 	}
 }
 
-// unknownMethod is the server's handler for a method or service that it
-// does not have: the UNIMPLEMENTED status that gRPC itself would send, in
-// its words, but through the interceptors, so that outputMasking masks it.
+// unknownMethod is the server's handler, with secret entries, for a method
+// or service that it does not have: the UNIMPLEMENTED status that gRPC
+// itself would send, in its words, but through the interceptors, so that
+// outputMasking masks it.
 func unknownMethod(server func() *grpc.Server) grpc.StreamHandler {
 	return func(_ any, ss grpc.ServerStream) error {
 		full, _ := grpc.MethodFromServerStream(ss)
-		svc, method, _ := strings.Cut(strings.TrimPrefix(full, "/"), "/")
+		// Split at the last slash, as gRPC does.
+		name := strings.TrimPrefix(full, "/")
+		svc, method := name, ""
+		if i := strings.LastIndex(name, "/"); i >= 0 {
+			svc, method = name[:i], name[i+1:]
+		}
 		if s := server(); s != nil {
 			if _, ok := s.GetServiceInfo()[svc]; ok {
 				return status.Errorf(codes.Unimplemented, "unknown method %v for service %v", method, svc)
@@ -1200,6 +1210,17 @@ func unknownMethod(server func() *grpc.Server) grpc.StreamHandler {
 		}
 		return status.Errorf(codes.Unimplemented, "unknown service %v", svc)
 	}
+}
+
+// hasSecretEntries reports whether the configuration has a secret
+// harness_env entry.
+func (c *pluginConfig) hasSecretEntries() bool {
+	for _, v := range c.HarnessEnv {
+		if v.IsSecret {
+			return true
+		}
+	}
+	return false
 }
 
 // envReader reads the variables of the engine's environment that the

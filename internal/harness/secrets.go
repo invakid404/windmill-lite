@@ -177,7 +177,8 @@ func (s *Secrets) settle(text, out, marker string, plus bool) string {
 
 // MaskErr returns err, or, when its text holds a secret outside a mask, an
 // error whose whole text is masked (MaskAfter). A *LateHostCallError keeps
-// its type and its Done, its Err masked. A *HostCallError keeps its type,
+// its type and its Done, its Err masked: a new pointer, which errors.Is
+// matches as what its Err matches, not as err. A *HostCallError keeps its type,
 // its message masked as its whole text reads it, when that text then shows
 // no secret outside a mask: a new *HostCallError, which errors.Is does not
 // match as err. Any other error comes back wrapped in one that errors.Is
