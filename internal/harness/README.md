@@ -346,9 +346,9 @@ entry that the engine sets itself, or that no environment can carry:
 `ProcessConfig.Secrets` are the values of the secret entries.
 `NewSecrets` makes of them the `Secrets` that replace each value, each
 line of one that spans lines, and its `%q` and `JSON.stringify` forms,
-with `SecretMask`, `[secret]`. A value that reads as what a JSON encoder
-writes for some text, such as a line feed spelled `\n`, also masks that
-text.
+with `SecretMask`, `[secret]`. `MaskEncoded` masks a text where its
+encoding by `json.Marshal` would hold a secret, also one that begins or
+ends inside an escape.
 
 In a text with `%XX` escapes they mask a value as written and the span
 that decodes to one, both found on the text as it is, and secrets that

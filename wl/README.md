@@ -262,9 +262,11 @@ what it passes on besides the host's data in a run's requested result. It
 masks the value also as a Go quoted string (`%q`) and `JSON.stringify`
 write it.
 
-Where the value reads as what a JSON encoder writes for some text, such
-as a line feed spelled `\n`, it masks that text too, so that its encoding
-never spells the value.
+A warning's text, and each text of a trace, is also masked where its JSON
+encoding would hold the value, as a run's warnings and trace are sent.
+That covers a value that spells a line feed as `\n`, and one that the
+escape of an ampersand begins, which masks the characters that the escape
+spells.
 
 A secret's value never leaves the engine through data that a harness
 process produced, or through the engine's own messages: its errors, its

@@ -2312,23 +2312,34 @@ func TestHarnessEnvSecretStatusWord(t *testing.T) {
 	}
 }
 
-// TestHarnessEnvSecretEncodedWarning checks a secret entry whose synthetic
-// value spells a line feed as backslash and n, which a host plugin expands
-// to a real line feed in its onRunEnd warning's message: the message's own
-// text does not hold the value, but its JSON encoding would. The warnings
-// encoded as the Runner encodes them, and the trace encoded as it
-// serializes it, are valid JSON and hold no secret.
+// TestHarnessEnvSecretEncodedWarning checks two synthetic secrets whose
+// warnings' JSON encoding would spell them though their text does not: one
+// that spells a line feed as backslash and n, which a host plugin expands to
+// a real line feed in a warning's message, and one that begins inside the
+// escape of an ampersand, u0026finished-24, which a second warning's
+// message, a plain entry, holds as an ampersand and the secret's rest. The
+// warnings encoded with json.Marshal of their codes and messages, as the
+// Runner's code encodes them, and the trace as wlext.TraceJSON serializes
+// it for the Runner, are valid JSON, hold neither secret, and keep the
+// second message's harmless words.
 func TestHarnessEnvSecretEncodedWarning(t *testing.T) {
 	bun, out, runtimeDir := harnessEnvBundle(t)
-	const secret = `audit-23\nfinished`
+	const secret, escaped = `audit-23\nfinished`, "u0026finished-24"
 	plugin := filepath.Join(t.TempDir(), "plugin.ts")
 	src := `const value = process.env.WL_TEST_SECRET ?? "";
-export default { onRunEnd() { return [{ code: "encoded", message: value.replaceAll("\\n", "\n") }] } };
+export default { onRunEnd() { return [
+  { code: "encoded", message: value.replaceAll("\\n", "\n") },
+  { code: "note", message: process.env.WL_TEST_NOTE ?? "" },
+] } };
 `
 	if err := os.WriteFile(plugin, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, HarnessEnv: map[string]EnvValue{"WL_TEST_SECRET": {Value: secret, Secret: true}}})
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, Plugin: plugin, HarnessEnv: map[string]EnvValue{
+		"WL_TEST_SECRET":  {Value: secret, Secret: true},
+		"WL_TEST_ESCAPED": {Value: escaped, Secret: true},
+		"WL_TEST_NOTE":    {Value: "harmless words &finished-24 and a tail"},
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2352,13 +2363,13 @@ export default { onRunEnd() { return [{ code: "encoded", message: value.replaceA
 	if err != nil {
 		t.Fatal(err)
 	}
-	trace, err := json.Marshal(traceJSON(res.Trace))
+	trace, err := wlext.TraceJSON(res.Trace, "full")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for what, b := range map[string][]byte{"the encoded warnings": warnings, "the serialized trace": trace} {
-		if !json.Valid(b) || strings.Contains(string(b), secret) {
-			t.Errorf("%s %.200s; want valid JSON with no secret", what, b)
+		if !json.Valid(b) || strings.Contains(string(b), secret) || strings.Contains(string(b), escaped) || !strings.Contains(string(b), "harmless words ") || !strings.Contains(string(b), " and a tail") {
+			t.Errorf("%s %.300s; want valid JSON with the note's harmless words and no secret", what, b)
 		}
 	}
 }

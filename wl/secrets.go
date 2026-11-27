@@ -70,9 +70,9 @@ var (
 )
 
 // maskStrings returns a copy of v in which every string that v holds, in
-// its fields, slices, arrays, maps and pointers, is masked
+// its fields, slices, arrays, maps and pointers, is masked as written
 // (harness.Secrets.MaskAfter with no prefix, which leaves a secret only
-// inside a mask). What it shares with v it does not change. A value of a
+// inside a mask) and as JSON encodes it (harness.Secrets.MaskEncoded). What it shares with v it does not change. A value of a
 // named string type, the engine's fixed vocabulary such as a status, a
 // JSON value (maskValue), an error (maskError), a time and an unexported
 // field are kept as they are.
@@ -83,7 +83,7 @@ func maskStrings(secrets *harness.Secrets, v reflect.Value) reflect.Value {
 			return v
 		}
 		out := reflect.New(v.Type()).Elem()
-		out.SetString(secrets.MaskAfter("", v.String()))
+		out.SetString(secrets.MaskEncoded(secrets.MaskAfter("", v.String())))
 		return out
 	case reflect.Pointer:
 		if v.IsNil() {
@@ -193,7 +193,9 @@ func maskWarnings(secrets *harness.Secrets, ws []Warning) []Warning {
 	}
 	out := make([]Warning, len(ws))
 	for i, w := range ws {
-		w.Code, w.Message = secrets.Mask(w.Code), secrets.Mask(w.Message)
+		// Masked as written and as JSON encodes them, which a run's
+		// warnings and trace are sent as.
+		w.Code, w.Message = secrets.MaskEncoded(secrets.Mask(w.Code)), secrets.MaskEncoded(secrets.Mask(w.Message))
 		w.Left, w.Untracked = maskCounts(secrets, w.Left), maskCounts(secrets, w.Untracked)
 		out[i] = w
 	}

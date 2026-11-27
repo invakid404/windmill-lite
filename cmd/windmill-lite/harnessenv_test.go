@@ -149,7 +149,8 @@ func TestPluginHarnessEnvSecrets(t *testing.T) {
 // error, and with WL_TEST_BAD_DECLARATION set to 1 it declares a halt whose
 // branch is the value, which the engine refuses. Otherwise it prints the
 // value, its argument rewrite for f/env/refused throws with it, and its
-// onRunEnd returns it in a warning's code and message. The step of
+// onRunEnd returns it in a warning's code and message, and, when
+// WL_TEST_NOTE is set, a second warning whose message is that. The step of
 // f/env/reveal returns it.
 var harnessEnvPluginFiles = map[string]string{
 	"wmill.yaml": "defaultTs: bun\n",
@@ -169,7 +170,9 @@ console.error("the plugin loaded with " + secret);
 const plugin: Record<string, unknown> = {
   rewriteArgs: [{ selector: { flow: "f/env/refused", module: "a" }, fn: () => { throw new Error("rewrite refused " + secret); } }],
   onRunEnd() {
-    return [{ code: "seen " + secret, message: "run ended with " + secret }];
+    const ws = [{ code: "seen " + secret, message: "run ended with " + secret }];
+    if (process.env.WL_TEST_NOTE) ws.push({ code: "note", message: process.env.WL_TEST_NOTE });
+    return ws;
   },
 };
 if (process.env.WL_TEST_BAD_DECLARATION === "1") plugin.haltBefore = [{ flow: "f/env/echo", module: "a", branches: [secret] }];
@@ -530,6 +533,34 @@ func TestPluginStatusKeepsItsWord(t *testing.T) {
 	}
 	if !slices.Contains(r.GetDeviations(), code) || !slices.Equal(r.GetDeviations(), trace.Deviations) {
 		t.Errorf("the run's deviations %q, its full trace's %q; want the bound's code in both, alike", r.GetDeviations(), trace.Deviations)
+	}
+}
+
+// TestPluginHarnessEnvSecretEncodedWarning checks, through the real
+// command, a synthetic secret that begins inside the JSON escape of an
+// ampersand, u0026finished-24, and the bundle's host plugin's warning whose
+// message, a plain entry, holds an ampersand and that secret's rest, so
+// that the message's encoding, \u0026finished-24, would spell it. The
+// Runner's RunResult.warnings and its full trace, as a client reads them,
+// are valid JSON, hold no secret, and keep the message's harmless words.
+func TestPluginHarnessEnvSecretEncodedWarning(t *testing.T) {
+	bun := absBun(t)
+	out := filepath.Join(t.TempDir(), "bundle")
+	if err := buildFolder(bun, harnessEnvPluginFiles, harnessEnvPluginContract, out); err != nil {
+		t.Fatal(err)
+	}
+	const ref, secret = "WL_TEST_HARNESS_ENCODED_REF", "u0026finished-24"
+	cfg := pluginConfigOf(t, bun, out)
+	cfg["harness_env"] = map[string]any{
+		"WL_TEST_SECRET": map[string]any{"value_env": ref, "is_secret": true},
+		"WL_TEST_NOTE":   map[string]any{"value": "harmless words &finished-24 and a tail"},
+	}
+	e := launchPlugin(t, cfg, ref+"="+secret)
+	res := e.mustRun(t, &plugin.RunRequest{Path: "f/env/echo", Args: []byte(`{"x":1}`), Trace: "full"})
+	for what, b := range map[string][]byte{"RunResult.warnings": res.GetWarnings(), "the full trace": res.GetTrace()} {
+		if !json.Valid(b) || strings.Contains(string(b), secret) || !strings.Contains(string(b), "harmless words ") || !strings.Contains(string(b), " and a tail") {
+			t.Errorf("%s %.300s; want valid JSON with the note's harmless words and no secret", what, b)
+		}
 	}
 }
 

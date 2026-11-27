@@ -74,14 +74,6 @@ func NewSecrets(values []string) *Secrets {
 	var docs []any
 	for _, v := range values {
 		forms(v)
-		// A value that a JSON encoder writes for some text, such as one
-		// with a line feed spelled \n, is that text's encoding: the text is
-		// masked too, so that what encodes it, as a warning's message in a
-		// JSON field, never spells the value.
-		var d string
-		if json.Unmarshal([]byte(`"`+v+`"`), &d) == nil && d != v {
-			forms(d)
-		}
 		if strings.Contains(v, "\n") {
 			for _, l := range strings.Split(v, "\n") {
 				forms(strings.TrimSuffix(l, "\r"))
@@ -181,6 +173,32 @@ func (s *Secrets) settle(text, out, marker string, plus bool) string {
 		return out
 	}
 	return settleText("", out, marker, func(t string) [][2]int { return s.spans(t, plus) })
+}
+
+// MaskEncoded returns text masked so that its JSON encoding, as Go's
+// json.Marshal writes it, which escapes HTML (a run's warnings and its
+// trace are sent so), holds no secret outside a mask: a secret that starts
+// or ends inside an escape, such as one that the escape \u0026 of an
+// ampersand begins, masks the characters that the escape spells (MaskJSON
+// on the encoded text, then decoded). It returns text itself when the
+// encoding holds none, and SecretMask when masking makes no progress or
+// reaches maskRounds.
+func (s *Secrets) MaskEncoded(text string) string {
+	if s == nil {
+		return text
+	}
+	for range maskRounds {
+		enc, err := json.Marshal(text)
+		if err != nil || s.MaskAfter("", string(enc)) == string(enc) {
+			return text
+		}
+		var d string
+		if err := json.Unmarshal(s.MaskJSON(enc), &d); err != nil || d == text {
+			return SecretMask
+		}
+		text = d
+	}
+	return SecretMask
 }
 
 // MaskErr returns err, or, when its text holds a secret outside a mask, an
