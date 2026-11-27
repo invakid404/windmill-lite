@@ -225,12 +225,13 @@ go test -race -p=1 -count=1 -timeout 45m -run '^(TestFlowSuiteHost|TestFlowSuite
   new entry. A pull request's run restores the newest entry of `main`, and
   never saves one
   ([restrictions for accessing a cache](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#restrictions-for-accessing-a-cache)).
-- **What the record job does.** `testbucket audit` fails when a planned
-  package reported no result, or a top-level test of a sliced package
-  reported no pass. Then `testbucket ingest`
-  folds the run's test times into the store, as a moving average; a package
-  that failed adds no time. Last, `testbucket whales` prints why each large
-  package is sliced or not.
+- **What the record job does.** `scripts/check-bucket-audit.py` runs
+  `testbucket audit`, which fails when a planned package reported no
+  result, or a top-level test of a sliced package reported no pass; the
+  script accepts a test that skipped ([Known limits](#known-limits)). Then
+  `testbucket ingest` folds the run's test times into the store, as a
+  moving average; a package that failed adds no time. Last,
+  `testbucket whales` prints why each large package is sliced or not.
 - **How long it stays.** GitHub removes an entry that no run used for 7
   days, and the oldest entries when the repository's caches pass 10 GB
   ([usage limits and eviction policy](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#usage-limits-and-eviction-policy)).
@@ -271,6 +272,23 @@ To refresh the seed of a scope:
    plan.
 5. Replace `.github/testbucket/<scope>.json` with `<new>.json`, and commit
    it.
+
+#### Known limits
+
+- **A skipped test fails testbucket's audit.** testbucket v0.2.2's audit
+  counts a top-level test of a sliced package as reported only when it
+  passes. In the buckets, three tests of `cmd/wltest` skip without
+  `WL_TEST_REDIS_URL`: `TestFixtureStoresAreApart`,
+  `TestFixtureStateOnRedis` and `TestStateTestClaim`, which the `Redis` job
+  runs.
+- **The rule of the record jobs.** So the record jobs run
+  [check-bucket-audit.py](../scripts/README.md#bucket-audit) instead of the
+  audit alone. When the audit fails, the script passes only if each
+  discrepancy is a top-level test that the run's events show skipping, and
+  lists each such test in the log and in the job summary. Any other
+  discrepancy fails it.
+- **When it can go.** The script can go once testbucket's audit counts a
+  top-level skip as reported.
 
 ### The static Linux engine
 
@@ -502,7 +520,7 @@ Neither check is required.
 | `Check that no retarget ledger remains` | `go run ./cmd/wltest ledger` |
 | `Go (<os>, bucket <n>)`, or `Report the native realms and the process groups` | The failed test, with the variables of [Run the tests locally](#run-the-tests-locally) set: `go test -race -timeout 45m -run '^<test>$' ./<package>`, or the bucket's command ([A bucket](#a-bucket)). A test of the flow suite can take longer than `go test`'s default limit of 10 minutes |
 | `Go plan (<os>)` | In a clean clone, on that OS, with testbucket v0.2.2: `go work init .`, then the `testbucket plan` command of the job's step in `.github/workflows/ci.yml`. A failed coverage gate names the package or test that no bucket holds |
-| `Go record (<os>)` | Runs on `main` only. Its log names the package or test that the audit missed ([The timing store](#the-timing-store)) |
+| `Go record (<os>)` | Runs on `main` only. Its log names the package or test that the audit missed ([The timing store](#the-timing-store)). With the job's artifacts and testbucket v0.2.2 on the `PATH`: `python3 scripts/check-bucket-audit.py --shard-plan <dir>/<scope>-shard-plan/shard-plan.json <dir>/<scope>-events-*/*.ndjson` |
 | `Test the expression packages in leak check` | `WL_QJS_LEAK_CHECK=1 go test -race -count=1 ./internal/expr/...` |
 | `Go (ubuntu-latest, QuickJS only, bucket <n>)` | `WL_TEST_QUICKJS_ONLY=1 go test -race -timeout 45m ./internal/expr ./cmd/wltest`, or the bucket's command with `WL_TEST_QUICKJS_ONLY=1`, with the variables of [Run the tests locally](#run-the-tests-locally) set |
 | `Go plan (ubuntu-latest, QuickJS only)` | The `testbucket plan` command of the job's step in `.github/workflows/ci.yml`, with testbucket v0.2.2 and the step's file of packages |

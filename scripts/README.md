@@ -4,7 +4,8 @@
 warnings only. The [release helper](#release-helper) serves the release
 workflow and the npm package's packaging test. The
 [Renovate auto-ack](#renovate-auto-ack) scripts serve the auto-ack
-workflow, which is active, and `redis-test-env.sh` the Redis CI job.
+workflow, which is active, `redis-test-env.sh` the Redis CI job, and
+`check-bucket-audit.py` the record jobs of the Go buckets.
 This README covers the scripts in this directory; none of them is part of
 windmill-lite itself.
 
@@ -20,7 +21,8 @@ their unit tests in the `Test repository scripts` step
 | `check-go-mod-diff.py` | Accepts a `go.mod` diff that only bumps versions | `memoria-auto-ack.sh` |
 | `check-workflow-yaml-diff.py` | Accepts a workflow diff that only bumps action pins | `memoria-auto-ack.sh` |
 | `redis-test-env.sh` | Starts the containers of the Redis store's tests: Redis, Sentinel, Toxiproxy and a second Redis for the fault tests alone, pinned by digest, and prints their variables (`up`); removes them with their anonymous volumes, and the network (`down`) | The Redis job of the [CI workflow](../.github/workflows/ci.yml); contributors on Linux with Docker ([wl/redisstore](../wl/redisstore/README.md#tests)) |
-| `test_check_docs.py`, `test_release.py`, `test_check_go_mod_diff.py` | The unit tests | CI's `Test repository scripts` step; contributors |
+| `check-bucket-audit.py` | Runs `testbucket audit` on a bucketed Go test run, and counts a top-level test that skipped as reported ([Bucket audit](#bucket-audit)) | The record jobs of the [CI workflow](../.github/workflows/ci.yml); contributors |
+| `test_check_docs.py`, `test_release.py`, `test_check_go_mod_diff.py`, `test_check_bucket_audit.py` | The unit tests | CI's `Test repository scripts` step; contributors |
 
 ## Documentation check
 
@@ -188,6 +190,32 @@ that is not safe to acknowledge is an expected outcome.
 - **Its tests.** `test_check_go_mod_diff.py` checks accepted requirement and
   concrete toolchain bumps, and rejected structural and toolchain-policy
   changes (`default`, `local`, bare language versions, custom suffixes).
+
+## Bucket audit
+
+`check-bucket-audit.py` checks a run of the Go buckets
+([docs/ci.md](../docs/ci.md#the-go-buckets)) against its shard plan. It
+runs `testbucket audit` first, unchanged, and prints its output.
+testbucket v0.2.2 counts a top-level test of a sliced package as reported
+only when it passes, so a test that skips fails its audit.
+
+| Option or argument | What it gives |
+|---|---|
+| `--shard-plan FILE` | The plan's shard plan |
+| `--testbucket PATH` | The `testbucket` executable; the default is `testbucket` on the `PATH` |
+| `EVENTS ...` | The buckets' `go test -json` files |
+
+- **Exit 0.** The audit passed. Or the audit failed, and each discrepancy is
+  "`<package>`: `<test>` was in a -run slice but never reported" for a
+  top-level test whose `skip` event in that package the events hold. The
+  script then lists each such test, and appends the list to the file of
+  `GITHUB_STEP_SUMMARY` when that variable is set.
+- **Exit 1.** Any other discrepancy, a test that reported nothing and did
+  not skip, an output line of the audit that the script does not know, or
+  a line of the events that is not a JSON object.
+- **Its tests.** `test_check_bucket_audit.py` runs the rule on audit
+  outputs of testbucket v0.2.2's form, and runs the script with a stand-in
+  for `testbucket`.
 
 ## Run the tests
 
