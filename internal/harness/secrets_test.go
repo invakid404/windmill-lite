@@ -239,14 +239,83 @@ func TestMaskJSONAtCrossesIntoData(t *testing.T) {
 }
 
 // TestMaskJSONRoundsBound checks the guard on the rounds that read masked
-// text again: lowered to one round, masking that needs a second, as when
-// a mask is written as null, masks the whole value instead.
+// text again, lowered to one round on masking that needs a second, as when
+// a mask is written as null: the guard masks the selected part whole, finds
+// that its mask meets the data beside it in a secret, writes it as null and
+// keeps the data. With a secret that the null meets the data in too, it
+// masks the whole value.
 func TestMaskJSONRoundsBound(t *testing.T) {
 	defer func(n int) { maskRounds = n }(maskRounds)
 	maskRounds = 1
-	sec := NewSecrets([]string{`{"error":"synthetic"}`, `",98765`})
-	if got := string(sec.MaskJSONAt([]byte(`[{"error":"synthetic"},98765]`), []string{"/0"})); got != fmt.Sprintf("%q", SecretMask) {
-		t.Errorf("masking past the bound: %s; want the whole value masked", got)
+	text := []byte(`[{"error":"synthetic"},98765]`)
+	for _, c := range []struct {
+		secrets []string
+		want    string
+	}{
+		{[]string{`{"error":"synthetic"}`, `",98765`}, `[null,98765]`},
+		{[]string{`{"error":"synthetic"}`, `",98765`, `null,98765`}, fmt.Sprintf("%q", SecretMask)},
+	} {
+		if got := string(NewSecrets(c.secrets).MaskJSONAt(text, []string{"/0"})); got != c.want {
+			t.Errorf("secrets %q, masking past the bound: %s; want %s", c.secrets, got, c.want)
+		}
+	}
+}
+
+// TestMaskJSONAtCarriesTheContainer checks a selected error two arrays
+// down whose null gives way to the array around it: that array, masked, is
+// read as a part from then on, so its own mask, which meets the number
+// beside it in a further secret, is written as null; the number and the
+// object after it stay.
+func TestMaskJSONAtCarriesTheContainer(t *testing.T) {
+	sec := NewSecrets([]string{`{"error":"synthetic"}`, `",98765`, `null,98765`, `",777`})
+	got := string(sec.MaskJSONAt([]byte(`[[{"error":"synthetic"},98765],777,{"ok":1}]`), []string{"/0/0"}))
+	if want := `[null,777,{"ok":1}]`; got != want {
+		t.Errorf("masking an error whose array gives way: %s; want %s", got, want)
+	}
+}
+
+// TestMaskJSONGuardKeepsOtherData checks a selected error that holds a
+// chain of 40 nested arrays, each of which a secret masks only once the
+// array inside it is masked, so that masking needs more rounds than the
+// guard allows: the guard masks the error whole and keeps the data beside
+// it, which no secret touches.
+func TestMaskJSONGuardKeepsOtherData(t *testing.T) {
+	const depth = 40
+	secrets := []string{"synthetic-root"}
+	chain := `"synthetic-root"`
+	for k := 1; k <= depth; k++ {
+		secrets = append(secrets, fmt.Sprintf(`",%d`, k))
+		chain = fmt.Sprintf("[%s,%d]", chain, k)
+	}
+	text := []byte(`[{"ok":"data"},{"error":` + chain + `}]`)
+	got := string(NewSecrets(secrets).MaskJSONAt(text, []string{"/1"}))
+	if want := `[{"ok":"data"},"[secret]"]`; got != want {
+		t.Errorf("masking a chain longer than the guard: %.80s; want %s", got, want)
+	}
+}
+
+// TestMaskJSONRepeatsInsideMasks checks that a string that repeats a secret
+// which the mask itself holds is masked with allocations in proportion to
+// its length, the rounds passing over the secret inside each of its masks:
+// eight times as many repeats allocate no more than twenty times as much.
+func TestMaskJSONRepeatsInsideMasks(t *testing.T) {
+	sec := NewSecrets([]string{"cre"})
+	measure := func(n int) uint64 {
+		text := []byte(`"` + strings.Repeat("cre ", n) + `"`)
+		want := `"` + strings.Repeat(SecretMask+" ", n) + `"`
+		var before, after runtime.MemStats
+		runtime.GC()
+		runtime.ReadMemStats(&before)
+		got := sec.MaskJSON(text)
+		runtime.ReadMemStats(&after)
+		if string(got) != want {
+			t.Fatalf("%d repeats: the output is not every secret masked once", n)
+		}
+		return after.TotalAlloc - before.TotalAlloc
+	}
+	small, large := measure(512), measure(4096)
+	if large > 20*small {
+		t.Errorf("masking 4096 repeats allocated %d bytes, %.1f times the %d bytes for 512; want at most 20 times", large, float64(large)/float64(small), small)
 	}
 }
 

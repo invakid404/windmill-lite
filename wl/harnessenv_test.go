@@ -21,6 +21,7 @@ import (
 
 	"github.com/invakid404/windmill-lite/internal/engine"
 	"github.com/invakid404/windmill-lite/internal/harness"
+	"github.com/invakid404/windmill-lite/internal/jsonval"
 	"github.com/invakid404/windmill-lite/internal/platform"
 )
 
@@ -1903,6 +1904,36 @@ func TestHarnessEnvResultErrors(t *testing.T) {
 		}
 		if tr := res.Trace; tr.Cached != c.cached || !slices.Equal(tr.ResultNested, c.nested) || !slices.Equal(tr.ResultErrors, c.errors) {
 			t.Errorf("%s: cached %v, ResultNested %q, ResultErrors %q; want cached %v, %q and %q", c.flow, tr.Cached, tr.ResultNested, tr.ResultErrors, c.cached, c.nested, c.errors)
+		}
+	}
+}
+
+// TestHarnessEnvSecretErrorPartsKeepData checks the masking that Run gives
+// a requested result (maskErrorParts, then the stored text) where masking an
+// error reaches past it. An error two arrays down, whose null gives way to
+// the array around it, which is then read as a part and written as null
+// too; and an error that holds a chain of 40 nested arrays, each of which a
+// secret masks only once the one inside it is masked, more than the rounds'
+// bound. Each keeps the data beside it, which no secret touches.
+func TestHarnessEnvSecretErrorPartsKeepData(t *testing.T) {
+	chain, chainSecrets := `"synthetic-root"`, []string{"synthetic-root"}
+	for k := 1; k <= 40; k++ {
+		chainSecrets = append(chainSecrets, fmt.Sprintf(`",%d`, k))
+		chain = fmt.Sprintf("[%s,%d]", chain, k)
+	}
+	for _, c := range []struct {
+		name, result string
+		secrets      []string
+		errors       []string
+		want         string
+	}{
+		{"a crossing null's array", `[[{"error":"synthetic"},98765],777,{"ok":1}]`, []string{`{"error":"synthetic"}`, `",98765`, `null,98765`, `",777`}, []string{"/0/0"}, `[null,777,{"ok":1}]`},
+		{"a chain past the bound", `[{"ok":"data"},{"error":` + chain + `}]`, chainSecrets, []string{"/1"}, `[{"ok":"data"},"[secret]"]`},
+	} {
+		tr := &Trace{ResultErrors: c.errors}
+		got := storedText(maskErrorParts(harness.NewSecrets(c.secrets), tr, jsonval.FromProducer([]byte(c.result))))
+		if string(got) != c.want {
+			t.Errorf("%s: the requested result is %.80s; want %s", c.name, got, c.want)
 		}
 	}
 }

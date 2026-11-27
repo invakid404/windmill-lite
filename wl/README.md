@@ -294,10 +294,7 @@ engine masks:
   those and the records that hooks get;
 - each of those JSON values also as stored, the text that payloads and the
   requested result give, which spells numbers in plain decimal and orders
-  keys its own way. The masked value is read again, as it is and as
-  stored, and masked again until a round changes nothing. An error masked
-  whole whose mask would join the data beside it in a secret is written as
-  `null`, or the object or array around both is masked;
+  keys its own way;
 - in those JSON values, their strings as decoded. An object or array
   equal to a secret that is a JSON document becomes `[secret]`, however
   each is written, numbers by exact value. So does the smallest part where
@@ -305,12 +302,25 @@ engine masks:
   That is a number, the part of a string or key under it, such as a quoted
   secret, or an object or array across its tokens.
 
+Masking can make a secret, as when a mask's quote meets the next token.
+So the masked value is read again, as it is and as stored, until a round
+changes nothing. An error masked whole whose mask would join the data
+beside it in a secret is written as `null`. If one still crosses its edge,
+the object or array around both is masked and read in turn.
+
+The rounds stop after 32. Each error, and each object or array that one
+gave way to, is then masked whole, or written as `null` if its mask would
+join a secret, and the rest is kept. Only if a secret shows still is the
+whole value masked.
+
 The mask is the string `[secret]`, so a secret that its text holds, such
 as `cre`, shows in every mask; masking does not go on for it.
 
 `Result.Result`, the result that the host asked for, keeps the value in
-its other parts, a skipped run's result included, and so do the steps'
-arguments and the hooks' answers as the engine runs them.
+its other parts, a skipped run's result included. It loses only an object
+or array that an error's mask gave way to, or, in the last case above, the
+whole value. The steps' arguments and the hooks' answers keep it as the
+engine runs them.
 
 A host's result cache (`Results`) stores no step result in which masking
 finds a secret, judged on the result itself as decoded, also a secret that

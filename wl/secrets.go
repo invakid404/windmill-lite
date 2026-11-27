@@ -196,7 +196,8 @@ func (c secretResults) Get(ctx context.Context, key string, now time.Time) ([]by
 // else each error inside it (Trace.ResultErrors), such as a tolerated
 // branch's error inside a branchall's array. The other parts, the host's
 // data, stay as they are, a copy of an error that a step returned among
-// them.
+// them, but for an object or array that an error's mask gives way to
+// (harness.Secrets.MaskJSON).
 func maskErrorParts(secrets *harness.Secrets, t *Trace, result jsonval.Value) jsonval.Value {
 	if secrets == nil || result.IsZero() {
 		return result
@@ -208,8 +209,9 @@ func maskErrorParts(secrets *harness.Secrets, t *Trace, result jsonval.Value) js
 	// Trace.Result is the result's stored text, or its producer text when the
 	// engine could not store it, and Run converts it with storedText at the
 	// end. MaskJSONAt reads it as it is and as stored, and masks again until a
-	// round changes nothing, so what the host gets is masked either way, but
-	// for a secret that the mask's own text holds (harness.Secrets).
+	// round changes nothing or a bound on the rounds masks the errors whole,
+	// so what the host gets is masked either way, but for a secret that the
+	// mask's own text holds (harness.Secrets.MaskJSON).
 	text := result.Producer()
 	masked := secrets.MaskJSONAt(text, pointers)
 	if bytes.Equal(masked, text) {
