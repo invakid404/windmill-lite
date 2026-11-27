@@ -238,10 +238,10 @@ go test -race -p=1 -count=1 -timeout 45m -run '^(TestFlowSuiteHost|TestFlowSuite
 
 #### The cold start
 
-A plan is cold when it has no recorded test time. The cache then has no
-entry for the scope and there is no seed, or the store was recorded under
-other flags than the plan's `-race -count=1`. A cold plan gives each package
-the same estimate, and slices nothing.
+A plan is cold when it has no usable store: the cache gives no entry, or
+one recorded under other flags than the plan's `-race -count=1`, and the
+scope has no seed. A cold plan gives each package the same estimate, and
+slices nothing.
 
 On a cold start, `cmd/wltest` runs whole in one bucket: about 29 minutes on
 `ubuntu-latest`, and about 54 on `macos-latest`. So a cold plan gives every
@@ -252,10 +252,17 @@ restore.
 
 #### The seed
 
-When the cache restores no entry, the plan reads the scope's seed,
-`.github/testbucket/<scope>.json`, if the file exists. A seed is a timing
-store made from the test events of one run. A plan that reads the seed and
-is still cold fails: testbucket ignores a store recorded under other flags.
+When the cache restores no entry, or an entry that leaves the plan cold,
+the plan reads the scope's seed, `.github/testbucket/<scope>.json`, if the
+file exists. A seed is a timing store made from the test events of one run.
+A plan that reads the seed and is still cold fails: testbucket ignores a
+store recorded under other flags.
+
+- **With the seeds committed,** no plan is cold, so every bucket keeps the
+  50-minute job timeout.
+- **After a change of the plans' flags,** the cache entries and the seeds
+  no longer match. Remove the seeds: the next run plans cold, with the
+  longer timeouts, and its events give the new seeds.
 
 To refresh the seed of a scope:
 
@@ -638,10 +645,11 @@ To run the tests, from the repository root, in one shell:
 5. Point `WL_WINDMILL_CLIENT` at the directory:
    `export WL_WINDMILL_CLIENT=/path/to/client`.
 6. Point `WL_NODE` at a Node executable: `export WL_NODE=/path/to/node`.
-7. Run `go test -race -timeout 90m ./...`. The flow suite in `cmd/wltest`
-   can take longer than `go test`'s default limit of 10 minutes: about 54
-   minutes on a macOS runner of CI, with one fixture at a time on its three
-   cores. CI runs the same tests, split into buckets
+7. Run `go test -race -timeout 90m ./...`. The tests of `cmd/wltest`, the
+   flow suite among them, can take longer than `go test`'s default limit of
+   10 minutes. The package takes about 54 minutes on a macOS runner of CI,
+   with one fixture at a time on its three cores. CI runs the same tests,
+   split into buckets
    ([The Go buckets](#the-go-buckets)).
 
 Each package's README gives its own tests and their variables, such as the

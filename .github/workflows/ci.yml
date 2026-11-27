@@ -34,16 +34,18 @@ jobs:
   #   time, after the setup that the tests need.
   # - On a push to main, a record job checks the run's test events against
   #   the plan, and folds their times into the scope's timing store: a cache
-  #   entry that later plans restore. A plan that restores no entry reads the
-  #   scope's seed, a store under .github/testbucket, when there is one.
+  #   entry that later plans restore. When the cache gives no entry, or one
+  #   that leaves the plan cold, a plan reads the scope's seed, a store under
+  #   .github/testbucket, when there is one.
   #
   # The plan sets the go test timeout and each bucket's job timeout from the
   # store: 45m and 50 minutes with recorded times. A cold plan, with no
   # usable store, knows no test time, slices nothing, and puts cmd/wltest
-  # whole into one bucket, which takes about 29 minutes on ubuntu-latest and
-  # 54 on macos-latest. Then every bucket gets the cold go test timeout of
-  # its plan job, and the bucket that holds cmd/wltest also the cold job
-  # timeout; the other buckets keep 50 minutes.
+  # whole into one bucket; the package alone takes about 29 minutes on
+  # ubuntu-latest and 54 on macos-latest. Then every bucket gets the cold go
+  # test timeout of its plan job, and the bucket that holds cmd/wltest also
+  # the cold job timeout; the other buckets keep 50 minutes. With the seeds
+  # committed, a plan is cold only when the seeds are removed.
   #
   # Branch protection requires five status checks: "Go (ubuntu-latest)" and
   # "Go (macos-latest)", the final jobs go-ubuntu and go-macos, which pass
@@ -117,10 +119,13 @@ jobs:
             testbucket-go-ubuntu-v1-
 
       - name: Plan the buckets
-        # The store comes from the cache, else from the seed. A plan that
-        # read the seed and is still cold fails: the seed's flags differ from
-        # the plan's, and testbucket ignores it. Each matrix entry gets a
-        # timeout_minutes, the job timeout of its bucket.
+        # The store comes from the cache. The seed replaces it when the cache
+        # holds no entry, or one that leaves the plan cold (recorded under
+        # other flags, or with no time of a live package). A plan that read
+        # the seed and is still cold fails: the seed's flags differ from the
+        # plan's, and testbucket ignores it. Only a plan with neither a
+        # usable entry nor a seed is cold, and gets the cold timeouts. Each
+        # matrix entry gets a timeout_minutes, the job timeout of its bucket.
         id: plan
         env:
           K: "6"
@@ -155,7 +160,14 @@ jobs:
           }
           cold=false timeout=$TIMEOUT
           plan "$timeout"
-          if [ "$(jq -r .summary.cold_start "$RUNNER_TEMP/shard-plan.json")" = true ]; then
+          is_cold() { [ "$(jq -r .summary.cold_start "$RUNNER_TEMP/shard-plan.json")" = true ]; }
+          if is_cold && [ "$from" = cache ] && [ -f "$SEED" ]; then
+            cp "$SEED" "$store"
+            from=seed source="the seed $SEED, since the cache entry $MATCHED_KEY leaves the plan cold"
+            echo "the cache entry is unusable; timing store: $source"
+            plan "$timeout"
+          fi
+          if is_cold; then
             if [ "$from" = seed ]; then
               cat "$RUNNER_TEMP/plan.txt" >&2
               echo "::error::the plan read the seed $SEED and is still cold: refresh the seed (docs/ci.md)"
@@ -705,10 +717,13 @@ jobs:
             testbucket-go-macos-v1-
 
       - name: Plan the buckets
-        # The store comes from the cache, else from the seed. A plan that
-        # read the seed and is still cold fails: the seed's flags differ from
-        # the plan's, and testbucket ignores it. Each matrix entry gets a
-        # timeout_minutes, the job timeout of its bucket.
+        # The store comes from the cache. The seed replaces it when the cache
+        # holds no entry, or one that leaves the plan cold (recorded under
+        # other flags, or with no time of a live package). A plan that read
+        # the seed and is still cold fails: the seed's flags differ from the
+        # plan's, and testbucket ignores it. Only a plan with neither a
+        # usable entry nor a seed is cold, and gets the cold timeouts. Each
+        # matrix entry gets a timeout_minutes, the job timeout of its bucket.
         id: plan
         env:
           K: "5"
@@ -743,7 +758,14 @@ jobs:
           }
           cold=false timeout=$TIMEOUT
           plan "$timeout"
-          if [ "$(jq -r .summary.cold_start "$RUNNER_TEMP/shard-plan.json")" = true ]; then
+          is_cold() { [ "$(jq -r .summary.cold_start "$RUNNER_TEMP/shard-plan.json")" = true ]; }
+          if is_cold && [ "$from" = cache ] && [ -f "$SEED" ]; then
+            cp "$SEED" "$store"
+            from=seed source="the seed $SEED, since the cache entry $MATCHED_KEY leaves the plan cold"
+            echo "the cache entry is unusable; timing store: $source"
+            plan "$timeout"
+          fi
+          if is_cold; then
             if [ "$from" = seed ]; then
               cat "$RUNNER_TEMP/plan.txt" >&2
               echo "::error::the plan read the seed $SEED and is still cold: refresh the seed (docs/ci.md)"
@@ -1259,10 +1281,13 @@ jobs:
             testbucket-go-quickjs-v1-
 
       - name: Plan the buckets
-        # The store comes from the cache, else from the seed. A plan that
-        # read the seed and is still cold fails: the seed's flags differ from
-        # the plan's, and testbucket ignores it. Each matrix entry gets a
-        # timeout_minutes, the job timeout of its bucket.
+        # The store comes from the cache. The seed replaces it when the cache
+        # holds no entry, or one that leaves the plan cold (recorded under
+        # other flags, or with no time of a live package). A plan that read
+        # the seed and is still cold fails: the seed's flags differ from the
+        # plan's, and testbucket ignores it. Only a plan with neither a
+        # usable entry nor a seed is cold, and gets the cold timeouts. Each
+        # matrix entry gets a timeout_minutes, the job timeout of its bucket.
         id: plan
         env:
           K: "3"
@@ -1302,7 +1327,14 @@ jobs:
           }
           cold=false timeout=$TIMEOUT
           plan "$timeout"
-          if [ "$(jq -r .summary.cold_start "$RUNNER_TEMP/shard-plan.json")" = true ]; then
+          is_cold() { [ "$(jq -r .summary.cold_start "$RUNNER_TEMP/shard-plan.json")" = true ]; }
+          if is_cold && [ "$from" = cache ] && [ -f "$SEED" ]; then
+            cp "$SEED" "$store"
+            from=seed source="the seed $SEED, since the cache entry $MATCHED_KEY leaves the plan cold"
+            echo "the cache entry is unusable; timing store: $source"
+            plan "$timeout"
+          fi
+          if is_cold; then
             if [ "$from" = seed ]; then
               cat "$RUNNER_TEMP/plan.txt" >&2
               echo "::error::the plan read the seed $SEED and is still cold: refresh the seed (docs/ci.md)"
