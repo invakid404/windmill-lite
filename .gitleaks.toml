@@ -58,8 +58,10 @@ regexes = ['''^synthetic-secret-7f1c2a$''']
 
 # The tests of the harness environment give secret entries synthetic values.
 # Where an identifier that names a secret takes such a value, the generic
-# rule reads the value as a key: as the rule captures it, a value with a
-# space or a slash ends there.
+# rule reads the value as a key. Each regex is the exact value that the rule
+# captures, which can be shorter than the fixture's string: the capture
+# stops at a space, so for "synthetic/url secret?&=4e2b" it is
+# synthetic/url, the slash included.
 [[allowlists]]
 description = "The synthetic secrets of wl's harness environment tests"
 targetRules = ["generic-api-key"]
