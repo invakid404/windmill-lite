@@ -50,27 +50,38 @@ func maskTrace(secrets *harness.Secrets, t *Trace) *Trace {
 			c.PlatformCalls[i] = p
 		}
 	}
-	// Every other text in it, the run's id, the bundle's, each step's and
-	// call's site, path, job and route, the cancellation's cause, is the
-	// host's or the bundle's, and is masked too.
-	return maskStrings(secrets, reflect.ValueOf(&c)).Interface().(*Trace)
+	// Every other text in it, such as the run's id, each step's and call's
+	// job, path and route, is masked too where it holds a secret. The
+	// protocol's fixed words stay as they are, so a status keeps one of
+	// its values: each value of a named string type (a status, a module
+	// state, an origin, a kind), the cancellation's cause and the
+	// deviations' codes.
+	m := maskStrings(secrets, reflect.ValueOf(&c)).Interface().(*Trace)
+	m.CancelCause, m.Deviations = t.CancelCause, t.Deviations
+	return m
 }
 
-// jsonValueType and timeType are kept whole by maskStrings.
+// jsonValueType and timeType are kept whole by maskStrings, which masks
+// only strings of stringType.
 var (
 	jsonValueType = reflect.TypeOf(jsonval.Value{})
 	timeType      = reflect.TypeOf(time.Time{})
+	stringType    = reflect.TypeOf("")
 )
 
 // maskStrings returns a copy of v in which every string that v holds, in
 // its fields, slices, arrays, maps and pointers, is masked
 // (harness.Secrets.MaskAfter with no prefix, which leaves a secret only
-// inside a mask). What it shares with v it does not change. A JSON value
-// (maskValue), an error (maskError), a time and an unexported field are
-// kept as they are.
+// inside a mask). What it shares with v it does not change. A value of a
+// named string type, the engine's fixed vocabulary such as a status, a
+// JSON value (maskValue), an error (maskError), a time and an unexported
+// field are kept as they are.
 func maskStrings(secrets *harness.Secrets, v reflect.Value) reflect.Value {
 	switch v.Kind() {
 	case reflect.String:
+		if v.Type() != stringType {
+			return v
+		}
 		out := reflect.New(v.Type()).Elem()
 		out.SetString(secrets.MaskAfter("", v.String()))
 		return out

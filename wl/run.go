@@ -325,12 +325,13 @@ type Result struct {
 // arguments that are not a JSON object or that cannot be stored.
 func (rt *Runtime) Run(ctx context.Context, path string, args json.RawMessage, opts RunOptions) (res *Result, err error) {
 	// The error can quote a setting or what a harness process wrote: masked
-	// as a whole. The result masks its own parts; its id and its cause,
-	// the host's, are masked here.
+	// as a whole. The result masks its own parts; its id, the host's, is
+	// masked here. Its status and its cancellation's cause are the
+	// protocol's fixed words, and stay as they are.
 	defer func() {
 		err = maskError(rt.secrets, err)
 		if res != nil && rt.secrets != nil {
-			res.ID, res.CancelCause = rt.secrets.MaskAfter("", res.ID), rt.secrets.MaskAfter("", res.CancelCause)
+			res.ID = rt.secrets.MaskAfter("", res.ID)
 		}
 	}()
 	// The engine's own adapters give a flow run host mode's static

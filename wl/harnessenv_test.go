@@ -2274,6 +2274,44 @@ func TestHarnessEnvSecretRunID(t *testing.T) {
 	}
 }
 
+// TestHarnessEnvSecretStatusWord checks secret entries whose values are
+// words of the protocol, success and canceled: a successful run's status,
+// in the result, its trace and the trace as the Runner serializes it, stays
+// "success", and a run canceled before it starts keeps "canceled" as its
+// status and cause, in the result and the trace. A status keeps one of its
+// values, and the two agree.
+func TestHarnessEnvSecretStatusWord(t *testing.T) {
+	bun, out, runtimeDir := harnessEnvBundle(t)
+	rt, err := Open(out, Options{Bun: bun, HarnessRuntime: runtimeDir, HarnessEnv: map[string]EnvValue{
+		"WL_TEST_SUCCESS":  {Value: "success", Secret: true},
+		"WL_TEST_CANCELED": {Value: "canceled", Secret: true},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	res, err := rt.Run(context.Background(), "f/t/env", json.RawMessage(`{"names":[],"hashed":[]}`), RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	serialized, err := json.Marshal(traceJSON(res.Trace))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != StatusSuccess || string(res.Trace.Status) != "success" || !strings.Contains(string(serialized), `"status":"success"`) {
+		t.Errorf("a successful run: status %q, trace status %q, serialized %.120s; want success in each", res.Status, res.Trace.Status, serialized)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	res, err = rt.Run(ctx, "f/t/env", json.RawMessage(`{"names":[],"hashed":[]}`), RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != StatusCanceled || string(res.Trace.Status) != "canceled" || res.CancelCause != "canceled" || res.Trace.CancelCause != "canceled" {
+		t.Errorf("a canceled run: status %q, trace status %q, cause %q, trace cause %q; want canceled in each", res.Status, res.Trace.Status, res.CancelCause, res.Trace.CancelCause)
+	}
+}
+
 // recordingCache is a result cache that remembers the last entry stored.
 type recordingCache struct {
 	ResultCache

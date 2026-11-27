@@ -478,6 +478,22 @@ func TestPluginUnknownMethodUnchanged(t *testing.T) {
 	}
 }
 
+// TestPluginStatusKeepsItsWord checks a secret entry whose value is a word
+// of the protocol, success: a successful run's RunResult.status, sent
+// through the real command, stays "success", one of its values.
+func TestPluginStatusKeepsItsWord(t *testing.T) {
+	bun, out := pluginBundle(t)
+	cfg := pluginConfigOf(t, bun, out)
+	cfg["harness_env"] = map[string]any{"WL_TEST_WORD": map[string]any{"value_env": "WL_TEST_STATUS_WORD_REF", "is_secret": true}}
+	d := startDirect(t, cfg, true, "WL_TEST_STATUS_WORD_REF=success")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	r, err := d.runner.Run(ctx, &plugin.RunRequest{Path: "f/plugin/echo", Args: []byte(`{"x":1}`)})
+	if err != nil || r.GetStatus() != "success" {
+		t.Errorf("a successful run's status: %q, %v; want success", r.GetStatus(), err)
+	}
+}
+
 // runToExit runs the plugin command with cfg and env, whether or not it
 // completes go-plugin's handshake, and returns its exit status and its
 // standard error once it exits.

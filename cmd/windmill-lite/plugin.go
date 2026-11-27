@@ -1139,9 +1139,19 @@ func maskResponse(s *harness.Secrets, resp any) any {
 	return c
 }
 
+// fixedWords are the response fields whose values the protocol fixes, such
+// as a run's status: maskProto keeps them, so they keep one of their
+// values.
+var fixedWords = map[protoreflect.FullName]bool{
+	"windmill_lite.v1.RunResult.status":       true,
+	"windmill_lite.v1.RunResult.cancel_cause": true,
+	"windmill_lite.v1.GetRunResponse.state":   true,
+	"windmill_lite.v1.BuildInfo.module_state": true,
+}
+
 // maskProto masks, in m, every string field, in its lists and maps and in
 // its nested messages, a map's keys included, as a whole
-// (harness.Secrets.MaskAfter with no prefix).
+// (harness.Secrets.MaskAfter with no prefix), but for fixedWords.
 func maskProto(s *harness.Secrets, m protoreflect.Message) {
 	mask := func(fd protoreflect.FieldDescriptor, v protoreflect.Value) protoreflect.Value {
 		switch fd.Kind() {
@@ -1158,6 +1168,9 @@ func maskProto(s *harness.Secrets, m protoreflect.Message) {
 		return true
 	})
 	for _, fd := range fields {
+		if fixedWords[fd.FullName()] {
+			continue
+		}
 		v := m.Get(fd)
 		switch {
 		case fd.IsList():

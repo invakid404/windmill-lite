@@ -499,10 +499,14 @@ start, naming the provider.
   value from its first read, by any entry that names its reference. A
   refusal while the values resolve masks those read before it.
 - **What the server sends.** The message of each gRPC status that the
-  engine's server returns is masked whole, a method that it does not
-  have included. So is each string field of each response, such as a
-  run's id or the build information's labels; a run's result and trace,
-  JSON bytes, are masked by the runtime.
+  engine's server returns is masked whole, and, with a secret entry, so
+  is that of a method that it does not have. So is each string field of
+  each response, such as a run's id, but for the fields whose values the
+  protocol fixes, such as a run's status. A run's result and trace, JSON
+  bytes, are masked by the runtime.
+- **Its limits.** Those that
+  [wl](../../wl/README.md#the-harness-environment) states apply here
+  too, the replies that grpc-go writes itself among them.
 - **The launch environment.** `wl/plugin` starts the engine with a
   literal environment, so the host puts exactly the named variables there.
 

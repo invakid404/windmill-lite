@@ -262,13 +262,25 @@ what it passes on besides the host's data in a run's requested result. It
 masks the value also as a Go quoted string (`%q`) and `JSON.stringify`
 write it.
 
-The engine masks every text it emits and every error it returns in full,
-in its final form. That is a trace, every text in it included, such as
-the run's id, a result and its id, a warning, a diagnostics line, and the
-errors of `Open`, `Run` and `Close`. Text that a caller adds around a
-returned error is the caller's to mask; the plugin command masks its own
-final output
+A secret's value never leaves the engine through data that a harness
+process produced, or through the engine's own messages: its errors, its
+diagnostics, its warnings, and the data fields of results and traces.
+Each is masked in full, in its final form, the errors of `Open`, `Run`
+and `Close` included. Text that a caller adds around a returned error is
+the caller's to mask; the plugin command masks its own final output
 ([Secrets by reference](../cmd/windmill-lite/README.md#secrets-by-reference)).
+
+The engine does not promise to alter, and a host that marks entries as
+secret should choose them knowing it:
+
+- identity that the host supplies and the engine echoes back: module
+  ids, site paths, contract paths, run ids and labels. Where masking
+  does no harm, such as a run's id, it is masked all the same;
+- the protocol's fixed words and structure: status values, which keep
+  one of their values, field names, and the punctuation between texts
+  masked apart;
+- the replies that grpc-go writes itself, which echo only the caller's
+  own request back to that caller.
 
 A refusal while the entries resolve masks the secret values known by
 then: literal ones, and each reference that a secret entry names, however
