@@ -298,6 +298,11 @@ A `RunResult` holds:
   answers a gRPC error, as the list below gives, with a detail
   (`google.rpc.ErrorInfo`, domain `windmill-lite`, reason
   `RUN_NOT_STARTED`) that marks the refusal as the engine's own.
+- **The refused field.** A refusal of the request's own checks that names
+  one field also names it in the detail's metadata, under the key `field`,
+  such as `hooks.broker_id`. So a host acts on the field without parsing
+  the message, whose text may change. The key is additive: an older host
+  ignores it, and an older engine sends no metadata.
 - **An unknown outcome.** Any other error, such as a lost connection or a
   transport's `UNAVAILABLE`, does not say whether the run started, so the
   host treats the run as one that may have mutated.
@@ -540,6 +545,19 @@ A hook takes the cheapest of three routes that serves it:
   opens a new listener. A listener that the client lets go is stopped, and
   the engine told with `ReleaseHooks`, sent again until it has it, answers
   `Unimplemented`, or the generation or connection ends.
+- **A dropped broker id.** The client counts the engine's connections at
+  its own end, where the end of one can arrive late, so a run can still
+  name an id whose connection the engine has closed. The engine refuses
+  such an id at once, naming `hooks.broker_id` ([the refused field](#the-runner-service)),
+  instead of waiting out go-plugin's 5 seconds for an address that never
+  comes. It remembers each id whose dial succeeded until `ReleaseHooks`
+  names it.
+- **One more try.** At that refusal the client replaces its listener and
+  sends the run once more, with a new id and token: the run did not
+  start, so sending it again is safe. A second such refusal is returned,
+  so a fault that persists does not loop. The client's own count stays
+  the first check, and the refusal covers its lag and a connection that
+  the engine closes while a request is in flight.
 - **Providers on the broker.** A named provider that the configuration
   marks `broker` is answered by the hooks service of the run that reaches
   it, and a run that serves none latches there. So `wl.Open` still finds

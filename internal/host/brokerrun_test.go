@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -1390,76 +1391,184 @@ func (b *brokerHooks) connStates() []connectivity.State {
 	return out
 }
 
-// TestBrokerTransientFailure checks connections to the host's listener
-// that fail while the listener still serves: the test's dialer drops the
-// engine's connection and fails the dials that follow until the test lets
-// them through. A run with hooks in flight keeps the connection, which
-// connects again, so the run's onRunEnd reaches the host. With no run in
-// flight, the engine closes a connection that cannot connect, and the next
-// run with hooks on the same Client opens a new broker connection and is
-// served. The same holds while the Client still holds the registration of
-// a run whose release call was lost: the next run is served on a new
-// broker id before that registration is reconciled. Last, Close during a
-// failure, with a run held in flight: the engine hears of it on the Runner
-// connection and closes its side before the run ends, and the run's later
-// onRunEnd gets no answer.
-func TestBrokerTransientFailure(t *testing.T) {
+// hostTransport is a fake transport of the engine's connections to the
+// host's hooks listeners, as the dialer of the engine's dials. Each dial
+// connects to the host's newest listener, never the connection's own
+// socket, and pipes the engine's side through the test. cut closes the
+// engine's side of every connection and fails the dials that follow until
+// heal, while the host's side stays open: the Client still counts the
+// connection until it stops that listener's server itself. So the engine
+// can drop a connection that the Client still counts, as when the end of
+// a connection reaches the Client late. The test's end closes what is
+// left.
+type hostTransport struct {
+	dir    string
+	broken atomic.Bool
+
+	mu    sync.Mutex
+	main  string
+	links []*hostLink
+}
+
+// hostLink is one connection through a hostTransport: engine is the
+// engine's end of the pipe, near the test's, and host the connection to
+// the host's listener. hostEnded closes once the host has closed host.
+type hostLink struct {
+	engine, near, host net.Conn
+	hostEnded          chan struct{}
+}
+
+// newHostTransport builds the broker tests' bundle, then makes the
+// directory of go-plugin's sockets, short enough for a socket path (macOS
+// refuses 104 bytes or more), and sets TMPDIR to it: go-plugin makes each
+// listener's socket in os.TempDir.
+func newHostTransport(t *testing.T) *hostTransport {
+	t.Helper()
 	brokerBundle(t)
 	dir, err := os.MkdirTemp("", "wlb")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
-	// go-plugin makes each listener's socket in os.TempDir.
 	t.Setenv("TMPDIR", dir)
-	var mainSocket atomic.Value
-	var broken atomic.Bool
-	var mu sync.Mutex
-	var live []net.Conn
-	dial := func(ctx context.Context, _ string) (net.Conn, error) {
-		if broken.Load() {
-			return nil, errors.New("the test's transport failed the dial")
+	h := &hostTransport{dir: dir}
+	t.Cleanup(h.close)
+	return h
+}
+
+// options are the engine's dial options that make h its transport.
+func (h *hostTransport) options() []grpc.DialOption {
+	return []grpc.DialOption{grpc.WithContextDialer(h.dial)}
+}
+
+// serving records the connection's own socket, the one socket before any
+// run with hooks.
+func (h *hostTransport) serving(t *testing.T) {
+	t.Helper()
+	socks, err := socketsIn(h.dir)
+	if err != nil || len(socks) != 1 {
+		t.Fatalf("the sockets before any run: %v, %v; want the connection's own", socks, err)
+	}
+	h.mu.Lock()
+	h.main = socks[0]
+	h.mu.Unlock()
+}
+
+func (h *hostTransport) dial(ctx context.Context, _ string) (net.Conn, error) {
+	if h.broken.Load() {
+		return nil, errors.New("the test's transport failed the dial")
+	}
+	socks, err := socketsIn(h.dir)
+	if err != nil {
+		return nil, err
+	}
+	h.mu.Lock()
+	main := h.main
+	h.mu.Unlock()
+	for _, s := range socks {
+		if s == main {
+			continue
 		}
-		socks, err := socketsIn(dir)
+		host, err := (&net.Dialer{}).DialContext(ctx, "unix", s)
 		if err != nil {
 			return nil, err
 		}
-		for _, s := range socks {
-			if s == mainSocket.Load() {
-				continue
+		engine, near := net.Pipe()
+		l := &hostLink{engine: engine, near: near, host: host, hostEnded: make(chan struct{})}
+		h.mu.Lock()
+		h.links = append(h.links, l)
+		h.mu.Unlock()
+		go func() { _, _ = io.Copy(host, near) }()
+		go func() {
+			// Once cut, the host's bytes are dropped, and only the
+			// host's own close ends the link.
+			buf := make([]byte, 32<<10)
+			for {
+				n, err := host.Read(buf)
+				if n > 0 {
+					_, _ = near.Write(buf[:n])
+				}
+				if err != nil {
+					break
+				}
 			}
-			c, err := (&net.Dialer{}).DialContext(ctx, "unix", s)
-			if err == nil {
-				mu.Lock()
-				live = append(live, c)
-				mu.Unlock()
-			}
-			return c, err
-		}
-		return nil, errors.New("no listener of the host's hooks")
+			close(l.hostEnded)
+			near.Close()
+		}()
+		return engine, nil
 	}
-	fail := func() {
-		broken.Store(true)
-		mu.Lock()
-		defer mu.Unlock()
-		for _, c := range live {
-			c.Close()
-		}
-		live = nil
+	return nil, errors.New("no listener of the host's hooks")
+}
+
+// cut closes the engine's side of every connection and fails the dials
+// that follow until heal. The host's side of each stays open.
+func (h *hostTransport) cut() {
+	h.broken.Store(true)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, l := range h.links {
+		l.engine.Close()
+		l.near.Close()
 	}
+}
+
+// heal lets the dials through again.
+func (h *hostTransport) heal() { h.broken.Store(false) }
+
+// linked returns the connections made so far.
+func (h *hostTransport) linked() []*hostLink {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]*hostLink(nil), h.links...)
+}
+
+// hostClosed reports whether the host has closed each of links.
+func hostClosed(links []*hostLink) bool {
+	for _, l := range links {
+		select {
+		case <-l.hostEnded:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// close closes the host's side of every connection.
+func (h *hostTransport) close() {
+	for _, l := range h.linked() {
+		l.host.Close()
+		l.near.Close()
+		l.engine.Close()
+	}
+}
+
+// TestBrokerTransientFailure checks connections to the host's listener
+// that fail while the listener still serves. The test's transport cuts
+// the engine's side of the connection, as hostTransport does, and fails
+// the dials that follow until the test lets them through; the host's side
+// stays open, so the Client still counts each cut connection. A run with
+// hooks in flight keeps the connection, which connects again, so the
+// run's onRunEnd reaches the host. With no run in flight, the engine
+// closes a connection that cannot connect, and the next run with hooks on
+// the same Client, which still names that broker id, is served on a new
+// one. The same holds while the Client still holds the registration of a
+// run whose release call was lost: the next run is served on a new broker
+// id before that registration is reconciled. Last, Close during a
+// failure, with a run held in flight: the engine hears of it on the
+// Runner connection and closes its side before the run ends, and the
+// run's later onRunEnd gets no answer.
+func TestBrokerTransientFailure(t *testing.T) {
+	transport := newHostTransport(t)
 	hooks := &tapHooks{drop: firstReleaseOf("lost")}
 	var tap *tapRunner
 	e := startEngine(t, engineConfig{
 		lookupAfter: time.Hour,
-		dialOptions: []grpc.DialOption{grpc.WithContextDialer(dial)},
+		dialOptions: transport.options(),
 		runner:      func(s plugin.RunnerServer) plugin.RunnerServer { tap = newTap(s); return tap },
 		hooks:       func(c plugin.HostHooksClient) plugin.HostHooksClient { hooks.HostHooksClient = c; return hooks },
 	})
-	socks, err := socketsIn(dir)
-	if err != nil || len(socks) != 1 {
-		t.Fatalf("the sockets before any run: %v, %v; want the connection's own", socks, err)
-	}
-	mainSocket.Store(socks[0])
+	transport.serving(t)
 	inState := func(want connectivity.State) func() bool {
 		return func() bool {
 			for _, s := range e.srv.hooks.connStates() {
@@ -1478,9 +1587,9 @@ func TestBrokerTransientFailure(t *testing.T) {
 	})
 	waitStarted(t, hold)
 	waitFor(t, "the engine's connection to the host", inState(connectivity.Ready))
-	fail()
+	transport.cut()
 	waitFor(t, "the connection failing", inState(connectivity.TransientFailure))
-	broken.Store(false)
+	transport.heal()
 	waitFor(t, "the run's connection back", inState(connectivity.Ready))
 	letGo()
 	if o := within(t, "the run in flight", inFlight); o.err != nil || o.res.GetStatus() != "success" || strings.Contains(string(o.res.GetWarnings()), "on_run_end") {
@@ -1495,15 +1604,18 @@ func TestBrokerTransientFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fail()
+	transport.cut()
 	waitFor(t, "the engine forgets and closes the connection that cannot connect", func() bool {
 		return e.srv.hooks.dialled() == 0 && bc.conn.GetState() == connectivity.Shutdown
 	})
-	broken.Store(false)
+	transport.heal()
 	var next recorder
 	res, err := e.client.RunWithHooks(context.Background(), one("next"), []byte(`{"on_run_end": true}`), next.handle)
 	if err != nil || res.GetStatus() != "success" {
 		t.Fatalf("the next run on the same Client: %v, %v", res, err)
+	}
+	if tap.broker("next") == tap.broker("held") {
+		t.Errorf("the next run named the broker id %d, whose connection the engine closed", tap.broker("next"))
 	}
 	if got := set(next.heard()); len(got) != 1 || got[0] != "on_run_end@" {
 		t.Errorf("the next run's host heard %v, want its onRunEnd", got)
@@ -1516,9 +1628,9 @@ func TestBrokerTransientFailure(t *testing.T) {
 	if n := e.client.Registrations(); n != 1 {
 		t.Fatalf("%d registrations after the lost release, want its run's", n)
 	}
-	fail()
+	transport.cut()
 	waitFor(t, "the engine closes the connection that cannot connect", func() bool { return e.srv.hooks.dialled() == 0 })
-	broken.Store(false)
+	transport.heal()
 	var fresh recorder
 	if res, err := e.client.RunWithHooks(context.Background(), one("fresh"), []byte(`{"on_run_end": true}`), fresh.handle); err != nil || res.GetStatus() != "success" {
 		t.Fatalf("a run while the lost release's registration is held: %v, %v", res, err)
@@ -1544,7 +1656,7 @@ func TestBrokerTransientFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fail()
+	transport.cut()
 	waitFor(t, "the closing run's connection failing", inState(connectivity.TransientFailure))
 	e.client.Close()
 	waitFor(t, "the engine closes the closed Client's connection, its run still held", func() bool {
@@ -1553,13 +1665,217 @@ func TestBrokerTransientFailure(t *testing.T) {
 	if n := e.srv.hooks.heldTokens(); n != 1 {
 		t.Errorf("the engine holds %d tokens, want the closing run's", n)
 	}
-	broken.Store(false)
+	transport.heal()
 	letGo2()
 	if o := within(t, "the closing run", inFlight2); o.err != nil || o.res.GetStatus() != "success" || !noWarnings(o.res.GetWarnings()) {
 		t.Errorf("the run held through Close: %v, %v; want success without warnings", o.res, o.err)
 	}
 	if got := closing.heard(); len(got) != 0 {
 		t.Errorf("the closed Client's host heard %v", got)
+	}
+}
+
+// refusedField returns the field that the RUN_NOT_STARTED detail of err
+// names in its metadata, "" for none.
+func refusedField(err error) string {
+	for _, d := range status.Convert(err).Details() {
+		if info, ok := d.(*errdetails.ErrorInfo); ok && info.GetDomain() == plugin.ErrorDomain && info.GetReason() == plugin.ReasonRunNotStarted {
+			return info.GetMetadata()[plugin.MetadataField]
+		}
+	}
+	return ""
+}
+
+// dialLog records the broker ids that the engine's dials start with, as
+// its dialing hook.
+type dialLog struct {
+	mu  sync.Mutex
+	ids []uint32
+}
+
+func (d *dialLog) dialing(id uint32) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.ids = append(d.ids, id)
+}
+
+// of is how many dials of the broker id started.
+func (d *dialLog) of(id uint32) int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	n := 0
+	for _, i := range d.ids {
+		if i == id {
+			n++
+		}
+	}
+	return n
+}
+
+// TestBrokerStaleBrokerID checks a run with hooks whose broker id names a
+// connection that the engine has dropped while the Client still counts
+// it, as when the end of that connection reaches the Client late. The
+// test's transport (hostTransport) cuts only the engine's side of the
+// connection, so the Client's server sees no end. With no run in flight
+// the engine closes that connection, and the next run on the same Client
+// still names its broker id. The engine refuses that request at once,
+// with INVALID_ARGUMENT and the field hooks.broker_id in the refusal's
+// metadata, and starts no dial of the id, which go-plugin would answer
+// only after its 5 seconds. The Client stops serving that broker id and
+// sends the run once more, with a new broker id and a new token, and the
+// run is served: one call to RunWithHooks, two requests.
+func TestBrokerStaleBrokerID(t *testing.T) {
+	transport := newHostTransport(t)
+	type request struct {
+		broker uint32
+		token  string
+		err    error
+	}
+	var mu sync.Mutex
+	var requests []request
+	var tap *tapRunner
+	e := startEngine(t, engineConfig{
+		lookupAfter: time.Hour,
+		dialOptions: transport.options(),
+		runner: func(s plugin.RunnerServer) plugin.RunnerServer {
+			tap = newTap(s)
+			tap.run = func(ctx context.Context, req *plugin.RunRequest) (*plugin.RunResult, error, bool) {
+				if req.GetId() != "next" {
+					return nil, nil, false
+				}
+				res, err := s.Run(ctx, req)
+				mu.Lock()
+				requests = append(requests, request{req.GetHooks().GetBrokerId(), req.GetHooks().GetToken(), err})
+				mu.Unlock()
+				return res, err, true
+			}
+			return tap
+		},
+	})
+	transport.serving(t)
+	var dials dialLog
+	e.srv.hooks.dialing = dials.dialing
+
+	var rec recorder
+	if res, err := e.client.RunWithHooks(context.Background(), one("first"), []byte(`{"on_run_end": true}`), rec.handle); err != nil || res.GetStatus() != "success" {
+		t.Fatalf("the first run: %v, %v", res, err)
+	}
+	used := tap.broker("first")
+	waitFor(t, "the first run's token let go", func() bool { return e.srv.hooks.heldTokens() == 0 })
+	cut := transport.linked()
+	transport.cut()
+	waitFor(t, "the engine closes the connection that cannot connect", func() bool { return e.srv.hooks.dialled() == 0 })
+	transport.heal()
+	if hostClosed(cut) {
+		t.Fatal("the host's side of the cut connection closed: the race is not forced")
+	}
+
+	var next recorder
+	res, err := e.client.RunWithHooks(context.Background(), one("next"), []byte(`{"on_run_end": true}`), next.handle)
+	if err != nil || res.GetStatus() != "success" {
+		t.Fatalf("the next run on the same Client: %v, %v; want it served on a new broker id", res, err)
+	}
+	if got := set(next.heard()); len(got) != 1 || got[0] != "on_run_end@" {
+		t.Errorf("the next run's host heard %v, want its onRunEnd", got)
+	}
+	mu.Lock()
+	got := append([]request(nil), requests...)
+	mu.Unlock()
+	if len(got) != 2 {
+		t.Fatalf("the next run's requests: %+v; want the refused one and the one sent again", got)
+	}
+	refused, served := got[0], got[1]
+	if refused.broker != used || status.Code(refused.err) != codes.InvalidArgument || !hasNotStarted(refused.err) || refusedField(refused.err) != "hooks.broker_id" {
+		t.Errorf("the first request: broker id %d, %v; want broker id %d refused with INVALID_ARGUMENT naming hooks.broker_id", refused.broker, refused.err, used)
+	}
+	if served.err != nil || served.broker == used || served.token == refused.token {
+		t.Errorf("the request sent again: broker id %d, token %q, %v; want a new broker id and token, served", served.broker, served.token, served.err)
+	}
+	if n := dials.of(used); n != 1 {
+		t.Errorf("the engine started %d dials of the used broker id %d, want its first alone", n, used)
+	}
+	if n := dials.of(served.broker); n != 1 {
+		t.Errorf("the engine started %d dials of the new broker id %d, want one", n, served.broker)
+	}
+	waitFor(t, "the Client stops serving the refused broker id", func() bool { return hostClosed(cut) })
+	waitFor(t, "the next run's release", func() bool { return e.client.Registrations() == 0 })
+	if n := e.srv.hooks.dialled(); n != 1 {
+		t.Errorf("the engine holds %d broker connections, want the new broker id's", n)
+	}
+}
+
+// TestBrokerUsedIDRefused checks the engine's memory of the broker ids
+// whose dial succeeded. While an id's connection lives, a new admission
+// that names it shares that connection, with no dial. Once the engine has
+// closed that connection, which could not connect, an admission that
+// names the id is refused at once, with INVALID_ARGUMENT, the
+// RUN_NOT_STARTED detail and the field hooks.broker_id in its metadata,
+// and no dial starts. The host's release (ReleaseHooks) makes the engine
+// forget the id, so a later admission dials it again; an id whose dial
+// failed is not remembered either. The dials after the release come from
+// the test's dialBroker, which fails at once.
+func TestBrokerUsedIDRefused(t *testing.T) {
+	transport := newHostTransport(t)
+	var tap *tapRunner
+	e := startEngine(t, engineConfig{
+		lookupAfter: time.Hour,
+		dialOptions: transport.options(),
+		runner:      func(s plugin.RunnerServer) plugin.RunnerServer { tap = newTap(s); return tap },
+	})
+	transport.serving(t)
+	var dials dialLog
+	e.srv.hooks.dialing = dials.dialing
+	admit := func(id uint32, token string) (*plugin.RunResult, error) {
+		return e.gate.Runner().Run(context.Background(), &plugin.RunRequest{Id: token, Path: "f/broker/one", Hooks: &plugin.Hooks{BrokerId: id, Token: token, Declaration: []byte(interceptOne)}})
+	}
+
+	var rec recorder
+	if res, err := e.client.RunWithHooks(context.Background(), one("first"), []byte(`{"on_run_end": true}`), rec.handle); err != nil || res.GetStatus() != "success" {
+		t.Fatalf("the first run: %v, %v", res, err)
+	}
+	id := tap.broker("first")
+	if res, err := admit(id, "live"); err != nil || res.GetStatus() != "success" {
+		t.Errorf("an admission that names the live broker id: %v, %v; want success", res, err)
+	}
+	if n := dials.of(id); n != 1 {
+		t.Errorf("%d dials of the live broker id, want the first run's alone", n)
+	}
+	waitFor(t, "the runs' tokens let go", func() bool { return e.srv.hooks.heldTokens() == 0 })
+	transport.cut()
+	waitFor(t, "the engine closes the connection that cannot connect", func() bool { return e.srv.hooks.dialled() == 0 })
+	transport.heal()
+
+	_, err := admit(id, "used")
+	if status.Code(err) != codes.InvalidArgument || !hasNotStarted(err) || refusedField(err) != "hooks.broker_id" {
+		t.Errorf("an admission that names the used broker id: %v; want INVALID_ARGUMENT with RUN_NOT_STARTED, naming hooks.broker_id", err)
+	}
+	if n := dials.of(id); n != 1 {
+		t.Errorf("%d dials of the used broker id, want none after the first", n)
+	}
+	if n := e.srv.hooks.heldTokens(); n != 0 {
+		t.Errorf("the engine holds %d tokens after the refusal, want none", n)
+	}
+
+	e.srv.hooks.dialBroker = func(uint32, ...grpc.DialOption) (*grpc.ClientConn, error) {
+		return nil, errors.New("the test's broker has no address")
+	}
+	if _, err := e.gate.Hooks().ReleaseHooks(context.Background(), &plugin.ReleaseHooksRequest{BrokerId: id}); err != nil {
+		t.Fatalf("the release: %v", err)
+	}
+	if _, err := admit(id, "released"); refusedField(err) != "hooks.broker_id" || !strings.Contains(err.Error(), "the test's broker has no address") {
+		t.Errorf("an admission that names the released broker id: %v; want the refusal of its dial", err)
+	}
+	if n := dials.of(id); n != 2 {
+		t.Errorf("%d dials of the released broker id, want a second one", n)
+	}
+	const failed = 4242
+	for _, token := range []string{"failed-1", "failed-2"} {
+		if _, err := admit(failed, token); refusedField(err) != "hooks.broker_id" || !strings.Contains(err.Error(), "the test's broker has no address") {
+			t.Errorf("admission %s of a broker id whose dial fails: %v; want the refusal of its dial", token, err)
+		}
+	}
+	if n := dials.of(failed); n != 2 {
+		t.Errorf("%d dials of the broker id whose dial failed, want one for each admission", n)
 	}
 }
 
@@ -1724,8 +2040,10 @@ func (c *countingControl) ReleaseHooks(ctx context.Context, req *plugin.ReleaseH
 // engine's answer to the release before the request goes on. The dial's
 // connection comes from the test, a real one to the host's listener, so
 // that the case does not hang on how long go-plugin keeps its address. It
-// cannot get ready, so the run is refused on the dial, that connection is
-// closed, and the engine holds no connection and no token.
+// cannot get ready, so the run is refused on the dial, naming
+// hooks.broker_id, and the closed Client returns that refusal without
+// sending the run again. The dial's connection is closed, and the engine
+// holds no connection and no token.
 func TestBrokerReleaseBeforeAdmission(t *testing.T) {
 	brokerBundle(t)
 	dir, err := os.MkdirTemp("", "wlr")
@@ -1793,6 +2111,9 @@ func TestBrokerReleaseBeforeAdmission(t *testing.T) {
 	conn := within(t, "the dial's connection", acquired)
 	if !errors.Is(o.err, plugin.ErrNotStarted) || status.Code(o.err) != codes.InvalidArgument || !strings.Contains(o.err.Error(), "dial the host's hooks service") {
 		t.Errorf("the run whose release came first: %v, %v; want ErrNotStarted for the dial that did not get ready", o.res, o.err)
+	}
+	if n := tap.runsOf("overtaken"); n != 1 {
+		t.Errorf("the closed Client sent the refused run %d times, want once", n)
 	}
 	if s := conn.GetState(); s != connectivity.Shutdown {
 		t.Errorf("the dial's connection is %v, want closed", s)

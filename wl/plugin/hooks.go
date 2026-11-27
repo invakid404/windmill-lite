@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
@@ -55,6 +56,10 @@ const (
 // releasedHook is the hook name of the engine's call that says a run has
 // settled.
 const releasedHook = "released"
+
+// brokerIDField is the field of RunRequest that the engine names when it
+// cannot reach the run's broker connection.
+const brokerIDField = "hooks.broker_id"
 
 // registration is the hooks of one run that Client serves, on the opening
 // sv whose broker id the run's request names. done closes when the Client
@@ -130,6 +135,18 @@ func (sv *serving) stale() bool {
 // server. The Client refuses a run with hooks once the engine's generation
 // has ended.
 //
+// The Client counts the engine's connections at its own end, where the
+// end of a connection can arrive after the engine has dropped it. A run in
+// that window names a broker id that the engine cannot dial again, and the
+// engine refuses it, naming hooks.broker_id in the refusal's metadata
+// (MetadataField). The Client then drops the run's registration, replaces
+// the connection, and sends the run once more, from its checks on, with a
+// new connection and a new token: the run did not start. It returns a
+// second such refusal with ErrNotStarted, as every other refusal. It sends
+// the run once when the run's context, the Client or the engine's
+// generation has ended by the time of the refusal, and against an engine
+// whose refusal names no field.
+//
 // The Client gives a run without an id a fresh UUID and registers h under
 // it with a fresh token before it sends req, and refuses a run whose id it
 // holds a registration for, with ErrNotStarted, as Run does. It drops the
@@ -156,18 +173,32 @@ func (c *Client) RunWithHooks(ctx context.Context, req *RunRequest, declaration 
 	if id == "" {
 		id = newUUID()
 	}
+	res, again, err := c.runWithHooks(ctx, req, id, declaration, h, true)
+	if again {
+		res, _, err = c.runWithHooks(ctx, req, id, declaration, h, false)
+	}
+	return res, err
+}
+
+// runWithHooks sends req once as the run id, with a fresh token, on the
+// Client's broker connection. When the engine refuses the run because of
+// its hooks.broker_id, it replaces that connection, and again reports
+// whether RunWithHooks sends the run once more: only after a first try,
+// and while the run's context, the Client and the engine's generation go
+// on.
+func (c *Client) runWithHooks(ctx context.Context, req *RunRequest, id string, declaration []byte, h HookHandler, first bool) (res *RunResult, again bool, err error) {
 	token := newUUID()
 	c.hooks.mu.Lock()
 	switch {
 	case c.hooks.closed:
 		c.hooks.mu.Unlock()
-		return nil, fmt.Errorf("%w: the Client is closed", ErrNotStarted)
+		return nil, false, fmt.Errorf("%w: the Client is closed", ErrNotStarted)
 	case c.generation != nil && c.generation.Err() != nil:
 		c.hooks.mu.Unlock()
-		return nil, fmt.Errorf("%w: the engine's generation has ended", ErrNotStarted)
+		return nil, false, fmt.Errorf("%w: the engine's generation has ended", ErrNotStarted)
 	case c.hooks.regs[id] != nil:
 		c.hooks.mu.Unlock()
-		return nil, fmt.Errorf("%w: a run with the id %s still has its hooks registered", ErrNotStarted, id)
+		return nil, false, fmt.Errorf("%w: a run with the id %s still has its hooks registered", ErrNotStarted, id)
 	}
 	sv := c.hooks.serving
 	if sv != nil && sv.stale() {
@@ -199,29 +230,74 @@ func (c *Client) RunWithHooks(ctx context.Context, req *RunRequest, declaration 
 	case <-sv.ready:
 	case <-sv.ended:
 		c.drop(id, token)
-		return nil, fmt.Errorf("%w: go-plugin's broker did not serve the connection of the run's hooks", ErrNotStarted)
+		return nil, false, fmt.Errorf("%w: go-plugin's broker did not serve the connection of the run's hooks", ErrNotStarted)
 	case <-reg.done:
 	case <-ctx.Done():
 		c.drop(id, token)
-		return nil, fmt.Errorf("%w: %w", ErrNotStarted, context.Cause(ctx))
+		return nil, false, fmt.Errorf("%w: %w", ErrNotStarted, context.Cause(ctx))
 	}
 	select {
 	case <-reg.done:
 		// Close dropped it while the connection opened.
-		return nil, fmt.Errorf("%w: the Client is closed", ErrNotStarted)
+		return nil, false, fmt.Errorf("%w: the Client is closed", ErrNotStarted)
 	default:
 	}
 	send := withFields(req, func(r *RunRequest) {
 		r.Id = id
 		r.Hooks = &Hooks{BrokerId: sv.id, Token: token, Declaration: declaration}
 	})
-	res, err := c.run(ctx, send)
+	res, err = c.run(ctx, send)
 	if err != nil && errors.Is(err, ErrNotStarted) {
+		if refusedBrokerID(err) {
+			return nil, c.unreachable(ctx, id, token, sv) && first, err
+		}
 		c.drop(id, token)
-		return nil, err
+		return nil, false, err
 	}
 	go c.reconcile(id, reg)
-	return res, err
+	return res, false, err
+}
+
+// unreachable drops the registration of the run id, whose token is token,
+// after the engine refused the run because it could not reach the opening
+// sv. The Client replaces sv as it replaces a stale opening: it retires sv
+// now when no registration names it, and otherwise keeps it until the
+// last of them goes. It reports whether the run's context, the Client and
+// the engine's generation still go on.
+func (c *Client) unreachable(ctx context.Context, id, token string, sv *serving) bool {
+	c.hooks.mu.Lock()
+	defer c.hooks.mu.Unlock()
+	if r := c.hooks.regs[id]; r != nil && r.token == token {
+		c.dropLocked(id)
+	}
+	if c.hooks.serving == sv {
+		c.hooks.serving = nil
+	}
+	switch {
+	case sv.retired:
+	case sv.runs == 0:
+		c.retireLocked(sv)
+	default:
+		c.hooks.old[sv] = true
+	}
+	return ctx.Err() == nil && !c.hooks.closed && (c.generation == nil || c.generation.Err() == nil)
+}
+
+// refusedBrokerID reports whether err is the engine's refusal of a run
+// because of its hooks.broker_id: INVALID_ARGUMENT with the
+// RUN_NOT_STARTED detail, whose metadata names that field. The message
+// text is not read.
+func refusedBrokerID(err error) bool {
+	st, ok := status.FromError(err)
+	if !ok || st.Code() != codes.InvalidArgument {
+		return false
+	}
+	for _, d := range st.Details() {
+		if info, ok := d.(*errdetails.ErrorInfo); ok && info.GetDomain() == ErrorDomain && info.GetReason() == ReasonRunNotStarted && info.GetMetadata()[MetadataField] == brokerIDField {
+			return true
+		}
+	}
+	return false
 }
 
 // Registrations is how many runs' hooks the Client holds registered.

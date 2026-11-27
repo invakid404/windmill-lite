@@ -16,10 +16,15 @@ import (
 
 // ErrorDomain and ReasonRunNotStarted are the domain and the reason of the
 // google.rpc.ErrorInfo detail with which the engine marks a Run error as
-// its own refusal of a run that it did not start.
+// its own refusal of a run that it did not start. MetadataField is the key
+// of the detail's metadata entry that names the request's field which an
+// INVALID_ARGUMENT refusal refuses, such as hooks.broker_id; a refusal
+// that names no field has no such entry, and neither has an engine's that
+// predates it.
 const (
 	ErrorDomain         = "windmill-lite"
 	ReasonRunNotStarted = "RUN_NOT_STARTED"
+	MetadataField       = "field"
 )
 
 // ErrNotStarted is the error of a Run call whose run did not start: the

@@ -107,7 +107,7 @@ func New(cfg Config) *Server {
 		rt:  cfg.Runtime,
 		now: now,
 		hooks: &brokerHooks{broker: cfg.Broker, timeout: timeout, limit: limit, bound: bound, onBound: cfg.OnTokenBound,
-			conns: map[uint32]*brokerConn{}, held: map[string]heldToken{}, gone: map[string]struct{}{}},
+			conns: map[uint32]*brokerConn{}, used: map[uint32]struct{}{}, held: map[string]heldToken{}, gone: map[string]struct{}{}},
 		info: &plugin.BuildInfo{
 			BundleDigest:         bi.BundleDigest,
 			EngineVersion:        bi.EngineVersion,
@@ -570,20 +570,26 @@ func runRefusal(err error) error {
 }
 
 // invalid is the INVALID_ARGUMENT refusal of a request, naming field when
-// it is not empty.
+// it is not empty: in the message, and in the detail's metadata under
+// plugin.MetadataField, which a host reads without parsing the message.
 func invalid(field, why string) error {
 	if field == "" {
 		return refusal(codes.InvalidArgument, why)
 	}
-	return refusal(codes.InvalidArgument, fmt.Sprintf("the request's %s: %s", field, why))
+	return refusalWith(codes.InvalidArgument, fmt.Sprintf("the request's %s: %s", field, why), map[string]string{plugin.MetadataField: field})
 }
 
 // refusal is the gRPC error of a run that did not start: code and msg,
 // with the RUN_NOT_STARTED detail that marks it as the engine's own
 // refusal.
 func refusal(code codes.Code, msg string) error {
+	return refusalWith(code, msg, nil)
+}
+
+// refusalWith is refusal with metadata in its detail, nil for none.
+func refusalWith(code codes.Code, msg string, metadata map[string]string) error {
 	st := status.New(code, msg)
-	with, err := st.WithDetails(&errdetails.ErrorInfo{Domain: plugin.ErrorDomain, Reason: plugin.ReasonRunNotStarted})
+	with, err := st.WithDetails(&errdetails.ErrorInfo{Domain: plugin.ErrorDomain, Reason: plugin.ReasonRunNotStarted, Metadata: metadata})
 	if err != nil {
 		return st.Err()
 	}

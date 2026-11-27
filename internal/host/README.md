@@ -103,6 +103,13 @@ reason `RUN_NOT_STARTED`, which `wl/plugin`'s `Client.Run` reports as
 | `UNAVAILABLE` | The runtime is closed (`wl.ErrClosed`) |
 | `INVALID_ARGUMENT` | The request's own checks above, and every other error with which `Runtime.Run` refuses a run, such as arguments that are not a JSON object or are larger than `limits.max_args_bytes` (`wl.ErrRunArgsTooLarge`) |
 
+A refusal of the request's own checks that names one field, such as
+`kind` or `hooks.broker_id`, also names it in the detail's metadata, under
+the key `field` (`plugin.MetadataField`). So a host reads the field without
+parsing the message. The other refusals carry no metadata: fields that the
+engine does not know at the request's top level, a token that `GetRun`
+answered `gone` for, and every refusal of `Runtime.Run`.
+
 ## A run's hooks on the broker
 
 A flow run's request can name hooks that the host answers on go-plugin's
@@ -122,6 +129,17 @@ broker ([hooks across the plugin boundary](../../docs/design/0009-host-adapters.
   fails, and a later call of a run that named it gets no answer. One that
   cannot connect is otherwise closed only once no held run uses it, and the
   host then serves a new broker id.
+- **A used broker id.** go-plugin gives an id's address once, so the
+  engine never dials an id again once a dial of it has succeeded. An
+  admission that needs a new dial of such an id, after the engine closed
+  its connection, is refused at once: `INVALID_ARGUMENT`, with the field
+  `hooks.broker_id` in the detail's metadata. The host's `Client` then
+  sends the run again on a new broker id
+  ([wl/plugin](../../wl/plugin/README.md#a-runs-hooks)).
+- **The used ids.** The engine keeps one entry for each broker id whose
+  dial succeeded, and forgets it at the host's `ReleaseHooks`, since the
+  host never names a released id again. An id whose dial failed, or that
+  the host released while it was dialled, is not kept.
 - **A dial ends ready.** A broker id's dial waits twice: for go-plugin to
   give the host's address, up to its 5 seconds, and then until the
   connection is ready, at most the plugin timeout. A connection that
@@ -230,10 +248,12 @@ connection, which has a real broker on both sides. The host is the
 | `TestBrokerDialStall` | While the test holds the dial of a silent broker id, `GetRun` answers and another run with hooks completes; let go, the dial fails and its run is refused |
 | `TestBrokerClientClose` | With two `Client`s and a run of one held in flight, `Close` of that one makes the engine close its connection at once (`ReleaseHooks`); a run with hooks after `Close` is refused; the other `Client`'s runs are still served. The held run then succeeds without warnings, and its token goes |
 | `TestBrokerFirstRunRefused` | A first run with hooks refused before the engine dials the host; after go-plugin has dropped that broker id's address, the next run on the same `Client` gets a new broker id and is served |
-| `TestBrokerTransientFailure` | The test's dialer drops the connection and fails dials while the host's listener serves. A run in flight keeps the connection, which connects again; with no run in flight the engine closes it, and the next run on the same `Client` is served, also while a lost release's registration is not yet reconciled. `Close` during a failure, with a run held, closes the engine's side before the run ends |
+| `TestBrokerTransientFailure` | While the host's listener serves, the test's transport cuts the engine's side of the connection, which the `Client` still counts, and fails dials. A run in flight keeps the connection, which connects again. Without one the engine closes it, and the next run on the same `Client` is served on a new broker id, also while a lost release's registration is held. `Close` during a failure closes the engine's side before a held run ends |
+| `TestBrokerStaleBrokerID` | The test's transport cuts only the engine's side of a connection, which the engine then closes while the `Client` still counts it. The next run on that `Client` names the old broker id: the engine refuses it at once, naming `hooks.broker_id` in the metadata, and starts no dial. The `Client` stops serving that id and sends the run again with a new broker id and token, and the run is served |
+| `TestBrokerUsedIDRefused` | Admissions that name a live broker id share its connection without a dial. Once the engine has closed that connection, an admission that names the id is refused at once, naming `hooks.broker_id` in the metadata, with no dial. After the host's release, and for an id whose dial failed, each admission dials again |
 | `TestBrokerCloseDuringVerdict` | `Close` while the host's handler of a first-write verdict still runs: the cut call fails, so the run latches and its write-capable step never runs |
 | `TestBrokerReleaseRetried` | A release call lost before it reaches the engine, at `Close` with a run held: the `Client` sends it again, and the engine closes its connection while the run is held |
 | `TestBrokerReleaseDuringDial` | A release that comes between the admission's dial and its end: the dial closes its connection as it ends, while the run is held |
-| `TestBrokerReleaseBeforeAdmission` | A release that overtakes a run's admission: the test holds the request until `Close` has stopped the listener and the engine answered the release. The dial gets a real connection to that listener from the test, which cannot get ready; the run is refused on the dial, the connection is closed, and the engine holds no connection and no token |
+| `TestBrokerReleaseBeforeAdmission` | A release that overtakes a run's admission: the test holds the request until `Close` has stopped the listener and the engine answered the release. The dial gets a real connection to that listener from the test, which cannot get ready; the run is refused on the dial, which the closed `Client` returns without a second try. The connection is closed, and the engine holds no connection and no token |
 | `TestBrokerReleaseSharedDial` | Two admissions share a dial that the host lets go while it is under way: the waiting one sees it let go as it wakes, so its interception gets no answer although the host still serves |
 | `TestBrokerCancelDuringDial` | Two admissions share a dial that the test holds. The second is paused as it joins, Cancel of its run is answered, and then it goes on: it is refused with `CANCELLED` and lets its token go while the dial is held; the first is then served |
